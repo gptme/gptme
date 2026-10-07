@@ -114,7 +114,8 @@ def test_get_prompt_stats_breaks_out_sections(monkeypatch):
     assert stats.cacheable_tokens >= stats.dynamic_tokens
 
 
-def test_get_prompt_stats_short_without_tools_keeps_minimal_core():
+def test_get_prompt_stats_short_without_tools_keeps_minimal_core(monkeypatch):
+    monkeypatch.setattr("gptme.prompts._prompt_fragment_sections", lambda: [])
     stats = get_prompt_stats(
         [],
         prompt="short",

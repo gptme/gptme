@@ -533,6 +533,53 @@ def test_resource_to_codeblock_binary(tmp_path):
     assert "Size:" in result
 
 
+def test_resource_to_codeblock_skips_unreadable_fallback_word(tmp_path, monkeypatch):
+    """Permission errors while scanning words in prose must not escape."""
+    from unittest.mock import patch
+
+    from gptme.util.context import _resource_to_codeblock
+
+    inaccessible = "/private/file.txt"
+    prompt = f"cat {inaccessible}"
+    monkeypatch.chdir(tmp_path)
+
+    def exists(path: Path) -> bool:
+        if str(path) == inaccessible:
+            raise PermissionError
+        return False
+
+    monkeypatch.setattr(Path, "exists", exists)
+    with patch("gptme.util.context.logger.warning") as warning:
+        assert _resource_to_codeblock(prompt) == ""
+    warning.assert_called_once_with("Skipping unreadable file: %s", inaccessible)
+
+
+def test_resource_to_codeblock_keeps_readable_fallback_word(tmp_path, monkeypatch):
+    """An unreadable path must not hide another readable path in the prompt."""
+    from unittest.mock import patch
+
+    from gptme.util.context import _resource_to_codeblock
+
+    inaccessible = "/private/file.txt"
+    readable = tmp_path / "readable.txt"
+    readable.write_text("readable content")
+    prompt = f"{inaccessible} {readable}"
+
+    original_exists = Path.exists
+
+    def exists(path: Path) -> bool:
+        if str(path) in (prompt, inaccessible):
+            raise PermissionError
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    with patch("gptme.util.context.logger.warning"):
+        result = _resource_to_codeblock(prompt)
+
+    assert result is not None
+    assert "readable content" in result
+
+
 def test_dir_to_listing(tmp_path):
     """Test that _dir_to_listing generates file listings for directories."""
     from gptme.util.context import _dir_to_listing
@@ -1021,3 +1068,61 @@ def test_include_paths_does_not_scan_tmp_from_prose(monkeypatch):
         called_paths = [Path(c.args[0]).resolve() for c in listing.call_args_list]
         tmp_roots = {Path("/tmp").resolve(), Path("/private/tmp").resolve()}
         assert tmp_roots.isdisjoint(called_paths)
+
+
+def _unreadable_file(tmp_path: Path) -> Path:
+    import os
+
+    import pytest
+
+    f = tmp_path / "noperm.txt"
+    f.write_text("secret")
+    f.chmod(0o000)
+    if os.access(f, os.R_OK):  # running as root: chmod does not restrict reads
+        pytest.skip("cannot make a file unreadable as this user")
+    return f
+
+
+def test_include_paths_unreadable_file_is_skipped(tmp_path, monkeypatch):
+    """An unreadable file mentioned in a prompt must not crash path inclusion."""
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    f = _unreadable_file(tmp_path)
+    try:
+        msg = include_paths(Message("user", f"look at {f}"), workspace=tmp_path)
+    finally:
+        f.chmod(0o644)
+    assert msg.content == f"look at {f}"
+    assert not msg.files
+
+
+def test_include_paths_inaccessible_parent_is_skipped(tmp_path, monkeypatch):
+    """A path below an inaccessible directory must not fail the budget pre-check."""
+    from unittest.mock import patch
+
+    from gptme.util.context import include_paths
+
+    path = tmp_path / "private" / "file.txt"
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    monkeypatch.setattr(
+        "gptme.util.context._find_potential_paths", lambda _: [str(path)]
+    )
+    with patch("pathlib.Path.is_file", side_effect=PermissionError) as is_file:
+        msg = include_paths(Message("user", f"look at {path}"), workspace=tmp_path)
+    is_file.assert_called_once()
+    assert msg.content == f"look at {path}"
+    assert not msg.files
+
+
+def test_parse_prompt_files_unreadable_file(tmp_path, monkeypatch):
+    from gptme.util.context import _parse_prompt_files
+
+    monkeypatch.chdir(tmp_path)
+    f = _unreadable_file(tmp_path)
+    try:
+        assert _parse_prompt_files(str(f)) is None
+    finally:
+        f.chmod(0o644)

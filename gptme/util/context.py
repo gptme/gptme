@@ -655,16 +655,18 @@ def include_paths(
                 # Budget exhausted: skip entirely (text and binary alike)
                 skipped_paths.append(word)
                 continue
-            if (
-                # Fast stat-based pre-check: skip reading if even the truncated content
-                # (capped at CONTENT_SIZE_WARN_THRESHOLD by _check_content_size) would
-                # exceed the remaining budget.  Path.stat() is a single syscall — far
-                # cheaper than reading the file only to discard the content.
-                (f := Path(word).expanduser()).is_file()
-                and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
-                + total_content_size
-                > INCLUDE_PATHS_MAX_CONTENT
-            ):
+            try:
+                f = Path(word).expanduser()
+                over_budget = (
+                    f.is_file()
+                    and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
+                    + total_content_size
+                    > INCLUDE_PATHS_MAX_CONTENT
+                )
+            except PermissionError:
+                logger.warning("Skipping unreadable file: %s", word)
+                continue
+            if over_budget:
                 mime, _ = mimetypes.guess_type(str(f))
                 if not mime or mime.startswith("text/"):
                     skipped_paths.append(word)
@@ -1067,6 +1069,13 @@ def _resource_to_codeblock(
                 logger.debug("skipping broad directory attachment: %s", f)
                 return None
             return _dir_to_listing(f, prompt)
+    except PermissionError:
+        logger.warning("Skipping unreadable file: %s", prompt)
+        # A single path would be rediscovered by the fallback scan and recurse
+        # forever. For prose containing multiple words, keep scanning so one
+        # unreadable path does not hide another readable resource.
+        if len(prompt.split()) == 1:
+            return None
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
@@ -1086,12 +1095,16 @@ def _resource_to_codeblock(
     paths = []
     urls = []
     for word in words:
-        f = Path(word).expanduser()
-        if f.exists() and f.is_file():
-            paths.append(word)
-            continue
-        if f.exists() and f.is_dir():
-            paths.append(word)
+        try:
+            f = Path(word).expanduser()
+            if f.exists() and f.is_file():
+                paths.append(word)
+                continue
+            if f.exists() and f.is_dir():
+                paths.append(word)
+                continue
+        except PermissionError:
+            logger.warning("Skipping unreadable file: %s", word)
             continue
         try:
             p = urllib.parse.urlparse(word)
@@ -1173,6 +1186,9 @@ def _parse_prompt_files(prompt: str) -> Path | None:
             if p.suffix[1:].lower() in ["png", "jpg", "jpeg", "gif", "pdf"]:
                 return p
             return None
+    except PermissionError:
+        logger.warning("Skipping unreadable file: %s", prompt)
+        return None
     except OSError as oserr:  # pragma: no cover
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
