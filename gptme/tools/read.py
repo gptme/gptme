@@ -8,6 +8,7 @@ Multiple paths can be passed in the code block (one per line) to read several
 files in a single tool call, reducing roundtrips when exploring a codebase.
 """
 
+import codecs
 import os
 from collections.abc import Generator
 from pathlib import Path
@@ -40,6 +41,10 @@ those shortcuts when the file itself is the source of truth.
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with '#' are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
+For files over 1 MiB, always supply start_line and end_line to read a section at a
+time; advance start_line to the next line after the shown range to paginate through
+the file. hashline_edit is not available for large-file ranged reads; use the save
+or patch tool to edit large files.
 """.strip()
 
 instructions_format = {
@@ -97,6 +102,10 @@ def _get_read_paths(
 
 
 _MAX_DIR_ENTRIES = 100
+# Files above this size are never loaded whole: a whole-file read needs an
+# explicit line range, which is streamed and capped at the same size.
+_MAX_READ_BYTES = 1024 * 1024
+_READ_CHUNK_BYTES = 64 * 1024
 _READ_ROOT_ENV = "GPTME_READ_ROOT"
 
 
@@ -149,6 +158,121 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
         "system",
         md_codeblock(f"{path} ({summary})", "\n".join(lines)),
     )
+
+
+def _read_text_bounded(path: Path) -> str | None:
+    """Return UTF-8 text up to the read limit, or ``None`` if it exceeds it."""
+    with path.open("rb") as f:
+        data = f.read(_MAX_READ_BYTES + 1)
+    if len(data) > _MAX_READ_BYTES:
+        return None
+    # Match Path.read_text()'s universal-newline behavior so snapshots remain
+    # byte-for-byte comparable with hashline_edit's later text-mode read.
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _read_line_range(
+    path: Path, start_idx: int, end_line: int | None
+) -> tuple[list[str], int, bool, bool, bool]:
+    """Stream lines ``start_idx:end_line`` with bounded input and output.
+
+    Line boundaries match ``str.splitlines()`` on the full content. Reading
+    stops as soon as ``end_line`` or the output byte cap is reached, so neither
+    a huge physical line nor the unselected remainder is buffered. The byte cap
+    includes rendered line-number prefixes and separators. Invalid UTF-8 bytes
+    inside selected lines are shown as U+FFFD and reported.
+    Returns (selected, total, truncated, total_exact, has_invalid_utf8).
+    """
+    selected: list[str] = []
+    selected_content_bytes = 0
+    total = 0
+    has_invalid_utf8 = False
+    pending: list[str] = []
+    pending_bytes = 0
+    line_has_content = False
+    skip_lf = False
+    separators = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
+
+    def rendered_size(content_bytes: int, count: int, last_line_no: int) -> int:
+        """Bytes used by numbered lines, including tabs and joining newlines."""
+        if count == 0:
+            return 0
+        width = len(str(last_line_no))
+        return content_bytes + count * (width + 1) + (count - 1)
+
+    def consume() -> tuple[bool, bool]:
+        """Consume one logical line; return (stop, truncated)."""
+        nonlocal selected_content_bytes, total, has_invalid_utf8, pending_bytes
+        nonlocal line_has_content
+        if total >= start_idx:
+            count = len(selected) + 1
+            if (
+                rendered_size(selected_content_bytes + pending_bytes, count, total + 1)
+                > _MAX_READ_BYTES
+            ):
+                return True, True
+            line = "".join(pending)
+            if any("\udc80" <= char <= "\udcff" for char in line):
+                has_invalid_utf8 = True
+                line = "".join(
+                    "�" if "\udc80" <= char <= "\udcff" else char for char in line
+                )
+            selected.append(line)
+            selected_content_bytes += pending_bytes
+        total += 1
+        pending.clear()
+        pending_bytes = 0
+        line_has_content = False
+        return end_line is not None and total >= end_line, False
+
+    def process(text: str) -> tuple[bool, bool]:
+        """Process decoded text; return (stop, truncated)."""
+        nonlocal pending_bytes, line_has_content, skip_lf
+        for char in text:
+            if skip_lf:
+                skip_lf = False
+                if char == "\n":
+                    continue
+            if char in separators:
+                stop, truncated = consume()
+                if stop:
+                    return stop, truncated
+                skip_lf = char == "\r"
+                continue
+            line_has_content = True
+            if total >= start_idx:
+                char_bytes = (
+                    3 if "\udc80" <= char <= "\udcff" else len(char.encode("utf-8"))
+                )
+                count = len(selected) + 1
+                if (
+                    rendered_size(
+                        selected_content_bytes + pending_bytes + char_bytes,
+                        count,
+                        total + 1,
+                    )
+                    > _MAX_READ_BYTES
+                ):
+                    return True, True
+                pending.append(char)
+                pending_bytes += char_bytes
+        return False, False
+
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="surrogateescape")
+    with path.open("rb") as f:
+        while chunk := f.read(_READ_CHUNK_BYTES):
+            stop, truncated = process(decoder.decode(chunk))
+            if stop:
+                return selected, total, truncated, False, has_invalid_utf8
+        stop, truncated = process(decoder.decode(b"", final=True))
+        if stop:
+            return selected, total, truncated, False, has_invalid_utf8
+
+    if line_has_content:
+        stop, truncated = consume()
+        if stop:
+            return selected, total, truncated, False, has_invalid_utf8
+    return selected, total, False, True, has_invalid_utf8
 
 
 def _current_logdir() -> Path | None:
@@ -209,22 +333,53 @@ def _read_one(
         yield Message("system", f"Not a file: {path}")
         return
 
+    start_idx = max(0, start_line - 1)
+    content: str | None = None
+    range_truncated = False
+    total_exact = True
+    has_invalid_utf8 = False
     try:
-        content = path.read_text(encoding="utf-8")
+        content = _read_text_bounded(path)
+        if content is None:
+            if start_line == 1 and end_line is None:
+                size = path.stat().st_size
+                yield Message(
+                    "system",
+                    f"File too large to read whole: {path} ({size} bytes, limit "
+                    f"{_MAX_READ_BYTES}). Pass start_line/end_line to read a range.",
+                )
+                return
+            selected, total_lines, range_truncated, total_exact, has_invalid_utf8 = (
+                _read_line_range(path, start_idx, end_line)
+            )
+            if range_truncated and not selected:
+                yield Message(
+                    "system",
+                    f"The first line in the requested range exceeds the "
+                    f"{_MAX_READ_BYTES} byte read limit including line numbers "
+                    f"(the file may be minified or binary). Use a text editor "
+                    f"or binary tool to inspect it.",
+                )
+                return
+        else:
+            lines = content.splitlines()
+            total_lines = len(lines)
     except UnicodeDecodeError:
         yield Message("system", f"Cannot read binary file: {path}")
         return
     except PermissionError:
         yield Message("system", f"Permission denied: {path}")
         return
-
-    lines = content.splitlines()
-    total_lines = len(lines)
+    except FileNotFoundError:
+        yield Message("system", f"File not found: {path}")
+        return
 
     # Apply line range
-    start_idx = max(0, start_line - 1)
     end_idx = min(total_lines, end_line) if end_line is not None else total_lines
-    selected = lines[start_idx:end_idx]
+    if content is not None:
+        selected = lines[start_idx:end_idx]
+    elif range_truncated:
+        end_idx = start_idx + len(selected)
     display_pairs = list(enumerate(selected, start=start_idx + 1))
 
     pruned_message_prefix = ""
@@ -283,14 +438,19 @@ def _read_one(
     range_info = ""
     if start_line > 1 or end_line is not None:
         shown = f"{start_idx + 1}-{end_idx}"
-        range_info = f" (lines {shown} of {total_lines})"
+        range_info = (
+            f" (lines {shown} of {total_lines})" if total_exact else f" (lines {shown})"
+        )
 
     # Only store a snapshot and show [path#tag] when hashline_edit is active.
     # notify_file_read returns the tag when hashline_edit is loaded, else None,
     # so read.py never imports _hashline_snapshot directly.
     from . import notify_file_read
 
-    tag = notify_file_read(str(path), content)
+    # A streamed range of a large file is not the whole content, so it must not
+    # become a hashline snapshot. Such a snapshot could not safely support
+    # hashline_edit, whose stale-write check compares against the full file.
+    tag = notify_file_read(str(path), content) if content is not None else None
 
     if tag is not None:
         body = md_codeblock(f"{path}{range_info}", f"[{path}#{tag}]\n" + numbered)
@@ -298,6 +458,17 @@ def _read_one(
         body = md_codeblock(f"{path}{range_info}", numbered)
     if pruned_message_prefix:
         body = pruned_message_prefix + "\n\n" + body
+    if range_truncated:
+        body += (
+            f"\n\nRange truncated at {_MAX_READ_BYTES} bytes; "
+            f"continue with start_line={end_idx + 1}."
+        )
+    if has_invalid_utf8:
+        body += (
+            "\n\nWarning: the selected range contains invalid UTF-8 bytes "
+            "(shown as \N{REPLACEMENT CHARACTER}). "
+            "The displayed content does not exactly match the file."
+        )
 
     yield Message("system", body)
 
