@@ -901,7 +901,7 @@ class GptmeAgent:
     def _build_models_state(self, session_model: str | None) -> Any:
         """Build SessionModelState from gptme's model registry."""
         try:
-            from acp.schema import (
+            from acp.schema import (  # type: ignore[attr-defined]
                 ModelInfo,
                 SessionModelState,
             )

@@ -401,6 +401,10 @@ module = "gptme.cli.cmd_computer"
 disable_error_code = ["unused-ignore"]
 
 [[tool.mypy.overrides]]
+module = "gptme.acp.agent"
+disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
 module = [
     "test_acp_agent",
     "test_llm_anthropic",
