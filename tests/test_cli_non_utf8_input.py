@@ -88,6 +88,20 @@ def test_tokens_count_file_ignores_locale(tmp_path: Path, monkeypatch, valid: bo
         assert "not valid UTF-8" in result.output
 
 
+@pytest.mark.parametrize("payload", [b"\r\n \r\n", b"\r\r"])
+def test_tokens_count_file_and_stdin_preserve_newlines(tmp_path: Path, payload: bytes):
+    from gptme.util.tokens import len_tokens
+
+    f = tmp_path / "newlines.txt"
+    f.write_bytes(payload)
+    expected = f"Token count (gpt-4): {len_tokens(payload.decode('utf-8'), 'gpt-4')}"
+    runner = CliRunner()
+    for args in [["-f", str(f)], ["-f", "-"], ["-"]]:
+        result = runner.invoke(main, ["tokens", "count", *args], input=payload)
+        assert result.exit_code == 0, result.output
+        assert expected in result.output
+
+
 def test_tokens_count_text_still_works(tmp_path: Path):
     f = tmp_path / "t.txt"
     f.write_text("hello world")

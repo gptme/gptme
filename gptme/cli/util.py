@@ -436,7 +436,7 @@ def tokens_count(text: str | None, model: str, file: str | None):
             if file == "-":
                 text = sys.stdin.buffer.read().decode("utf-8")
             else:
-                with open(file, encoding="utf-8") as f:
+                with open(file, encoding="utf-8", newline="") as f:
                     text = f.read()
         elif text == "-":
             text = sys.stdin.buffer.read().decode("utf-8")
