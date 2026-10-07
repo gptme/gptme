@@ -1713,18 +1713,46 @@ def models_info(model_name: str, as_json: bool):
     # values. Mirror the provider check that `models test` performs. Only
     # applies to fully-qualified 'provider/model' names; bare names and known
     # custom providers (e.g. lmstudio/...) don't trigger the warning.
+    # Also tracks whether the provider is truly unrecognized (vs. a valid custom/
+    # plugin provider that internally uses provider="unknown" for routing).
+    unrecognized_provider = False
     if "/" in model_name:
         from ..llm import get_provider_from_model  # fmt: skip
 
         try:
             get_provider_from_model(model_name)
         except ValueError:
+            unrecognized_provider = True
             click.echo(
-                f"⚠️  Unrecognized provider in '{model_name}'; showing generic "
-                "fallback metadata. Run 'gptme-util models list --available' "
-                "to see known models.",
+                f"⚠️  Unrecognized provider in '{model_name}' — the model "
+                "information cannot be shown. Run 'gptme-util models list "
+                "--available' to see known models.",
                 err=True,
             )
+
+    # Exit 1 when the model resolved to pure fallback with no known provider.
+    # Prevents callers from silently scripting on fabricated context/capability values.
+    # Note: anthropic/unknown-model has provider="anthropic" (closest-match), so new
+    # models not yet in the registry still return 0; only fully-unknown models exit 1.
+    # Note: custom/plugin providers resolve to provider="unknown" internally for
+    # routing, but ARE valid — only exit 1 when the prefix itself is unrecognized.
+    # Bare names can also be valid custom providers (with a default_model), so
+    # check is_custom_provider before rejecting a bare-name fallback resolution.
+    from ..llm import is_custom_provider  # fmt: skip
+
+    bare_name = "/" not in model_name
+    if (
+        model.provider == "unknown"
+        and (unrecognized_provider or bare_name)
+        and not (bare_name and is_custom_provider(model_name))
+    ):
+        if bare_name:
+            click.echo(
+                f"Unknown model: {model_name!r}. "
+                "Run 'gptme-util models list' to see known models.",
+                err=True,
+            )
+        sys.exit(1)
 
     if as_json:
         print(json.dumps(model_to_dict(model), indent=2))

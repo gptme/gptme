@@ -197,28 +197,38 @@ class TestModelsInfo:
         assert "Provider: anthropic" in result.stdout
         assert "Unrecognized provider" not in result.stderr
 
-    def test_unknown_provider_warns_on_stderr(self):
-        """An unrecognized provider prefix still shows fallback metadata, but
-        warns on stderr so the user knows the values are generic."""
-        result = self._run_models_info("bogus/model")
-        # Lenient behaviour preserved: still exits 0 with fallback metadata.
-        assert result.returncode == 0, result.stderr
-        assert "Model: bogus/model" in result.stdout
-        # Warning lands on stderr (so it never corrupts piped stdout).
-        assert "Unrecognized provider" in result.stderr
+    def test_unknown_provider_exits_1(self):
+        """An unrecognized provider prefix (unknown provider) exits 1.
 
-    def test_unknown_provider_json_stays_clean(self):
-        """With --json, the warning goes to stderr, keeping stdout JSON clean."""
-        result = self._run_models_info("bogus/model", "--json")
-        assert result.returncode == 0, result.stderr
-        # Warning is isolated to stderr.
+        The ⚠️ warning goes to stderr and stdout is empty — callers must not
+        script on fabricated fallback values from an unknown provider.
+        """
+        result = self._run_models_info("bogus/model")
+        assert result.returncode == 1, result.stdout
+        # Warning lands on stderr.
         assert "Unrecognized provider" in result.stderr
-        # stdout is valid JSON and contains the expected model field.
-        data = json.loads(result.stdout)
-        assert data["model"] == "bogus/model"
+        # No model data written to stdout (we exit before printing).
+        assert "Model:" not in result.stdout
+
+    def test_unknown_bare_model_exits_1(self):
+        """A bare model name not in the registry exits 1 with a clear error."""
+        result = self._run_models_info("nonexistent-model-xyz")
+        assert result.returncode == 1, result.stdout
+        assert "Unknown model" in result.stderr
+        assert "nonexistent-model-xyz" in result.stderr
+        assert "Model:" not in result.stdout
+
+    def test_unknown_provider_json_exits_1(self):
+        """With --json and an unknown provider, exit 1 and no JSON on stdout."""
+        result = self._run_models_info("bogus/model", "--json")
+        assert result.returncode == 1, result.stdout
+        # Warning still on stderr.
+        assert "Unrecognized provider" in result.stderr
+        # stdout is empty — no fabricated JSON.
+        assert result.stdout.strip() == ""
 
     def test_unknown_provider_json_stays_clean_after_stdout_logging(self):
-        """A prior interactive logging setup must not contaminate JSON stdout."""
+        """A prior interactive logging setup must not contaminate stderr or stdout."""
         from gptme.init import init_logging
         from gptme.llm.models.resolution import _logged_warnings
 
@@ -227,10 +237,63 @@ class TestModelsInfo:
 
         result = self._run_models_info("bogus/model", "--json")
 
-        assert result.returncode == 0, result.stderr
+        assert result.returncode == 1, result.stdout
         assert "Unrecognized provider" in result.stderr
-        data = json.loads(result.stdout)
-        assert data["model"] == "bogus/model"
+        assert result.stdout.strip() == ""
+
+    def test_known_provider_unknown_model_id_exits_0(self):
+        """A known provider with an unrecognized model ID uses closest-match
+        metadata and exits 0 — supports newly-released models not yet in registry."""
+        result = self._run_models_info("anthropic/brand-new-model-xyz")
+        assert result.returncode == 0, result.stderr
+        assert "Provider: anthropic" in result.stdout
+
+    def test_custom_provider_model_exits_0(self):
+        """A configured custom provider resolves to provider='unknown' internally
+        but is valid — must exit 0 and print model data, not exit 1.
+
+        Stubs both `get_model` (to return a provider='unknown' model object,
+        mimicking the internal custom-provider routing value) and
+        `get_provider_from_model` (to succeed with a CustomProvider, i.e. the
+        provider IS recognized), so the exit-0 path is exercised
+        deterministically regardless of environment-level custom config.
+        """
+        from gptme.llm import CustomProvider
+        from gptme.llm.models import get_model as _get_model
+
+        unknown_provider_model = _get_model("nonexistent-xyz")  # provider="unknown"
+        with (
+            patch(
+                "gptme.llm.models.get_model",
+                return_value=unknown_provider_model,
+            ),
+            patch(
+                "gptme.llm.get_provider_from_model",
+                return_value=CustomProvider("my-custom"),
+            ),
+        ):
+            result = self._run_models_info("my-custom/my-model")
+        assert result.returncode == 0, result.stderr
+        assert "Unrecognized provider" not in result.stderr
+        assert "Provider: unknown" in result.stdout
+
+    def test_bare_custom_provider_name_exits_0(self):
+        """A bare model name that IS a configured custom provider (with a
+        default_model) resolves to provider='unknown' internally but is valid —
+        must exit 0, not be rejected as an unknown bare name."""
+        from gptme.llm.models import get_model as _get_model
+
+        unknown_provider_model = _get_model("nonexistent-xyz")  # provider="unknown"
+        with (
+            patch(
+                "gptme.llm.models.get_model",
+                return_value=unknown_provider_model,
+            ),
+            patch("gptme.llm.is_custom_provider", return_value=True),
+        ):
+            result = self._run_models_info("my-custom")
+        assert result.returncode == 0, result.stderr
+        assert "Unknown model" not in result.stderr
 
 
 class TestModelsRecommended:
