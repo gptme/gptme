@@ -740,6 +740,17 @@ tool schemas that a stored-text estimate misses. Usage is anchored to the stored
 input prefix and model: edits, compaction views, and model changes invalidate
 it. Conversations without a valid usage anchor fall back to tokenizer estimates
 until a new response arrives. UI-only status messages do not count as growth.</p>
+<p>At 90% of the budget, the normal conversation receives a one-shot reminder
+per active view to save durable state at a safe sub-task boundary: objective,
+decisions, work state, next move, and files to reload. Project
+<code class="docutils literal notranslate"><span class="pre">context.compact_instructions</span></code> are included. The reminder is provider-visible,
+so the normal CLI/server tool loop can act on it; it does not run a separate
+summary request, switch views, or promise that notes have been saved. Pending
+tool calls defer the reminder until their results arrive. The marker persists
+across reloads, and a new compaction view can receive a fresh reminder.</p>
+<p>This warning is the first part of model-participating compaction. Automatic
+compaction at the budget still uses the trim/summary pipeline below; a full
+tool-executing checkpoint turn is not yet implemented.</p>
 </section>
 <section id="configuring-the-context-budget">
 <h2>Configuring the Context Budget<a class="headerlink" href="#configuring-the-context-budget" title="Link to this heading">#</a></h2>
