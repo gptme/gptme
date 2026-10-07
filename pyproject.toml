@@ -102,7 +102,7 @@ pyyaml = "^6.0.3"
 
 # providers
 openai = "^2.48"
-anthropic = "^0.120"
+anthropic = "^1.8"
 
 # tools
 ipython = "^8.39.0"

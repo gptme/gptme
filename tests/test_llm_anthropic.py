@@ -2,7 +2,7 @@ import json
 import logging
 import os
 
-import httpx
+import httpx2
 import pytest
 from anthropic import Anthropic
 
@@ -912,7 +912,7 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
 
     def serve(request):
         payloads.append(json.loads(request.content))
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "id": "msg_test",
@@ -933,7 +933,7 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
     monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
     monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
-    with httpx.Client(transport=httpx.MockTransport(serve)) as http_client:
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
         # A configured client timeout bypasses the SDK's non-streaming token
         # limit; production clients always set one in _init_anthropic().
         client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
