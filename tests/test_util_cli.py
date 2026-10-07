@@ -999,10 +999,9 @@ def test_models_info():
     assert "price_input" in data
     assert "price_output" in data
 
-    # Test unknown model (falls back to defaults — exit code 0)
+    # Test unrecognized provider exits 1 (new behavior: don't silently return fabricated metadata)
     result = runner.invoke(main, ["models", "info", "nonexistent/model"])
-    assert result.exit_code == 0
-    assert "nonexistent" in result.output
+    assert result.exit_code == 1
 
 
 def test_profile_validate_success(mocker):
