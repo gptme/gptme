@@ -1736,8 +1736,17 @@ def models_info(model_name: str, as_json: bool):
     # models not yet in the registry still return 0; only fully-unknown models exit 1.
     # Note: custom/plugin providers resolve to provider="unknown" internally for
     # routing, but ARE valid — only exit 1 when the prefix itself is unrecognized.
-    if model.provider == "unknown" and (unrecognized_provider or "/" not in model_name):
-        if "/" not in model_name:
+    # Bare names can also be valid custom providers (with a default_model), so
+    # check is_custom_provider before rejecting a bare-name fallback resolution.
+    from ..llm import is_custom_provider  # fmt: skip
+
+    bare_name = "/" not in model_name
+    if (
+        model.provider == "unknown"
+        and (unrecognized_provider or bare_name)
+        and not (bare_name and is_custom_provider(model_name))
+    ):
+        if bare_name:
             click.echo(
                 f"Unknown model: {model_name!r}. "
                 "Run 'gptme-util models list' to see known models.",

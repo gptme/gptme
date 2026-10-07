@@ -277,6 +277,24 @@ class TestModelsInfo:
         assert "Unrecognized provider" not in result.stderr
         assert "Provider: unknown" in result.stdout
 
+    def test_bare_custom_provider_name_exits_0(self):
+        """A bare model name that IS a configured custom provider (with a
+        default_model) resolves to provider='unknown' internally but is valid —
+        must exit 0, not be rejected as an unknown bare name."""
+        from gptme.llm.models import get_model as _get_model
+
+        unknown_provider_model = _get_model("nonexistent-xyz")  # provider="unknown"
+        with (
+            patch(
+                "gptme.llm.models.get_model",
+                return_value=unknown_provider_model,
+            ),
+            patch("gptme.llm.is_custom_provider", return_value=True),
+        ):
+            result = self._run_models_info("my-custom")
+        assert result.returncode == 0, result.stderr
+        assert "Unknown model" not in result.stderr
+
 
 class TestModelsRecommended:
     """Tests for 'models recommended' (rendered into docs/evals.rst at build time)."""
