@@ -399,6 +399,22 @@ def test_ipython_magic_lines_do_not_hide_calls():
     assert [(r["action"], r["coordinate"]) for r in records] == [("left_click", [1, 2])]
 
 
+def test_ipython_magic_with_call_preserves_call():
+    """%time open_page('url') must keep the open_page call, not lose it to the blanker."""
+    records = _records("%time open_page('https://example.com')")
+    assert len(records) == 1
+    assert records[0]["action"] == "open_page"
+    assert records[0]["url"] == "https://example.com"
+
+
+def test_ipython_shell_capture_does_not_drop_block():
+    """files = !ls is valid IPython but invalid Python; must not drop later calls."""
+    records = _records("files = !ls\ncomputer('left_click', coordinate=(10, 20))")
+    assert len(records) == 1
+    assert records[0]["action"] == "left_click"
+    assert records[0]["coordinate"] == [10, 20]
+
+
 def test_unparseable_code_is_skipped():
     assert _records("computer('left_click'") == []
 
@@ -751,6 +767,22 @@ def test_mixed_desktop_browser_source_order():
         "click_element",
         "click",
     ], f"Expected source order but got: {actions}"
+
+
+def test_audit_log_cli_table_computed_url_does_not_crash(tmp_path):
+    """Table output must not crash when open_page() was called with a variable URL."""
+    conv_dir = tmp_path / "computed-url-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    # 'u' is a variable — url field will be None in the record
+    msgs = [
+        _msg("assistant", _ipython_block("u = 'https://example.com'\nopen_page(u)"))
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "(computed)" in result.output
 
 
 def test_audit_log_cli_table_shows_browser_url(tmp_path, monkeypatch):

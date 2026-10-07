@@ -76,10 +76,29 @@ def _str_const(node: Any) -> str | None:
 
 
 def _parse_ipython(code: str) -> _ast.Module | None:
-    """Parse an ipython block, blanking ``!shell`` / ``%magic`` lines."""
-    lines = [re.sub(r"^(\s*)[!%].*$", r"\1pass", line) for line in code.splitlines()]
+    """Parse an ipython block, handling ``!shell`` / ``%magic`` lines.
+
+    Three transformations:
+    - ``%magic expr``  → keep ``expr`` so embedded calls survive
+    - ``!shell`` / standalone ``%magic``  → blank to ``pass``
+    - ``name = !cmd``  → ``name = None``  (IPython shell capture)
+    """
+    new_lines = []
+    for line in code.splitlines():
+        # %magic expr — preserve the expression so embedded calls are not lost
+        m = re.match(r"^(\s*)%\w+\s+(.*)", line)
+        if m:
+            new_lines.append(m.group(1) + m.group(2))
+        # standalone %magic or bare !shell → pass
+        elif re.match(r"^\s*[!%]", line):
+            new_lines.append(re.sub(r"^(\s*)[!%].*$", r"\1pass", line))
+        # lhs = !cmd (IPython shell-capture) → lhs = None
+        elif re.search(r"=\s*!", line):
+            new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
+        else:
+            new_lines.append(line)
     try:
-        return _ast.parse("\n".join(lines))
+        return _ast.parse("\n".join(new_lines))
     except (SyntaxError, ValueError):
         return None
 
@@ -373,7 +392,10 @@ def audit_log(
         elif source == "browser":
             if "url" in r:
                 url = r["url"]
-                details = url[:70] + ("…" if len(url) > 70 else "")
+                if url is None:
+                    details = "(computed)"
+                else:
+                    details = url[:70] + ("…" if len(url) > 70 else "")
             elif "key" in r:
                 # press_key(key) — show which key was pressed
                 details = repr(r["key"])
