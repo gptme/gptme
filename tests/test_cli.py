@@ -1393,7 +1393,10 @@ def test_command_summarize(args: list[str], runner: CliRunner, monkeypatch):
     from gptme.llm import init_anthropic
 
     config = get_config()
-    init_anthropic(config)
+    try:
+        init_anthropic(config)
+    except KeyError as e:
+        pytest.skip(f"Anthropic API key not available: {e}")
     args.append("/summarize")
     print(f"running: gptme {' '.join(args)}")
     result = runner.invoke(cli.main, args)

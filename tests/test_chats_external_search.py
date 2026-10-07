@@ -147,6 +147,20 @@ def test_search_cursor_session_invalid_json(tmp_path):
     assert _search_cursor_session(f, "anything") == []
 
 
+def test_search_cursor_session_non_utf8(tmp_path):
+    """A non-UTF-8 byte in conversation.json does not abort the read; matching messages are returned."""
+    d = tmp_path / "abc-123"
+    d.mkdir()
+    f = d / "conversation.json"
+    # Latin-1 byte \xe9 ("é") is invalid UTF-8.  With errors="replace" it becomes
+    # U+FFFD, keeping the JSON structure intact so the matching message is found.
+    raw = b'{"title": "Debug caf\xe9", "messages": [{"role": "user", "content": "CORS error help"}]}'
+    f.write_bytes(raw)
+    results = _search_cursor_session(f, "CORS")
+    assert len(results) == 1
+    assert results[0]["role"] == "user"
+
+
 # ---------------------------------------------------------------------------
 # Cursor — search (alternate workspace-storage format)
 # ---------------------------------------------------------------------------
@@ -432,3 +446,94 @@ def test_cli_chats_search_all_agents_no_external(tmp_path, monkeypatch, capsys):
     # The gptme search part may print "No results found" — that's fine.
     # We only care that the command doesn't crash.
     assert result.exit_code == 0 or "No results" in (result.output or "")
+
+
+def test_search_codex_session_skips_non_object_lines(tmp_path):
+    """Valid JSON that is not an object (list, string, null) is skipped per line."""
+    f = tmp_path / "sess-1.jsonl"
+    f.write_text('[1]\n"str"\nnull\n' + _codex_message("user", "CORS fix needed"))
+    assert len(_search_codex_session(f, "CORS")) == 1
+
+
+def test_search_codex_session_non_utf8(tmp_path):
+    """A non-UTF-8 byte does not abort the read; the rest stays searchable."""
+    f = tmp_path / "sess-1.jsonl"
+    f.write_bytes(b"caf\xe9\n" + _codex_message("user", "CORS fix needed").encode())
+    assert len(_search_codex_session(f, "CORS")) == 1
+
+
+def test_search_codex_session_skips_deeply_nested_line(tmp_path):
+    """A deeply nested record does not hide valid matches in the same session."""
+    f = tmp_path / "sess-1.jsonl"
+    f.write_text(
+        _codex_message("user", "CORS before malformed record")
+        + "\n"
+        + "[" * 10_000
+        + "0"
+        + "]" * 10_000
+        + "\n"
+        + _codex_message("assistant", "CORS after malformed record")
+    )
+
+    results = _search_codex_session(f, "CORS")
+
+    assert [result["role"] for result in results] == ["user", "assistant"]
+
+
+def test_search_cursor_session_skips_non_dict_message(tmp_path):
+    """A non-dict entry in messages does not lose valid matches before it."""
+    f = tmp_path / "abc-123" / "conversation.json"
+    f.parent.mkdir(parents=True)
+    f.write_text(
+        json.dumps(
+            {
+                "title": "CORS session",
+                "messages": [
+                    {"role": "user", "content": "CORS error help"},
+                    "not a dict",
+                    {"role": "assistant", "content": "CORS fixed"},
+                ],
+            }
+        )
+    )
+    results = _search_cursor_session(f, "CORS")
+    assert len(results) == 2
+    assert all(r["session_title"] == "CORS session" for r in results)
+
+
+def test_search_external_chats_skips_malformed_sessions(tmp_path, capsys):
+    """One malformed session file must not abort the search of the others."""
+    cursor_dir = tmp_path / "cursor"
+    for name, body in [
+        ("a-list", "[1, 2]"),
+        ("b-null-messages", '{"messages": null}'),
+        ("c-non-dict-message", '{"messages": ["x"]}'),
+    ]:
+        (cursor_dir / name).mkdir(parents=True)
+        (cursor_dir / name / "conversation.json").write_text(body)
+    (cursor_dir / "d-good").mkdir()
+    (cursor_dir / "d-recursive").mkdir()
+    (cursor_dir / "d-recursive" / "conversation.json").write_text(
+        "[" * 10_000 + "0" + "]" * 10_000
+    )
+    (cursor_dir / "e-good").mkdir()
+    (cursor_dir / "e-good" / "conversation.json").write_text(
+        json.dumps(
+            {
+                "title": "My CORS session",
+                "messages": [{"role": "user", "content": "CORS error help"}],
+            }
+        )
+    )
+    codex_day = tmp_path / "codex" / "2026" / "10" / "05"
+    codex_day.mkdir(parents=True)
+    (codex_day / "rollout-a.jsonl").write_bytes(b"\xff\xfe[1]\n")
+    (codex_day / "rollout-b.jsonl").write_text("[" * 10_000 + "0" + "]" * 10_000 + "\n")
+    (codex_day / "rollout-c.jsonl").write_text(_codex_message("user", "CORS in codex"))
+
+    search_external_chats(
+        "CORS", max_results=10, cursor_dir=cursor_dir, codex_dir=tmp_path / "codex"
+    )
+    out = capsys.readouterr().out
+    assert "My CORS session" in out
+    assert "[Codex]" in out

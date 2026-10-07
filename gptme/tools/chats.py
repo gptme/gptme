@@ -8,6 +8,7 @@ import statistics
 import sys
 import textwrap
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -183,7 +184,7 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
     ``session_title``.
     """
     try:
-        data = json_mod.loads(path.read_text(encoding="utf-8"))
+        data = json_mod.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (json_mod.JSONDecodeError, OSError):
         return []
 
@@ -192,6 +193,8 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
 
     # Standard format: {"title": "...", "messages": [{"role": ..., "content": ...}]}
     for msg in data.get("messages", []):
+        if not isinstance(msg, dict):
+            continue
         role = msg.get("role", "unknown")
         content = msg.get("content", "")
         if not isinstance(content, str):
@@ -262,15 +265,15 @@ def _search_codex_session(path: Path, query: str) -> list[dict]:
     query_lower = query.lower()
     results: list[dict] = []
     try:
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
             if not line:
                 continue
             try:
                 record = json_mod.loads(line)
-            except json_mod.JSONDecodeError:
+            except (json_mod.JSONDecodeError, RecursionError):
                 continue
-            if record.get("type") != "response_item":
+            if not isinstance(record, dict) or record.get("type") != "response_item":
                 continue
             payload = record.get("payload", {})
             if not isinstance(payload, dict) or payload.get("type") != "message":
@@ -293,6 +296,21 @@ def _search_codex_session(path: Path, query: str) -> list[dict]:
     except OSError:
         pass
     return results
+
+
+def _search_session_safely(
+    search_fn: Callable[[Path, str], list[dict]], path: Path, query: str
+) -> list[dict]:
+    """Search one external session, skipping it if its contents are malformed.
+
+    These files are written by other tools, so one unexpected shape must not
+    abort the search across every other session.
+    """
+    try:
+        return search_fn(path, query)
+    except (AttributeError, TypeError, ValueError, RecursionError) as e:
+        logger.debug("Skipping malformed external session %s: %s", path, e)
+        return []
 
 
 def search_external_chats(
@@ -327,7 +345,9 @@ def search_external_chats(
         for session_path in _discover_cursor_sessions(cursor_dir):
             if len(all_results) >= max_results:
                 break
-            matches = _search_cursor_session(session_path, query)
+            matches = _search_session_safely(
+                _search_cursor_session, session_path, query
+            )
             if matches:
                 all_results.append(
                     {"agent": "Cursor", "path": session_path, "matches": matches}
@@ -337,7 +357,7 @@ def search_external_chats(
         for session_path in _discover_codex_sessions(codex_dir):
             if len(all_results) >= max_results:
                 break
-            matches = _search_codex_session(session_path, query)
+            matches = _search_session_safely(_search_codex_session, session_path, query)
             if matches:
                 all_results.append(
                     {"agent": "Codex", "path": session_path, "matches": matches}
