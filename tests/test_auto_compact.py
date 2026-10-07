@@ -2586,11 +2586,16 @@ def test_checkpoint_turn_waits_for_tools_then_applies_final_response(monkeypatch
 
 def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch):
     """The CLI continues into a normal step after the hook queues the request."""
+    import sys
     from unittest.mock import patch
 
-    import gptme.chat as chat_module
     from gptme.chat import _process_message_conversation
     from gptme.logmanager import LogManager
+
+    # import gptme.chat as chat_module would call getattr(gptme, 'chat') via
+    # IMPORT_FROM bytecode, returning the cached chat *function* from the lazy
+    # loader instead of the module.  Go through sys.modules directly.
+    chat_module = sys.modules["gptme.chat"]
 
     manager = LogManager(
         [Message("system", "System prompt"), Message("user", "Do the work")],
@@ -4109,11 +4114,13 @@ def test_overflow_recovery_carries_checkpoint_request_into_new_view():
 def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
     """A task interrupted mid-flight (tool results pending a response) resumes
     after the checkpoint is installed instead of the CLI loop stopping."""
+    import sys
     from unittest.mock import patch
 
-    import gptme.chat as chat_module
     from gptme.chat import _process_message_conversation
     from gptme.logmanager import LogManager
+
+    chat_module = sys.modules["gptme.chat"]
 
     manager = LogManager(
         [Message("system", "System prompt"), Message("user", "Do the work")],
