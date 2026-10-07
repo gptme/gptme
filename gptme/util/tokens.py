@@ -111,51 +111,37 @@ class _GetTokenizer:
 
         try:
             # Determine the encoding name without loading BPE data (instant).
-            if "gpt-4o" in model:
-                encoding_name = "o200k_base"
-            else:
-                # Strip known provider prefixes so tiktoken.encoding_for_model can
-                # match the bare model name (e.g. "openai/o1" → "o1").
-                _provider_prefixes = [
-                    "openai/",
-                    "anthropic/",
-                    "google/",
-                    "azure/",
-                    "vertex/",
-                ]
-                bare_model = model
-                for prefix in _provider_prefixes:
-                    if model.startswith(prefix):
-                        bare_model = model[len(prefix) :]
-                        break
+            # Strip known provider prefixes so tiktoken can match the bare model
+            # name (e.g. "openai/o1" → "o1").
+            bare_model = _bare_model_name(model)
 
-                try:
-                    # MODEL_TO_ENCODING is a static dict — no network needed.
-                    _enc: str | None = tiktoken.model.MODEL_TO_ENCODING.get(bare_model)
-                    if _enc is None:
-                        # Check prefix table (e.g. "gpt-3.5-turbo-*")
-                        _enc = next(
-                            (
-                                enc
-                                for prefix, enc in tiktoken.model.MODEL_PREFIX_TO_ENCODING.items()
-                                if bare_model.startswith(prefix)
-                            ),
-                            None,
+            try:
+                # MODEL_TO_ENCODING is a static dict — no network needed.
+                _enc: str | None = tiktoken.model.MODEL_TO_ENCODING.get(bare_model)
+                if _enc is None:
+                    # Check prefix table (e.g. "gpt-3.5-turbo-*")
+                    _enc = next(
+                        (
+                            enc
+                            for prefix, enc in tiktoken.model.MODEL_PREFIX_TO_ENCODING.items()
+                            if bare_model.startswith(prefix)
+                        ),
+                        None,
+                    )
+                if _enc is None:
+                    global _warned_models
+                    if bare_model not in _warned_models:
+                        logger.debug(
+                            f"No tokenizer for '{bare_model}'. Using tiktoken cl100k_base."
+                            " Use results only as estimates."
                         )
-                    if _enc is None:
-                        global _warned_models
-                        if bare_model not in _warned_models:
-                            logger.debug(
-                                f"No tokenizer for '{bare_model}'. Using tiktoken cl100k_base."
-                                " Use results only as estimates."
-                            )
-                            _warned_models |= {bare_model}
-                        encoding_name = "cl100k_base"
-                    else:
-                        encoding_name = _enc
-                except AttributeError:
-                    # Older tiktoken versions may not expose MODEL_TO_ENCODING.
+                        _warned_models |= {bare_model}
                     encoding_name = "cl100k_base"
+                else:
+                    encoding_name = _enc
+            except AttributeError:
+                # Older tiktoken versions may not expose MODEL_TO_ENCODING.
+                encoding_name = "cl100k_base"
 
             # Load encoding with a timeout so we don't hang on airgapped systems.
             # Use a daemon thread so a timed-out fetch doesn't keep a short-lived
@@ -227,6 +213,51 @@ class _GetTokenizer:
 
 
 get_tokenizer = _GetTokenizer()
+
+
+_PROVIDER_PREFIXES = (
+    "openai/",
+    "openrouter/openai/",
+    "requesty/openai/",
+    "gptme/openrouter/openai/",
+    "anthropic/",
+    "google/",
+    "azure/",
+    "vertex/",
+)
+
+
+def _bare_model_name(model: str) -> str:
+    """Strip a recognized provider route from a tiktoken model name."""
+    for prefix in _PROVIDER_PREFIXES:
+        if model.startswith(prefix):
+            return model[len(prefix) :]
+    return model
+
+
+def has_known_tokenizer(model: str) -> bool:
+    """Return True if tiktoken has a native encoding for this model.
+
+    Returns False for models that fall back to cl100k_base (e.g. Claude,
+    Gemini, or any unrecognized name), so callers can warn the user that
+    the count is an estimate. This check is instant — it never loads BPE
+    data or touches the network.
+    """
+    try:
+        import tiktoken  # fmt: skip
+    except ImportError:
+        return False
+
+    bare_model = _bare_model_name(model)
+    try:
+        if tiktoken.model.MODEL_TO_ENCODING.get(bare_model) is not None:
+            return True
+        return any(
+            bare_model.startswith(prefix)
+            for prefix in tiktoken.model.MODEL_PREFIX_TO_ENCODING
+        )
+    except AttributeError:
+        return False
 
 
 def _hash_content(content: str) -> str:

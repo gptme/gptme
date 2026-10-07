@@ -101,6 +101,55 @@ def test_tokens_count(tmp_path):
     assert result.exit_code == 1
     assert "No text provided" in result.output
 
+    # Unknown model → warning emitted on stderr (count still succeeds on stdout).
+    result = runner.invoke(
+        main, ["tokens", "count", "--model", "claude-3-5-sonnet", "hello"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert "No native tokenizer" in result.stderr
+    assert "count is an estimate" in result.stderr
+    assert "cl100k_base" not in result.stderr
+
+    # Known model → no warning emitted.
+    result = runner.invoke(main, ["tokens", "count", "--model", "gpt-4o", "hello"])
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert result.stderr == ""
+
+    # Routed OpenAI model names retain native tokenizer detection.
+    result = runner.invoke(
+        main,
+        [
+            "tokens",
+            "count",
+            "--model",
+            "requesty/openai/gpt-4o-mini",
+            "hello",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert result.stderr == ""
+
+    # A custom model merely containing a known model name remains unknown.
+    result = runner.invoke(
+        main, ["tokens", "count", "--model", "local/gpt-4o-gguf", "hello"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert "No native tokenizer" in result.stderr
+
+    # Both --file and text argument provided → file takes precedence + warning.
+    tmp_file2 = Path(tmp_path) / "file2.txt"
+    tmp_file2.write_text("from file")
+    result = runner.invoke(
+        main, ["tokens", "count", "-f", str(tmp_file2), "text arg ignored"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert "text argument ignored" in result.stderr
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""
