@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from ...config import get_project_config
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
+from ...logmanager import prepare_messages
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
 from ...util.context_measurement import measure_context_tokens
@@ -546,9 +547,14 @@ def autocompact_hook(
                 # reaches the native path.
                 m = get_default_model()
                 if m is not None and m.full.startswith("anthropic/"):
+                    # _apply_native_compaction expects prepared messages: a
+                    # replacement prompt appended after /model or /tools load
+                    # must move to the front of the history before it can fall
+                    # outside the recent tail, or compaction would replace the
+                    # new prompt while keeping the old startup prompt.
                     native_applied = yield from _apply_native_compaction(
                         manager,
-                        checkpoint_source,
+                        prepare_messages(checkpoint_source),
                         use_view_branch=True,
                         compact_instructions=compact_instructions,
                         keep_recent_tokens=keep_recent_tokens,
