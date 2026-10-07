@@ -2051,6 +2051,37 @@ class TestPluginDiscovery:
         assert result.exit_code == 0
         assert subprocess_calls == [[fake_bin, "list"]]
 
+    def test_plugin_args_are_opaque_to_main_options(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """Options after `gptme <cmd>` reach gptme-<cmd>, even ones main() knows.
+
+        Regression: `gptme service init --name ada --model m` had --name and
+        --model consumed by gptme's own options, so gptme-service saw only
+        `init` and failed with "Missing option '--name'".
+        """
+        fake_bin = str(tmp_path / "gptme-service")
+
+        subprocess_calls: list[list[str]] = []
+        monkeypatch.setattr(
+            "gptme.cli.main.shutil.which",
+            lambda x: fake_bin if x == "gptme-service" else None,
+        )
+        monkeypatch.setattr(
+            "gptme.cli.main.subprocess.call",
+            lambda args: _record_subprocess_call(args, subprocess_calls),
+        )
+
+        result = runner.invoke(
+            cli.main,
+            ["service", "init", "--name", "ada", "--model", "m", "--help"],
+        )
+
+        assert result.exit_code == 0
+        assert subprocess_calls == [
+            [fake_bin, "init", "--name", "ada", "--model", "m", "--help"]
+        ]
+
     def test_no_dispatch_when_binary_missing(self, runner, monkeypatch, tmp_path):
         """gptme <cmd> falls through to chat when gptme-<cmd> is not in PATH."""
         subprocess_calls: list = []
@@ -2071,6 +2102,31 @@ class TestPluginDiscovery:
         runner.invoke(cli.main, ["sessions"])
 
         assert subprocess_calls == []
+
+    @pytest.mark.parametrize("plugin_installed", [False, True])
+    def test_search_help_keeps_top_level_option_semantics(
+        self, runner, monkeypatch, plugin_installed
+    ):
+        """Installing gptme-search must not turn --help into a search query."""
+        search_calls: list = []
+        monkeypatch.setattr(
+            "gptme.cli.main.shutil.which",
+            lambda x: (
+                "/fake/gptme-search"
+                if plugin_installed and x == "gptme-search"
+                else None
+            ),
+        )
+        monkeypatch.setattr(
+            "gptme.tools.chats.search_chats",
+            lambda *args, **kwargs: search_calls.append((args, kwargs)),
+        )
+
+        result = runner.invoke(cli.main, ["search", "--help"])
+
+        assert result.exit_code == 0
+        assert "Usage:" in result.output
+        assert search_calls == []
 
     def test_search_alias_takes_precedence(self, runner, monkeypatch):
         """Built-in `search` alias is not intercepted by plugin dispatch."""
