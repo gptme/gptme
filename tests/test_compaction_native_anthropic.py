@@ -384,3 +384,61 @@ def test_apply_native_compaction_supplies_system_head(monkeypatch):
     # the summarized request must carry the system prompt separately
     assert kwargs["system"], "system head must be extracted into the system param"
     assert kwargs["messages"], "summarized body must be non-empty"
+
+
+def test_resume_via_llm_fallback_with_exhausted_unlock_cm(monkeypatch):
+    """When native compaction runs the provider request and returns None, the
+    @contextmanager-based llm_unlocked CM is consumed.  _resume_via_llm must not
+    try to enter it a second time for the generic fallback path — that raises
+    RuntimeError("generator didn't yield") on an exhausted generator."""
+    from contextlib import contextmanager
+
+    entered: list[int] = []
+
+    @contextmanager
+    def single_use_cm():
+        entered.append(1)
+        yield
+        # generator is now exhausted; a second __enter__ raises RuntimeError
+
+    manager = MagicMock()
+    manager.workspace = None
+    manager.logdir = None
+    manager.current_branch = "main"
+
+    # Native path: model is supported, prefix is long enough, but provider
+    # returns None (simulates a transient API failure).
+    monkeypatch.setattr(native, "anthropic_compaction_supported", lambda m: True)
+    monkeypatch.setattr(native, "anthropic_native_compact", lambda *a, **k: None)
+
+    model_meta = MagicMock()
+    model_meta.full = "anthropic/claude-test"
+    model_meta.model = "claude-test"
+    model_meta.context = 200_000
+    model_meta.max_output = 8192
+
+    resume_content = "# Resume\n## Summary\nDone.\n"
+    with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
+        mock_response = MagicMock()
+        mock_response.content = resume_content
+        mock_llm.reply.return_value = mock_response
+        with patch(
+            "gptme.tools.autocompact.resume.get_default_model",
+            return_value=model_meta,
+        ):
+            # Must not raise RuntimeError from double-entering the CM.
+            # keep_recent_tokens=1 forces a non-empty prefix so native actually
+            # enters the with-block (and consumes the CM) before returning None.
+            results = list(
+                _resume_via_llm(
+                    manager,
+                    _conversation_msgs(),
+                    use_view_branch=False,
+                    llm_unlocked=single_use_cm(),
+                    keep_recent_tokens=1,
+                )
+            )
+
+    assert any("LLM-powered resume completed" in r.content for r in results)
+    # The CM was entered exactly once (by the native path).
+    assert entered == [1]
