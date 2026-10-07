@@ -29,6 +29,10 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
     message = messages[index]
     if message.role != "system":
         return False
+    # Status/UI messages (hook notices, compaction status, UI-only messages)
+    # are never tool results, and never outputs of a call.
+    if message.hide or message.quiet or message.ui_only:
+        return False
     if message.call_id:
         return True
     if index == 0:
@@ -36,15 +40,21 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
 
     from .reduce import message_contains_tool_use
 
-    # Markdown and XML tool calls can emit several output messages (e.g. a
-    # non-blocking warning before the final result). Every system message
-    # following the assistant tool call — past other outputs of the same call —
-    # belongs to it, so look back past system messages to the nearest
-    # non-system message.
+    # Markdown and XML tool calls can emit several provider-visible output
+    # messages (e.g. a non-blocking warning before the final result). Look
+    # back past system messages and flagged status messages to the nearest
+    # provider-visible non-system message; every system output in that run
+    # belongs to the call.
     lookback = index - 1
-    while lookback >= 0 and messages[lookback].role == "system":
+    while lookback >= 0 and (
+        messages[lookback].role == "system" or _is_status_message(messages[lookback])
+    ):
         lookback -= 1
     return lookback >= 0 and message_contains_tool_use(messages[lookback])
+
+
+def _is_status_message(message: Message) -> bool:
+    return bool(message.hide or message.quiet or message.ui_only)
 
 
 @dataclass

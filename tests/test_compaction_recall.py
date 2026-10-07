@@ -171,9 +171,12 @@ def test_multi_message_tool_outputs_are_results(tmp_path):
         Message("assistant", "```shell\necho hi\n```"),
         Message("system", "warning: shellcheck note"),
         Message("system", "actual output", call_id="call-1"),
+        Message("system", "hook notice", hide=True),
     ]
     assert is_tool_result_message(messages, 2)
     assert is_tool_result_message(messages, 3)
+    # Status messages are never tool results
+    assert not is_tool_result_message(messages, 4)
 
 
 def test_manual_compaction_preserves_lossless_master(tmp_path):

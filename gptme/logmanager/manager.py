@@ -554,6 +554,11 @@ class LogManager:
             # Append to master (main branch) for full history preservation
             if "main" in self._branches:
                 self._branches["main"] = self._branches["main"].append(msg)
+            if "lossless" in self._branches:
+                # Keep the preserved lossless transcript current under views
+                # too, so results appended after an in-place compaction stay
+                # recallable.
+                self._branches["lossless"] = self._branches["lossless"].append(msg)
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
