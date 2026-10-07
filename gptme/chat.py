@@ -601,6 +601,12 @@ def _process_message_conversation(
 
         pending_continuation = _has_pending_tooluse(manager.log)
         mid_turn_compacted = _run_post_tool_compaction(manager)
+        checkpoint_requested = bool(
+            manager.log.messages
+            and manager.log.messages[-1].role == "user"
+            and "compaction_checkpoint_view"
+            in (manager.log.messages[-1].metadata or {})
+        )
         # Auto-generate display name in background thread to avoid blocking.
         # Shared logic with server in gptme/util/auto_naming.py::try_auto_name.
         # Pre-check assistant count to avoid spawning threads + doing disk I/O
@@ -642,6 +648,12 @@ def _process_message_conversation(
         # end the turn — keep the pre-compaction continuation decision.
         if mid_turn_compacted:
             has_runnable = pending_continuation
+        elif checkpoint_requested:
+            # Autocompaction injected a user request for a normal checkpoint
+            # turn. Re-enter step() immediately even when the completed task
+            # response had no tool call (especially important for -n runs,
+            # whose outer loop exits when the prompt queue is empty).
+            has_runnable = True
         else:
             last_content = next(
                 (m.content for m in reversed(manager.log) if m.role == "assistant"),

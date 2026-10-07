@@ -217,6 +217,13 @@ class MessageMetadata(TypedDict, total=False):
     # Active view (empty for master) warned before reaching the compaction budget.
     # Stored on the reminder so reloads do not repeat it on every tool step.
     compaction_reminder_view: str
+    # Marks the user message that starts a normal, tool-capable checkpoint turn.
+    # The value is the active view (empty for master), so a persisted request is
+    # resumed only on the view where it was created.
+    compaction_checkpoint_view: str
+    # Durable rejection marker for a checkpoint request on this view. Requests
+    # before the latest marker are not retried after process reload.
+    compaction_checkpoint_failed_view: str
     # Written by the CLI when GPTME_MAX_STEPS ends a turn; never inferred from text.
     max_steps_stop: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),

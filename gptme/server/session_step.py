@@ -1098,12 +1098,17 @@ def step(
             _append_and_notify(manager, session, msg)
 
         # Trigger TURN_POST hook (turn.post - after message processing completes)
+        checkpoint_requested = False
         if post_msgs := trigger_hook(
             HookType.TURN_POST,
             manager=manager,
         ):
             for hook_msg in post_msgs:
                 _append_and_notify(manager, session, hook_msg)
+                checkpoint_requested = checkpoint_requested or (
+                    hook_msg.role == "user"
+                    and "compaction_checkpoint_view" in (hook_msg.metadata or {})
+                )
 
         # Streamed tokens/message_added are provisional. Completion acknowledges
         # the transcript, including hook output, only after its barrier succeeds.
@@ -1189,6 +1194,42 @@ def step(
                 temperature=temperature,
                 top_p=top_p,
             )
+        elif checkpoint_requested:
+            # A checkpoint request is a real follow-up turn, not a status
+            # message. Transfer this step's reservation to a continuation so
+            # the normal server model/tool loop handles it immediately.
+            continuation_seq: int | None = None
+            with session.step_lock:
+                if session.step_seq == my_step_seq and not session.interrupted:
+                    session.step_seq += 1
+                    continuation_seq = session.step_seq
+                    session.generating = True
+                    session.generating_since = datetime.now(tz=timezone.utc)
+            if continuation_seq is not None:
+                try:
+                    _start_step_thread(
+                        conversation_id,
+                        session,
+                        model,
+                        chat_config.workspace,
+                        branch=branch,
+                        auto_confirm=auto_confirm,
+                        stream=stream,
+                        reserved=True,
+                        step_seq=continuation_seq,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                    )
+                except Exception:
+                    with session.step_lock:
+                        if session.step_seq == continuation_seq:
+                            # Dispatch never started, so hand ownership back to
+                            # this step. Its normal exception/finally path will
+                            # persist the error and emit step_complete.
+                            session.step_seq = my_step_seq
+                            session.generating = True
+                    raise
 
     except Exception as e:
         # A revoked step must not publish its failure into a replacement epoch.

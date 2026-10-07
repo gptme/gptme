@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from gptme.hooks import StopPropagation
 from gptme.llm.models import get_default_model, get_model
 from gptme.message import Message, len_tokens
 from gptme.tools.autocompact import (
@@ -15,6 +16,11 @@ from gptme.tools.autocompact import (
     should_auto_compact,
 )
 from gptme.util.output_storage import create_tool_result_summary
+
+
+def _message_outputs(items: list[Message | StopPropagation]) -> list[Message]:
+    assert all(isinstance(item, Message) for item in items)
+    return [item for item in items if isinstance(item, Message)]
 
 
 def create_test_conversation():
@@ -2459,10 +2465,187 @@ def test_reasoning_strip_and_tool_guard_are_not_run_when_not_pending(monkeypatch
             side_effect=lambda m, messages, **kw: iter([]),
         ) as mock_resume,
     ):
-        list(hook_module.autocompact_hook(manager))
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
 
     assert should_compact.called
-    assert mock_resume.called
+    assert not mock_resume.called
+    assert len(out) == 1
+    assert out[0].metadata == {"compaction_checkpoint_view": "main"}
+
+
+def test_summarize_schedules_checkpoint_on_normal_turn_loop(monkeypatch):
+    """Budget compaction must request a normal, tool-capable model turn first."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "implement the feature"),
+        Message("assistant", "I am working on it"),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-checkpoint-turn"
+    manager.current_branch = "master"
+    manager.current_view = None
+    manager.log.messages = messages
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch("gptme.tools.autocompact.hook._resume_via_llm") as mock_resume,
+    ):
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+
+    assert not mock_resume.called, "checkpoint generation must use the normal turn loop"
+    assert len(out) == 1
+    request = out[0]
+    assert request.role == "user"
+    assert request.metadata == {"compaction_checkpoint_view": ""}
+    assert "available tools" in request.content
+    assert "structured checkpoint" in request.content
+
+
+def test_checkpoint_turn_waits_for_tools_then_applies_final_response(monkeypatch):
+    """Tool-call steps stay in the normal loop; the final response becomes the checkpoint."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+
+    original = [
+        Message("system", "System prompt"),
+        Message("user", "implement the feature"),
+        Message("assistant", "I am working on it"),
+    ]
+    request = Message(
+        "user",
+        "Create a checkpoint",
+        metadata={"compaction_checkpoint_view": ""},
+    )
+    tool_call = Message("assistant", "```shell\nprintf done > state.txt\n```")
+    tool_result = Message("system", "Ran command: `printf done > state.txt`")
+    messages = original + [request, tool_call, tool_result]
+
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-checkpoint-tools"
+    manager.current_branch = "master"
+    manager.current_view = None
+    manager.log.messages = messages
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook._resume_via_llm") as mock_resume,
+    ):
+        assert list(hook_module.autocompact_hook(manager)) == []
+    assert not mock_resume.called, "a tool result is not a completed checkpoint"
+
+    final = Message(
+        "assistant",
+        "## Objective\nShip the feature.\n\n## Current State\nState saved.",
+    )
+    manager.log.messages = messages + [final]
+
+    def apply_checkpoint(_manager, source_messages, **kwargs):
+        assert source_messages == original
+        assert kwargs["checkpoint_response"] is final
+        manager.current_view = "view-1"
+        if False:
+            yield Message("system", "unreachable")
+        return True
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=apply_checkpoint,
+        ) as mock_resume,
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        list(hook_module.autocompact_hook(manager))
+
+    mock_resume.assert_called_once()
+
+
+def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch):
+    """The CLI continues into a normal step after the hook queues the request."""
+    from unittest.mock import patch
+
+    from gptme.chat import _process_message_conversation
+    from gptme.logmanager import LogManager
+
+    manager = LogManager(
+        [Message("system", "System prompt"), Message("user", "Do the work")],
+        logdir=tmp_path / "conversation",
+    )
+    step_inputs: list[list[Message]] = []
+
+    def fake_step(log, *args, **kwargs):
+        step_inputs.append(list(log.messages))
+        if len(step_inputs) == 1:
+            return [Message("assistant", "Work completed.")]
+        if len(step_inputs) == 2:
+            assert step_inputs[-1][-1].role == "user"
+            assert step_inputs[-1][-1].metadata == {"compaction_checkpoint_view": ""}
+            return [
+                Message("assistant", "```shell\nprintf saved > state.txt\n```"),
+                Message("system", "Ran command: `printf saved > state.txt`"),
+            ]
+        return [Message("assistant", "## Objective\nFinish the work.")]
+
+    applied_responses: list[Message] = []
+
+    def apply_checkpoint(manager, source_messages, **kwargs):
+        applied_responses.append(kwargs["checkpoint_response"])
+        view = manager.get_next_view_name()
+        manager.create_view(view, source_messages + applied_responses)
+        manager.switch_view(view)
+        if False:
+            yield Message("system", "unreachable")
+        return True
+
+    with (
+        patch("gptme.chat.step", side_effect=fake_step),
+        patch("gptme.chat.get_default_model", return_value=None),
+        patch("gptme.chat.trigger_hook", return_value=iter([])),
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=apply_checkpoint,
+        ),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+        patch("gptme.tools.autocompact.hook.append_compaction_event"),
+    ):
+        _process_message_conversation(
+            manager,
+            stream=False,
+            tool_format="markdown",
+            model="gpt-4",
+        )
+
+    assert len(step_inputs) == 3
+    assert len(applied_responses) == 1
+    assert applied_responses[0].content.startswith("## Objective")
+    assert manager.current_view is not None
 
 
 def test_failed_summarize_latches_to_trim(monkeypatch):
@@ -2477,7 +2660,15 @@ def test_failed_summarize_latches_to_trim(monkeypatch):
     hook_module._failed_summarize.clear()
     monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
 
-    msgs = [Message("user", f"m{i}") for i in range(5)]
+    original = [Message("user", f"m{i}") for i in range(5)]
+    msgs = original + [
+        Message(
+            "user",
+            "Create checkpoint",
+            metadata={"compaction_checkpoint_view": "main"},
+        ),
+        Message("assistant", "## Objective\nTest"),
+    ]
     manager = MagicMock()
     manager.logdir = "/tmp/conv-latch"
     manager.current_branch = "master"
@@ -2514,9 +2705,10 @@ def test_failed_summarize_latches_to_trim(monkeypatch):
         patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
     ):
         # 1. A rejected summarize sets the latch (no trim this step).
-        list(hook_module.autocompact_hook(manager))
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
         assert conv_key in hook_module._failed_summarize
         assert not mock_provider.compress.called
+        manager.log.messages.extend(out)
         mock_resume.reset_mock()
         mock_provider.reset_mock()
 
@@ -2560,9 +2752,12 @@ def test_failed_summarize_latch_releases_after_growth(monkeypatch):
             side_effect=lambda m, messages, **kw: iter([]),
         ) as mock_resume,
     ):
-        list(hook_module.autocompact_hook(manager))
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
 
-    assert mock_resume.called, "Latch must release after enough growth"
+    assert conv_key not in hook_module._failed_summarize
+    assert not mock_resume.called
+    assert len(out) == 1
+    assert out[0].metadata == {"compaction_checkpoint_view": "main"}
 
 
 def test_no_compaction_with_partial_tool_results(monkeypatch):
@@ -2817,20 +3012,15 @@ def test_failed_summarize_latch_rebases_after_trim(monkeypatch):
         covered_through=0,
     )
 
-    def rejected_resume(manager, messages, **kwargs):
-        yield Message("system", "Generating...", hide=True, ui_only=True)
-
     conv_key = ("/tmp/conv-rebase", "master")
+    hook_module._failed_summarize[conv_key] = 30
 
     with (
         patch(
             "gptme.tools.autocompact.hook.should_auto_compact",
             return_value="summarize",
         ),
-        patch(
-            "gptme.tools.autocompact.hook._resume_via_llm",
-            side_effect=rejected_resume,
-        ) as mock_resume,
+        patch("gptme.tools.autocompact.hook._resume_via_llm") as mock_resume,
         patch(
             "gptme.tools.autocompact.hook.get_context_provider",
             return_value=mock_provider,
@@ -2838,25 +3028,21 @@ def test_failed_summarize_latch_rebases_after_trim(monkeypatch):
         patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
         patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
     ):
-        # 1. A rejected summarize latches at the current count (30).
-        list(hook_module.autocompact_hook(manager))
-        assert hook_module._failed_summarize[conv_key] == 30
-        mock_resume.reset_mock()
-
-        # 2. Latched -> trim; the latch must rebase to the post-trim view (1).
+        # Latched -> trim; the latch must rebase to the post-trim view (1).
         list(hook_module.autocompact_hook(manager))
         assert not mock_resume.called
         assert hook_module._failed_summarize[conv_key] == 1, (
             "Latch must rebase to the post-trim count, or it can never lift"
         )
 
-        # 3. Growth >= threshold since the post-trim view releases the latch.
+        # Growth >= threshold since the post-trim view releases the latch.
         manager.log.messages = trimmed + [
             Message("user", f"g{i}")
             for i in range(hook_module._FAILURE_RETRY_GROWTH_MESSAGES)
         ]
-        list(hook_module.autocompact_hook(manager))
-        assert mock_resume.called, "Latch must lift after growth measured post-trim"
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+        assert not mock_resume.called
+        assert out[0].metadata == {"compaction_checkpoint_view": "main"}
 
 
 def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
@@ -2896,21 +3082,16 @@ def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
         covered_through=len(messages) - 1,
     )
 
-    def rejected_resume(manager, messages, **kwargs):
-        yield Message("system", "Generating...", hide=True, ui_only=True)
-
     conv_key = ("/tmp/conv-baseline", "master")
     threshold = hook_module._FAILURE_RETRY_GROWTH_MESSAGES
+    hook_module._failed_summarize[conv_key] = 30
 
     with (
         patch(
             "gptme.tools.autocompact.hook.should_auto_compact",
             return_value="summarize",
         ),
-        patch(
-            "gptme.tools.autocompact.hook._resume_via_llm",
-            side_effect=rejected_resume,
-        ) as mock_resume,
+        patch("gptme.tools.autocompact.hook._resume_via_llm") as mock_resume,
         patch(
             "gptme.tools.autocompact.hook.get_context_provider",
             return_value=mock_provider,
@@ -2918,11 +3099,6 @@ def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
         patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
         patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
     ):
-        # Latch at 30.
-        set_msgs(30)
-        list(hook_module.autocompact_hook(manager))
-        assert hook_module._failed_summarize[conv_key] == 30
-
         # A count-preserving trim at 35 must NOT move the baseline up.
         set_msgs(35)
         list(hook_module.autocompact_hook(manager))
@@ -2932,10 +3108,9 @@ def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
 
         # Growth from 30 still accumulates: 50 - 30 = 20 releases the latch.
         set_msgs(30 + threshold)
-        list(hook_module.autocompact_hook(manager))
-        assert mock_resume.called, (
-            "Latch must release once real growth reaches threshold"
-        )
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+        assert not mock_resume.called
+        assert out[0].metadata == {"compaction_checkpoint_view": "main"}
 
 
 def _big_plain_system_result(n_words: int) -> Message:
@@ -3050,15 +3225,17 @@ def test_hook_rejects_view_below_min_savings(monkeypatch):
             return_value=iter([]),
         ) as mock_resume,
     ):
-        list(hook_module.autocompact_hook(manager))
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
 
     assert not manager.create_view.called, (
         "a view saving <MIN_SAVINGS_RATIO must be rejected, not installed"
     )
     # The rejected attempt is recorded so the unchanged log does not re-fire.
     assert (str(manager.logdir), "master") in hook_module._last_autocompact_attempt
-    # Recovery: the summarizer is tried so an over-budget log is not wedged.
-    mock_resume.assert_called_once()
+    # Recovery starts a normal tool-capable checkpoint turn instead of a
+    # tools-disabled direct summarizer call.
+    assert not mock_resume.called
+    assert out[-1].metadata == {"compaction_checkpoint_view": "main"}
 
 
 def test_hook_installs_view_above_min_savings(monkeypatch):

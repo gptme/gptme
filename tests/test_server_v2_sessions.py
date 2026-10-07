@@ -1002,6 +1002,75 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 2
 
+    def test_checkpoint_request_starts_normal_server_continuation(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """A TURN_POST checkpoint request must not wait for another API call."""
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.hooks import HookType
+        from gptme.llm.models import get_model
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        checkpoint_request = Message(
+            "user",
+            "Create a checkpoint with tools",
+            metadata={"compaction_checkpoint_view": ""},
+        )
+
+        def hooks(hook_type, **kwargs):
+            return [checkpoint_request] if hook_type == HookType.TURN_POST else []
+
+        with (
+            patch("gptme.server.session_step._stream", return_value=iter(["done"])),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", side_effect=hooks),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.get_model", return_value=get_model("gpt-4")),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+            patch(
+                "gptme.server.session_step._start_step_thread", return_value=True
+            ) as start_step,
+        ):
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="gpt-4",
+                workspace=tmp_path,
+                step_seq=1,
+            )
+
+        start_step.assert_called_once()
+        kwargs = start_step.call_args.kwargs
+        assert kwargs["reserved"] is True
+        assert kwargs["step_seq"] == 2
+        assert session.step_seq == 2
+        assert session.generating is True
+
     def test_step_seq_passed_by_caller_not_sampled_in_thread(
         self, conv, tmp_path, monkeypatch
     ):
