@@ -171,8 +171,11 @@ class _DynamicHelpCommand(click.Command):
         if first_positional is not None:
             from .util import UTIL_SUBCOMMANDS
 
+            # Commands dispatched inline by main() — they handle args themselves
+            # even when a gptme-<cmd> binary of the same name is installed.
+            _inline_subcommands = frozenset({"search"})
             if first_positional in UTIL_SUBCOMMANDS or (
-                first_positional != "search"
+                first_positional not in _inline_subcommands
                 and shutil.which(f"gptme-{first_positional}")
             ):
                 # Otherwise eager or recognized top-level options such as --help,
