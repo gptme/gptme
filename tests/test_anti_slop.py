@@ -163,6 +163,37 @@ def test_gate_skips_short_artifact_only_evidence():
     assert all(h["category"] in ("em_dash", "staccato") for h in hits)
 
 
+def test_staccato_no_false_positive_on_technical_doc_sentences():
+    """Technical documentation sentences of up to 8 words must not trigger staccato.
+    A run of three ≤8-word sentences used to fire because STACCATO_MAX_WORDS
+    was 8; lowering it to 7 excludes normal doc sentences while still catching
+    genuine punchy slop."""
+    # Sentences with 8, 6, and 8 words — normal technical documentation style
+    tech_doc = (
+        "The function returns a sorted list of integers. "
+        "Pass --verbose to enable debug output. "
+        "Exit code 0 means success, 1 means failure."
+    )
+    report = evaluate_gate(tech_doc)
+    assert report["status"] in ("pass", "skip"), (
+        f"technical doc sentences (≤8 words) should not fail staccato: {report}"
+    )
+    staccato_hits = [
+        h for h in report["smell_report"]["hits"] if h["category"] == "staccato"
+    ]
+    assert not staccato_hits, (
+        f"staccato false positive on technical docs: {staccato_hits}"
+    )
+
+    # Real slop still triggers (5, 4, and 6 word short punchy sentences)
+    slop = "It works well every time. It scales up fast. It delivers clean results every day."
+    report_slop = detect_smells(slop)
+    staccato_slop = [h for h in report_slop["hits"] if h["category"] == "staccato"]
+    assert staccato_slop, (
+        "staccato should still fire on genuinely short punchy sentences"
+    )
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------

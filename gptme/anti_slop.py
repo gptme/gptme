@@ -136,9 +136,12 @@ _COMPILED: list[tuple[str, int, re.Pattern[str], str]] = [
 _EM_DASH = re.compile(r"\s—\s|\w—\w|—")
 _WORD = re.compile(r"\b\w+\b")
 
-# Staccato cadence: ≥3 consecutive sentences of ≤8 words triggers one hit.
+# Staccato cadence: ≥3 consecutive sentences of ≤7 words triggers one hit.
+# 8-word sentences are normal in technical documentation (e.g. "The function
+# returns a sorted list of integers."); 7 is the upper bound for genuinely
+# punchy slop-style phrasing ("It works. It scales. It delivers.").
 _SENT_END = re.compile(r"[.!?]+")
-_STACCATO_MAX_WORDS = 8
+_STACCATO_MAX_WORDS = 7
 _STACCATO_MIN_RUN = 3
 
 # ---------------------------------------------------------------------------
