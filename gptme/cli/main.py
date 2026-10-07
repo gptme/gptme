@@ -171,9 +171,13 @@ class _DynamicHelpCommand(click.Command):
         if first_positional is not None:
             from .util import UTIL_SUBCOMMANDS
 
-            if first_positional in UTIL_SUBCOMMANDS:
-                # Otherwise eager or recognized top-level options such as --help
-                # are consumed before main() can forward them to gptme-util.
+            if first_positional in UTIL_SUBCOMMANDS or shutil.which(
+                f"gptme-{first_positional}"
+            ):
+                # Otherwise eager or recognized top-level options such as --help,
+                # --name or --model are consumed before main() can forward them
+                # to gptme-util or to the gptme-<cmd> plugin (e.g.
+                # `gptme service init --name ada` lost its --name).
                 ctx.allow_interspersed_args = False
         return super().parse_args(ctx, args)
 
