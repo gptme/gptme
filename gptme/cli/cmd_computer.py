@@ -106,7 +106,9 @@ def _parse_ipython(code: str) -> _ast.Module | None:
             elif re.match(r"^\s*[!%]", line):
                 new_lines.append(re.sub(r"^(\s*)[!%].*$", r"\1pass", line))
             # lhs = !cmd (IPython shell-capture) → lhs = None
-            elif re.search(r"=\s*!", line):
+            # Anchor to identifier at line start so =! inside a string literal
+            # (e.g. computer('type', text='a=!b')) is not mishandled.
+            elif re.match(r"^\s*[\w.]+\s*=\s*!", line):
                 new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
             else:
                 new_lines.append(line)

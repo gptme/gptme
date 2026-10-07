@@ -415,6 +415,21 @@ def test_ipython_shell_capture_does_not_drop_block():
     assert records[0]["coordinate"] == [10, 20]
 
 
+def test_string_arg_containing_equals_bang_is_not_corrupted():
+    """=! inside a string argument must not truncate the line and drop the call."""
+    # computer('type', text='a=!b') contains =! inside a quoted string;
+    # the IPython shell-capture rewrite must not fire here.
+    records = _records("computer('type', text='a=!b')")
+    assert len(records) == 1
+    assert records[0]["action"] == "type"
+    assert records[0]["text_len"] == 4  # 'a=!b'
+
+    # fill_element with a value containing =! must also be audited correctly.
+    records2 = _records("fill_element(selector='#pw', value='x=!y')")
+    assert len(records2) == 1
+    assert records2[0]["action"] == "fill_element"
+
+
 def test_multiline_string_with_bang_is_not_corrupted():
     """A line starting with ! inside a triple-quoted string must not be replaced with pass."""
     code = (
