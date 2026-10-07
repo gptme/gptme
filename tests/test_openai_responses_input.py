@@ -117,16 +117,31 @@ def test_reused_call_id_result_pairs_with_nearest_preceding_call() -> None:
     assert typed[3]["output"] == "result 2"
 
 
-def test_orphaned_tool_result_is_dropped() -> None:
+@pytest.mark.parametrize("message_format", ["gptme", "dict"])
+def test_orphaned_tool_result_is_dropped(message_format: str) -> None:
     """A result with no matching call (e.g. after corrupt-line removal) is dropped, not sent."""
-    _, items = _messages_to_responses_input(
-        [
-            Message("user", "Do something."),
-            # No assistant function_call for call_gone — simulates a removed corrupt line
-            Message("system", "result for gone call", call_id="call_gone"),
-            Message("user", "Continue."),
-        ]
-    )
+    if message_format == "gptme":
+        _, items = _messages_to_responses_input(
+            [
+                Message("user", "Do something."),
+                # No assistant function_call for call_gone — simulates a removed corrupt line
+                Message("system", "result for gone call", call_id="call_gone"),
+                Message("user", "Continue."),
+            ]
+        )
+    else:
+        _, items = _messages_dicts_to_responses_input(
+            [
+                {"role": "user", "content": "Do something."},
+                # No preceding assistant tool_calls — the function_call line was removed
+                MessageDict(
+                    role="tool",
+                    content="result for gone call",
+                    tool_call_id="call_gone",
+                ),
+                {"role": "user", "content": "Continue."},
+            ]
+        )
     call_ids_in_output = [
         i.get("call_id") for i in items if i.get("type") == "function_call_output"
     ]
