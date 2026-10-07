@@ -98,11 +98,35 @@ def _pending_checkpoint_turn(
     if last_assistant is None:
         return request_idx, None
     if any(
-        tooluse.is_runnable
+        tooluse.is_runnable or tooluse.call_id
         for tooluse in ToolUse.iter_from_content(last_assistant.content)
     ):
         return request_idx, None
     return request_idx, last_assistant
+
+
+def _owes_model_response(messages: list[Message]) -> bool:
+    """True if tool results follow the last assistant message unanswered.
+
+    Compaction triggered after tool results interrupts a task mid-flight:
+    the model has not yet responded to the latest results. After the
+    checkpoint turn completes, the CLI/server loop must resume that work
+    instead of stopping.
+    """
+    last_assistant_idx = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if messages[i].role == "assistant"
+        ),
+        None,
+    )
+    if last_assistant_idx is None:
+        return False
+    return any(
+        msg.role == "system" and not msg.ui_only
+        for msg in messages[last_assistant_idx + 1 :]
+    )
 
 
 def _effective_message_count(messages: list[Message]) -> int:
@@ -517,7 +541,16 @@ def autocompact_hook(
                 yield Message(
                     "user",
                     build_checkpoint_prompt(compact_instructions, tool_capable=True),
-                    metadata={"compaction_checkpoint_view": view},
+                    metadata={
+                        "compaction_checkpoint_view": view,
+                        # Whether the interrupted task still owes a model
+                        # response (tool results pending an answer). The
+                        # CLI/server loop resumes that work after the
+                        # checkpoint turn completes instead of stopping.
+                        "compaction_checkpoint_needs_continuation": (
+                            _owes_model_response(messages)
+                        ),
+                    },
                 )
                 return
 

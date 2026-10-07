@@ -2470,7 +2470,7 @@ def test_reasoning_strip_and_tool_guard_are_not_run_when_not_pending(monkeypatch
     assert should_compact.called
     assert not mock_resume.called
     assert len(out) == 1
-    assert out[0].metadata == {"compaction_checkpoint_view": "main"}
+    assert (out[0].metadata or {}).get("compaction_checkpoint_view") == "main"
 
 
 def test_summarize_schedules_checkpoint_on_normal_turn_loop(monkeypatch):
@@ -2507,7 +2507,10 @@ def test_summarize_schedules_checkpoint_on_normal_turn_loop(monkeypatch):
     assert len(out) == 1
     request = out[0]
     assert request.role == "user"
-    assert request.metadata == {"compaction_checkpoint_view": ""}
+    assert request.metadata == {
+        "compaction_checkpoint_view": "",
+        "compaction_checkpoint_needs_continuation": False,
+    }
     assert "available tools" in request.content
     assert "structured checkpoint" in request.content
 
@@ -2601,7 +2604,10 @@ def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch)
             return [Message("assistant", "Work completed.")]
         if len(step_inputs) == 2:
             assert step_inputs[-1][-1].role == "user"
-            assert step_inputs[-1][-1].metadata == {"compaction_checkpoint_view": ""}
+            assert step_inputs[-1][-1].metadata == {
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": False,
+            }
             return [
                 Message("assistant", "```shell\nprintf saved > state.txt\n```"),
                 Message("system", "Ran command: `printf saved > state.txt`"),
@@ -2758,7 +2764,7 @@ def test_failed_summarize_latch_releases_after_growth(monkeypatch):
     assert conv_key not in hook_module._failed_summarize
     assert not mock_resume.called
     assert len(out) == 1
-    assert out[0].metadata == {"compaction_checkpoint_view": "main"}
+    assert (out[0].metadata or {}).get("compaction_checkpoint_view") == "main"
 
 
 def test_no_compaction_with_partial_tool_results(monkeypatch):
@@ -3043,7 +3049,7 @@ def test_failed_summarize_latch_rebases_after_trim(monkeypatch):
         ]
         out = _message_outputs(list(hook_module.autocompact_hook(manager)))
         assert not mock_resume.called
-        assert out[0].metadata == {"compaction_checkpoint_view": "main"}
+        assert (out[0].metadata or {}).get("compaction_checkpoint_view") == "main"
 
 
 def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
@@ -3111,7 +3117,7 @@ def test_failed_summarize_latch_baseline_never_moves_up(monkeypatch):
         set_msgs(30 + threshold)
         out = _message_outputs(list(hook_module.autocompact_hook(manager)))
         assert not mock_resume.called
-        assert out[0].metadata == {"compaction_checkpoint_view": "main"}
+        assert (out[0].metadata or {}).get("compaction_checkpoint_view") == "main"
 
 
 def _big_plain_system_result(n_words: int) -> Message:
@@ -3236,7 +3242,7 @@ def test_hook_rejects_view_below_min_savings(monkeypatch):
     # Recovery starts a normal tool-capable checkpoint turn instead of a
     # tools-disabled direct summarizer call.
     assert not mock_resume.called
-    assert out[-1].metadata == {"compaction_checkpoint_view": "main"}
+    assert (out[-1].metadata or {}).get("compaction_checkpoint_view") == "main"
 
 
 def test_hook_installs_view_above_min_savings(monkeypatch):
@@ -4475,3 +4481,140 @@ def test_resume_via_llm_recompaction_tail_does_not_keep_old_checkpoint(
     idx = _find_previous_checkpoint_index(view)
     assert idx is not None and "NEW_CHECKPOINT" in view[idx].content
     assert any(m.content == "newer answer" for m in view)
+def test_checkpoint_turn_treats_unavailable_tool_call_as_intermediate():
+    """A structured call to an unavailable tool is an intermediate step, never
+    the finished checkpoint: it carries a call_id even though is_runnable is
+    False, and installing it would drop context without a useful checkpoint."""
+    from unittest.mock import patch
+
+    from gptme.tools.autocompact.hook import _pending_checkpoint_turn
+
+    request = Message(
+        "user",
+        "Create checkpoint",
+        metadata={"compaction_checkpoint_view": ""},
+    )
+    tool_call = Message("assistant", '@missing_tool(call-1): {"arg": "x"}')
+    messages = [Message("system", "System prompt"), request, tool_call]
+    with patch("gptme.tools.base.get_tool_format", return_value="tool"):
+        turn = _pending_checkpoint_turn(messages, "")
+    assert turn is not None
+    assert turn[1] is None
+
+
+def test_owes_model_response_detects_unanswered_tool_results():
+    """Tool results after the last assistant message mean the task was
+    interrupted mid-flight and must resume after the checkpoint turn."""
+    from gptme.tools.autocompact.hook import _owes_model_response
+
+    assert not _owes_model_response(
+        [Message("user", "hi"), Message("assistant", "done")]
+    )
+    assert _owes_model_response(
+        [
+            Message("user", "hi"),
+            Message("assistant", "```shell\nls\n```"),
+            Message("system", "Ran command: `ls`"),
+        ]
+    )
+
+
+def test_overflow_recovery_carries_checkpoint_request_into_new_view():
+    """The live checkpoint request keeps its identity on the recovery view so
+    the hook still recognizes the completed checkpoint after overflow."""
+    from gptme.tools.autocompact.recovery import _carry_checkpoint_request
+
+    request = Message(
+        "user",
+        "Create checkpoint",
+        metadata={"compaction_checkpoint_view": "old-view"},
+    )
+    failed = Message(
+        "system",
+        "rejected",
+        metadata={"compaction_checkpoint_failed_view": "old-view"},
+    )
+    carried = _carry_checkpoint_request(
+        [Message("user", "hi"), request, failed], "new-view"
+    )
+    assert (carried[1].metadata or {}).get("compaction_checkpoint_view") == "new-view"
+    assert (carried[2].metadata or {}).get(
+        "compaction_checkpoint_failed_view"
+    ) == "new-view"
+    assert not (carried[0].metadata or {}).get("compaction_checkpoint_view")
+
+
+def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
+    """A task interrupted mid-flight (tool results pending a response) resumes
+    after the checkpoint is installed instead of the CLI loop stopping."""
+    from unittest.mock import patch
+
+    import gptme.chat as chat_module
+    from gptme.chat import _process_message_conversation
+    from gptme.logmanager import LogManager
+
+    manager = LogManager(
+        [Message("system", "System prompt"), Message("user", "Do the work")],
+        logdir=tmp_path / "conversation",
+    )
+    step_inputs: list[list[Message]] = []
+
+    def fake_step(log, *args, **kwargs):
+        step_inputs.append(list(log.messages))
+        if len(step_inputs) == 1:
+            # The model ran a tool; the result is pending a response when the
+            # compaction fires, so the request must record the interruption.
+            return [
+                Message("assistant", "```shell\nprintf probe > state.txt\n```"),
+                Message("system", "Ran command: `printf probe > state.txt`"),
+            ]
+        if len(step_inputs) == 2:
+            # The checkpoint turn itself: a tool-free summary response.
+            assert step_inputs[-1][-1].role == "user"
+            assert (step_inputs[-1][-1].metadata or {}).get(
+                "compaction_checkpoint_needs_continuation"
+            ) is True
+            return [Message("assistant", "## Objective\nState saved.")]
+        return [Message("assistant", "Continuing the task from the checkpoint.")]
+
+    applied_responses: list[Message] = []
+
+    def apply_checkpoint(manager, source_messages, **kwargs):
+        applied_responses.append(kwargs["checkpoint_response"])
+        view = manager.get_next_view_name()
+        manager.create_view(view, source_messages + applied_responses)
+        manager.switch_view(view)
+        if False:
+            yield Message("system", "unreachable")
+        return True
+
+    with (
+        patch.object(chat_module, "step", side_effect=fake_step),
+        patch.object(chat_module, "get_default_model", return_value=None),
+        patch.object(chat_module, "trigger_hook", return_value=iter([])),
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            side_effect=["summarize", "none", "none", "none"],
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model", return_value=None),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=apply_checkpoint,
+        ),
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+        patch("gptme.tools.autocompact.hook.append_compaction_event"),
+    ):
+        _process_message_conversation(
+            manager,
+            stream=False,
+            tool_format="markdown",
+            model="gpt-4",
+        )
+
+    assert len(applied_responses) == 1
+    # Step 3 is the resumed task: it runs after the checkpoint was installed,
+    # with the resumed view (ending in the checkpoint) as its input.
+    assert len(step_inputs) == 3
+    assert step_inputs[-1][-1].content.startswith("## Objective")
+    assert manager.current_view is not None

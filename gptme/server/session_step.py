@@ -1105,10 +1105,19 @@ def step(
         ):
             for hook_msg in post_msgs:
                 _append_and_notify(manager, session, hook_msg)
-                checkpoint_requested = checkpoint_requested or (
-                    hook_msg.role == "user"
-                    and "compaction_checkpoint_view" in (hook_msg.metadata or {})
-                )
+                if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                    hook_msg.metadata or {}
+                ):
+                    checkpoint_requested = True
+                    # Remember whether the interrupted task still owed a
+                    # response. The request message is excluded from the
+                    # compacted view, so the step that completes the
+                    # checkpoint turn reads this flag to resume the task.
+                    session.checkpoint_needs_continuation = bool(
+                        (hook_msg.metadata or {}).get(
+                            "compaction_checkpoint_needs_continuation"
+                        )
+                    )
 
         # Streamed tokens/message_added are provisional. Completion acknowledges
         # the transcript, including hook output, only after its barrier succeeds.
@@ -1194,10 +1203,15 @@ def step(
                 temperature=temperature,
                 top_p=top_p,
             )
-        elif checkpoint_requested:
+        elif checkpoint_requested or session.checkpoint_needs_continuation:
             # A checkpoint request is a real follow-up turn, not a status
             # message. Transfer this step's reservation to a continuation so
-            # the normal server model/tool loop handles it immediately.
+            # the normal server model/tool loop handles it immediately. The
+            # same transfer resumes the interrupted task when this step just
+            # completed the checkpoint turn and the original task still owed
+            # a model response.
+            if not checkpoint_requested:
+                session.checkpoint_needs_continuation = False
             continuation_seq: int | None = None
             with session.step_lock:
                 if session.step_seq == my_step_seq and not session.interrupted:
