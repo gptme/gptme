@@ -410,6 +410,15 @@ module = [
 disable_error_code = ["unused-ignore"]
 
 [[tool.mypy.overrides]]
+module = [
+    "gptme.acp.agent",
+    "gptme.acp.client",
+    "gptme.acp.__main__",
+    "test_acp_agent",
+]
+disable_error_code = ["unused-ignore"]
+
+[[tool.mypy.overrides]]
 module = "wasmtime.*"
 ignore_missing_imports = true
 

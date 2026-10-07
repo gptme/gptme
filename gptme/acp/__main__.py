@@ -181,7 +181,7 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
     agent = GptmeAgent()
     try:
         await run_agent(
-            agent,
+            agent,  # type: ignore[arg-type]
             input_stream=writer,
             output_stream=reader,
             **connection_kwargs,

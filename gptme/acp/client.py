@@ -283,7 +283,7 @@ class GptmeAcpClient:
         self._client_handler = client
 
         self._ctx = spawn_agent_process(
-            client,
+            client,  # type: ignore[arg-type]
             self.command,
             *self.extra_args,
             cwd=self.workspace,
