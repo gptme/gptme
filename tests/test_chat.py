@@ -2336,6 +2336,28 @@ def test_should_prompt_for_input_prompts_after_completed_assistant_turn():
     assert _should_prompt_for_input(stacked_unanswered) is False
 
 
+def test_should_prompt_for_input_autocontinues_tool_result_under_resume_prompt():
+    """A resume prompt appended after an interrupted tool turn (assistant tool
+    call, then its system tool result) must auto-continue the turn, matching
+    the no-resume-prompt decision path for the same saved log."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    saved = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "run the tests"),
+            Message("assistant", "calling tool", call_id="call_1"),
+            Message("system", "tool output", call_id="call_1"),
+        ]
+    )
+    # Without the resume prompt the existing path auto-continues...
+    assert _should_prompt_for_input(saved) is False
+    # ...and appending the re-applied profile must not change that.
+    assert _should_prompt_for_input(Log(list(saved) + [_profile_resume_msg()])) is False
+
+
 def test_hoist_resume_msgs_drops_old_copies_when_newest_is_embedded():
     """When the newest resume copy is embedded in a replacement prompt, older
     saved copies of the same key must not stay provider-visible either."""
@@ -2374,6 +2396,40 @@ def test_hoist_resume_msgs_drops_old_copies_when_newest_is_embedded():
     assert all("Old instructions." not in m.content for m in prepared)
     assert all(not (m.metadata and m.metadata.get("resume_key")) for m in prepared)
     assert any("New instructions." in m.content for m in prepared)
+
+
+def test_hoist_resume_msgs_strips_old_copy_embedded_in_startup_prompt():
+    """A legacy startup prompt that captured an older profile copy must not
+    keep showing it next to the hoisted newest copy after a profile edit."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    startup = Message("system", "startup prompt", pinned=True)
+    legacy_profile = Message(
+        "system",
+        "# Agent Profile: explorer\nOld instructions.",
+        pinned=True,
+    )
+    new = Message(
+        "system",
+        "# Agent Profile: explorer\nNew instructions.",
+        pinned=True,
+        hide=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+    msgs = [
+        startup,
+        legacy_profile,
+        Message("user", "hello"),
+        Message("assistant", "done"),
+        new,
+    ]
+
+    prepared = _hoist_resume_msgs(msgs)
+    assert all("Old instructions." not in m.content for m in prepared)
+    assert any("New instructions." in m.content for m in prepared)
+    # The hoisted newest copy sits right after the (stripped) startup block.
+    assert prepared[1].content == new.content
 
 
 def test_prepare_messages_survives_replacement_prompt_generation():

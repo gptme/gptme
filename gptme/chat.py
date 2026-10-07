@@ -830,21 +830,16 @@ def _should_prompt_for_input(log: Log) -> bool:
     )
     if last_msg_is_resume_prompt:
         # The resume-only prompt carries no turn semantics: decide from the
-        # last substantive message as if the resume prompt were not there.
-        # An unanswered user turn still auto-generates (crash recovery); a
-        # completed assistant turn asks for input (no unsolicited generation
-        # on a normal interactive resume).
-        substantive = next(
-            (
-                m
-                for m in reversed(log)
-                if not (m.metadata and "resume_key" in m.metadata)
-            ),
-            None,
+        # saved log as if the resume prompt were not there. Stripping the
+        # resume prompts and re-entering keeps the normal decision path
+        # intact — a trailing tool result still auto-continues an
+        # interrupted turn, an unanswered user turn still auto-generates
+        # (crash recovery), and a completed assistant turn asks for input
+        # (no unsolicited generation on a normal interactive resume).
+        trimmed = Log(
+            [m for m in log if not (m.metadata and "resume_key" in m.metadata)]
         )
-        if substantive is None:
-            return True
-        return substantive.role != "user"
+        return _should_prompt_for_input(trimmed)
     return (
         not effective_last
         or effective_last.role == "assistant"
