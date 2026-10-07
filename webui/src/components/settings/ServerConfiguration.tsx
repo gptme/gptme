@@ -35,6 +35,7 @@ import type { ServerConfig } from '@/types/servers';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ConfigFileEditor } from './ConfigFileEditor';
+import { GlobalMcpSettings } from './GlobalMcpSettings';
 import { ServerDefaultModelSettings } from './ServerDefaultModelSettings';
 import { ServerApiKeySettings } from './ServerApiKeySettings';
 import { ServerProviderHealthSettings } from './ServerProviderHealthSettings';
@@ -391,6 +392,13 @@ export const ServerConfiguration: FC = () => {
             <ServerDefaultModelSettings />
             <ServerApiKeySettings />
             <ServerProviderHealthSettings />
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="global-mcp">
+          <AccordionTrigger className="text-sm font-medium">Global MCP settings</AccordionTrigger>
+          <AccordionContent>
+            <GlobalMcpSettings />
           </AccordionContent>
         </AccordionItem>
 
