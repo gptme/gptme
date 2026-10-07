@@ -1726,6 +1726,19 @@ def models_info(model_name: str, as_json: bool):
                 err=True,
             )
 
+    # Exit 1 when the model resolved to pure fallback with no known provider.
+    # Prevents callers from silently scripting on fabricated context/capability values.
+    # Note: anthropic/unknown-model has provider="anthropic" (closest-match), so new
+    # models not yet in the registry still return 0; only fully-unknown models exit 1.
+    if model.provider == "unknown":
+        if "/" not in model_name:
+            click.echo(
+                f"Unknown model: {model_name!r}. "
+                "Run 'gptme-util models list' to see known models.",
+                err=True,
+            )
+        sys.exit(1)
+
     if as_json:
         print(json.dumps(model_to_dict(model), indent=2))
         return
