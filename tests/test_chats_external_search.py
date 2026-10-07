@@ -480,6 +480,27 @@ def test_search_codex_session_skips_deeply_nested_line(tmp_path):
     assert [result["role"] for result in results] == ["user", "assistant"]
 
 
+def test_search_cursor_session_skips_non_dict_message(tmp_path):
+    """A non-dict entry in messages does not lose valid matches before it."""
+    f = tmp_path / "abc-123" / "conversation.json"
+    f.parent.mkdir(parents=True)
+    f.write_text(
+        json.dumps(
+            {
+                "title": "CORS session",
+                "messages": [
+                    {"role": "user", "content": "CORS error help"},
+                    "not a dict",
+                    {"role": "assistant", "content": "CORS fixed"},
+                ],
+            }
+        )
+    )
+    results = _search_cursor_session(f, "CORS")
+    assert len(results) == 2
+    assert all(r["session_title"] == "CORS session" for r in results)
+
+
 def test_search_external_chats_skips_malformed_sessions(tmp_path, capsys):
     """One malformed session file must not abort the search of the others."""
     cursor_dir = tmp_path / "cursor"

@@ -193,6 +193,8 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
 
     # Standard format: {"title": "...", "messages": [{"role": ..., "content": ...}]}
     for msg in data.get("messages", []):
+        if not isinstance(msg, dict):
+            continue
         role = msg.get("role", "unknown")
         content = msg.get("content", "")
         if not isinstance(content, str):
