@@ -190,19 +190,13 @@ def _read_text_capped(f: Path) -> str:
     "exactly at the cap" from "truncated".
     """
     mime, _ = mimetypes.guess_type(str(f))
-    # Block known binary MIME categories; allow text/*, application/json, etc.
-    # Structured-text subtypes (+xml, +json) are text despite a binary prefix,
-    # e.g. image/svg+xml is an XML text format, not a raster image.
-    _BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "font/")
-    _TEXT_MIME_SUFFIXES = ("+xml", "+json", "+text")
-    if (
-        mime
-        and not any(mime.endswith(s) for s in _TEXT_MIME_SUFFIXES)
-        and (
-            any(mime.startswith(p) for p in _BINARY_MIME_PREFIXES)
-            or mime in ("application/octet-stream", "application/pdf")
-        )
-    ):
+    # Block only MIME types that are definitively non-text and whose prefix may
+    # be decodable as UTF-8 (e.g. a PDF whose first 100 KB has no NUL bytes).
+    # Do NOT use prefix heuristics (image/*, video/*, …) — they misclassify
+    # legitimate text formats such as image/svg+xml and video/mp2t (.ts files
+    # on some platforms).  For everything else let the capped read + NUL-byte
+    # check + Python's UTF-8 codec determine whether the file is binary.
+    if mime in ("application/octet-stream", "application/pdf"):
         raise UnicodeDecodeError("utf-8", b"", 0, 1, f"binary MIME type: {mime}")
 
     with f.open() as fh:
