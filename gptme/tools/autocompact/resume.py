@@ -456,6 +456,10 @@ def _split_recent_tail(
     one of several result messages while dropping the assistant tool call. The
     returned prefix is the exact input a provider-native compactor may summarize
     before the returned tail is appended unchanged.
+
+    The split is lossless: ``prefix + tail == msgs``. Cleanup of dangling
+    tool results and unmatched tool calls in the tail is the tail-consumer's
+    job (:func:`_get_recent_tail`); the pair itself never omits a message.
     """
     if keep_tokens <= 0 or not msgs:
         return list(msgs), []
@@ -496,16 +500,33 @@ def _split_recent_tail(
         tail[:0] = step
         cut = step_start
         total += step_tokens
+    return msgs[:cut], tail
+
+
+def _get_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> list[Message]:
+    """Return the retained side of :func:`_split_recent_tail`.
+
+    This is the cleanup point for the tail: dangling tool results at the head
+    (no matching tool-call) and assistant tool-calls whose result never
+    follows (the conversation ends mid-turn, or the user interrupted before
+    the result) are dropped here — an unmatched tool call in the compacted
+    view breaks strict providers. Keeping the cleanup on the tail-only side
+    preserves the lossless ``prefix + tail == msgs`` property of
+    :func:`_split_recent_tail`.
+    """
+    tail = _split_recent_tail(msgs, keep_tokens, model=model)[1]
+
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
     # (e.g. system/user role in some provider formats).
     while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
 
-    # Drop an assistant tool-call whose result never follows it: either the
-    # conversation ends mid-turn, or the user interrupted before the result
-    # (the call is followed directly by a user message). An unmatched tool
-    # call in the compacted view breaks strict providers.
     def _unmatched_call(i: int) -> bool:
         if tail[i].role != "assistant" or not any(
             tooluse.is_runnable
@@ -522,17 +543,7 @@ def _split_recent_tail(
                 tail = tail[:i] + tail[i + 1 :]
                 changed = True
                 break
-    return msgs[:cut], tail
-
-
-def _get_recent_tail(
-    msgs: list[Message],
-    keep_tokens: int,
-    *,
-    model: str | None = None,
-) -> list[Message]:
-    """Return the retained side of :func:`_split_recent_tail`."""
-    return _split_recent_tail(msgs, keep_tokens, model=model)[1]
+    return tail
 
 
 def _message_identity(message: Message) -> tuple[object, ...]:
