@@ -402,6 +402,7 @@ disable_error_code = ["unused-ignore"]
 
 [[tool.mypy.overrides]]
 module = [
+    "test_acp_agent",
     "test_llm_anthropic",
     "test_tools_browser_thread",
     "test_browser_state",
