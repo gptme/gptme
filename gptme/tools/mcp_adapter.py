@@ -563,12 +563,17 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if "env" in config_override:
             server_config.env = config_override["env"]
 
-    # Add to config BEFORE connecting (connect() looks up server by name in config)
+    # Add to config BEFORE connecting (connect() looks up server by name in config).
+    # If the server was previously unloaded (enabled=False), re-enable it so the
+    # config accurately reflects the loaded state after this call.
     config_added = False
     if server_config not in config.mcp.servers:
         config.mcp.servers.append(server_config)
         set_config(config)
         config_added = True
+    elif not server_config.enabled:
+        server_config.enabled = True
+        set_config(config)
 
     try:
         from ..mcp.client import MCPClient
@@ -642,6 +647,18 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
             set_config(config)
+        # Clean up any partial registration that happened before the failure
+        if name in _dynamic_servers:
+            leftover_client = _dynamic_servers.pop(name)
+            _dynamic_server_specs.pop(name, None)
+            try:
+                leftover_client.close()
+            except Exception:
+                logger.debug(
+                    "Failed to close MCP client for '%s' during cleanup",
+                    name,
+                    exc_info=True,
+                )
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 

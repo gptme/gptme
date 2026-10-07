@@ -832,10 +832,14 @@ def _chat_timeout() -> float:
 
     config = get_config()
     timeout_str = config.get_env("LLM_API_TIMEOUT")
-    try:
-        return float(timeout_str) if timeout_str else 600.0
-    except ValueError:
+    if not timeout_str:
         return 600.0
+    try:
+        return float(timeout_str)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+        ) from exc
 
 
 @retry_on_overloaded()
