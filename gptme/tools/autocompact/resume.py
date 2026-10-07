@@ -1009,6 +1009,13 @@ def _resume_via_llm(
         )
         if native_applied:
             return True
+        # After _apply_native_compaction the CM may be exhausted: if the model
+        # was supported and the prefix long enough, it entered `with llm_unlocked`
+        # around the provider request before returning False.  A @contextmanager-
+        # based CM (like session_step._released) is single-use — a second
+        # __enter__ raises RuntimeError.  Null it out so the generic fallback
+        # runs with the lock held rather than crashing.
+        llm_unlocked = None
 
     if checkpoint_response is None:
         # Legacy/manual path: ask the model directly without tools. Automatic
