@@ -832,6 +832,11 @@ def chat(
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
+    if temperature is not None or top_p is not None:
+        logger.warning(
+            "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
+        )
+
     client = _get_gptme_client() if via_gptme else _anthropic
     if not client:
         raise RuntimeError("LLM not initialized")
@@ -938,6 +943,11 @@ def stream(
 ) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
+
+    if temperature is not None or top_p is not None:
+        logger.warning(
+            "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
+        )
 
     # Variable to capture metadata from usage recording
     captured_metadata: MessageMetadata | None = None

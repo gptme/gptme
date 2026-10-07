@@ -395,7 +395,7 @@ def test_retry_on_overloaded_retries_timeout_once():
     """A single APITimeoutError is retried (SDK retries are disabled)."""
     from unittest.mock import patch
 
-    import httpx
+    import httpx2
     from anthropic import APITimeoutError
 
     from gptme.llm.llm_anthropic import retry_on_overloaded
@@ -406,7 +406,7 @@ def test_retry_on_overloaded_retries_timeout_once():
     def flaky():
         calls.append(1)
         if len(calls) == 1:
-            raise APITimeoutError(request=httpx.Request("POST", "http://x"))
+            raise APITimeoutError(request=httpx2.Request("POST", "http://x"))
         return "ok"
 
     with patch("gptme.llm.llm_anthropic.backoff_wait", return_value=False):
@@ -418,13 +418,13 @@ def test_retry_generator_timeout_retries_only_before_yield():
     """Streaming: a timeout before the first yield is retried; after a yield it is not."""
     from unittest.mock import patch
 
-    import httpx
+    import httpx2
     from anthropic import APITimeoutError
 
     from gptme.llm.llm_anthropic import retry_generator_on_overloaded
 
     def timeout():
-        return APITimeoutError(request=httpx.Request("POST", "http://x"))
+        return APITimeoutError(request=httpx2.Request("POST", "http://x"))
 
     early_calls = []
 
@@ -459,7 +459,7 @@ def test_anthropic_retries_408_409(status):
     from unittest.mock import patch
 
     from anthropic import APIStatusError
-    from httpx import Request, Response
+    from httpx2 import Request, Response
 
     from gptme.llm.llm_anthropic import _handle_anthropic_transient_error
 
@@ -483,7 +483,7 @@ def test_retry_generator_only_retries_before_yield():
     # Create a mock that looks like an Anthropic API 500 error
     def make_api_error():
         from anthropic import APIStatusError
-        from httpx import Request, Response
+        from httpx2 import Request, Response
 
         request = Request("POST", "https://api.anthropic.com/v1/messages")
         response = Response(500, request=request)
