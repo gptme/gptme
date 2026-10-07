@@ -414,7 +414,11 @@ def create_mcp_execute_function(
                 if tool_def and tool_def.inputSchema:
                     example = json.dumps(
                         {
-                            prop_name: f"<{prop_info.get('type', 'string')}>"
+                            prop_name: (
+                                f"<{prop_info.get('type', 'string')}>"
+                                if isinstance(prop_info, dict)
+                                else "<string>"
+                            )
                             for prop_name, prop_info in tool_def.inputSchema.get(
                                 "properties", {}
                             ).items()
@@ -452,7 +456,11 @@ def create_mcp_execute_function(
                         if param_name in tool_def.inputSchema.get("required", [])
                         else "Optional"
                     )
-                    desc = param_info.get("description", "No description")
+                    desc = (
+                        param_info.get("description", "No description")
+                        if isinstance(param_info, dict)
+                        else "No description"
+                    )
                     error_msg += f"- {param_name}: {desc} ({required})\n"
 
             yield Message("system", error_msg)
@@ -549,7 +557,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     config = get_config()
 
     # Check if server already loaded
-    if name in _dynamic_servers:
+    if name in _dynamic_servers or name in _mcp_clients:
         return f"Server '{name}' is already loaded."
 
     # Check if server is in config

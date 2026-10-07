@@ -800,3 +800,85 @@ class TestMCPElicitationBridge:
         port_field = request.fields[0]
         assert port_field.default == "8080"
         assert port_field.required is False
+
+
+def test_dynamic_tools_do_not_mutate_inherited_context():
+    from contextvars import copy_context
+
+    from gptme import tools as tools_mod
+    from gptme.tools.base import ToolSpec
+
+    spec = ToolSpec(
+        name="context.tool", desc="", execute=lambda *_: Message("system", "ok")
+    )
+    tools_mod.clear_tools()
+    try:
+        child = copy_context()
+        child.run(tools_mod.load_dynamic_tool_specs, [spec])
+        assert child.run(tools_mod.get_tool, spec.name) is not None
+        assert tools_mod.get_tool(spec.name) is None
+
+        tools_mod.load_dynamic_tool_specs([spec])
+        child = copy_context()
+        child.run(tools_mod.unload_dynamic_tool_specs, [spec.name])
+        assert child.run(tools_mod.get_tool, spec.name) is None
+        assert tools_mod.get_tool(spec.name) is not None
+    finally:
+        tools_mod.clear_tools()
+
+
+def test_load_startup_server_does_not_replace_connection(mock_config, mock_mcp_client):
+    from gptme import tools as tools_mod
+
+    tools_mod.clear_tools()
+    try:
+        with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+            specs = create_mcp_tools(mock_config)
+        tools_mod.load_dynamic_tool_specs(specs)
+        tools_mod._set_available_tools_cache(specs)
+        original_command = mock_config.mcp.servers[0].command
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient") as client_factory,
+        ):
+            result = load_mcp_server("test-server", {"command": "other-server"})
+            assert "already loaded" in result
+            client_factory.assert_not_called()
+            assert "not loaded" in unload_mcp_server("test-server")
+        assert mock_config.mcp.servers[0].command == original_command
+        assert tools_mod.get_tool(specs[0].name) is not None
+        assert tools_mod._get_available_tools_cache() == specs
+        assert "test-server" not in _dynamic_servers
+    finally:
+        tools_mod.clear_tools()
+
+
+@pytest.mark.parametrize("content", ['{"flag":', '{"flag": true}'])
+def test_boolean_schema_execution_errors_are_messages(
+    mock_config, mock_mcp_client, content
+):
+    tool = mock_mcp_client.connect.return_value[0].tools[0]
+    tool.inputSchema = {"type": "object", "properties": {"flag": True}}
+    mock_mcp_client.tools = mock_mcp_client.connect.return_value[0]
+    execute = create_mcp_execute_function(
+        tool.name, "test-server", mock_config, clients={"test-server": mock_mcp_client}
+    )
+
+    def confirm(code, args, kwargs, *, execute_fn, **options):
+        yield from execute_fn(code)
+
+    with (
+        patch("gptme.tools.mcp_adapter.execute_with_confirmation", side_effect=confirm),
+        patch(
+            "gptme.tools.mcp_adapter._call_mcp_tool_with_retry",
+            side_effect=ValueError("call failed"),
+        ),
+    ):
+        result = execute(content, None, None)
+        assert not isinstance(result, Message)
+        messages = list(result)
+    assert len(messages) == 1
+    assert "Error executing tool:" in messages[0].content
+    assert "flag: No description (Optional)" in messages[0].content
+    if content == '{"flag":':
+        assert "valid JSON object" in messages[0].content

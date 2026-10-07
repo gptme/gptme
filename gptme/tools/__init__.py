@@ -898,7 +898,7 @@ def load_dynamic_tool_specs(specs: list[ToolSpec]) -> None:
             initialized = _init_single_tool(spec, on_error="skip")
             if initialized is None:
                 continue
-            _get_loaded_tools().append(initialized)
+            _loaded_tools_var.set([*_get_loaded_tools(), initialized])
             logger.info("Loaded dynamic tool '%s'", initialized.name)
 
 
@@ -918,7 +918,7 @@ def unload_dynamic_tool_specs(spec_names: list[str]) -> None:
             return
         for tool in removed:
             _unregister_tool_hooks(tool)
-        _get_loaded_tools()[:] = [t for t in _get_loaded_tools() if t.name not in names]
+        _loaded_tools_var.set([t for t in _get_loaded_tools() if t.name not in names])
         for tool in removed:
             logger.info("Unloaded dynamic tool '%s'", tool.name)
 
