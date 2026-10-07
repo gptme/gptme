@@ -357,6 +357,11 @@ def create_mcp_tools(
                     client.close()
                 except Exception:
                     logger.debug("Failed to close rejected MCP client", exc_info=True)
+                # Drop the closed client from the registry in all modes: a
+                # closed entry would make load_mcp_server() report the server
+                # as "already loaded" forever, blocking any retry.
+                if client_registry.get(server_config.name) is client:
+                    del client_registry[server_config.name]
             if strict:
                 for name in owned_this_call:
                     leftover = client_registry.pop(name, None)

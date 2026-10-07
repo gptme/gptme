@@ -907,3 +907,29 @@ def test_cold_discovery_reuses_dynamic_connection(mock_config, mock_mcp_client):
             unload_mcp_server("test-server")
     finally:
         tools_mod.clear_tools()
+
+
+def test_create_mcp_tools_failed_spec_build_removes_closed_client():
+    """A spec-building failure in default (non-strict) mode must not leave the
+    closed client in the registry: a stale entry makes load_mcp_server()
+    report 'already loaded' forever, blocking any retry."""
+    config = Config()
+    servers = [MCPServerConfig(name="bad", enabled=True, command="bad-cmd")]
+    config.user.mcp = MCPConfig(enabled=True, servers=servers)
+
+    client = MagicMock()
+    client.connect.return_value = (MagicMock(), MagicMock())
+
+    registry: dict = {}
+    with (
+        patch("gptme.mcp.client.MCPClient", return_value=client),
+        patch(
+            "gptme.tools.mcp_adapter._build_tool_specs_for_server",
+            side_effect=ValueError("bad schema"),
+        ),
+    ):
+        tools = create_mcp_tools(config, servers=servers, clients=registry)
+
+    assert tools == []
+    client.close.assert_called_once_with()
+    assert registry == {}, "closed client must not stay registered as loaded"
