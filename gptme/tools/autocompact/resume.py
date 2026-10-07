@@ -442,24 +442,27 @@ def _bound_summarize_input(
     return head + kept
 
 
-def _get_recent_tail(
+def _split_recent_tail(
     msgs: list[Message],
     keep_tokens: int,
     *,
     model: str | None = None,
-) -> list[Message]:
-    """Return recent whole assistant steps bounded by ``keep_tokens``.
+) -> tuple[list[Message], list[Message]]:
+    """Split messages before recent whole assistant steps bounded by ``keep_tokens``.
 
     A step contains the input preceding an assistant message, that assistant
     message, and every following system/tool result up to the next user or
     assistant message. Selecting whole steps prevents a boundary from keeping
-    one of several result messages while dropping the assistant tool call.
+    one of several result messages while dropping the assistant tool call. The
+    returned prefix is the exact input a provider-native compactor may summarize
+    before the returned tail is appended unchanged.
     """
     if keep_tokens <= 0 or not msgs:
-        return []
+        return list(msgs), []
 
-    steps: list[list[Message]] = []
+    steps: list[tuple[int, list[Message]]] = []
     pending: list[Message] = []
+    pending_start = 0
     idx = 0
     while idx < len(msgs):
         msg = msgs[idx]
@@ -468,26 +471,30 @@ def _get_recent_tail(
             idx += 1
             continue
 
+        step_start = pending_start if pending else idx
         step = pending + [msg]
         pending = []
         idx += 1
         while idx < len(msgs) and msgs[idx].role not in ("assistant", "user"):
             step.append(msgs[idx])
             idx += 1
-        steps.append(step)
+        steps.append((step_start, step))
+        pending_start = idx
     if pending:
         # A conversation can end on a user message during interruption. Keep
         # that pending input as its own newest boundary when it fits.
-        steps.append(pending)
+        steps.append((pending_start, pending))
 
     tail: list[Message] = []
+    cut = len(msgs)
     total = 0
     model_str: str = model or "gpt-4"
-    for step in reversed(steps):
+    for step_start, step in reversed(steps):
         step_tokens = len_tokens(step, model=model_str)
         if total + step_tokens > keep_tokens:
             break
         tail[:0] = step
+        cut = step_start
         total += step_tokens
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
@@ -515,7 +522,17 @@ def _get_recent_tail(
                 tail = tail[:i] + tail[i + 1 :]
                 changed = True
                 break
-    return tail
+    return msgs[:cut], tail
+
+
+def _get_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> list[Message]:
+    """Return the retained side of :func:`_split_recent_tail`."""
+    return _split_recent_tail(msgs, keep_tokens, model=model)[1]
 
 
 def _message_identity(message: Message) -> tuple[object, ...]:

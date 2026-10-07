@@ -3687,6 +3687,19 @@ def test_get_recent_tail_never_splits_multi_message_tool_step():
     assert _get_recent_tail(msgs, budget, model="gpt-4") == [final]
 
 
+def test_split_recent_tail_returns_provider_compaction_prefix():
+    from gptme.tools.autocompact.resume import _split_recent_tail
+
+    old_step = [Message("user", "old"), Message("assistant", "old answer")]
+    recent_step = [Message("user", "recent"), Message("assistant", "recent answer")]
+    budget = len_tokens(recent_step, model="gpt-4")
+
+    prefix, tail = _split_recent_tail(old_step + recent_step, budget, model="gpt-4")
+
+    assert prefix == old_step
+    assert tail == recent_step
+
+
 def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
     """The file-dropping loop must compare total fixed tokens (essential +
     files) against the budget, not subtract file tokens from the essential
