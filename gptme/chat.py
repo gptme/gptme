@@ -707,35 +707,44 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Walk backward past hook-appended informational system messages (e.g. the
-    # budget reminder from the autocompact TURN_POST hook) to find the effective
-    # last user/assistant message. Those messages do not change the turn's outcome
-    # — if the underlying turn ended on an assistant response, we should still
-    # prompt for user input.
-    # Stop early at:
-    #   - tool results (system messages with call_id) — mid-turn, keep generating
-    #   - control messages (interrupt, decline, provider error) — hand back to user
-    effective_last = last_msg
+    # Only the budget reminder is transparent to the last-message decision.
+    # Other system messages may be markdown tool results without a call_id,
+    # including results from older saved logs. Preserve their continuation.
+    effective_last = next(
+        (
+            msg
+            for msg in reversed(log)
+            if not (
+                msg.role == "system"
+                and not msg.call_id
+                and "compaction_reminder_view" in (msg.metadata or {})
+            )
+        ),
+        None,
+    )
+
+    # Scan the whole suffix after the last assistant/user for control markers.
+    # A later tool result must not mask a decline, interrupt, or provider error;
+    # a newer user turn supersedes the marker. Tool output with a call_id is
+    # never itself a control marker, even if its text matches one.
     has_recent_return_to_prompt = False
     for msg in reversed(log):
         if msg.role in ("assistant", "user"):
-            effective_last = msg
             break
-        if msg.role == "system":
-            if msg.call_id:
-                # Tool result: turn is still mid-execution, don't skip past it.
-                break
-            if msg.content in (
-                INTERRUPT_CONTENT,
-                DECLINED_CONTENT,
-            ) or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX):
-                has_recent_return_to_prompt = True
-                break
-            # Non-tool-result, non-control system message (hook-appended): skip.
+        if (
+            msg.role == "system"
+            and not msg.call_id
+            and (
+                msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
+                or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+            )
+        ):
+            has_recent_return_to_prompt = True
+            break
 
     # Ask for input when:
     # - No messages at all
-    # - Effective last message (before hook-appended system msgs) was from assistant
+    # - Last non-reminder message was from assistant
     # - There was an interrupt, decline, or provider error after the last assistant
     # - Last message was pinned
     # - No user messages exist in the entire log

@@ -998,6 +998,52 @@ def test_should_prompt_after_provider_error_system_message():
     assert _should_prompt_for_input(with_budget_reminder) is True
 
 
+@pytest.mark.parametrize("with_reminder", [False, True])
+def test_should_resume_after_markdown_tool_result(with_reminder):
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    messages = [
+        Message("user", "run pwd"),
+        Message("assistant", "```shell\npwd\n```"),
+        # Markdown-format results have no call_id, including older saved logs.
+        Message("system", "Ran command: pwd\n/home/user"),
+    ]
+    if with_reminder:
+        messages.append(
+            Message(
+                "system", "Budget reminder", metadata={"compaction_reminder_view": ""}
+            )
+        )
+    assert _should_prompt_for_input(Log(messages)) is False
+
+
+@pytest.mark.parametrize("with_reminder", [False, True])
+def test_decline_not_masked_by_later_tool_result(with_reminder):
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import DECLINED_CONTENT
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    messages = [
+        Message("user", "run the tools"),
+        Message("assistant", "calling tools"),
+        Message("system", DECLINED_CONTENT),
+        Message("system", "later tool result", call_id="call_1"),
+    ]
+    if with_reminder:
+        messages.append(
+            Message(
+                "system", "Budget reminder", metadata={"compaction_reminder_view": ""}
+            )
+        )
+    assert _should_prompt_for_input(Log(messages)) is True
+    # A new user turn supersedes the decline, even with a trailing reminder.
+    messages.append(Message("user", "continue"))
+    assert _should_prompt_for_input(Log(messages)) is False
+
+
 def test_interactive_survives_provider_error(tmp_path):
     """A 429 returns control to the user, not a crash or retry loop.
 
