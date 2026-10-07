@@ -8,10 +8,35 @@ preserving exact recovery via byte ranges.
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..message import Message
+
 logger = logging.getLogger(__name__)
+
+
+def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
+    """Return whether ``messages[index]`` is a persisted tool result.
+
+    Native tool results have a ``call_id``. Markdown and XML tool formats do
+    not, so their result is identified by the runnable assistant tool call
+    immediately before it. This mirrors the compaction engine's pairing rule.
+    """
+    if index < 0 or index >= len(messages):
+        return False
+    message = messages[index]
+    if message.role != "system":
+        return False
+    if message.call_id:
+        return True
+    if index == 0:
+        return False
+
+    from .reduce import message_contains_tool_use
+
+    return message_contains_tool_use(messages[index - 1])
 
 
 @dataclass
