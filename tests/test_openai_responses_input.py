@@ -117,6 +117,25 @@ def test_reused_call_id_result_pairs_with_nearest_preceding_call() -> None:
     assert typed[3]["output"] == "result 2"
 
 
+def test_orphaned_tool_result_is_dropped() -> None:
+    """A result with no matching call (e.g. after corrupt-line removal) is dropped, not sent."""
+    _, items = _messages_to_responses_input(
+        [
+            Message("user", "Do something."),
+            # No assistant function_call for call_gone — simulates a removed corrupt line
+            Message("system", "result for gone call", call_id="call_gone"),
+            Message("user", "Continue."),
+        ]
+    )
+    call_ids_in_output = [
+        i.get("call_id") for i in items if i.get("type") == "function_call_output"
+    ]
+    assert "call_gone" not in call_ids_in_output
+    # The user messages are still present
+    user_messages = [i for i in items if i.get("role") == "user"]
+    assert len(user_messages) == 2
+
+
 def test_markdown_execution_can_miss_a_call_that_responses_replay_recognizes() -> None:
     content = '@shell(call_missing): {"command": "echo hello"}'
     assert list(ToolUse.iter_from_content(content, "markdown")) == []

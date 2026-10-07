@@ -227,8 +227,12 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
     A result belongs to the nearest preceding unpaired call with its ID, so a
     reused ID can neither hide a later orphaned call nor steal an earlier
     call's result.
+
+    Also drops tool results whose matching call is absent (e.g. removed by
+    corrupt-line repair), which would otherwise cause a Responses API 400.
     """
     pending: dict[str, list[int]] = {}
+    orphaned_results: set[int] = set()
     for idx, item in enumerate(items):
         if item.get("type") == "function_call":
             pending.setdefault(item["call_id"], []).append(idx)
@@ -236,12 +240,20 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
             calls = pending.get(item["call_id"])
             if calls:
                 calls.pop()
-    orphans = {idx for calls in pending.values() for idx in calls}
+            else:
+                orphaned_results.add(idx)
+    orphaned_calls = {idx for calls in pending.values() for idx in calls}
 
     paired_items: list[dict[str, Any]] = []
     for idx, item in enumerate(items):
+        if idx in orphaned_results:
+            logger.warning(
+                "Dropping tool result with no matching call for call_id %s",
+                item["call_id"],
+            )
+            continue
         paired_items.append(item)
-        if idx in orphans:
+        if idx in orphaned_calls:
             logger.warning("No tool result recorded for call_id %s", item["call_id"])
             paired_items.append(
                 {
