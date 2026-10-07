@@ -980,6 +980,164 @@ def test_should_prompt_after_provider_error_system_message():
     )
     assert _should_prompt_for_input(tool_result) is False
 
+    # A hook-appended system message after a completed assistant turn (e.g. the
+    # budget reminder from the autocompact TURN_POST hook) must NOT start an
+    # unrequested model turn. The underlying turn ended on assistant, so we
+    # should still prompt for user input.
+    with_budget_reminder = Log(
+        [
+            Message("user", "do something"),
+            Message("assistant", "done"),
+            Message(
+                "system",
+                "Context is approaching its compaction budget. ...",
+                metadata={"compaction_reminder_view": ""},
+            ),
+        ]
+    )
+    assert _should_prompt_for_input(with_budget_reminder) is True
+
+
+def test_should_prompt_after_max_steps_stop():
+    """A trailing GPTME_MAX_STEPS stop message must return control to the user.
+
+    Without this, the scan sees a system message that doesn't match the
+    assistant/decline/error control markers and auto-generates another turn,
+    bypassing the step limit on every call (Greptile P1 on PR #4174).
+    """
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import MAX_STEPS_STOP_PREFIX
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    stop = Message(
+        "system", f"{MAX_STEPS_STOP_PREFIX} (3)", metadata={"max_steps_stop": True}
+    )
+    stopped = Log(
+        [
+            Message("user", "do it"),
+            Message("assistant", "```shell\npwd\n```"),
+            Message("system", "/home/user"),
+            stop,
+        ]
+    )
+    assert _should_prompt_for_input(stopped) is True
+
+    # A newer user turn supersedes the stop marker.
+    resumed = Log(
+        [
+            Message("user", "do it"),
+            Message("assistant", "working..."),
+            stop,
+            Message("user", "continue"),
+        ]
+    )
+    assert _should_prompt_for_input(resumed) is False
+
+    # Hook system messages after the marker must still return to the user.
+    hooked = Log(
+        [
+            Message("user", "do it"),
+            Message("assistant", "working..."),
+            stop,
+            Message("system", "cost: $0.01"),
+        ]
+    )
+    assert _should_prompt_for_input(hooked) is True
+
+
+def test_max_steps_stop_is_tagged_and_survives_reload(tmp_path, monkeypatch):
+    import importlib
+
+    from gptme.chat import _process_message_conversation, _should_prompt_for_input
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager([Message("user", "run tools")], logdir=tmp_path / "chat")
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    monkeypatch.setattr(
+        chat_module, "step", lambda *_a, **_k: iter([Message("assistant", "working")])
+    )
+    monkeypatch.setattr(chat_module, "trigger_hook", lambda *_a, **_k: [])
+    monkeypatch.setattr(chat_module, "_run_post_tool_compaction", lambda *_a: False)
+    monkeypatch.setattr(chat_module, "get_default_model", lambda: None)
+    _process_message_conversation(manager, False, "markdown", None)
+
+    assert manager.log[-1].metadata == {"max_steps_stop": True}
+    manager.write()
+    reloaded = LogManager.load(manager.logdir)
+    assert reloaded.log[-1].metadata == {"max_steps_stop": True}
+    assert _should_prompt_for_input(reloaded.log) is True
+
+
+@pytest.mark.parametrize("with_reminder", [False, True])
+@pytest.mark.parametrize("metadata", [None, {"tool": "shell"}])
+def test_step_limit_text_in_tool_output_does_not_stop_turn(with_reminder, metadata):
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import MAX_STEPS_STOP_PREFIX
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    messages = [
+        Message("user", "read the issue"),
+        Message("assistant", "```shell\ngh api --jq .body\n```"),
+        Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)", metadata=metadata),
+    ]
+    if with_reminder:
+        messages.append(
+            Message(
+                "system", "Budget reminder", metadata={"compaction_reminder_view": ""}
+            )
+        )
+    assert _should_prompt_for_input(Log(messages)) is False
+
+
+@pytest.mark.parametrize("with_reminder", [False, True])
+def test_should_resume_after_markdown_tool_result(with_reminder):
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    messages = [
+        Message("user", "run pwd"),
+        Message("assistant", "```shell\npwd\n```"),
+        # Markdown-format results have no call_id, including older saved logs.
+        Message("system", "Ran command: pwd\n/home/user"),
+    ]
+    if with_reminder:
+        messages.append(
+            Message(
+                "system", "Budget reminder", metadata={"compaction_reminder_view": ""}
+            )
+        )
+    assert _should_prompt_for_input(Log(messages)) is False
+
+
+@pytest.mark.parametrize("with_reminder", [False, True])
+def test_decline_not_masked_by_later_tool_result(with_reminder):
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import DECLINED_CONTENT
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    messages = [
+        Message("user", "run the tools"),
+        Message("assistant", "calling tools"),
+        Message("system", DECLINED_CONTENT),
+        Message("system", "later tool result", call_id="call_1"),
+    ]
+    if with_reminder:
+        messages.append(
+            Message(
+                "system", "Budget reminder", metadata={"compaction_reminder_view": ""}
+            )
+        )
+    assert _should_prompt_for_input(Log(messages)) is True
+    # A new user turn supersedes the decline, even with a trailing reminder.
+    messages.append(Message("user", "continue"))
+    assert _should_prompt_for_input(Log(messages)) is False
+
 
 def test_interactive_survives_provider_error(tmp_path):
     """A 429 returns control to the user, not a crash or retry loop.

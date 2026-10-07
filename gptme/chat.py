@@ -16,6 +16,7 @@ from .constants import (
     LLM_REQUEST_FAILED_PREFIX,
     MAX_MESSAGE_LENGTH,
     MAX_PROMPT_QUEUE_SIZE,
+    MAX_STEPS_STOP_PREFIX,
 )
 from .constants import (
     prompt_user as prompt_user_styled,
@@ -627,7 +628,11 @@ def _process_message_conversation(
             if not is_output_json() and not is_output_quiet():
                 console.log(f"Reached max steps limit ({max_steps}), stopping.")
             manager.append(
-                Message("system", f"Stopped: reached max steps limit ({max_steps})")
+                Message(
+                    "system",
+                    f"{MAX_STEPS_STOP_PREFIX} ({max_steps})",
+                    metadata={"max_steps_stop": True},
+                )
             )
             break
 
@@ -707,12 +712,26 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Check if there's an interrupt, decline, or provider-error message after
-    # the last assistant *and* last user message. These mean "hand control
-    # back to the user" rather than auto-generating. A newer user turn
-    # supersedes the marker (crash recovery / queued follow-up). Hooks
-    # (like cost_awareness) may append system messages after the marker, so
-    # skip those — but stop at user or assistant.
+    # Only the budget reminder is transparent to the last-message decision.
+    # Other system messages may be markdown tool results without a call_id,
+    # including results from older saved logs. Preserve their continuation.
+    effective_last = next(
+        (
+            msg
+            for msg in reversed(log)
+            if not (
+                msg.role == "system"
+                and not msg.call_id
+                and "compaction_reminder_view" in (msg.metadata or {})
+            )
+        ),
+        None,
+    )
+
+    # Scan the whole suffix after the last assistant/user for control markers.
+    # A later tool result must not mask a decline, interrupt, or provider error;
+    # a newer user turn supersedes the marker. Tool output with a call_id is
+    # never itself a control marker, even if its text matches one.
     has_recent_return_to_prompt = False
     for msg in reversed(log):
         if msg.role in ("assistant", "user"):
@@ -723,6 +742,7 @@ def _should_prompt_for_input(log: Log) -> bool:
             and (
                 msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
                 or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+                or (msg.metadata or {}).get("max_steps_stop") is True
             )
         ):
             has_recent_return_to_prompt = True
@@ -730,15 +750,15 @@ def _should_prompt_for_input(log: Log) -> bool:
 
     # Ask for input when:
     # - No messages at all
-    # - Last message was from assistant (normal flow)
+    # - Last non-reminder message was from assistant
     # - There was an interrupt, decline, or provider error after the last assistant
     # - Last message was pinned
     # - No user messages exist in the entire log
     return (
-        not last_msg
-        or last_msg.role == "assistant"
+        not effective_last
+        or effective_last.role == "assistant"
         or has_recent_return_to_prompt
-        or last_msg.pinned
+        or (last_msg is not None and last_msg.pinned)
         or not any(role == "user" for role in [m.role for m in log])
     )
 

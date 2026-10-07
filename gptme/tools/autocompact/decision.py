@@ -25,6 +25,9 @@ MIN_SAVINGS_RATIO = 0.10  # Require at least 10% savings to justify compaction
 # previous behaviour unless they opt in (``target_ratio=1.0`` default).
 TRIM_TARGET_RATIO = 0.7
 
+# Leave room for the normal tool loop to save durable state before compaction.
+REMINDER_RATIO = 0.9
+
 CompactAction = Literal["none", "rule_based", "summarize"]
 
 
