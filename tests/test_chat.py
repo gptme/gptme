@@ -980,6 +980,23 @@ def test_should_prompt_after_provider_error_system_message():
     )
     assert _should_prompt_for_input(tool_result) is False
 
+    # A hook-appended system message after a completed assistant turn (e.g. the
+    # budget reminder from the autocompact TURN_POST hook) must NOT start an
+    # unrequested model turn. The underlying turn ended on assistant, so we
+    # should still prompt for user input.
+    with_budget_reminder = Log(
+        [
+            Message("user", "do something"),
+            Message("assistant", "done"),
+            Message(
+                "system",
+                "Context is approaching its compaction budget. ...",
+                metadata={"compaction_reminder_view": ""},
+            ),
+        ]
+    )
+    assert _should_prompt_for_input(with_budget_reminder) is True
+
 
 def test_interactive_survives_provider_error(tmp_path):
     """A 429 returns control to the user, not a crash or retry loop.

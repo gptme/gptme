@@ -707,38 +707,43 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Check if there's an interrupt, decline, or provider-error message after
-    # the last assistant *and* last user message. These mean "hand control
-    # back to the user" rather than auto-generating. A newer user turn
-    # supersedes the marker (crash recovery / queued follow-up). Hooks
-    # (like cost_awareness) may append system messages after the marker, so
-    # skip those — but stop at user or assistant.
+    # Walk backward past hook-appended informational system messages (e.g. the
+    # budget reminder from the autocompact TURN_POST hook) to find the effective
+    # last user/assistant message. Those messages do not change the turn's outcome
+    # — if the underlying turn ended on an assistant response, we should still
+    # prompt for user input.
+    # Stop early at:
+    #   - tool results (system messages with call_id) — mid-turn, keep generating
+    #   - control messages (interrupt, decline, provider error) — hand back to user
+    effective_last = last_msg
     has_recent_return_to_prompt = False
     for msg in reversed(log):
         if msg.role in ("assistant", "user"):
+            effective_last = msg
             break
-        if (
-            msg.role == "system"
-            and not msg.call_id
-            and (
-                msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
-                or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
-            )
-        ):
-            has_recent_return_to_prompt = True
-            break
+        if msg.role == "system":
+            if msg.call_id:
+                # Tool result: turn is still mid-execution, don't skip past it.
+                break
+            if msg.content in (
+                INTERRUPT_CONTENT,
+                DECLINED_CONTENT,
+            ) or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX):
+                has_recent_return_to_prompt = True
+                break
+            # Non-tool-result, non-control system message (hook-appended): skip.
 
     # Ask for input when:
     # - No messages at all
-    # - Last message was from assistant (normal flow)
+    # - Effective last message (before hook-appended system msgs) was from assistant
     # - There was an interrupt, decline, or provider error after the last assistant
     # - Last message was pinned
     # - No user messages exist in the entire log
     return (
-        not last_msg
-        or last_msg.role == "assistant"
+        not effective_last
+        or effective_last.role == "assistant"
         or has_recent_return_to_prompt
-        or last_msg.pinned
+        or (last_msg is not None and last_msg.pinned)
         or not any(role == "user" for role in [m.role for m in log])
     )
 
