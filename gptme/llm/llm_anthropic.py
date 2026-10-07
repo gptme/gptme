@@ -628,14 +628,25 @@ def retry_on_overloaded(
             # for this call aborts immediately (even attempts started later).
             generation = current_generation()
             attempts = max_retries if max_retries is not None else get_max_retries()
+            last_error: Exception | None = None
             for attempt in range(attempts):
                 # Do not start or retry a request after a thread-mode subagent's
                 # deadline. The wrapped function performs the same check when it
-                # computes the per-request timeout.
-                _remaining_subagent_timeout()
+                # computes the per-request timeout. If the deadline expires
+                # during a backoff wait, chain the wait's original error so the
+                # caller sees the underlying API failure, not a bare timeout.
+                try:
+                    _remaining_subagent_timeout()
+                except TimeoutError:
+                    if last_error is not None:
+                        raise TimeoutError(
+                            "Subagent deadline expired during retry backoff"
+                        ) from last_error
+                    raise
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    last_error = e
                     _handle_anthropic_transient_error(
                         e, attempt, attempts, base_delay, generation=generation
                     )
