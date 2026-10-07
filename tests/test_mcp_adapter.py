@@ -430,6 +430,7 @@ def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client
                 "tool should be gone from the loaded context after unload"
             )
     finally:
+        tools_mod.clear_tools()  # reset context-local loaded tools even on failure
         _set_available_tools_cache(None)  # restore cold cache for other tests
 
 
