@@ -1195,7 +1195,12 @@ def _reply_stream(
         # with positive output usage in metadata) must not become an empty
         # assistant turn. Partial/interrupted output and reasoning-only text
         # are non-empty here and are left alone.
-        raise EmptyStreamError(model, stream.metadata)
+        err = EmptyStreamError(model, stream.metadata)
+        # Tag here rather than relying on `reply()`'s outer handler: direct
+        # `_reply_stream` callers (e.g. the server session-step loop) bypass
+        # that handler and would otherwise miss the provider-recovery path.
+        mark_llm_reply_origin(err, output_emitted=False, visible_output_emitted=False)
+        raise err
 
     return Message("assistant", output, metadata=stream.metadata)
 

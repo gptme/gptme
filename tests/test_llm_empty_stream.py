@@ -78,3 +78,18 @@ def test_empty_stream_error_takes_provider_recovery_path():
     mark_llm_reply_origin(err)
 
     assert is_llm_reply_error(err)
+
+
+def test_direct_reply_stream_caller_gets_tagged_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A direct `_reply_stream` caller bypasses `reply()`'s outer tagging
+    handler, so the raise site itself must tag the error."""
+    monkeypatch.setattr("gptme.llm._stream", _fake_stream([], {"model": MODEL}))
+
+    with pytest.raises(EmptyStreamError) as excinfo:
+        _reply_stream([Message("user", "hi")], MODEL, None)
+
+    assert is_llm_reply_error(excinfo.value)
+    output_emitted = getattr(excinfo.value, "_gptme_llm_reply_output_emitted", True)
+    assert output_emitted is False
