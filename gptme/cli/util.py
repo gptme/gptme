@@ -1724,9 +1724,9 @@ def models_info(model_name: str, as_json: bool):
         except ValueError:
             unrecognized_provider = True
             click.echo(
-                f"⚠️  Unrecognized provider in '{model_name}'; showing generic "
-                "fallback metadata. Run 'gptme-util models list --available' "
-                "to see known models.",
+                f"⚠️  Unrecognized provider in '{model_name}' — the model "
+                "information cannot be shown. Run 'gptme-util models list "
+                "--available' to see known models.",
                 err=True,
             )
 

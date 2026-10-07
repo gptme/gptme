@@ -250,16 +250,32 @@ class TestModelsInfo:
 
     def test_custom_provider_model_exits_0(self):
         """A configured custom provider resolves to provider='unknown' internally
-        but is valid — must exit 0 and print model data, not exit 1."""
-        from gptme.llm import CustomProvider
+        but is valid — must exit 0 and print model data, not exit 1.
 
-        with patch(
-            "gptme.llm.get_provider_from_model",
-            return_value=CustomProvider("my-custom"),
+        Stubs both `get_model` (to return a provider='unknown' model object,
+        mimicking the internal custom-provider routing value) and
+        `get_provider_from_model` (to succeed with a CustomProvider, i.e. the
+        provider IS recognized), so the exit-0 path is exercised
+        deterministically regardless of environment-level custom config.
+        """
+        from gptme.llm import CustomProvider
+        from gptme.llm.models import get_model as _get_model
+
+        unknown_provider_model = _get_model("nonexistent-xyz")  # provider="unknown"
+        with (
+            patch(
+                "gptme.llm.models.get_model",
+                return_value=unknown_provider_model,
+            ),
+            patch(
+                "gptme.llm.get_provider_from_model",
+                return_value=CustomProvider("my-custom"),
+            ),
         ):
             result = self._run_models_info("my-custom/my-model")
         assert result.returncode == 0, result.stderr
         assert "Unrecognized provider" not in result.stderr
+        assert "Provider: unknown" in result.stdout
 
 
 class TestModelsRecommended:
