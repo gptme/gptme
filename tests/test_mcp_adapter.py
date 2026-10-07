@@ -7,7 +7,9 @@ import pytest
 
 from gptme.config import Config, MCPConfig, MCPServerConfig
 from gptme.mcp.registry import MCPServerInfo
+from gptme.message import Message
 from gptme.tools.mcp_adapter import (
+    _dynamic_server_tool_names,
     _dynamic_servers,
     _mcp_clients,
     _restart_mcp_client,
@@ -24,11 +26,17 @@ from gptme.tools.mcp_adapter import (
 @pytest.fixture(autouse=True)
 def clear_mcp_state():
     """Reset global MCP client state between tests."""
+    from gptme.tools import clear_tools
+
     _dynamic_servers.clear()
+    _dynamic_server_tool_names.clear()
     _mcp_clients.clear()
+    clear_tools()
     yield
     _dynamic_servers.clear()
+    _dynamic_server_tool_names.clear()
     _mcp_clients.clear()
+    clear_tools()
 
 
 @pytest.fixture
@@ -170,6 +178,42 @@ def test_create_mcp_tools_strict_closes_earlier_clients():
     ok_client.close.assert_called_once_with()
     bad_client.close.assert_called_once_with()
     assert registry == {}
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_dynamic_spec_failure_preserves_borrowed_client(
+    mock_config, mock_mcp_client, strict
+):
+    """Discovery isolates failures without closing a dynamically owned client."""
+    earlier = MagicMock()
+    earlier.connect.return_value = (SimpleNamespace(tools=[]), MagicMock())
+    later = MagicMock()
+    later.connect.return_value = mock_mcp_client.connect.return_value
+    mock_config.user.mcp.servers = [
+        MCPServerConfig(name="earlier", command="earlier"),
+        *mock_config.user.mcp.servers,
+        MCPServerConfig(name="later", command="later"),
+    ]
+    bad_tool = MagicMock()
+    bad_tool.name = "bad"
+    bad_tool.inputSchema = {"properties": None}
+    mock_mcp_client.tools = SimpleNamespace(tools=[bad_tool])
+    _dynamic_servers["test-server"] = mock_mcp_client
+
+    with patch("gptme.mcp.client.MCPClient", side_effect=[earlier, later]):
+        if strict:
+            with pytest.raises(RuntimeError, match="test-server"):
+                create_mcp_tools(mock_config, strict=True)
+            earlier.close.assert_called_once_with()
+            assert "earlier" not in _mcp_clients
+            later.connect.assert_not_called()
+        else:
+            specs = create_mcp_tools(mock_config)
+            assert [s.name for s in specs] == ["later.test_tool"]
+            earlier.close.assert_not_called()
+    assert _dynamic_servers["test-server"] is mock_mcp_client
+    assert isinstance(mock_mcp_client, MagicMock)
+    mock_mcp_client.close.assert_not_called()
 
 
 def test_create_mcp_execute_function(mock_config):
@@ -369,6 +413,253 @@ def test_get_mcp_server_info_not_found():
         assert "not found" in result
 
 
+def test_load_mcp_server_registers_toolspecs(mock_config, mock_mcp_client):
+    """load_mcp_server must register ToolSpecs in the available-tools cache.
+
+    Regression for gptme/gptme#4069: /mcp load reported success but the server's
+    tools were never invocable because load_mcp_server() never built ToolSpecs.
+    """
+    from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+
+    # Prime a warm (but empty) cache to simulate an already-running session.
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            load_mcp_server("test-server")
+
+        cached = _get_available_tools_cache()
+        assert cached is not None, "cache should still be warm after load"
+        names = [t.name for t in cached]
+        assert "test-server.test_tool" in names, (
+            f"expected test-server.test_tool in cache after load, got {names}"
+        )
+
+        # Unload must remove the specs from the cache.
+        unload_mcp_server("test-server")
+        cached_after = _get_available_tools_cache()
+        assert cached_after is not None
+        names_after = [t.name for t in cached_after]
+        assert "test-server.test_tool" not in names_after, (
+            "test-server.test_tool should be removed from cache after unload"
+        )
+    finally:
+        _set_available_tools_cache(None)  # restore cold cache for other tests
+
+
+def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client):
+    """After load, the server's tools must be selectable/executable via get_tools()/get_tool(), not just listed in the cache."""
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
+
+            loaded = tools_mod.get_tools()
+            assert "test-server.test_tool" in [t.name for t in loaded], (
+                "tool should be active in the loaded context after load"
+            )
+            assert tools_mod.get_tool("test-server.test_tool") is not None
+
+            unload_mcp_server("test-server")
+            assert tools_mod.get_tool("test-server.test_tool") is None, (
+                "tool should be gone from the loaded context after unload"
+            )
+    finally:
+        tools_mod.clear_tools()  # reset context-local loaded tools even on failure
+        _set_available_tools_cache(None)  # restore cold cache for other tests
+
+
+def test_load_mcp_server_respects_session_allowlist(mock_config, mock_mcp_client):
+    """Dynamic discovery must not widen a restricted executable toolset.
+
+    The new specs are listed in the available-tools cache (discovery), but only
+    tools matching the operator's session allowlist become executable, mirroring
+    the init_tools() rule for startup MCP servers.
+    """
+    from gptme import tools as tools_mod
+    from gptme.tools import (
+        _get_available_tools_cache,
+        _set_available_tools_cache,
+        set_session_allowlist,
+    )
+
+    _set_available_tools_cache([])
+    set_session_allowlist(["shell"])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
+
+            cached = _get_available_tools_cache()
+            assert cached is not None
+            assert "test-server.test_tool" in [t.name for t in cached], (
+                "discovery should still list the new tool"
+            )
+            assert tools_mod.get_tool("test-server.test_tool") is None, (
+                "a tool outside the session allowlist must not become executable"
+            )
+
+            unload_mcp_server("test-server")
+            cached_after = _get_available_tools_cache()
+            assert cached_after is not None
+            assert "test-server.test_tool" not in [t.name for t in cached_after]
+    finally:
+        set_session_allowlist(None)
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_load_mcp_server_reenables_previously_unloaded_server(
+    mock_config, mock_mcp_client
+):
+    """Reloading a server that unload left enabled=False must flip it back on."""
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    server = mock_config.user.mcp.servers[0]
+    server.enabled = False
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.tools.mcp_adapter.set_config") as set_cfg,
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
+            assert server.enabled
+            set_cfg.assert_called()
+            assert "✓ enabled" in list_loaded_servers()
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+@pytest.mark.parametrize("failure_stage", ["connect", "spec_build"])
+def test_failed_mcp_reload_preserves_disabled_state(
+    mock_config, mock_mcp_client, failure_stage
+):
+    """A failed reload must not advertise the disabled server as enabled."""
+    server = mock_config.user.mcp.servers[0]
+    server.enabled = False
+    if failure_stage == "connect":
+        mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        patch("gptme.tools.mcp_adapter._build_tool_specs_for_server") as build,
+    ):
+        if failure_stage == "spec_build":
+            build.side_effect = ValueError("invalid schema")
+        result = load_mcp_server("test-server")
+
+        assert "Failed to load" in result
+        assert not server.enabled
+        assert "test-server" not in _dynamic_servers
+        assert "✗ disabled" in list_loaded_servers()
+
+
+def test_unload_exact_names_does_not_touch_prefix_sibling_servers():
+    """Unloading 'foo' must not remove tools of a distinct 'foo.bar' server."""
+    from gptme.tools import _get_available_tools_cache, _set_available_tools_cache
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.mcp_adapter import _dynamic_server_tool_names
+
+    def make_spec(name: str) -> ToolSpec:
+        def execute(
+            code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
+        ) -> Message:
+            return Message("system", "noop")
+
+        return ToolSpec(name=name, desc="", execute=execute)
+
+    _set_available_tools_cache([make_spec("foo.tool_a"), make_spec("foo.bar.tool_b")])
+    _dynamic_servers["foo"] = MagicMock()
+    _dynamic_servers["foo.bar"] = MagicMock()
+    _dynamic_server_tool_names["foo"] = ["foo.tool_a"]
+    _dynamic_server_tool_names["foo.bar"] = ["foo.bar.tool_b"]
+    try:
+        unload_mcp_server("foo")
+
+        names = [t.name for t in _get_available_tools_cache() or []]
+        assert "foo.tool_a" not in names
+        assert "foo.bar.tool_b" in names, (
+            "unloading 'foo' must not remove distinct 'foo.bar' server tools"
+        )
+
+        # cleanup other server
+        unload_mcp_server("foo.bar")
+    finally:
+        _set_available_tools_cache(None)
+        _dynamic_server_tool_names.clear()
+
+
+def test_failed_spec_build_rolls_back_and_allows_retry(mock_config, mock_mcp_client):
+    """A spec-building failure must not leave the server marked loaded; a retry must work."""
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        patch(
+            "gptme.tools.mcp_adapter._build_tool_specs_for_server",
+            side_effect=ValueError("bad schema"),
+        ),
+    ):
+        result = load_mcp_server("test-server")
+        assert "Failed to load" in result
+        assert "test-server" not in _dynamic_servers, (
+            "failed load must not leave the server in _dynamic_servers"
+        )
+        mock_mcp_client.close.assert_called_once()
+
+    # Retry with working spec building succeeds (not blocked by "already loaded")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("test-server")
+        assert "Successfully loaded" in result, (
+            "retry after failed load must not be blocked by stale registration"
+        )
+        unload_mcp_server("test-server")
+
+
+def test_spec_build_handles_boolean_property_schema(mock_config):
+    """A boolean property schema (JSON Schema shorthand) must not crash spec building."""
+    client = MagicMock()
+    mock_tool = MagicMock()
+    mock_tool.name = "flag_tool"
+    mock_tool.description = "Toggles a flag"
+    mock_tool.inputSchema = {
+        "type": "object",
+        "properties": {"flag": True},
+        "required": [],
+    }
+    mock_tool.annotations = None
+    mock_tools = MagicMock()
+    mock_tools.tools = [mock_tool]
+    client.connect.return_value = (mock_tools, MagicMock())
+
+    from gptme.tools.mcp_adapter import _build_tool_specs_for_server
+
+    specs = _build_tool_specs_for_server(
+        mock_config.mcp.servers[0], mock_tools, mock_config, {}
+    )
+    assert len(specs) == 1
+    assert specs[0].parameters[0].type == "string"
+
+
 def test_load_mcp_server_already_loaded():
     """Test load_mcp_server when server is already loaded."""
     # Add server to dynamic servers cache
@@ -416,6 +707,8 @@ def test_unload_mcp_server_success():
     result = unload_mcp_server("test-server")
     assert "Successfully unloaded" in result or "unloaded" in result
     assert "test-server" not in _dynamic_servers
+    # The subprocess/stdio transport must not outlive the unload.
+    mock_client.close.assert_called_once_with()
 
 
 def test_session_client_retry_stays_in_session_registry(mock_config):
@@ -646,3 +939,136 @@ class TestMCPElicitationBridge:
         port_field = request.fields[0]
         assert port_field.default == "8080"
         assert port_field.required is False
+
+
+def test_dynamic_tools_do_not_mutate_inherited_context():
+    from contextvars import copy_context
+
+    from gptme import tools as tools_mod
+    from gptme.tools.base import ToolSpec
+
+    spec = ToolSpec(
+        name="context.tool", desc="", execute=lambda *_: Message("system", "ok")
+    )
+    tools_mod.clear_tools()
+    try:
+        child = copy_context()
+        child.run(tools_mod.load_dynamic_tool_specs, [spec])
+        assert child.run(tools_mod.get_tool, spec.name) is not None
+        assert tools_mod.get_tool(spec.name) is None
+
+        tools_mod.load_dynamic_tool_specs([spec])
+        child = copy_context()
+        child.run(tools_mod.unload_dynamic_tool_specs, [spec.name])
+        assert child.run(tools_mod.get_tool, spec.name) is None
+        assert tools_mod.get_tool(spec.name) is not None
+    finally:
+        tools_mod.clear_tools()
+
+
+def test_load_startup_server_does_not_replace_connection(mock_config, mock_mcp_client):
+    from gptme import tools as tools_mod
+
+    tools_mod.clear_tools()
+    try:
+        with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+            specs = create_mcp_tools(mock_config)
+        tools_mod.load_dynamic_tool_specs(specs)
+        tools_mod._set_available_tools_cache(specs)
+        original_command = mock_config.mcp.servers[0].command
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient") as client_factory,
+        ):
+            result = load_mcp_server("test-server", {"command": "other-server"})
+            assert "already loaded" in result
+            client_factory.assert_not_called()
+            assert "not loaded" in unload_mcp_server("test-server")
+        assert mock_config.mcp.servers[0].command == original_command
+        assert tools_mod.get_tool(specs[0].name) is not None
+        assert tools_mod._get_available_tools_cache() == specs
+        assert "test-server" not in _dynamic_servers
+    finally:
+        tools_mod.clear_tools()
+
+
+@pytest.mark.parametrize("content", ['{"flag":', '{"flag": true}'])
+def test_boolean_schema_execution_errors_are_messages(
+    mock_config, mock_mcp_client, content
+):
+    tool = mock_mcp_client.connect.return_value[0].tools[0]
+    tool.inputSchema = {"type": "object", "properties": {"flag": True}}
+    mock_mcp_client.tools = mock_mcp_client.connect.return_value[0]
+    execute = create_mcp_execute_function(
+        tool.name, "test-server", mock_config, clients={"test-server": mock_mcp_client}
+    )
+
+    def confirm(code, args, kwargs, *, execute_fn, **options):
+        yield from execute_fn(code)
+
+    with (
+        patch("gptme.tools.mcp_adapter.execute_with_confirmation", side_effect=confirm),
+        patch(
+            "gptme.tools.mcp_adapter._call_mcp_tool_with_retry",
+            side_effect=ValueError("call failed"),
+        ),
+    ):
+        result = execute(content, None, None)
+        assert not isinstance(result, Message)
+        messages = list(result)
+    assert len(messages) == 1
+    assert "Error executing tool:" in messages[0].content
+    assert "flag: No description (Optional)" in messages[0].content
+    if content == '{"flag":':
+        assert "valid JSON object" in messages[0].content
+
+
+def test_cold_discovery_reuses_dynamic_connection(mock_config, mock_mcp_client):
+    from gptme import tools as tools_mod
+
+    tools_mod.clear_tools()
+    mock_mcp_client.tools = mock_mcp_client.connect.return_value[0]
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch(
+                "gptme.mcp.client.MCPClient", return_value=mock_mcp_client
+            ) as factory,
+        ):
+            assert "Successfully loaded" in load_mcp_server("test-server")
+            specs = create_mcp_tools(mock_config)
+            assert [spec.name for spec in specs] == ["test-server.test_tool"]
+            assert factory.call_count == 1
+            assert "test-server" not in _mcp_clients
+            assert "Successfully unloaded" in unload_mcp_server("test-server")
+            assert "Successfully loaded" in load_mcp_server("test-server")
+            assert factory.call_count == 2
+            unload_mcp_server("test-server")
+    finally:
+        tools_mod.clear_tools()
+
+
+def test_create_mcp_tools_failed_spec_build_removes_closed_client():
+    """A spec-building failure in default (non-strict) mode must not leave the
+    closed client in the registry: a stale entry makes load_mcp_server()
+    report 'already loaded' forever, blocking any retry."""
+    config = Config()
+    servers = [MCPServerConfig(name="bad", enabled=True, command="bad-cmd")]
+    config.user.mcp = MCPConfig(enabled=True, servers=servers)
+
+    client = MagicMock()
+    client.connect.return_value = (MagicMock(), MagicMock())
+
+    registry: dict = {}
+    with (
+        patch("gptme.mcp.client.MCPClient", return_value=client),
+        patch(
+            "gptme.tools.mcp_adapter._build_tool_specs_for_server",
+            side_effect=ValueError("bad schema"),
+        ),
+    ):
+        tools = create_mcp_tools(config, servers=servers, clients=registry)
+
+    assert tools == []
+    client.close.assert_called_once_with()
+    assert registry == {}, "closed client must not stay registered as loaded"
