@@ -57,22 +57,20 @@ export function DeleteConversationConfirmationDialog({
       return;
     }
     const deletingSelectedConversation = selectedConversation$.peek() === conversationName;
+    // Navigate away before clearing local state to avoid a blank pane flash
+    // (conversations$.delete triggers a re-render; if we're still on the
+    // deleted conversation's URL, that render shows an empty view).
+    if (deletingSelectedConversation) {
+      selectedConversation$.set('');
+      navigate(appRoute('/chat'), { replace: true });
+    }
     conversations$.delete(conversationName);
     queryClient.invalidateQueries({
       queryKey: conversationsQueryKey(connectionConfig.baseUrl),
     });
-    // Clear selection after delete. (Previously reset to a demo conversation,
-    // which surfaced demo content to real users — and used the demo's name
-    // rather than its id, so it never actually selected anything.)
-    if (deletingSelectedConversation) {
-      selectedConversation$.set('');
-    }
 
     // Reset state
     await onDelete();
-    if (deletingSelectedConversation) {
-      navigate(appRoute('/chat'), { replace: true });
-    }
     setIsDeleting(false);
     onOpenChange(false);
   };
