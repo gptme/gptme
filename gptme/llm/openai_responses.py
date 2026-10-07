@@ -224,24 +224,39 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
 def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep interrupted or unexecuted tool calls replayable without inventing results.
 
-    A result belongs to the nearest preceding unpaired call with its ID, so a
-    reused ID can neither hide a later orphaned call nor steal an earlier
-    call's result.
+    Orphaned results (call_id has no function_call anywhere in the list) are
+    dropped — they would cause a Responses API 400.
 
-    Also drops tool results whose matching call is absent (e.g. removed by
-    corrupt-line repair), which would otherwise cause a Responses API 400.
+    Multiple results for the same call_id are all kept when at least one call
+    exists; one call may legitimately produce several output events (e.g. a
+    tool result followed by a system notification for the same call).
+
+    Orphaned calls (no result paired with them) get a stub result so the API
+    stays valid. For reused call_ids the nearest-preceding-call semantics are
+    preserved: each result consumes the most recent pending call (LIFO), so
+    the earliest unmatched call is the one that receives the stub.
     """
-    pending: dict[str, list[int]] = {}
+    # Pre-compute which call_ids have at least one function_call (for result check)
+    call_ids_with_call: set[str] = set()
+    for item in items:
+        if item.get("type") == "function_call":
+            call_ids_with_call.add(item["call_id"])
+
+    # Walk in order: identify orphaned results and orphaned calls separately.
+    # Results are orphaned only when call_id has NO call anywhere.
+    # Calls are orphaned using LIFO pairing so nearest-preceding-call wins.
     orphaned_results: set[int] = set()
+    pending: dict[str, list[int]] = {}  # call_id → stack of unpaired call indices
     for idx, item in enumerate(items):
         if item.get("type") == "function_call":
             pending.setdefault(item["call_id"], []).append(idx)
         elif item.get("type") == "function_call_output":
-            calls = pending.get(item["call_id"])
-            if calls:
-                calls.pop()
-            else:
+            cid = item["call_id"]
+            if cid not in call_ids_with_call:
                 orphaned_results.add(idx)
+            elif pending.get(cid):
+                pending[cid].pop()  # pair with nearest preceding call
+            # else: extra result for an already-matched call — keep it
     orphaned_calls = {idx for calls in pending.values() for idx in calls}
 
     paired_items: list[dict[str, Any]] = []
