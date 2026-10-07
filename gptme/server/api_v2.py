@@ -61,7 +61,9 @@ from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
 from ..config import get_project_config
+from ..config.models import MCPConfig
 from ..config.user import (
+    _parse_mcp_config,
     get_default_model_source,
     get_user_config_env_source,
     get_user_config_paths,
@@ -133,6 +135,8 @@ from .openapi_docs import (
     UserDefaultModelSaveResponse,
     UserFavoritesSaveRequest,
     UserFavoritesSaveResponse,
+    UserMcpConfigResponse,
+    UserMcpConfigSaveRequest,
     UserSettingsResponse,
     api_doc,
     api_doc_simple,
@@ -675,6 +679,111 @@ def _read_user_config_file_text() -> str:
     if not config_file.exists():
         load_user_config()
     return config_file.read_text()
+
+
+# env/header keys whose values are secrets in the structured MCP endpoint.
+_MCP_SECRET_KEY_RE = re.compile(r"(?i)(api[_-]?key|secret|password|token|auth)")
+
+# Serialises atomic read-modify-write of the user config file.
+_config_write_lock = threading.Lock()
+
+
+def _mcp_config_response(mcp: MCPConfig) -> dict:
+    """Serialize ``[mcp]`` for the API, redacting secret env/header values."""
+
+    def _redact(values: dict) -> dict:
+        return {
+            k: _REDACT_SENTINEL if _MCP_SECRET_KEY_RE.search(str(k)) else v
+            for k, v in values.items()
+        }
+
+    return {
+        "enabled": mcp.enabled,
+        "auto_start": mcp.auto_start,
+        "servers": [
+            {**asdict(srv), "env": _redact(srv.env), "headers": _redact(srv.headers)}
+            for srv in mcp.servers
+        ],
+        "path": get_user_config_runtime_info()["config_path"],
+    }
+
+
+def _parse_mcp_request(body: dict, current: MCPConfig) -> MCPConfig:
+    """Validate a structured ``[mcp]`` body and restore redacted secrets.
+
+    Raises ValueError with a client-facing message on invalid input.
+    """
+    mcp = MCPConfig.from_dict(dict(body))
+    if not isinstance(mcp.enabled, bool) or not isinstance(mcp.auto_start, bool):
+        raise ValueError("enabled and auto_start must be booleans")
+    on_disk = {srv.name: srv for srv in current.servers}
+    seen: set[str] = set()
+    for srv in mcp.servers:
+        if not isinstance(srv.name, str) or not srv.name.strip():
+            raise ValueError("every MCP server needs a non-empty name")
+        if srv.name in seen:
+            raise ValueError(f"duplicate MCP server name: {srv.name}")
+        seen.add(srv.name)
+        if not isinstance(srv.enabled, bool):
+            raise ValueError(f"{srv.name}: enabled must be a boolean")
+        if not isinstance(srv.command, str) or not isinstance(srv.url, str):
+            raise ValueError(f"{srv.name}: command and url must be strings")
+        if not srv.command and not srv.url:
+            raise ValueError(f"{srv.name}: set either command or url")
+        if not isinstance(srv.args, list) or not all(
+            isinstance(a, str) for a in srv.args
+        ):
+            raise ValueError(f"{srv.name}: args must be a list of strings")
+        for field_name in ("env", "headers"):
+            values = getattr(srv, field_name)
+            if not isinstance(values, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in values.items()
+            ):
+                raise ValueError(
+                    f"{srv.name}: {field_name} must map strings to strings"
+                )
+            original = getattr(on_disk.get(srv.name), field_name, {})
+            for key, value in values.items():
+                if value != _REDACT_SENTINEL:
+                    continue
+                # *** is a keep-old marker only for secret-looking keys; for
+                # other keys it is a literal value and passes through unchanged.
+                if not _MCP_SECRET_KEY_RE.search(str(key)):
+                    continue
+                if key not in original:
+                    raise ValueError(
+                        f"{srv.name}: {field_name}.{key} is redacted but has no "
+                        "saved value to keep; send the real value"
+                    )
+                values[key] = original[key]
+    return mcp
+
+
+def _mcp_config_to_toml(mcp: MCPConfig) -> "tomlkit.items.Table":
+    """Build an ``[mcp]`` table, omitting empty optional server fields."""
+    table = tomlkit.table()
+    table["enabled"] = mcp.enabled
+    table["auto_start"] = mcp.auto_start
+    servers = tomlkit.aot()
+    for srv in mcp.servers:
+        entry = tomlkit.table()
+        entry["name"] = srv.name
+        entry["enabled"] = srv.enabled
+        for key in ("command", "args", "url", "env", "headers"):
+            value = getattr(srv, key)
+            if value:
+                entry[key] = value
+        servers.append(entry)
+    table["servers"] = servers
+    return table
+
+
+def _read_user_mcp_config() -> tuple[tomlkit.TOMLDocument, MCPConfig]:
+    doc = tomlkit.loads(_read_user_config_file_text())
+    mcp = _parse_mcp_config(
+        doc.get("mcp", {}).unwrap() if "mcp" in doc else {}, strict=False
+    )
+    return doc, mcp
 
 
 def _validate_config_key_path(key: str) -> str:
@@ -3861,7 +3970,8 @@ def api_user_avatar():
 )
 def api_user_config_file_get():
     """Return raw config.toml contents for the settings UI."""
-    content = _read_user_config_file_text()
+    with _config_write_lock:  # don't read a half-written file
+        content = _read_user_config_file_text()
     return flask.jsonify(_get_user_config_file_response(content))
 
 
@@ -3894,18 +4004,19 @@ def api_user_config_file_put():
     except Exception as exc:
         return flask.jsonify({"error": f"Invalid TOML: {exc}"}), 400
 
-    config_file, _local_path = get_user_config_paths()
-    config_file.parent.mkdir(parents=True, exist_ok=True)
+    with _config_write_lock:
+        config_file, _local_path = get_user_config_paths()
+        config_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # If the submitted content contains redaction sentinels, restore the real
-    # values from the on-disk file so the webui round-trip doesn't wipe secrets.
-    original = config_file.read_text() if config_file.exists() else ""
-    write_content = _restore_redacted_secrets(content, original)
+        # If the submitted content contains redaction sentinels, restore the real
+        # values from the on-disk file so the webui round-trip doesn't wipe secrets.
+        original = config_file.read_text() if config_file.exists() else ""
+        write_content = _restore_redacted_secrets(content, original)
 
-    config_file.write_text(write_content)
-    from gptme.config.core import reload_config
+        config_file.write_text(write_content)
+        from gptme.config.core import reload_config
 
-    reload_config()
+        reload_config()
 
     response = _get_user_config_file_response(write_content)
     response["status"] = "ok"
@@ -3951,13 +4062,100 @@ def api_user_config_file_patch():
         return flask.jsonify({"error": str(exc)}), 400
 
     try:
-        set_config_value(key, value, reload=reload_config)
+        with _config_write_lock:
+            set_config_value(key, value, reload=reload_config)
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
     content = _read_user_config_file_text()
     response = _get_user_config_file_response(content)
     response["status"] = "ok"
     response["key"] = key
+    return flask.jsonify(response)
+
+
+@v2_api.route("/api/v2/user/config/mcp", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get structured MCP config",
+    description=(
+        "Return the `[mcp]` section of the user's main config.toml as structured "
+        "JSON. Secret-looking env/header values are redacted as `***`."
+    ),
+    responses={200: UserMcpConfigResponse},
+    tags=["user"],
+)
+def api_user_mcp_config_get():
+    """Return the global MCP config for the settings UI."""
+    with _config_write_lock:  # don't read a half-written file
+        _doc, mcp = _read_user_mcp_config()
+    return flask.jsonify(_mcp_config_response(mcp))
+
+
+@v2_api.route("/api/v2/user/config/mcp", methods=["PUT"])
+@require_auth
+@api_doc(
+    summary="Replace structured MCP config",
+    description=(
+        "Validate and replace the `[mcp]` section of the user's main config.toml, "
+        "leaving the rest of the file untouched. A `***` env/header value keeps "
+        "the saved secret for that server and key."
+    ),
+    request_body=UserMcpConfigSaveRequest,
+    responses={200: UserMcpConfigResponse, 400: ErrorResponse},
+    tags=["user"],
+)
+def api_user_mcp_config_put():
+    """Replace the global ``[mcp]`` section with validated structured config."""
+    req_json = request.get_json(silent=True)
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    with _config_write_lock:
+        doc, current = _read_user_mcp_config()
+
+        # Refuse to overwrite entries the non-strict parser could not represent.
+        if "mcp" in doc:
+            raw_mcp = (
+                doc["mcp"].unwrap() if hasattr(doc["mcp"], "unwrap") else doc["mcp"]
+            )
+            if not isinstance(raw_mcp, dict):
+                return flask.jsonify(
+                    {
+                        "error": (
+                            "The existing [mcp] section is not a table; "
+                            "fix or remove it in config.toml before using this endpoint"
+                        )
+                    }
+                ), 409
+            raw_servers = raw_mcp.get("servers", [])
+            raw_count = len(raw_servers) if isinstance(raw_servers, list) else 0
+            if raw_count != len(current.servers):
+                skipped = raw_count - len(current.servers)
+                return flask.jsonify(
+                    {
+                        "error": (
+                            f"{skipped} entry(ies) in the existing [mcp] section "
+                            "cannot be represented by the structured editor; fix or "
+                            "remove them in config.toml before using this endpoint"
+                        )
+                    }
+                ), 409
+
+        try:
+            mcp = _parse_mcp_request(req_json, current)
+        except ValueError as exc:
+            return flask.jsonify({"error": str(exc)}), 400
+
+        doc["mcp"] = _mcp_config_to_toml(mcp)
+        config_file, _local_path = get_user_config_paths()
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text(tomlkit.dumps(doc))
+        from gptme.config.core import reload_config
+
+        reload_config()
+
+    response = _mcp_config_response(mcp)
+    response["status"] = "ok"
     return flask.jsonify(response)
 
 

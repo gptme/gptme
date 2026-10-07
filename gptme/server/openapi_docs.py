@@ -324,6 +324,39 @@ class UserConfigFileSaveResponse(UserConfigFileResponse):
     status: str = Field(..., description="Operation status")
 
 
+class McpServerConfigModel(BaseModel):
+    """One ``[[mcp.servers]]`` entry. Secret env/header values read as ``***``."""
+
+    name: str = Field(..., description="Unique server name")
+    enabled: bool = Field(True, description="Whether the server is enabled")
+    command: str = Field("", description="Command for stdio servers")
+    args: list[str] = Field(default_factory=list, description="Command arguments")
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Environment variables for the server"
+    )
+    url: str = Field("", description="URL for HTTP servers")
+    headers: dict[str, str] = Field(
+        default_factory=dict, description="HTTP headers for the server"
+    )
+
+
+class UserMcpConfigSaveRequest(BaseModel):
+    """Structured ``[mcp]`` section of the user's main config.toml."""
+
+    enabled: bool = Field(False, description="Whether MCP support is enabled")
+    auto_start: bool = Field(False, description="Start MCP servers at startup")
+    servers: list[McpServerConfigModel] = Field(
+        default_factory=list, description="Configured MCP servers"
+    )
+
+
+class UserMcpConfigResponse(UserMcpConfigSaveRequest):
+    """Structured ``[mcp]`` section plus the file it was read from."""
+
+    path: str = Field(..., description="Main config file path")
+    status: str | None = Field(None, description="Operation status (on save)")
+
+
 class UserConfigFilePatchRequest(BaseModel):
     """Request to update one dotted key in the user config file."""
 
