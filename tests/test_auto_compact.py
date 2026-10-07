@@ -4242,3 +4242,115 @@ def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
     assert len(step_inputs) == 3
     assert step_inputs[-1][-1].content.startswith("## Objective")
     assert manager.current_view is not None
+
+
+def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
+    """On a compaction-capable Anthropic model, native compaction must be
+    attempted before queueing the generic checkpoint turn."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "implement the feature"),
+        Message("assistant", "I am working on it"),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-native-first"
+    manager.current_branch = "master"
+    manager.current_view = "main"
+    manager.log.messages = messages
+
+    anthropic_model = MagicMock()
+    anthropic_model.full = "anthropic/claude-test"
+    anthropic_model.model = "claude-test"
+    anthropic_model.context = 200_000
+    anthropic_model.max_output = 8192
+
+    def fake_native(_manager, msgs, **kwargs):
+        assert msgs[0].role == "system", "native path must receive the system head"
+        yield Message(
+            "system", "🔄 Compacting via provider-native compaction (Anthropic)..."
+        )
+        return True
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook.get_default_model",
+            return_value=anthropic_model,
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._apply_native_compaction",
+            side_effect=fake_native,
+        ) as mock_native,
+    ):
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+
+    assert mock_native.called, "native path must be attempted before the checkpoint"
+    assert not any(
+        m.metadata and m.metadata.get("compaction_checkpoint_view") for m in out
+    ), "checkpoint turn must not be queued when native compaction applied"
+
+
+def test_autocompact_hook_falls_back_to_checkpoint_when_native_fails(monkeypatch):
+    """When the native path declines, the generic checkpoint turn is queued
+    with continuation metadata preserved."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "implement the feature"),
+        Message("assistant", "I am working on it"),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-native-fallback"
+    manager.current_branch = "master"
+    manager.current_view = None
+    manager.log.messages = messages
+
+    anthropic_model = MagicMock()
+    anthropic_model.full = "anthropic/claude-test"
+    anthropic_model.model = "claude-test"
+    anthropic_model.context = 200_000
+    anthropic_model.max_output = 8192
+
+    # Plain function (not a generator): yields nothing, reports not-applied.
+    def fake_native(_manager, msgs, **kwargs):
+        return iter(())
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook.get_default_model",
+            return_value=anthropic_model,
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._apply_native_compaction",
+            side_effect=fake_native,
+        ),
+    ):
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+
+    assert len(out) == 1
+    meta = out[0].metadata or {}
+    assert meta.get("compaction_checkpoint_view") == ""
+    # needs_continuation is False because the last message is an assistant turn
+    assert meta.get("compaction_checkpoint_needs_continuation") is False

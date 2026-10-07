@@ -325,3 +325,62 @@ def test_block_round_trips_through_serialization():
     # to_dict feeds the JSONL log; the signed block must survive losslessly.
     data = json.loads(json.dumps(msg.to_dict()))
     assert data["metadata"]["anthropic_compaction_block"] == BLOCK
+
+
+def test_native_compact_conversion_failure_returns_none(monkeypatch):
+    """A converter ValueError (e.g. missing leading system message) must fall
+    back to the generic checkpoint instead of raising out of the caller."""
+    client = MagicMock()
+    monkeypatch.setattr(native, "_client", lambda: client)
+    # Real conversion path: no leading system message -> _prepare_messages_for_api
+    # raises ValueError. Must not propagate.
+    msgs = [Message("user", "old message"), Message("assistant", "old answer")]
+    assert native.anthropic_native_compact(msgs, "claude-test") is None
+    client.beta.messages.create.assert_not_called()
+
+
+def test_apply_native_compaction_supplies_system_head(monkeypatch):
+    """The native converter receives the leading system block so the real
+    _prepare_messages_for_api conversion succeeds (provider request is sent)."""
+    manager = MagicMock()
+    manager.workspace = None
+    manager.logdir = None
+    manager.current_branch = "main"
+
+    response = MagicMock()
+    block = MagicMock(
+        type="compaction", content="summary", encrypted_content="enc", signature="sig"
+    )
+    response.content = [block]
+    client = MagicMock()
+    client.beta.messages.create.return_value = response
+    monkeypatch.setattr(native, "_client", lambda: client)
+    monkeypatch.setattr(native, "_capability_cache", {})
+    monkeypatch.setattr(native, "anthropic_compaction_supported", lambda m: True)
+
+    model_meta = MagicMock()
+    model_meta.full = "anthropic/claude-test"
+    model_meta.model = "claude-test"
+
+    from gptme.logmanager import prepare_messages
+
+    prepared = prepare_messages(_conversation_msgs())
+    # sanity: real conversion of the system-first list must not raise
+    results = list(
+        _apply_native_compaction(
+            manager,
+            prepared,
+            use_view_branch=False,
+            compact_instructions=None,
+            keep_recent_tokens=1,
+            keep_head=0,
+            model_meta=model_meta,
+            llm_unlocked=None,
+        )
+    )
+    assert any("Native compaction completed" in r.content for r in results)
+    _, kwargs = client.beta.messages.create.call_args
+    assert kwargs["betas"] == [native.COMPACT_BETA]
+    # the summarized request must carry the system prompt separately
+    assert kwargs["system"], "system head must be extracted into the system param"
+    assert kwargs["messages"], "summarized body must be non-empty"

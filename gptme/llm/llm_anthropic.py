@@ -819,7 +819,6 @@ def _make_schema_tool(
     )
 
 
-@retry_on_overloaded()
 def _compaction_betas_kwargs(messages: list[Message]) -> dict[str, Any]:
     """Replay of a provider-native compaction block requires the compaction
     beta on every request that carries the block."""
@@ -830,6 +829,7 @@ def _compaction_betas_kwargs(messages: list[Message]) -> dict[str, Any]:
     return {}
 
 
+@retry_on_overloaded()
 def chat(
     messages: list[Message],
     model: str,

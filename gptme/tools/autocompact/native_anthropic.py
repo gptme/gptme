@@ -102,9 +102,15 @@ def anthropic_native_compact(
 
     # Reuse the provider's message conversion so the summarized prefix is the
     # exact provider-visible shape (system extraction, files, tool formats).
-    messages_dicts, system_messages, _ = llm_anthropic._prepare_messages_for_api(
-        prefix_msgs, None, model
-    )
+    # Conversion happens inside the try so any conversion failure falls back
+    # to the generic checkpoint path instead of raising out of the caller.
+    try:
+        messages_dicts, system_messages, _ = llm_anthropic._prepare_messages_for_api(
+            prefix_msgs, None, model
+        )
+    except Exception as e:
+        logger.warning("Anthropic native compaction conversion failed: %s", e)
+        return None
 
     compaction_param: BetaCompactionConfigParam = {"type": "summarize"}
     if instructions and instructions.strip():

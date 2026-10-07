@@ -694,6 +694,7 @@ def _apply_native_compaction(
     head_end = max(n_head, min(keep_head, len(prepared_msgs)))
     preserved_head = prepared_msgs[:head_end]
     body = prepared_msgs[head_end:]
+    system_head = prepared_msgs[:n_head]
 
     # One canonical whole-assistant-step cut shared with the view builder:
     # the provider summarizes exactly the prefix and the tail is appended
@@ -723,7 +724,9 @@ def _apply_native_compaction(
             conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
     with llm_unlocked or nullcontext():
         block_msg = anthropic_native_compact(
-            prefix, model_str, instructions=compact_instructions
+            system_head + prefix,
+            model_str,
+            instructions=compact_instructions,
         )
     if block_msg is None:
         return False
