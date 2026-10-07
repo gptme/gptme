@@ -28,6 +28,30 @@ def test_get_static_model():
     assert model.context > 0
 
 
+@pytest.mark.parametrize(
+    ("name", "input_price", "output_price"),
+    [
+        ("claude-sonnet-5-5", 2, 10),
+        ("claude-opus-5-5", 4, 20),
+        ("claude-fable-5", 10, 50),
+        ("claude-fable-5-1", 10, 50),
+    ],
+)
+def test_claude_5_metadata(name, input_price, output_price, caplog):
+    """Explicit and dated model IDs resolve without 4.x metadata fallbacks."""
+    for model_id in (name, f"{name}-20261001"):
+        with caplog.at_level(logging.WARNING):
+            meta = get_model(f"anthropic/{model_id}")
+        assert meta.context == 1_000_000
+        assert meta.max_output == 128_000
+        assert meta.price_input == input_price
+        assert meta.price_output == output_price
+        assert meta.supports_vision
+        assert meta.supports_reasoning
+        assert meta.supports_parallel_tool_calls
+    assert not any("Unknown model" in record.message for record in caplog.records)
+
+
 def test_get_model_provider_only():
     """Test getting recommended model when only provider is given."""
     model = get_model("openai")
@@ -241,7 +265,7 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
     ("provider", "expected_model"),
     [
         ("openai", "gpt-5.6-sol"),
-        ("anthropic", "claude-sonnet-4-6"),
+        ("anthropic", "claude-sonnet-5-5"),
         ("gemini", "gemini-3.1-pro-preview"),
         ("openrouter", "deepseek/deepseek-v4.1-flash"),
         ("xai", "grok-4.6"),
@@ -455,10 +479,10 @@ class TestClosestModelMatch:
         """An unknown claude-opus variant should inherit from the latest known opus."""
         model = get_model("anthropic/claude-opus-5-0")
         assert model.provider == "anthropic"
-        assert model.context == 1_000_000  # claude-opus-4-7 has 1M context (GA)
+        assert model.context == 1_000_000
         assert model.supports_reasoning is True
         # Opus is more expensive than sonnet
-        assert model.price_input >= 5
+        assert model.price_input == get_model("anthropic/claude-opus-5-5").price_input
 
     def test_unknown_openai_gpt_uses_closest_gpt(self):
         """An unknown GPT model should inherit from the latest known GPT."""
@@ -737,3 +761,55 @@ def test_model_to_dict_serializes_default_tool_format():
 
     unstamped = ModelMeta(provider=CustomProvider("test"), model="m2", context=8192)
     assert "default_tool_format" not in model_to_dict(unstamped)
+
+
+def test_fetch_models_parallel_propagates_config_context():
+    """Workers see the caller's ContextVar config (e.g. custom providers)."""
+    import contextvars
+
+    from gptme.config import get_config
+    from gptme.config.core import _config_var
+    from gptme.llm.models.listing import _fetch_models_parallel
+
+    sentinel = object()
+    seen: list = []
+
+    def fake_fetch(provider, dynamic_fetch):
+        seen.append(get_config())
+        return [provider]
+
+    def run():
+        _config_var.set(sentinel)  # type: ignore[arg-type]
+        with patch(
+            "gptme.llm.models.listing._get_models_for_provider", side_effect=fake_fetch
+        ):
+            return _fetch_models_parallel(["openai", "anthropic", "local"], False)
+
+    result = contextvars.copy_context().run(run)
+    assert result == [["openai"], ["anthropic"], ["local"]]
+    assert seen == [sentinel] * 3
+
+
+@patch("gptme.llm.models.listing._fetch_models_parallel")
+def test_list_models_detailed_uses_parallel_fetch(mock_fetch, capsys):
+    """The default detailed output renders models returned by the parallel fetch.
+
+    Pins behavior, not just the call: a sentinel model returned for one provider
+    must appear in the printed output, so removing the detailed path (or wiring
+    it to a different fetch) fails the test.
+    """
+    from gptme.llm.models import list_models
+
+    sentinel = ModelMeta(provider="openai", model="parallel-sentinel", context=8192)
+
+    def fake_fetch(providers, dynamic_fetch):
+        return [[sentinel] if str(p) == "openai" else [] for p in providers]
+
+    mock_fetch.side_effect = fake_fetch
+    list_models(dynamic_fetch=False)
+    assert mock_fetch.call_count == 1
+    providers_arg, dynamic_arg = mock_fetch.call_args.args
+    assert "openai" in providers_arg
+    assert dynamic_arg is False
+    out = capsys.readouterr().out
+    assert "parallel-sentinel" in out

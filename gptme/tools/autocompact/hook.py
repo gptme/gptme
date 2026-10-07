@@ -12,14 +12,21 @@ from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from ...config import get_project_config
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
+from ...util.context_measurement import measure_context_tokens
 from ..base import ToolSpec, ToolUse
 from .config import _get_keep_head
 from .context_provider import CompressionConfig, get_context_provider
-from .decision import MIN_SAVINGS_RATIO, TRIM_TARGET_RATIO, should_auto_compact
+from .decision import (
+    MIN_SAVINGS_RATIO,
+    REMINDER_RATIO,
+    TRIM_TARGET_RATIO,
+    should_auto_compact,
+)
 from .events import append_compaction_event
 from .handlers import cmd_compact_handler
 from .resume import _resume_via_llm
@@ -227,6 +234,48 @@ def autocompact_hook(
 
     action = should_auto_compact(messages, limit=budget, keep_head=_get_keep_head())
     if action == "none":
+        if model is not None and budget is not None:
+            tokens = measure_context_tokens(messages, model.full)
+            view = manager.current_view or ""
+            already_warned = any(
+                msg.metadata is not None
+                and msg.metadata.get("compaction_reminder_view") == view
+                for msg in messages
+            )
+            if (
+                REMINDER_RATIO * budget <= tokens < budget
+                and not already_warned
+                and not _has_pending_tool_calls(messages)
+            ):
+                instructions = ""
+                try:
+                    project = get_project_config(manager.workspace)
+                    if (
+                        project
+                        and project.context
+                        and project.context.compact_instructions
+                    ):
+                        instructions = (
+                            "\n\nAdditional instructions:\n"
+                            + project.context.compact_instructions
+                        )
+                except Exception:
+                    logger.debug(
+                        "Could not read compaction instructions", exc_info=True
+                    )
+                yield Message(
+                    "system",
+                    "Context is approaching its compaction budget. At the next safe "
+                    "sub-task boundary, use your available tools to save important "
+                    "state to durable stores (memory, journal, or task files). "
+                    "Record: Objective; Decisions and constraints; Work state "
+                    "(done, active, blocked); Next move; Files to reload and why. "
+                    "Do not interrupt pending work or claim notes were saved "
+                    "without actually writing them. This reminder does not compact "
+                    "history; automatic compaction still runs at the budget."
+                    + instructions,
+                    metadata={"compaction_reminder_view": view},
+                )
         return
 
     # Never compact while the last assistant message has unanswered tool calls:
@@ -382,11 +431,25 @@ def autocompact_hook(
         original_count = len(messages)
         view_before = manager.current_view
         try:
-            yield from _resume_via_llm(
+            # Read compact_instructions and keep_recent_tokens from project config
+            compact_instructions: str | None = None
+            keep_recent_tokens: int = 20_000
+            try:
+                proj_cfg = get_project_config(manager.workspace)
+                if proj_cfg and proj_cfg.context:
+                    compact_instructions = proj_cfg.context.compact_instructions
+                    keep_recent_tokens = proj_cfg.context.keep_recent_tokens
+            except Exception:
+                pass  # Config read is best-effort; use defaults if it fails
+
+            applied = yield from _resume_via_llm(
                 manager,
                 messages,
                 use_view_branch=True,
                 llm_unlocked=llm_unlocked,
+                compact_instructions=compact_instructions,
+                keep_recent_tokens=keep_recent_tokens,
+                keep_head=_get_keep_head(),
             )
         except Exception as e:
             logger.error(f"Auto-summarize failed: {e}")
@@ -402,6 +465,13 @@ def autocompact_hook(
             )
             _failed_summarize[conv_key] = n_messages
             _prune_attempts(current_time)
+            return
+
+        # Stale discard: a view was created but the resume did not apply, so
+        # recording cooldown here would throttle the next unchanged-length
+        # attempt for 60s after a no-op — the same premature-throttle bug the
+        # rule-based exception path already guards against.
+        if not applied:
             return
 
         _last_autocompact_attempt[conv_key] = (

@@ -7,6 +7,14 @@ export interface ServerHealthSlot {
   elapsed_seconds: number | null;
 }
 
+// GET /api/v2 — server identity and feature capabilities
+export interface ServerInfo {
+  version?: string;
+  api_version?: number;
+  contract_revision?: number;
+  capabilities?: Record<string, boolean>;
+}
+
 export interface ServerHealth {
   session_count: number;
   generating_count: number;

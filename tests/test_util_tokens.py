@@ -68,11 +68,21 @@ def test_get_tokenizer_provider_prefixed_o1():
     assert enc is not None
     assert enc.name == "o200k_base"
 
-    # gpt-4o-mini with prefix should also resolve correctly (handled by
-    # the "gpt-4o" fast-path, but verify anyway)
-    enc = get_tokenizer("openai/gpt-4o-mini")
+    # Routed GPT-4o names should resolve to the same native encoding.
+    for model in (
+        "openai/gpt-4o-mini",
+        "requesty/openai/gpt-4o-mini",
+        "openrouter/openai/gpt-4o",
+        "gptme/openrouter/openai/gpt-4o",
+    ):
+        enc = get_tokenizer(model)
+        assert enc is not None
+        assert enc.name == "o200k_base"
+
+    # A custom model merely containing "gpt-4o" must not be treated as native.
+    enc = get_tokenizer("local/gpt-4o-gguf")
     assert enc is not None
-    assert enc.name == "o200k_base"
+    assert enc.name == "cl100k_base"
 
     # gpt-4 with prefix should resolve to cl100k_base correctly
     enc = get_tokenizer("openai/gpt-4")

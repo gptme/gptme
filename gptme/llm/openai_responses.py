@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import httpx
 from typing_extensions import NotRequired
 
 from ..tools.base import truncate_tool_description
@@ -19,6 +20,20 @@ if TYPE_CHECKING:
     from ..tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+# Responses API rejects `instructions` longer than 1,048,576 characters.
+_RESPONSES_INSTRUCTIONS_MAX_CHARS = 1_048_576
+
+
+class ResponsesStreamError(httpx.RemoteProtocolError):
+    """Explicit failure reported inside an HTTP-200 Responses stream."""
+
+    def __init__(self, event_type: str, code: str, message: str):
+        self.event_type = event_type
+        self.code = code
+        self.message = message
+        self.body = {"code": code, "message": message}
+        super().__init__(f"Responses stream {event_type}: {code}: {message}")
 
 
 class ContentPart(TypedDict):
@@ -206,6 +221,39 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
     }
 
 
+def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep interrupted or unexecuted tool calls replayable without inventing results.
+
+    A result belongs to the nearest preceding unpaired call with its ID, so a
+    reused ID can neither hide a later orphaned call nor steal an earlier
+    call's result.
+    """
+    pending: dict[str, list[int]] = {}
+    for idx, item in enumerate(items):
+        if item.get("type") == "function_call":
+            pending.setdefault(item["call_id"], []).append(idx)
+        elif item.get("type") == "function_call_output":
+            calls = pending.get(item["call_id"])
+            if calls:
+                calls.pop()
+    orphans = {idx for calls in pending.values() for idx in calls}
+
+    paired_items: list[dict[str, Any]] = []
+    for idx, item in enumerate(items):
+        paired_items.append(item)
+        if idx in orphans:
+            logger.warning("No tool result recorded for call_id %s", item["call_id"])
+            paired_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": item["call_id"],
+                    "output": "Error: No tool result was recorded for this call. "
+                    "Execution may have been skipped or interrupted; do not assume it succeeded.",
+                }
+            )
+    return paired_items
+
+
 def _messages_dicts_to_responses_input(
     messages_dicts: list[MessageDict],
 ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -266,7 +314,13 @@ def _messages_dicts_to_responses_input(
         )
 
     instructions = "\n\n".join(instructions_parts).strip() or None
-    return instructions, items
+    if instructions and len(instructions) > _RESPONSES_INSTRUCTIONS_MAX_CHARS:
+        logger.warning(
+            "Truncating instructions to %d chars (Responses API cap)",
+            _RESPONSES_INSTRUCTIONS_MAX_CHARS,
+        )
+        instructions = instructions[:_RESPONSES_INSTRUCTIONS_MAX_CHARS]
+    return instructions, _pair_missing_tool_results(items)
 
 
 def _messages_to_responses_input(
@@ -324,7 +378,13 @@ def _messages_to_responses_input(
         )
 
     instructions = "\n\n".join(instructions_parts).strip() or None
-    return instructions, items
+    if instructions and len(instructions) > _RESPONSES_INSTRUCTIONS_MAX_CHARS:
+        logger.warning(
+            "Truncating instructions to %d chars (Responses API cap)",
+            _RESPONSES_INSTRUCTIONS_MAX_CHARS,
+        )
+        instructions = instructions[:_RESPONSES_INSTRUCTIONS_MAX_CHARS]
+    return instructions, _pair_missing_tool_results(items)
 
 
 def _stream_responses_events(
@@ -332,6 +392,7 @@ def _stream_responses_events(
     *,
     usage_callback: Callable[[Any], None] | None = None,
     model_callback: Callable[[str], None] | None = None,
+    incomplete_callback: Callable[[], None] | None = None,
 ) -> Generator[str, None, None]:
     """Process a Responses API event stream, yielding formatted text chunks.
 
@@ -360,7 +421,22 @@ def _stream_responses_events(
     for event in event_iter:
         event_type = _obj_get(event, "type", "")
 
-        if event_type in ("response.reasoning_text.delta", "response.reasoning.delta"):
+        if event_type in ("error", "response.failed"):
+            # HTTP 200 only establishes the stream, not successful generation.
+            # Preserve the provider code without dumping the response (instructions,
+            # input and output may contain private context).
+            if event_type == "response.failed":
+                error = _obj_get(_obj_get(event, "response", None), "error", None)
+            else:
+                error = _obj_get(event, "error", None) or event
+            code = _obj_get(error, "code", None) or "unknown_error"
+            message = _obj_get(error, "message", None) or "Generation failed"
+            raise ResponsesStreamError(event_type, code, message)
+
+        elif event_type in (
+            "response.reasoning_text.delta",
+            "response.reasoning.delta",
+        ):
             delta = _obj_get(event, "delta", "")
             if delta:
                 if not in_reasoning_block:
@@ -437,8 +513,21 @@ def _stream_responses_events(
                 if served is not None:
                     model_callback(served)
 
-        elif event_type in ("response.completed", "response.done"):
+        elif event_type in (
+            "response.completed",
+            "response.done",
+            "response.incomplete",
+        ):
             response_obj = _obj_get(event, "response", None)
+            if event_type == "response.incomplete":
+                details = _obj_get(response_obj, "incomplete_details", None)
+                logger.warning(
+                    "Responses API stream ended incomplete (reason=%s); "
+                    "output may be truncated",
+                    _obj_get(details, "reason", None) or "unknown",
+                )
+                if incomplete_callback is not None:
+                    incomplete_callback()
             if model_callback is not None:
                 served = served_model_from(response_obj)
                 if served is not None:

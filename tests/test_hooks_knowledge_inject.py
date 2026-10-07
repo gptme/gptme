@@ -282,3 +282,104 @@ def test_hook_skips_when_replay_wraps_injected_message(tmp_path):
         tmp_path,
     )
     assert _run(None, tmp_path, manager=manager) == []
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [{}, {"interactive": True}, {"server": True}, {"no_confirm": True}],
+)
+def test_default_hooks_exclude_legacy_knowledge(
+    monkeypatch: pytest.MonkeyPatch, mode: dict[str, bool]
+) -> None:
+    from gptme.hooks import clear_hooks, get_hooks, init_hooks
+
+    monkeypatch.setattr("gptme.plugins.registry.get_all_plugins", lambda: [])
+    monkeypatch.delenv("HOOK_ALLOWLIST", raising=False)
+    monkeypatch.delenv("GPTME_HOOK_ALLOWLIST", raising=False)
+    clear_hooks()
+    try:
+        init_hooks(**mode)
+        names = {hook.name for hook in get_hooks()}
+        assert "time_awareness.time_message" in names
+        assert not any(name.startswith("knowledge_inject.") for name in names)
+    finally:
+        clear_hooks()
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_explicit_knowledge_opt_in_delivery_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
+) -> None:
+    from gptme.hooks import HookType, clear_hooks, get_hooks, init_hooks, trigger_hook
+    from gptme.hooks.knowledge_inject import _INJECT_SENTINEL
+    from gptme.knowledge import knowledge_list, knowledge_save
+
+    monkeypatch.setattr("gptme.plugins.registry.get_all_plugins", lambda: [])
+    entry = knowledge_save(
+        "pytest test discovery fails", "prefix test function with test_"
+    )
+    clear_hooks()
+    try:
+        if configured:
+            monkeypatch.setenv("HOOK_ALLOWLIST", "knowledge_inject")
+            init_hooks()
+        else:
+            init_hooks(allowlist=["knowledge_inject"])
+        assert {hook.name for hook in get_hooks()} == {
+            "knowledge_inject.session_start",
+            "knowledge_inject.turn_pre",
+        }
+
+        assert (
+            list(
+                trigger_hook(
+                    HookType.SESSION_START,
+                    logdir=tmp_path,
+                    workspace=None,
+                    initial_msgs=[Message("user", "astronomy orbital telescope")],
+                )
+            )
+            == []
+        )
+        messages = [Message("user", "pytest discovery is broken in CI")]
+        injected = list(
+            trigger_hook(
+                HookType.SESSION_START,
+                logdir=tmp_path,
+                workspace=None,
+                initial_msgs=messages,
+            )
+        )
+        assert len(injected) == 1
+        assert isinstance(injected[0], Message)
+        assert injected[0].role == "system"
+        assert injected[0].hide is True
+        assert injected[0].content.startswith(_INJECT_SENTINEL)
+        assert "prefix test function with test_" in injected[0].content
+        manager = _FakeManager(messages + injected, tmp_path)
+        assert list(trigger_hook(HookType.TURN_PRE, manager=manager)) == []
+        assert (
+            list(trigger_hook(HookType.SESSION_END, logdir=tmp_path, manager=manager))
+            == []
+        )
+        assert knowledge_list() == [entry]
+    finally:
+        clear_hooks()
+
+
+def test_documented_cli_opt_in_keeps_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.hooks import HookType, clear_hooks, get_hooks, init_hooks
+
+    monkeypatch.setattr("gptme.plugins.registry.get_all_plugins", lambda: [])
+    monkeypatch.setenv("HOOK_ALLOWLIST", "knowledge_inject,cli_confirm")
+    clear_hooks()
+    try:
+        init_hooks(interactive=True)
+        names = {hook.name for hook in get_hooks()}
+        assert "knowledge_inject.session_start" in names
+        assert "knowledge_inject.turn_pre" in names
+        assert "cli_confirm" in {hook.name for hook in get_hooks(HookType.TOOL_CONFIRM)}
+    finally:
+        clear_hooks()

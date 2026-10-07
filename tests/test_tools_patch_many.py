@@ -1,6 +1,7 @@
 """Tests for patch_many: atomic multi-file patch tool."""
 
 import json
+import os
 from pathlib import Path
 from typing import cast
 
@@ -144,6 +145,25 @@ def test_atomic_missing_file(tmp_path):
     assert messages
     assert "aborted" in messages[0].content
     assert "file not found" in messages[0].content.lower()
+    assert f1.read_text() == "original"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
+@pytest.mark.timeout(10)
+def test_atomic_refuses_fifo(tmp_path):
+    """A FIFO target aborts the batch instead of blocking forever on read."""
+    f1 = tmp_path / "exists.py"
+    fifo = tmp_path / "pipe.py"
+    f1.write_text("original")
+    os.mkfifo(fifo)
+
+    patches = [
+        (f1, Patch("original", "modified")),
+        (fifo, Patch("original", "modified")),
+    ]
+
+    messages = list(execute_patch_many_impl(patches))
+    assert "non-regular file" in messages[0].content
     assert f1.read_text() == "original"
 
 

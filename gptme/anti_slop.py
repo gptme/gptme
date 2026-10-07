@@ -136,9 +136,12 @@ _COMPILED: list[tuple[str, int, re.Pattern[str], str]] = [
 _EM_DASH = re.compile(r"\s—\s|\w—\w|—")
 _WORD = re.compile(r"\b\w+\b")
 
-# Staccato cadence: ≥3 consecutive sentences of ≤8 words triggers one hit.
+# Staccato cadence: ≥3 consecutive sentences of ≤7 words triggers one hit.
+# 8-word sentences are normal in technical documentation (e.g. "The function
+# returns a sorted list of integers."); 7 is the upper bound for genuinely
+# punchy slop-style phrasing ("It works. It scales. It delivers.").
 _SENT_END = re.compile(r"[.!?]+")
-_STACCATO_MAX_WORDS = 8
+_STACCATO_MAX_WORDS = 7
 _STACCATO_MIN_RUN = 3
 
 # ---------------------------------------------------------------------------
@@ -187,11 +190,17 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
         Dict with keys: ``word_count``, ``total_hits``, ``weighted_score``
         (hits per 1 000 words), ``em_dash_count``, ``em_dash_per_1k``,
         ``by_category``, ``hits`` (sorted by impact, descending).
+
+        ``total_hits`` is a ``float`` (not ``int``) because em-dash excess is
+        fractional.  Likewise ``by_category["em_dash"]`` and the ``count``
+        field of any em_dash entry in ``hits`` are floats.  All other
+        category counts remain integers.  Use ``_format_count`` (or
+        ``:.12g``) to format them without spurious trailing zeros.
     """
     word_count = len(_WORD.findall(text))
     hits: list[dict[str, Any]] = []
-    by_category: dict[str, int] = {}
-    total_hits = 0
+    by_category: dict[str, int | float] = {}
+    total_hits = 0.0
     weighted_total = 0.0
 
     for cat, weight, rx, label in _COMPILED:
@@ -207,8 +216,16 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
         word_count, 1
     )  # avoid ZeroDivisionError; gate handles short text
     tolerated = word_count * em_dash_tolerance / 1000.0
-    em_excess = max(0, em_dash_count - round(tolerated))
-    if em_excess:
+    # Use fractional comparison so short texts are not over-penalised when the
+    # tolerance rounds to zero.  E.g. relaxed mode (8/1k) on a 45-word paragraph
+    # yields tolerated=0.36; round() → 0, so even one em dash counted.  With
+    # direct float subtraction, 1 − 0.36 = 0.64 hits, keeping the score below
+    # the warn threshold for a single dash in a short paragraph.
+    # Keep em_excess as an exact float for scoring — rounding before adding to
+    # weighted_total can flip gate decisions (e.g. 0.727 rounds to 0.73, shifting
+    # a 91-word strict-mode text from 7.99 to 8.02 and triggering a spurious WARN).
+    em_excess = max(0.0, em_dash_count - tolerated)
+    if em_excess > 0:
         weighted_total += em_excess
         hits.append(
             {
@@ -306,10 +323,12 @@ def evaluate_gate(
     # tells — repeating one soft tell ("robust robust robust") adds weight
     # 1, not 3.
     # Only curated pattern-registry tells count as corroborating evidence,
-    # so the cadence/punctuation artifacts are filtered out. Below
-    # MIN_WORDS_FOR_GATE the em-dash tolerance rounds to zero, so a lone
-    # em-dash in ordinary short prose would otherwise contribute weight 1
-    # and manufacture "evidence" the stated policy does not recognize.
+    # so the cadence/punctuation artifacts are filtered out. Em-dash excess
+    # is a punctuation artifact (fractional count, not a vocabulary tell),
+    # not a curated slop tell, so it must not be used as corroborating
+    # evidence — even a lone em-dash in short prose contributes weight 1
+    # from the hit's weight field, which would otherwise manufacture
+    # "evidence" the stated policy does not recognise.
     evidence_weight = sum(
         h["weight"]
         for h in smell_report["hits"]
@@ -352,6 +371,11 @@ def evaluate_gate(
 # ---------------------------------------------------------------------------
 # Convenience: run as a script  ``python -m gptme.anti_slop FILE``
 # ---------------------------------------------------------------------------
+def _format_count(count: int | float) -> str:
+    """Format a hit count compactly without hiding small positive values."""
+    return f"{count:.12g}"
+
+
 def _format_report(report: dict[str, Any], *, top: int = 5) -> str:
     smell = report["smell_report"]
     status = report["status"].upper()
@@ -359,14 +383,16 @@ def _format_report(report: dict[str, Any], *, top: int = 5) -> str:
         f"Anti-Slop Gate: {status}  [mode={report['mode']}]",
         f"reason: {report['reason']}",
         (
-            f"words: {smell['word_count']}  hits: {smell['total_hits']}  "
+            f"words: {smell['word_count']}  "
+            f"hits: {_format_count(smell['total_hits'])}  "
             f"weighted_score: {smell['weighted_score']} /1k words"
         ),
     ]
     if smell["hits"]:
         lines.append("\nTop smells:")
         lines.extend(
-            f"  [{h['category']:<13}] {h['label']:<28} x{h['count']}  (w{h['weight']})"
+            f"  [{h['category']:<13}] {h['label']:<28} "
+            f"x{_format_count(h['count'])}  (w{h['weight']})"
             for h in smell["hits"][:top]
         )
     return "\n".join(lines)

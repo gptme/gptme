@@ -25,6 +25,29 @@ def test_file_to_display_path(tmp_path, monkeypatch):
     assert file_to_display_path(file, workspace) == file.absolute()
 
 
+def test_file_to_display_path_deleted_cwd(tmp_path, monkeypatch):
+    """Should not crash when CWD has been deleted mid-session (ENOENT)."""
+    import pathlib
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    file = workspace / "test.txt"
+    file.touch()
+
+    def raise_enoent():
+        raise FileNotFoundError("[Errno 2] No such file or directory")
+
+    monkeypatch.setattr(pathlib.Path, "cwd", staticmethod(raise_enoent))
+
+    # Should not raise; file is already absolute so returns as-is
+    result = file_to_display_path(file, workspace)
+    assert result == file
+
+    # Relative paths must not crash either (f.absolute() would need the CWD)
+    rel = Path("rel/test.txt")
+    assert file_to_display_path(rel, workspace) == rel
+
+
 def test_embed_attached_file_content(tmp_path):
     # Create test file
     file = tmp_path / "test.txt"
@@ -297,6 +320,174 @@ def test_check_content_size():
     assert "truncated" in result.lower()
 
 
+def test_resource_to_codeblock_does_not_slurp_huge_file(tmp_path, monkeypatch):
+    """A file far above the size cap is read in bounded form, not via read_text()."""
+    import pathlib
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _resource_to_codeblock
+
+    big = tmp_path / "big.log"
+    big.write_text("A" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
+
+    def no_read_text(self, *args, **kwargs):
+        raise AssertionError("read_text() loads the whole file before truncating")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", no_read_text)
+
+    result = _resource_to_codeblock(str(big))
+    assert result is not None
+    assert "truncated" in result.lower()
+    assert f"{big.stat().st_size:,} bytes" in result
+    assert result.count("A") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_attached_text_file_embedding_is_capped(tmp_path):
+    """Attached text files (msg.files) are truncated like path-in-prompt files."""
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.message import Message
+    from gptme.util.context import embed_attached_file_content
+
+    big = tmp_path / "big.log"
+    big.write_text("C" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
+
+    msg = embed_attached_file_content(Message("user", "see file", files=[big]))
+    assert "truncated" in msg.content.lower()
+    assert msg.content.count("C") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_resource_to_codeblock_file_at_cap_not_truncated(tmp_path):
+    """A file exactly at the cap is included whole, with no truncation note."""
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _resource_to_codeblock
+
+    f = tmp_path / "exact.txt"
+    f.write_text("B" * CONTENT_SIZE_WARN_THRESHOLD)
+
+    result = _resource_to_codeblock(str(f))
+    assert result is not None
+    assert result.count("B") == CONTENT_SIZE_WARN_THRESHOLD
+    assert "truncated" not in result.lower()
+
+
+def test_stored_attachment_content_is_capped(tmp_path, monkeypatch):
+    """Content-addressed copies of attachments are capped too (not read whole)."""
+    import pathlib
+    from types import SimpleNamespace
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import embed_attached_file_content
+    from gptme.util.file_storage import store_file
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    big = tmp_path / "big.log"
+    big.write_text("D" * (CONTENT_SIZE_WARN_THRESHOLD * 20))
+    file_hash, _ = store_file(logdir, big)
+    # Make fallback observably wrong: only the stored snapshot contains Ds.
+    big.write_text("fallback content")
+
+    monkeypatch.setattr(
+        "gptme.logmanager.LogManager.get_current_log",
+        staticmethod(lambda: SimpleNamespace(logdir=logdir)),
+    )
+
+    def no_read_text(self, *args, **kwargs):
+        raise AssertionError("read_text() loads the whole file before truncating")
+
+    monkeypatch.setattr(pathlib.Path, "read_text", no_read_text)
+
+    msg = embed_attached_file_content(
+        Message("user", "see file", files=[big], file_hashes={str(big): file_hash})
+    )
+    assert "truncated" in msg.content.lower()
+    assert msg.content.count("D") <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_read_text_capped_keeps_large_pdf_as_attachment(tmp_path, monkeypatch):
+    """A PDF is blocked by MIME type before any content is read, so even one
+    with an all-decodable prefix stays an attachment for provider handling."""
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_FRESH", raising=False)
+    pdf = tmp_path / "report.pdf"
+    pdf.write_bytes(b"%PDF-1.7\n" + b"A" * (CONTENT_SIZE_WARN_THRESHOLD * 2) + b"\xff")
+
+    msg = include_paths(Message("user", str(pdf)))
+    assert msg.files == [pdf]
+    assert "%PDF-1.7" not in msg.content
+
+
+def test_read_text_capped_large_prefix_then_invalid_utf8_is_text(tmp_path):
+    """A large text file whose capped prefix is decodable (no NUL) is
+    truncated, not rejected: the invalid bytes beyond the cap are never read.
+
+    This exercises the bounded-read path itself, not the MIME pre-check —
+    under a whole-file read this would raise UnicodeDecodeError instead.
+    """
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "events.txt"
+    f.write_bytes(b"L" * (CONTENT_SIZE_WARN_THRESHOLD * 2) + b"\xff\xff")
+    result = _read_text_capped(f)
+    assert "truncated" in result.lower()
+    assert len(result) <= CONTENT_SIZE_WARN_THRESHOLD
+
+
+def test_read_text_capped_treats_nul_prefix_as_binary(tmp_path):
+    """A truncated prefix containing NUL is binary, not text."""
+    import pytest
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "blob.bin"
+    f.write_bytes(b"\x00" + b"E" * (CONTENT_SIZE_WARN_THRESHOLD * 2))
+    with pytest.raises(UnicodeDecodeError):
+        _read_text_capped(f)
+
+
+def test_read_text_capped_json_file_is_not_binary(tmp_path):
+    """JSON files (application/json MIME) should be read as text, not rejected."""
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "data.json"
+    f.write_text('{"key": "value"}')
+    result = _read_text_capped(f)
+    assert "value" in result
+
+
+def test_read_text_capped_svg_file_is_not_binary(tmp_path):
+    """SVG files (image/svg+xml) are a text format and must not be rejected."""
+    from gptme.util.context import _read_text_capped
+
+    svg_content = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>'
+    f = tmp_path / "icon.svg"
+    f.write_text(svg_content)
+    result = _read_text_capped(f)
+    assert "circle" in result
+
+
+def test_read_text_capped_survives_path_removed_after_read(tmp_path, monkeypatch):
+    """The size comes from the open handle, so rotation after read can't raise."""
+    import pathlib
+
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "rotated.log"
+    f.write_text("F" * (CONTENT_SIZE_WARN_THRESHOLD * 2))
+
+    def no_stat(self, *args, **kwargs):
+        raise FileNotFoundError(str(self))
+
+    monkeypatch.setattr(pathlib.Path, "stat", no_stat)
+    assert "truncated" in _read_text_capped(f).lower()
+
+
 def test_binary_file_metadata(tmp_path):
     """Test that binary files return metadata instead of None."""
     from gptme.util.context import _binary_file_metadata, _human_readable_size
@@ -340,6 +531,53 @@ def test_resource_to_codeblock_binary(tmp_path):
     assert result is not None
     assert "Binary file" in result
     assert "Size:" in result
+
+
+def test_resource_to_codeblock_skips_unreadable_fallback_word(tmp_path, monkeypatch):
+    """Permission errors while scanning words in prose must not escape."""
+    from unittest.mock import patch
+
+    from gptme.util.context import _resource_to_codeblock
+
+    inaccessible = "/private/file.txt"
+    prompt = f"cat {inaccessible}"
+    monkeypatch.chdir(tmp_path)
+
+    def exists(path: Path) -> bool:
+        if str(path) == inaccessible:
+            raise PermissionError
+        return False
+
+    monkeypatch.setattr(Path, "exists", exists)
+    with patch("gptme.util.context.logger.warning") as warning:
+        assert _resource_to_codeblock(prompt) == ""
+    warning.assert_called_once_with("Skipping unreadable file: %s", inaccessible)
+
+
+def test_resource_to_codeblock_keeps_readable_fallback_word(tmp_path, monkeypatch):
+    """An unreadable path must not hide another readable path in the prompt."""
+    from unittest.mock import patch
+
+    from gptme.util.context import _resource_to_codeblock
+
+    inaccessible = "/private/file.txt"
+    readable = tmp_path / "readable.txt"
+    readable.write_text("readable content")
+    prompt = f"{inaccessible} {readable}"
+
+    original_exists = Path.exists
+
+    def exists(path: Path) -> bool:
+        if str(path) in (prompt, inaccessible):
+            raise PermissionError
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    with patch("gptme.util.context.logger.warning"):
+        result = _resource_to_codeblock(prompt)
+
+    assert result is not None
+    assert "readable content" in result
 
 
 def test_dir_to_listing(tmp_path):
@@ -830,3 +1068,61 @@ def test_include_paths_does_not_scan_tmp_from_prose(monkeypatch):
         called_paths = [Path(c.args[0]).resolve() for c in listing.call_args_list]
         tmp_roots = {Path("/tmp").resolve(), Path("/private/tmp").resolve()}
         assert tmp_roots.isdisjoint(called_paths)
+
+
+def _unreadable_file(tmp_path: Path) -> Path:
+    import os
+
+    import pytest
+
+    f = tmp_path / "noperm.txt"
+    f.write_text("secret")
+    f.chmod(0o000)
+    if os.access(f, os.R_OK):  # running as root: chmod does not restrict reads
+        pytest.skip("cannot make a file unreadable as this user")
+    return f
+
+
+def test_include_paths_unreadable_file_is_skipped(tmp_path, monkeypatch):
+    """An unreadable file mentioned in a prompt must not crash path inclusion."""
+    from gptme.util.context import include_paths
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    f = _unreadable_file(tmp_path)
+    try:
+        msg = include_paths(Message("user", f"look at {f}"), workspace=tmp_path)
+    finally:
+        f.chmod(0o644)
+    assert msg.content == f"look at {f}"
+    assert not msg.files
+
+
+def test_include_paths_inaccessible_parent_is_skipped(tmp_path, monkeypatch):
+    """A path below an inaccessible directory must not fail the budget pre-check."""
+    from unittest.mock import patch
+
+    from gptme.util.context import include_paths
+
+    path = tmp_path / "private" / "file.txt"
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    monkeypatch.setattr(
+        "gptme.util.context._find_potential_paths", lambda _: [str(path)]
+    )
+    with patch("pathlib.Path.is_file", side_effect=PermissionError) as is_file:
+        msg = include_paths(Message("user", f"look at {path}"), workspace=tmp_path)
+    is_file.assert_called_once()
+    assert msg.content == f"look at {path}"
+    assert not msg.files
+
+
+def test_parse_prompt_files_unreadable_file(tmp_path, monkeypatch):
+    from gptme.util.context import _parse_prompt_files
+
+    monkeypatch.chdir(tmp_path)
+    f = _unreadable_file(tmp_path)
+    try:
+        assert _parse_prompt_files(str(f)) is None
+    finally:
+        f.chmod(0o644)

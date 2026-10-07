@@ -1,3 +1,7 @@
+import os
+
+import pytest
+
 from gptme.tools.patch import Patch, apply, execute_patch
 
 example_patch = """
@@ -509,3 +513,54 @@ MISSING
     assert "applied successfully" not in msg
     assert "no changes were written" in msg
     assert f.read_text() == "first\nsecond\n"
+
+
+def test_execute_patch_preserves_crlf(tmp_path):
+    f = tmp_path / "crlf.txt"
+    f.write_bytes(b"first\r\noriginal lines\r\nlast\r\n")
+
+    result = next(execute_patch(example_patch, [str(f)], None)).content
+
+    assert "successfully" in result
+    assert f.read_bytes() == b"first\r\nmodified lines\r\nlast\r\n"
+
+
+def test_execute_patch_keeps_lf(tmp_path):
+    f = tmp_path / "lf.txt"
+    f.write_bytes(b"first\noriginal lines\nlast\n")
+
+    next(execute_patch(example_patch, [str(f)], None))
+
+    assert f.read_bytes() == b"first\nmodified lines\nlast\n"
+
+
+def test_execute_patch_crlf_in_updated_block_not_doubled(tmp_path):
+    f = tmp_path / "crlf.txt"
+    f.write_bytes(b"first\r\noriginal lines\r\nlast\r\n")
+    crlf_patch = "<<<<<<< ORIGINAL\noriginal lines\n=======\nnew one\r\nnew two\n>>>>>>> UPDATED\n"
+
+    next(execute_patch(crlf_patch, [str(f)], None))
+
+    assert f.read_bytes() == b"first\r\nnew one\r\nnew two\r\nlast\r\n"
+
+
+def test_execute_patch_crlf_in_updated_block_normalized_for_lf(tmp_path):
+    """CRLF in UPDATED block is normalized for an LF file (no mixed endings)."""
+    f = tmp_path / "lf.txt"
+    f.write_bytes(b"first\noriginal lines\nlast\n")
+    crlf_patch = "<<<<<<< ORIGINAL\noriginal lines\n=======\nnew one\r\nnew two\n>>>>>>> UPDATED\n"
+
+    next(execute_patch(crlf_patch, [str(f)], None))
+
+    assert f.read_bytes() == b"first\nnew one\nnew two\nlast\n"
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs not supported on Windows")
+def test_patch_refuse_fifo(tmp_path):
+    """Patching a FIFO blocks forever at open(); the tool must refuse it."""
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    messages = list(execute_patch(example_patch, [str(fifo)], None))
+    assert any("non-regular file" in m.content for m in messages)
+    assert all("successfully" not in m.content for m in messages)

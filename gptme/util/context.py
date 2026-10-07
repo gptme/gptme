@@ -181,6 +181,60 @@ def _check_content_size(content: str, source: str) -> str:
     return content
 
 
+def _read_text_capped(f: Path) -> str:
+    """Read a text file, reading at most ``CONTENT_SIZE_WARN_THRESHOLD`` characters.
+
+    ``Path.read_text()`` loads the whole file before ``_check_content_size``
+    truncates it, so a multi-GB log named in a prompt costs GBs of memory to
+    produce ~100KB of context. Read one char past the cap instead, to tell
+    "exactly at the cap" from "truncated".
+    """
+    mime, _ = mimetypes.guess_type(str(f))
+    # Block only MIME types that are definitively non-text and whose prefix may
+    # be decodable as UTF-8 (e.g. a PDF whose first 100 KB has no NUL bytes).
+    # Do NOT use prefix heuristics (image/*, video/*, …) — they misclassify
+    # legitimate text formats such as image/svg+xml and video/mp2t (.ts files
+    # on some platforms).  For everything else let the capped read + NUL-byte
+    # check + Python's UTF-8 codec determine whether the file is binary.
+    if mime in ("application/octet-stream", "application/pdf"):
+        raise UnicodeDecodeError("utf-8", b"", 0, 1, f"binary MIME type: {mime}")
+
+    with f.open() as fh:
+        head = fh.read(CONTENT_SIZE_WARN_THRESHOLD + 1)
+        # fstat the open handle: the path may be rotated/deleted after the read
+        size = os.fstat(fh.fileno()).st_size
+    if len(head) <= CONTENT_SIZE_WARN_THRESHOLD:
+        return head
+    if "\x00" in head:
+        # The prefix decodes, but a NUL byte means binary; whole-file reads
+        # would usually have hit invalid UTF-8 further in.
+        raise UnicodeDecodeError("utf-8", b"", 0, 1, "NUL byte in truncated prefix")
+    logger.warning(
+        f"Content from {f} is very large ({size:,} bytes), "
+        f"truncating to {CONTENT_SIZE_WARN_THRESHOLD:,} chars"
+    )
+    note = (
+        f"\n\n[Content truncated to {CONTENT_SIZE_WARN_THRESHOLD:,} characters "
+        f"(file is {size:,} bytes)]"
+    )
+    return head[: CONTENT_SIZE_WARN_THRESHOLD - len(note)] + note
+
+
+def _read_stored_content_capped(
+    logdir: Path, file_hash: str, suffix: str
+) -> str | None:
+    """Like ``read_stored_content``, but reads at most the content cap."""
+    from .file_storage import get_stored_path
+
+    stored_path = get_stored_path(logdir, file_hash, suffix)
+    if stored_path is None:
+        return None
+    try:
+        return _read_text_capped(stored_path)
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
 def use_fresh_context() -> bool:
     """Check if fresh context mode is enabled.
 
@@ -221,7 +275,11 @@ def file_to_display_path(f: Path, workspace: Path | None = None) -> Path:
     - If file and pwd is in workspace, show path relative to pwd
     - Otherwise, show absolute path
     """
-    cwd = Path.cwd()
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        # CWD was deleted mid-session; f.absolute() would need it too, so return as-is
+        return f
     if workspace and workspace in f.parents and workspace in [cwd, *cwd.parents]:
         # NOTE: walk_up only available in Python 3.12+
         try:
@@ -251,7 +309,9 @@ def textfile_as_codeblock(path: Path) -> str | None:
     try:
         if path.exists() and path.is_file():
             try:
-                return md_codeblock(path, path.read_text())
+                return md_codeblock(
+                    path, _check_content_size(_read_text_capped(path), str(path))
+                )
             except UnicodeDecodeError:
                 return None
     except OSError:
@@ -275,7 +335,6 @@ def embed_attached_file_content(
     Falls back to the original file path if stored content is not available.
     """
     from ..logmanager import LogManager
-    from .file_storage import read_stored_content
 
     # Keep original paths for hash lookup, transform for display
     # Skip URIs - they cannot be read as local files
@@ -297,7 +356,9 @@ def embed_attached_file_content(
             # Use original path for hash lookup (matches how files were stored)
             file_hash = msg.file_hashes.get(str(orig_f))
             if file_hash:
-                stored_content = read_stored_content(logdir, file_hash, f.suffix)
+                stored_content = _read_stored_content_capped(
+                    logdir, file_hash, f.suffix
+                )
 
         if stored_content is not None:
             # Use stored content (preserves original version)
@@ -594,16 +655,18 @@ def include_paths(
                 # Budget exhausted: skip entirely (text and binary alike)
                 skipped_paths.append(word)
                 continue
-            if (
-                # Fast stat-based pre-check: skip reading if even the truncated content
-                # (capped at CONTENT_SIZE_WARN_THRESHOLD by _check_content_size) would
-                # exceed the remaining budget.  Path.stat() is a single syscall — far
-                # cheaper than reading the file only to discard the content.
-                (f := Path(word).expanduser()).is_file()
-                and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
-                + total_content_size
-                > INCLUDE_PATHS_MAX_CONTENT
-            ):
+            try:
+                f = Path(word).expanduser()
+                over_budget = (
+                    f.is_file()
+                    and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
+                    + total_content_size
+                    > INCLUDE_PATHS_MAX_CONTENT
+                )
+            except PermissionError:
+                logger.warning("Skipping unreadable file: %s", word)
+                continue
+            if over_budget:
                 mime, _ = mimetypes.guess_type(str(f))
                 if not mime or mime.startswith("text/"):
                     skipped_paths.append(word)
@@ -999,14 +1062,20 @@ def _resource_to_codeblock(
         # check if prompt is a path, if so, replace it with the contents of that file
         f = Path(prompt).expanduser()
         if f.exists() and f.is_file():
-            file_content = f.read_text()
-            file_content = _check_content_size(file_content, str(f))
+            file_content = _check_content_size(_read_text_capped(f), str(f))
             return md_codeblock(prompt, file_content)
         if f.exists() and f.is_dir():
             if _is_too_broad_directory(f):
                 logger.debug("skipping broad directory attachment: %s", f)
                 return None
             return _dir_to_listing(f, prompt)
+    except PermissionError:
+        logger.warning("Skipping unreadable file: %s", prompt)
+        # A single path would be rediscovered by the fallback scan and recurse
+        # forever. For prose containing multiple words, keep scanning so one
+        # unreadable path does not hide another readable resource.
+        if len(prompt.split()) == 1:
+            return None
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:
@@ -1026,12 +1095,16 @@ def _resource_to_codeblock(
     paths = []
     urls = []
     for word in words:
-        f = Path(word).expanduser()
-        if f.exists() and f.is_file():
-            paths.append(word)
-            continue
-        if f.exists() and f.is_dir():
-            paths.append(word)
+        try:
+            f = Path(word).expanduser()
+            if f.exists() and f.is_file():
+                paths.append(word)
+                continue
+            if f.exists() and f.is_dir():
+                paths.append(word)
+                continue
+        except PermissionError:
+            logger.warning("Skipping unreadable file: %s", word)
             continue
         try:
             p = urllib.parse.urlparse(word)
@@ -1103,15 +1176,19 @@ def _parse_prompt_files(prompt: str) -> Path | None:
         if not (p.exists() and p.is_file()):
             return None
 
-        # Try to read as text
+        # Try to read as text; use the capped reader so a multi-GB file doesn't
+        # load entirely into memory just to check decodability.
         try:
-            p.read_text()
+            _read_text_capped(p)
             return p
         except UnicodeDecodeError:
             # If not text, check if supported binary format
             if p.suffix[1:].lower() in ["png", "jpg", "jpeg", "gif", "pdf"]:
                 return p
             return None
+    except PermissionError:
+        logger.warning("Skipping unreadable file: %s", prompt)
+        return None
     except OSError as oserr:  # pragma: no cover
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:

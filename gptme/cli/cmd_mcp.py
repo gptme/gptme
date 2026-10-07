@@ -1,10 +1,13 @@
 """CLI commands for MCP (Model Context Protocol) server management."""
 
+import shlex
 import sys
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import click
 
-from ..config import get_config
+from ..config import Config, MCPServerConfig
 from ..mcp.client import MCPClient
 
 
@@ -13,11 +16,81 @@ def mcp():
     """Commands for managing MCP servers."""
 
 
+_REDACTED_VALUE = "***"
+
+
+def _redact_param_values(params: str) -> str:
+    """Mask every ``name=value`` value in a query or fragment string.
+
+    Values are masked regardless of the parameter name: a credential can ride
+    under any name (``?sig=``, ``?X-Amz-Signature=``), so redacting only a
+    hardcoded set of "known" credential names would leave the rest exposed.
+    Names are kept so the target stays identifiable, and a malformed pair is
+    passed through verbatim.
+    """
+    if not params:
+        return params
+    redacted: list[str] = []
+    for pair in params.split("&"):
+        name, sep, _ = pair.partition("=")
+        redacted.append(f"{name}={_REDACTED_VALUE}" if sep else pair)
+    return "&".join(redacted)
+
+
+def _display_target(server: MCPServerConfig) -> str:
+    """Render a server target for confirmation, hiding URL credentials.
+
+    Redacts userinfo (``user:pass@``) and every query/fragment parameter value.
+    Never raises: a malformed port or an IPv6 host must not abort the
+    diagnostic before the approval prompt is even shown.
+    """
+    if server.is_http:
+        try:
+            parts = urlsplit(server.url or "")
+        except ValueError:
+            # e.g. an unmatched IPv6 bracket. The URL can't be parsed to
+            # redact it safely, so show nothing from it rather than abort.
+            return "<unparseable URL>"
+        if parts.username or parts.password:
+            # Strip only the userinfo; keep host:port verbatim so an invalid
+            # port or IPv6 brackets still match the URL the client will use.
+            parts = parts._replace(netloc=parts.netloc.rpartition("@")[2])
+        # A credential can ride in any query/fragment parameter, not just the
+        # conventional names, so mask every value and keep only the names.
+        if parts.query:
+            parts = parts._replace(query=_redact_param_values(parts.query))
+        if parts.fragment:
+            parts = parts._replace(fragment=_redact_param_values(parts.fragment))
+        return urlunsplit(parts)
+    return shlex.join([server.command or "", *server.args])
+
+
+def _confirm_project_connection(config: Config, server: MCPServerConfig) -> bool:
+    """Require consent before connecting to a workspace-supplied server.
+
+    The target is shown so the user can inspect what will run. URL userinfo and
+    query/fragment parameter values are redacted; command arguments are shown
+    verbatim because they define the command being approved.
+    """
+    if not config.project or not config.project.mcp:
+        return True
+    if server.name not in {s.name for s in config.project.mcp.servers}:
+        return True
+    target = _display_target(server)
+    try:
+        return click.confirm(
+            f"Connect to project MCP server {server.name!r} ({target!r})?",
+            default=False,
+        )
+    except click.Abort:
+        return False
+
+
 @mcp.command("list")
 def mcp_list():
     """List MCP servers and check their connection health."""
 
-    config = get_config()
+    config = Config.from_workspace(Path.cwd())
 
     if not config.mcp.enabled:
         click.echo("❌ MCP is disabled in config")
@@ -38,6 +111,11 @@ def mcp_list():
 
         if not server.enabled:
             click.echo("   Status: Disabled")
+            click.echo()
+            continue
+
+        if not _confirm_project_connection(config, server):
+            click.echo("   Status: Connection skipped (not approved)")
             click.echo()
             continue
 
@@ -65,7 +143,7 @@ def mcp_list():
 def mcp_test(server_name: str):
     """Test connection to a specific MCP server."""
 
-    config = get_config()
+    config = Config.from_workspace(Path.cwd())
 
     if not config.mcp.enabled:
         click.echo("❌ MCP is disabled in config")
@@ -82,6 +160,8 @@ def mcp_test(server_name: str):
 
     server_type = "HTTP" if server.is_http else "stdio"
     click.echo(f"🔌 Testing {server_name} ({server_type})...")
+    if not _confirm_project_connection(config, server):
+        raise click.ClickException("Project server connection was not approved")
 
     try:
         client = MCPClient(config)
@@ -106,7 +186,7 @@ def mcp_info(server_name: str):
     """
     from ..mcp.registry import MCPRegistry, format_server_details
 
-    config = get_config()
+    config = Config.from_workspace(Path.cwd())
 
     # First check if server is configured locally
     server = next((s for s in config.mcp.servers if s.name == server_name), None)
@@ -119,7 +199,7 @@ def mcp_info(server_name: str):
         click.echo()
 
         if server.is_http:
-            click.echo(f"   URL: {server.url}")
+            click.echo(f"   URL: {_display_target(server)}")
             if server.headers:
                 click.echo(f"   Headers: {len(server.headers)} configured")
         else:
@@ -132,6 +212,9 @@ def mcp_info(server_name: str):
         # Try to test connection if enabled
         if server.enabled:
             click.echo()
+            if not _confirm_project_connection(config, server):
+                click.echo("Connection skipped (not approved).")
+                return
             click.echo("Testing connection...")
             try:
                 client = MCPClient(config)

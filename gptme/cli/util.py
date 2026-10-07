@@ -11,6 +11,7 @@ Command groups are split into separate modules for maintainability:
 - cmd_batch.py: Batch runner for stdin prompts as fresh non-interactive sessions
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
 - cmd_snapshot.py: Workspace snapshot management (list snapshots outside a session)
+- cmd_sound.py: Play notification sounds (e.g. the ding from Claude Code hooks)
 
 Inline command groups (smaller, live in this file):
 - context: RAG index/retrieve plus workspace/git/journal context generation
@@ -68,6 +69,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "skills": (".cmd_skills", "skills"),
     "slop": (".cmd_slop", "slop"),
     "snapshot": (".cmd_snapshot", "snapshot"),
+    "sound": (".cmd_sound", "sound"),
     "stats": (".cmd_stats", "stats"),
     "status": (".cmd_status", "status"),
     "dataset": (".cmd_dataset", "dataset"),
@@ -428,7 +430,14 @@ def tokens():
 )
 def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""
-    from ..util.tokens import len_tokens  # fmt: skip
+    from ..util.tokens import has_known_tokenizer, len_tokens  # fmt: skip
+
+    # Warn if both --file and a text argument are provided; --file takes precedence.
+    if file and text:
+        print(
+            "Warning: Both --file and text argument provided; text argument ignored.",
+            file=sys.stderr,
+        )
 
     # Get text from file if specified (or stdin via "-")
     if file:
@@ -446,6 +455,14 @@ def tokens_count(text: str | None, model: str, file: str | None):
             "or '-' to read from stdin."
         )
         sys.exit(1)
+
+    # Warn when tiktoken has no native encoding for this model. The helper may
+    # use cl100k_base or a character approximation, so don't claim which one.
+    if not has_known_tokenizer(model):
+        print(
+            f"Warning: No native tokenizer for '{model}'; count is an estimate.",
+            file=sys.stderr,
+        )
 
     # Count tokens via gptme's shared tokenizer helper. It handles gptme's
     # canonical "provider/model" names (e.g. "openai/gpt-4o" -> o200k_base),
@@ -697,7 +714,10 @@ def _read_gitignore(path: str) -> list[_IgnoreRule]:
     rules: list[_IgnoreRule] = []
     for fp in [_global_gitignore_path(), os.path.join(path, ".gitignore")]:
         if os.path.exists(fp):
-            with open(fp) as f:
+            # Git treats .gitignore as bytes. surrogateescape round-trips
+            # invalid bytes the same way os.walk decodes filenames, so
+            # patterns containing them still match.
+            with open(fp, encoding="utf-8", errors="surrogateescape") as f:
                 for raw in f:
                     rule = _parse_gitignore_pattern(raw)
                     if rule is not None:
@@ -1047,7 +1067,7 @@ def context_journal(days: int, path: str | None):
         flat_files = glob.glob(os.path.join(journal_dir, f"*{date}*.md"))
         subdir_files = glob.glob(os.path.join(journal_dir, date, "*.md"))
         for file in flat_files + subdir_files:
-            with open(file) as f:
+            with open(file, encoding="utf-8", errors="replace") as f:
                 entries.append(f"\n# {date} — {os.path.basename(file)}\n{f.read()}")
 
     if entries:
@@ -1461,8 +1481,100 @@ def prompts_expand(prompt: tuple[str, ...]):
         if disabled_path_include is not None:
             os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
 
+    # Mixed-text tokens are heuristic (prose, or relative to another expanded
+    # path) and must stay silent. Warn only when the entire prompt is a single
+    # Click argument that is an explicit path and wasn't found.
+    _warn_if_whole_prompt_path_missing(prompt)
+
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
+
+
+def _warn_if_whole_prompt_path_missing(prompt: tuple[str, ...]) -> None:
+    """Warn on stderr when the whole prompt is one missing explicit path.
+
+    Use Click's argument boundary, not whitespace: a quoted path with spaces
+    (``"/tmp/missing file.txt"``) is still one path. Multiple arguments stay
+    silent — that is mixed text. A single argument that starts with a complete
+    path then continues as prose (``"./missing.txt is discussed here"``) is
+    also silent.
+
+    Existence follows ``_find_potential_paths`` punctuation stripping so
+    ``/tmp/existing.txt.`` does not false-warn after a successful expand.
+    """
+    if len(prompt) != 1:
+        return
+    stripped = prompt[0].strip()
+    if not stripped:
+        return
+    if not _looks_like_explicit_file_path(stripped):
+        return
+    if _is_quoted_mixed_prose(stripped):
+        return
+    if _is_slash_command_token(stripped):
+        return
+    # Same trailing-punct strip as gptme.util.context._find_potential_paths.
+    normalized = stripped.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
+    if Path(stripped).expanduser().exists() or Path(normalized).expanduser().exists():
+        return
+    click.echo(f"warning: path not found, not expanded: {stripped}", err=True)
+
+
+def _is_quoted_mixed_prose(prompt: str) -> bool:
+    """True when one Click argument starts with a complete path then continues as text.
+
+    Distinguishes ``./missing.txt is discussed here`` (mixed prose, silent)
+    from ``/tmp/missing file.txt`` (one spaced filename, warn). A single
+    argument is prose when the first token is already a complete file name —
+    its *basename* carries an extension — or when there are three or more
+    words (a sentence). Testing the basename rather than the whole token keeps
+    ``./missing file.txt`` and ``/tmp/v1.2/missing file.txt`` warning, while
+    ``/tmp/v1.2/readme is discussed here`` stays silent on its word count.
+    """
+    parts = prompt.split(None, 2)
+    if len(parts) < 2:
+        return False
+    first = parts[0]
+    if not _looks_like_explicit_file_path(first):
+        return False
+    if "." in Path(first).name:
+        return True
+    return len(parts) >= 3
+
+
+def _looks_like_explicit_file_path(path: str) -> bool:
+    """True for a whole-prompt token intended as a filesystem path, not prose.
+
+    Absolute (`/`), home (`~/`), cwd-relative (`./`), parent-relative (`../`),
+    and Windows drive-absolute (`C:/`, `C:\\`) forms. Bare names like
+    `README.md` stay silent — those are heuristic, not explicit paths.
+    """
+    if path.startswith(("/", "~/", "./", "../")):
+        return True
+    return len(path) >= 3 and path[0].isalpha() and path[1] == ":" and path[2] in "/\\"
+
+
+def _is_slash_command_token(word: str) -> bool:
+    """True for actual /commands, not single-component filesystem paths.
+
+    ``is_message_command`` treats any first token with exactly one slash as a
+    command, so ``/nonexistent`` would skip the missing-path warning.
+    Restrict the exemption to registered commands and discovered tool names.
+    """
+    if not word.startswith("/") or "/" in word[1:] or not word[1:]:
+        return False
+    name = word[1:]
+    try:
+        from ..commands.base import get_registered_commands  # fmt: skip
+        from ..commands.meta import COMMANDS  # fmt: skip
+
+        if name in COMMANDS or name in get_registered_commands():
+            return True
+        from ..tools import get_available_tools  # fmt: skip
+
+        return any(t.name == name for t in get_available_tools(include_mcp=False))
+    except Exception:
+        return False
 
 
 @main.group()
@@ -1503,6 +1615,18 @@ def models_list(
 ):
     """List available models."""
 
+    def validate_provider() -> None:
+        if not provider:
+            return
+        from ..llm.models.listing import get_known_providers  # fmt: skip
+
+        known = sorted(str(p) for p in get_known_providers())
+        if provider not in known:
+            raise click.BadParameter(
+                f"unknown provider '{provider}'. Known providers: {', '.join(known)}",
+                param_hint="--provider",
+            )
+
     if as_json:
         # Keep JSON output machine-readable even if provider discovery logs warnings.
         # redirect_stdout/redirect_stderr suppresses print() noise; logging.disable
@@ -1516,6 +1640,9 @@ def models_list(
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 from ..llm import list_available_providers  # fmt: skip
 
+                # Config loading in provider discovery can warn; keep it inside the
+                # JSON protection so the payload stays parseable.
+                validate_provider()
                 configured = (
                     {
                         configured_provider
@@ -1538,6 +1665,7 @@ def models_list(
         click.echo(json.dumps([model_to_dict(model) for model in models], indent=2))
         return
 
+    validate_provider()
     list_models(
         provider_filter=provider,
         show_pricing=pricing,
@@ -1600,18 +1728,46 @@ def models_info(model_name: str, as_json: bool):
     # values. Mirror the provider check that `models test` performs. Only
     # applies to fully-qualified 'provider/model' names; bare names and known
     # custom providers (e.g. lmstudio/...) don't trigger the warning.
+    # Also tracks whether the provider is truly unrecognized (vs. a valid custom/
+    # plugin provider that internally uses provider="unknown" for routing).
+    unrecognized_provider = False
     if "/" in model_name:
         from ..llm import get_provider_from_model  # fmt: skip
 
         try:
             get_provider_from_model(model_name)
         except ValueError:
+            unrecognized_provider = True
             click.echo(
-                f"⚠️  Unrecognized provider in '{model_name}'; showing generic "
-                "fallback metadata. Run 'gptme-util models list --available' "
-                "to see known models.",
+                f"⚠️  Unrecognized provider in '{model_name}' — the model "
+                "information cannot be shown. Run 'gptme-util models list "
+                "--available' to see known models.",
                 err=True,
             )
+
+    # Exit 1 when the model resolved to pure fallback with no known provider.
+    # Prevents callers from silently scripting on fabricated context/capability values.
+    # Note: anthropic/unknown-model has provider="anthropic" (closest-match), so new
+    # models not yet in the registry still return 0; only fully-unknown models exit 1.
+    # Note: custom/plugin providers resolve to provider="unknown" internally for
+    # routing, but ARE valid — only exit 1 when the prefix itself is unrecognized.
+    # Bare names can also be valid custom providers (with a default_model), so
+    # check is_custom_provider before rejecting a bare-name fallback resolution.
+    from ..llm import is_custom_provider  # fmt: skip
+
+    bare_name = "/" not in model_name
+    if (
+        model.provider == "unknown"
+        and (unrecognized_provider or bare_name)
+        and not (bare_name and is_custom_provider(model_name))
+    ):
+        if bare_name:
+            click.echo(
+                f"Unknown model: {model_name!r}. "
+                "Run 'gptme-util models list' to see known models.",
+                err=True,
+            )
+        sys.exit(1)
 
     if as_json:
         print(json.dumps(model_to_dict(model), indent=2))

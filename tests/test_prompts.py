@@ -39,7 +39,7 @@ def test_get_prompt_short():
 
 
 def test_get_prompt_custom():
-    prompt_msgs = get_prompt([], prompt="Hello world!")
+    prompt_msgs = get_prompt([], prompt="Hello world!", include_user_context=False)
     assert len(prompt_msgs) == 1
     assert prompt_msgs[0].content == "Hello world!"
 
@@ -114,12 +114,14 @@ def test_get_prompt_stats_breaks_out_sections(monkeypatch):
     assert stats.cacheable_tokens >= stats.dynamic_tokens
 
 
-def test_get_prompt_stats_short_without_tools_keeps_minimal_core():
+def test_get_prompt_stats_short_without_tools_keeps_minimal_core(monkeypatch):
+    monkeypatch.setattr("gptme.prompts._prompt_fragment_sections", lambda: [])
     stats = get_prompt_stats(
         [],
         prompt="short",
         context_mode="selective",
         context_include=[],
+        include_user_context=False,
     )
 
     assert [section.name for section in stats.sections] == ["prompt_gptme"]

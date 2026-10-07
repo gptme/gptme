@@ -16,6 +16,7 @@ from .constants import (
     LLM_REQUEST_FAILED_PREFIX,
     MAX_MESSAGE_LENGTH,
     MAX_PROMPT_QUEUE_SIZE,
+    MAX_STEPS_STOP_PREFIX,
 )
 from .constants import (
     prompt_user as prompt_user_styled,
@@ -23,8 +24,6 @@ from .constants import (
 from .hooks import HookType, StopPropagation, trigger_hook
 from .init import init
 from .llm import (
-    did_llm_reply_emit_visible_output,
-    is_context_length_error,
     is_llm_reply_error,
     reply,
 )
@@ -57,7 +56,6 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
-from .util.prompt import add_history, get_input
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
@@ -696,7 +694,11 @@ def _process_message_conversation(
             if not is_output_json() and not is_output_quiet():
                 console.log(f"Reached max steps limit ({max_steps}), stopping.")
             manager.append(
-                Message("system", f"Stopped: reached max steps limit ({max_steps})")
+                Message(
+                    "system",
+                    f"{MAX_STEPS_STOP_PREFIX} ({max_steps})",
+                    metadata={"max_steps_stop": True},
+                )
             )
             break
 
@@ -776,12 +778,26 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Check if there's an interrupt, decline, or provider-error message after
-    # the last assistant *and* last user message. These mean "hand control
-    # back to the user" rather than auto-generating. A newer user turn
-    # supersedes the marker (crash recovery / queued follow-up). Hooks
-    # (like cost_awareness) may append system messages after the marker, so
-    # skip those — but stop at user or assistant.
+    # Only the budget reminder is transparent to the last-message decision.
+    # Other system messages may be markdown tool results without a call_id,
+    # including results from older saved logs. Preserve their continuation.
+    effective_last = next(
+        (
+            msg
+            for msg in reversed(log)
+            if not (
+                msg.role == "system"
+                and not msg.call_id
+                and "compaction_reminder_view" in (msg.metadata or {})
+            )
+        ),
+        None,
+    )
+
+    # Scan the whole suffix after the last assistant/user for control markers.
+    # A later tool result must not mask a decline, interrupt, or provider error;
+    # a newer user turn supersedes the marker. Tool output with a call_id is
+    # never itself a control marker, even if its text matches one.
     has_recent_return_to_prompt = False
     for msg in reversed(log):
         if msg.role in ("assistant", "user"):
@@ -792,6 +808,7 @@ def _should_prompt_for_input(log: Log) -> bool:
             and (
                 msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
                 or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
+                or (msg.metadata or {}).get("max_steps_stop") is True
             )
         ):
             has_recent_return_to_prompt = True
@@ -799,7 +816,7 @@ def _should_prompt_for_input(log: Log) -> bool:
 
     # Ask for input when:
     # - No messages at all
-    # - Last message was from assistant (normal flow)
+    # - Last non-reminder message was from assistant
     # - There was an interrupt, decline, or provider error after the last assistant
     # - Last message was pinned (except resume-only prompts like a re-applied
     #   agent profile: those are appended after saved turns, so treating them
@@ -829,10 +846,10 @@ def _should_prompt_for_input(log: Log) -> bool:
             return True
         return substantive.role != "user"
     return (
-        not last_msg
-        or last_msg.role == "assistant"
+        not effective_last
+        or effective_last.role == "assistant"
         or has_recent_return_to_prompt
-        or (last_msg.pinned and not last_msg_is_resume_prompt)
+        or (last_msg is not None and last_msg.pinned and not last_msg_is_resume_prompt)
         or not any(role == "user" for role in [m.role for m in log])
     )
 
@@ -895,7 +912,9 @@ def _reply_with_overflow_recovery(
     logdir: Path | None,
     max_tokens: int | None = None,
 ) -> Message:
-    """Generate once, compacting to a lossless view and retrying on overflow."""
+    """Generate with shared, view-preserving context-overflow recovery."""
+    # Dynamic catalogs may fail on a second lookup after a successful reply.
+    model_meta = get_model(model)
 
     def generate(messages: list[Message]) -> Message:
         manager = LogManager.get_current_log()
@@ -908,10 +927,6 @@ def _reply_with_overflow_recovery(
         )
         input_count = len(stored_input)
         input_digest = input_log_digest(stored_input)
-        # Resolve model metadata once: get_model() may hit a dynamic catalog
-        # (OpenRouter/gptme) whose failures aren't cached, so a second lookup
-        # after generation could fail the step after a successful reply.
-        model_meta = get_model(model)
         response = reply(
             messages,
             model_meta.full,
@@ -926,75 +941,23 @@ def _reply_with_overflow_recovery(
         anchor_context_usage(response, input_count, input_digest, model_meta.full)
         return response
 
-    try:
-        return generate(msgs)
-    except Exception as first_error:
-        if not is_context_length_error(first_error) or logdir is None:
-            raise
+    from .tools.autocompact.recovery import recover_reply
 
-        from time import monotonic
-
-        from .tools.autocompact.events import append_compaction_event
-        from .tools.autocompact.recovery import compact_for_overflow
-
-        manager = LogManager.get_current_log()
-        if (
-            manager is None
-            or manager.log is not log
-            or manager.logdir.resolve() != logdir.resolve()
-        ):
-            raise
-
-        # Retrying after a visible streaming prefix would duplicate output. A
-        # context rejection before the first provider chunk is still atomic.
-        if did_llm_reply_emit_visible_output(first_error):
-            raise
-
-        started = monotonic()
-        before_messages = manager.log.messages
-        before_tokens = len_tokens(before_messages, get_model(model).model)
-        compacted_messages = compact_for_overflow(manager)
-        after_tokens = len_tokens(compacted_messages, get_model(model).model)
-        view_name = manager.get_next_view_name()
-        manager.create_view(view_name, compacted_messages)
-        manager.switch_view(view_name)
-        retry_success = False
-        keep_compacted_view = False
-        provider_tokens_before = len_tokens(msgs, get_model(model).model)
-        provider_tokens_after = None
-        try:
-            retry_messages = prepare_messages(
-                manager.log.messages, workspace, logdir=logdir
-            )
-            provider_tokens_after = len_tokens(retry_messages, get_model(model).model)
-            if provider_tokens_after >= provider_tokens_before:
-                logger.warning(
-                    "Overflow compaction did not shrink provider input "
-                    "(%d -> %d tokens); skipping retry",
-                    provider_tokens_before,
-                    provider_tokens_after,
-                )
-                raise first_error
-            response = generate(retry_messages)
-            retry_success = True
-            keep_compacted_view = True
-            return response
-        finally:
-            append_compaction_event(
-                logdir,
-                trigger="overflow",
-                method="trim",
-                tokens_before=before_tokens,
-                tokens_after=after_tokens,
-                messages_before=len(before_messages),
-                messages_after=len(compacted_messages),
-                elapsed_seconds=monotonic() - started,
-                retry_success=retry_success,
-                provider_tokens_before=provider_tokens_before,
-                provider_tokens_after=provider_tokens_after,
-            )
-            if not keep_compacted_view:
-                manager.switch_to_master()
+    manager = LogManager.get_current_log()
+    if (
+        manager is None
+        or manager.log is not log
+        or logdir is None
+        or manager.logdir.resolve() != logdir.resolve()
+    ):
+        manager = None
+    return recover_reply(
+        manager,
+        msgs,
+        model_meta.full,
+        generate,
+        lambda messages: prepare_messages(messages, workspace, logdir=logdir),
+    )
 
 
 @trace_function(name="chat.step", attributes={"component": "chat"})
@@ -1128,6 +1091,8 @@ def step(
 
 
 def prompt_user(value=None) -> str:  # pragma: no cover
+    from .util.prompt import add_history
+
     print_bell()
     flush_stdin()
     response = ""
@@ -1155,5 +1120,7 @@ def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
     if value:
         console.print(prompt + value)
         return value
+
+    from .util.prompt import get_input
 
     return get_input(prompt)

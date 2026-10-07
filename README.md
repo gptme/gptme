@@ -42,6 +42,9 @@
   <a href="https://pypistats.org/packages/gptme">
     <img src="https://img.shields.io/pypi/dd/gptme?color=success" alt="PyPI - Downloads per day" />
   </a>
+  <a href="https://doi.org/10.5281/zenodo.22816651">
+    <img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22816651.svg" alt="DOI" />
+  </a>
   <br>
   <a href="https://discord.gg/NMaCmmkxWv">
     <img src="https://img.shields.io/discord/1271539422017618012?logo=discord&style=social" alt="Discord" />
@@ -596,12 +599,16 @@ Community and usage numbers (stars, downloads, contributors) are collected daily
 
 If you use gptme in your research, please cite it. The citation metadata lives in
 [`CITATION.cff`](./CITATION.cff) (GitHub's "Cite this repository" button uses it).
+The [Zenodo concept DOI](https://doi.org/10.5281/zenodo.22816651) identifies gptme
+across all archived versions. For reproducibility, cite the version-specific DOI
+from the Zenodo record for the release you used.
 
 ```bibtex
 @software{gptme,
   author  = {Bjäreholt, Erik},
   title   = {gptme},
   year    = {2023},
+  doi     = {10.5281/zenodo.22816651},
   url     = {https://github.com/gptme/gptme}
 }
 ```

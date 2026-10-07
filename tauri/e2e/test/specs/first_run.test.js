@@ -123,6 +123,11 @@ describe("Real first-run flow", () => {
           (await describeWebview()),
       );
     }
+    // Wait for the button to be interactable (visible + in viewport) before
+    // clicking. The Dialog may still be animating when the element enters the
+    // DOM; a bare click() on a mid-animation element is a known flake vector in
+    // WebDriver against Radix UI dialogs.
+    await getStartedBtn.waitForClickable({ timeout: 5000 });
     await getStartedBtn.click();
 
     // 5. In "Choose your setup", click the Local option through its stable
@@ -136,6 +141,7 @@ describe("Real first-run flow", () => {
           (await describeWebview()),
       );
     }
+    await localBtn.waitForClickable({ timeout: 5000 });
     await localBtn.click();
 
     // 6. Wait for the sidecar to be ready before clicking Connect. Now that we
@@ -172,10 +178,15 @@ describe("Real first-run flow", () => {
           (await describeWebview()),
       );
     }
-    if (await connectBtn.isExisting()) {
-      await connectBtn.click();
-    } else if (await continueBtn.isExisting()) {
-      await continueBtn.click();
+    try {
+      if (await connectBtn.isExisting()) {
+        await connectBtn.click();
+      } else if (await continueBtn.isExisting()) {
+        await continueBtn.click();
+      }
+    } catch (_clickErr) {
+      // The wizard may have auto-advanced between isExisting() and click();
+      // treat as auto-advance and let the connected-signal waitUntil below handle it.
     }
 
     // 8. Wait for a genuine *connected* signal. Do NOT accept the persisted

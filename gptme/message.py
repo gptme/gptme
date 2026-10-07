@@ -214,6 +214,11 @@ class MessageMetadata(TypedDict, total=False):
     # Qualified model identity that produced the anchored provider usage, so a
     # provider switch serving the same bare model name invalidates the anchor.
     input_log_model: str
+    # Active view (empty for master) warned before reaching the compaction budget.
+    # Stored on the reminder so reloads do not repeat it on every tool step.
+    compaction_reminder_view: str
+    # Written by the CLI when GPTME_MAX_STEPS ends a turn; never inferred from text.
+    max_steps_stop: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.
@@ -657,7 +662,8 @@ def format_msgs(
             if highlight:
                 content = escape_markup(content)
             output += textwrap.shorten(content, width=max_len, placeholder="...")
-            if len(output) < 20:
+            if len(output) < 20 and len(content) > max_len:
+                # shorten() collapsed to (almost) nothing, e.g. one very long word
                 output = content[:max_len] + "..."
         else:
             multiline = len(stripped_content.split("\n")) > 1

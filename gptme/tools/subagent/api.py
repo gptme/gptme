@@ -166,7 +166,7 @@ def subagent(
     mode: Literal["executor", "planner"] = "executor",
     subtasks: list[SubtaskDef] | None = None,
     execution_mode: Literal["parallel", "sequential"] = "parallel",
-    context_mode: Literal["full", "selective"] = "full",
+    context_mode: Literal["full", "selective", "fork"] = "full",
     context_include: list[str] | None = None,
     output_schema: "type | dict | None" = None,
     use_subprocess: bool | None = None,
@@ -183,6 +183,7 @@ def subagent(
     max_time: float | None = None,
     context_turns: int | None = None,
     workdir: str | Path | None = None,
+    reasoning_effort: str | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -215,8 +216,15 @@ def subagent(
                        "sequential" runs subtasks one after another.
                        Only applies to planner mode.
         context_mode: Controls what context is shared with the subagent:
+
             - "full" (default): Share complete context (agent identity, tools, workspace)
             - "selective": Share only specified context components (requires context_include)
+            - "fork": Start the subagent from an independent *copy* of the parent's
+              full conversation log — not a reference to the same log file, so the
+              child's own turns never appear in the parent's log and vice versa.
+              Matches Claude Code's "fork" subagent type, thread mode only (ignored
+              with a warning in subprocess/ACP/planner mode), and is mutually
+              exclusive with context_turns (fork already includes the full history).
         context_include: For selective mode, list of context components to include:
             - Thread mode supports "agent" and "tools"
             - Subprocess mode also supports "workspace", which maps to the CLI's "files" context
@@ -340,6 +348,20 @@ def subagent(
             ``cwd``, so it picks up the ``gptme.toml`` from that directory.
             In thread mode the workspace context (files, ``context_cmd``) is
             loaded relative to this path.
+        reasoning_effort: Per-call reasoning effort override for this subagent's
+            model calls (e.g. ``"low"``, ``"medium"``, ``"high"`` — the valid
+            set depends on the provider; see ``GPTME_THINKING_EFFORT``).
+            ``None`` (default) means the subagent inherits the parent process's
+            setting unchanged.
+
+            Thread mode scopes the override to the subagent's own thread only
+            (via a thread-local config context — never touches the parent's or
+            any sibling's effort level). Subprocess mode forwards it as the
+            ``GPTME_THINKING_EFFORT`` environment variable to the child process.
+            Not supported in ACP mode (ignored with a warning).
+
+            Use this to route a cheap, high-volume subagent to low effort while
+            the parent (or a verification subagent) stays at high effort.
 
     Returns:
         None: Starts asynchronous execution.
@@ -356,6 +378,11 @@ def subagent(
     if context_turns is not None and context_turns <= 0:
         raise ValueError(
             f"context_turns must be None or a positive integer, got {context_turns!r}"
+        )
+    if context_mode == "fork" and context_turns is not None:
+        raise ValueError(
+            "context_turns is not compatible with context_mode='fork' "
+            "(fork already copies the full parent conversation)"
         )
     if isolation is not None and isolation != "worktree":
         raise ValueError(
@@ -405,6 +432,18 @@ def subagent(
                 "context_turns=%d set but no active LogManager found; "
                 "parent context will not be forwarded",
                 context_turns,
+            )
+
+    # Fork mode: copy the parent's full log (independent list, not a reference)
+    # so the subagent inherits complete history without sharing mutable state.
+    fork_messages = None
+    if context_mode == "fork":
+        if parent_log is not None:
+            fork_messages = list(parent_log.log)
+        else:
+            logger.warning(
+                "context_mode='fork' set but no active LogManager found; "
+                "subagent will start with no inherited context"
             )
 
     # noreorder
@@ -493,6 +532,11 @@ def subagent(
                 "parameter is ignored",
                 context_turns,
             )
+        if context_mode == "fork":
+            logger.warning(
+                "context_mode='fork' set but planner mode does not forward parent "
+                "context; parameter is ignored"
+            )
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
 
@@ -515,6 +559,7 @@ def subagent(
             redact_secrets=redact_secrets,
             context_window=context_window,
             max_time=max_time,
+            reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
         )
@@ -545,6 +590,7 @@ def subagent(
                 workdir=workdir_path,
                 parent_logdir=parent_logdir,
                 parent_branch=parent_branch,
+                reasoning_effort=reasoning_effort,
             )
         finally:
             if _timer is not None:
@@ -652,6 +698,10 @@ def subagent(
                 "context_turns=%d set but ACP mode does not forward parent context; "
                 "parameter is ignored",
                 context_turns,
+            )
+        if reasoning_effort is not None:
+            logger.warning(
+                f"Subagent {agent_id}: 'reasoning_effort' is not supported in ACP mode (ignored)"
             )
 
         def _save_acp_session_id(client: Any) -> None:
@@ -845,6 +895,11 @@ def subagent(
                 "parameter is ignored",
                 context_turns,
             )
+        if context_mode == "fork":
+            logger.warning(
+                "context_mode='fork' set but subprocess mode does not forward parent "
+                "context; parameter is ignored"
+            )
         if profile:
             logger.info(f"  with profile: {profile}")
         # Convert output_schema for the subprocess launcher.
@@ -886,6 +941,7 @@ def subagent(
                     output_schema=output_schema_str,
                     output_schema_dict=output_schema_dict,
                     profile=profile,
+                    reasoning_effort=reasoning_effort,
                 )
                 # Subagent is a frozen dataclass; install the live process on the
                 # pre-registered object so queued agents become inspectable once
@@ -961,6 +1017,7 @@ def subagent(
             role=role,
             max_time=max_time,
             context_turns=context_turns,
+            reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
         )
@@ -1011,6 +1068,8 @@ def subagent(
                         redact_secrets=redact_secrets,
                         context_window=context_window,
                         parent_messages=parent_messages,
+                        fork_messages=fork_messages,
+                        reasoning_effort=reasoning_effort,
                         prompt_queue_closed=_pqc,
                     )
                 except Exception as e:
@@ -1074,6 +1133,8 @@ def subagent(
                             f" — merge with: git merge {preserved_branch}",
                             input_tokens=result.input_tokens,
                             output_tokens=result.output_tokens,
+                            tool_uses=result.tool_uses,
+                            duration_s=result.duration_s,
                         )
                     if not set_subagent_result_if_absent(agent_id, result):
                         # Timeout/cancel won the cache race. Cleanup already ran above.
@@ -1134,9 +1195,11 @@ def subagent(
             context_window=context_window,
             max_time=max_time,
             context_turns=context_turns,
+            reasoning_effort=reasoning_effort,
             parent_logdir=parent_logdir,
             parent_branch=parent_branch,
             prompt_queue_closed=_pqc,
+            fork_message_count=len(fork_messages) if fork_messages is not None else 0,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1179,7 +1242,7 @@ def _timeout_subagent(
         return  # Another result was set concurrently (subagent finished at the same time)
 
     if sa.execution_mode == "subprocess" and sa.process:
-        _exec._terminate_subprocess(sa.process)
+        _exec._terminate_subprocess(sa.process, sa.logdir / _exec._SHELL_PGIDS_FILENAME)
         logger.info(
             f"Subagent '{agent_id}' subprocess killed after {max_time}s (max_time)."
         )
@@ -1240,7 +1303,7 @@ def subagent_cancel(agent_id: str) -> str:
             logger.warning(
                 "Failed to write cancel control op for '%s': %s", agent_id, e
             )
-        _exec._terminate_subprocess(sa.process)
+        _exec._terminate_subprocess(sa.process, sa.logdir / _exec._SHELL_PGIDS_FILENAME)
         logger.info(f"Subagent '{agent_id}' subprocess terminated.")
         return f"Subagent '{agent_id}' cancelled."
     if sa.execution_mode == "thread":
@@ -1503,6 +1566,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                         agent_id=agent_id,
                         redact_secrets=sa.redact_secrets,
                         context_window=sa.context_window,
+                        reasoning_effort=sa.reasoning_effort,
                         prompt_queue_closed=prompt_queue_closed,
                         resume=True,
                     )
@@ -1515,6 +1579,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                         context_mode=sa.context_mode,
                         context_include=sa.context_include,
                         profile=sa.profile,
+                        reasoning_effort=sa.reasoning_effort,
                         resume=True,
                     )
                     with _subagents_lock:
@@ -1621,6 +1686,8 @@ def subagent_continue(agent_id: str, message: str) -> None:
         context_window=sa.context_window,
         max_time=sa.max_time,
         context_turns=sa.context_turns,
+        reasoning_effort=sa.reasoning_effort,
+        fork_message_count=sa.fork_message_count,
         parent_logdir=sa.parent_logdir,
         parent_branch=sa.parent_branch,
         prompt_queue_closed=prompt_queue_closed,
@@ -1736,6 +1803,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             context_window=sa.context_window,
             max_time=sa.max_time,
             context_turns=sa.context_turns,
+            reasoning_effort=sa.reasoning_effort,
         )
     except Exception:
         with _subagents_lock:

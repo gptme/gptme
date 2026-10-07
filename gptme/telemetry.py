@@ -363,11 +363,24 @@ def _calculate_llm_cost(
     cache_read_tokens: int | None = None,
 ) -> float:
     """Calculate the cost of an LLM request."""
-    from .llm.models import get_model  # lazy — breaks telemetry → llm circular dep
+    from .llm.models import (  # lazy — breaks telemetry → llm circular dep
+        PROVIDER_ALIASES,
+        PROVIDERS,
+        get_model,
+    )
 
-    lookup_model = model if "/" in model else f"{provider}/{model}"
+    # ``model`` may already carry a routing prefix (e.g.
+    # "openrouter/z-ai/glm-5.3-flash", where ``provider`` is the underlying
+    # vendor "z-ai") or be a bare catalog id ("z-ai/glm-5.3-flash" with
+    # ``provider`` "openrouter"). Only add the provider prefix when the model
+    # does not already start with a known provider namespace.
+    model_prefix = model.split("/", 1)[0] if "/" in model else ""
+    if model_prefix in PROVIDERS or model_prefix in PROVIDER_ALIASES:
+        lookup_model = model
+    else:
+        lookup_model = f"{provider}/{model}"
     meta = get_model(lookup_model)
-    if not (meta and input_tokens and output_tokens):
+    if meta is None:
         return 0.0
 
     if meta.pricing_type == "subscription":
@@ -375,22 +388,23 @@ def _calculate_llm_cost(
 
     price_in = (meta.price_input or 0.0) / 1e6
     price_out = (meta.price_output or 0.0) / 1e6
-    cost = input_tokens * price_in + output_tokens * price_out
+    cost = (input_tokens or 0) * price_in + (output_tokens or 0) * price_out
 
-    # Cache pricing per provider
+    # Keep the existing provider defaults when no explicit model rate is known.
+    price_cache_read = 0.0
     caching_cost = 0.0
     if provider == "anthropic":
         # anthropic charges 1.25x for cache writes + 0.1x for cache reads
-        # cache reads use input pricing (cached input tokens being read)
         price_cache_read = 0.1 * price_in
-        price_cache_write = 1.25 * price_in
-        cost_cache_read = price_cache_read * (cache_read_tokens or 0)
-        cost_cache_write = price_cache_write * (cache_creation_tokens or 0)
-        caching_cost = cost_cache_read + cost_cache_write
+        caching_cost = 1.25 * price_in * (cache_creation_tokens or 0)
     elif provider == "openai":
-        # openai charges 0.5x for cache reads (based on input pricing)
+        # openai historically charges 0.5x for cache reads
         price_cache_read = 0.5 * price_in
-        caching_cost = price_cache_read * (cache_read_tokens or 0)
+
+    # Zero is a known free cache read, not an absent catalog/model rate.
+    if meta.price_cache_read is not None:
+        price_cache_read = meta.price_cache_read / 1e6
+    caching_cost += price_cache_read * (cache_read_tokens or 0)
 
     return cost + caching_cost
 

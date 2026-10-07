@@ -94,6 +94,15 @@ function isDefaultLoopbackTarget(baseUrl: string): boolean {
   return ['http://127.0.0.1:5700', 'http://localhost:5700'].includes(baseUrl.replace(/\/+$/, ''));
 }
 
+// The Tauri sidecar target: the default loopback URL (first launch), or the
+// sidecar URL a previous launch already synced into the registry. The token
+// rotates every launch, so both must receive the fresh sidecar token.
+function isTauriSidecarTarget(baseUrl: string, port: number): boolean {
+  return (
+    isDefaultLoopbackTarget(baseUrl) || baseUrl.replace(/\/+$/, '') === `http://127.0.0.1:${port}`
+  );
+}
+
 export function shouldSkipHostedLoopbackAutoConnect(
   baseUrl: string,
   pageOrigin: string,
@@ -201,7 +210,10 @@ export function ApiProvider({
         if (
           managesLocalServer &&
           tauriServerStatus &&
-          isDefaultLoopbackTarget(activeServer.baseUrl)
+          !tauriServerStatus.existing_server_detected &&
+          isTauriSidecarTarget(activeServer.baseUrl, tauriServerStatus.port) &&
+          (config?.baseUrl === undefined ||
+            isTauriSidecarTarget(config.baseUrl, tauriServerStatus.port))
         ) {
           if (config?.baseUrl === undefined) {
             updates.baseUrl = `http://127.0.0.1:${tauriServerStatus.port}`;
@@ -210,6 +222,23 @@ export function ApiProvider({
             updates.authToken = tauriServerStatus.auth_token;
             updates.useAuthToken = true;
           }
+        }
+
+        // Moving a sidecar-bound server to a different host without an explicit
+        // credential: drop the stored token, otherwise the client falls back to
+        // activeServer.authToken and sends the sidecar secret to that host.
+        if (
+          managesLocalServer &&
+          tauriServerStatus &&
+          !tauriServerStatus.existing_server_detected &&
+          isTauriSidecarTarget(activeServer.baseUrl, tauriServerStatus.port) &&
+          config?.baseUrl !== undefined &&
+          !isTauriSidecarTarget(config.baseUrl, tauriServerStatus.port) &&
+          config.authToken === undefined &&
+          activeServer.authToken
+        ) {
+          updates.authToken = null;
+          updates.useAuthToken = false;
         }
 
         if (Object.keys(updates).length > 0) {
@@ -505,8 +534,8 @@ export function ApiProvider({
   );
 
   useEffect(() => {
-    if (!activeServer || !tauriServerBaseUrl) return;
-    if (!isDefaultLoopbackTarget(connectionConfig.baseUrl)) return;
+    if (!activeServer || !tauriServerStatus || !tauriServerBaseUrl) return;
+    if (!isTauriSidecarTarget(connectionConfig.baseUrl, tauriServerStatus.port)) return;
     if (!needsTauriServerUrlSync && !tauriServerStatus?.auth_token) return;
 
     const updates: Partial<ServerConfig> = {};
@@ -531,6 +560,7 @@ export function ApiProvider({
     connectionConfig.baseUrl,
     needsTauriServerUrlSync,
     tauriServerBaseUrl,
+    tauriServerStatus,
     tauriServerStatus?.auth_token,
     tauriServerStatus?.existing_server_detected,
   ]);

@@ -49,7 +49,7 @@ def _session_name(session_dir: Path) -> str:
     """Extract human-readable name from config.toml or directory name."""
     config = session_dir / "config.toml"
     if config.exists():
-        for line in config.read_text().splitlines():
+        for line in config.read_text(errors="replace").splitlines():
             m = re.match(r'^name\s*=\s*"(.+)"', line.strip())
             if m:
                 return m.group(1)
@@ -64,11 +64,13 @@ def _user_message(session_dir: Path) -> str | None:
         return None
 
     messages = []
-    for line in conv.read_text().splitlines():
+    for line in conv.read_text(errors="replace").splitlines():
         try:
-            messages.append(json.loads(line))
+            msg = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(msg, dict):
+            messages.append(msg)
 
     mission_patterns = [
         r"## Mission\s*\n(.*?)(?=\n##|\n---|\Z)",
@@ -109,12 +111,12 @@ def _last_reasoning(session_dir: Path) -> str | None:
         return None
 
     last = None
-    for line in conv.read_text().splitlines():
+    for line in conv.read_text(errors="replace").splitlines():
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if msg.get("role") == "assistant":
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
             last = msg
 
     if not last:

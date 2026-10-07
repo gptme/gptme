@@ -1073,7 +1073,6 @@ def main(
     from ..tools import init_tools
     from ..util.context import md_codeblock
     from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
-    from ..util.prompt import add_history
     from ..util.tokens import len_tokens
 
     # init logging
@@ -1124,6 +1123,8 @@ def main(
         if prompt and len(prompt) > 1000:
             # skip adding long prompts to history (slows down startup, unlikely to be useful)
             continue
+        from ..util.prompt import add_history
+
         add_history(prompt)
 
     if missing_path := _find_missing_explicit_local_path(prompts):

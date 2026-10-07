@@ -1,5 +1,6 @@
 """Test configuration and shared fixtures."""
 
+import copy
 import http.server
 import json
 import logging
@@ -505,20 +506,25 @@ def reset_allow_hosts_after():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_acp_health_monitor():
-    """Stop the ACP health monitor and clear SessionManager state after each test.
+def cleanup_session_health_monitor(detect_leaked_threads):
+    """Stop the session health monitor and clear SessionManager state after each test.
 
-    The health monitor is a module-level singleton thread. Without this fixture
-    the first test that starts it leaks the thread for the rest of the xdist
-    worker's life, racing with any test that writes to SessionManager._sessions
-    directly and causing RuntimeError: dictionary changed size during iteration.
+    The health monitor is a module-level singleton thread, started by every
+    ``create_app()``. Without this fixture the thread leaks for the rest of the
+    xdist worker's life, racing with any test that writes to
+    ``SessionManager._sessions`` directly and causing
+    ``RuntimeError: dictionary changed size during iteration``.
+
+    Depends on ``detect_leaked_threads`` so this teardown is guaranteed to run
+    *before* the leak check, regardless of autouse fixture instantiation order:
+    a stopped thread must not be reported as a leak.
     """
     yield
     try:
         try:
-            from gptme.server.session_step import stop_acp_health_monitor
+            from gptme.server.session_step import stop_session_health_monitor
 
-            stop_acp_health_monitor()
+            stop_session_health_monitor()
         except ImportError:
             pass
         try:
@@ -531,7 +537,7 @@ def cleanup_acp_health_monitor():
         except ImportError:
             pass
     except Exception as e:
-        logger.warning(f"Error during ACP health monitor cleanup: {e}")
+        logger.warning(f"Error during session health monitor cleanup: {e}")
 
 
 @pytest.fixture(autouse=True)
@@ -757,8 +763,52 @@ def server_thread(monkeypatch):
     return port  # Return the port to the test
 
 
+class _SnapshotHandler(logging.Handler):
+    """Store a shallow copy of each record as it was at emit time."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__(level)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(copy.copy(record))
+
+
+@pytest.fixture
+def server_error_records() -> Iterator[list[logging.LogRecord]]:
+    """ERROR+ records logged under ``gptme.server``, snapshotted before root handlers run.
+
+    ``caplog`` hangs off the root logger, so its records are the same objects
+    every other root handler sees -- and some handlers mutate records in place
+    (``multiprocessing_logging``'s wrapper clears ``exc_info`` after caching
+    ``exc_text``). A handler on ``gptme.server`` itself runs before any root
+    handler, and copying the record there makes ``exc_info`` assertions
+    independent of whatever global logging state earlier tests left behind.
+    """
+    logger = logging.getLogger("gptme.server")
+    handler = _SnapshotHandler(logging.ERROR)
+    saved_level, saved_disabled, saved_propagate = (
+        logger.level,
+        logger.disabled,
+        logger.propagate,
+    )
+    if logger.getEffectiveLevel() > logging.ERROR:
+        logger.setLevel(logging.ERROR)
+    logger.disabled = False
+    logger.propagate = True
+    logger.addHandler(handler)
+    try:
+        yield handler.records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(saved_level)
+        logger.disabled = saved_disabled
+        logger.propagate = saved_propagate
+
+
 @pytest.fixture
 def client(monkeypatch):
+    pytest.importorskip("flask", reason="flask not installed; install -E server")
     from gptme.server.app import create_app  # fmt: skip
 
     # Disable auth for the generic test client so existing tests don't need tokens.

@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any, cast
 
 from ..provider_plugins import discover_provider_plugins, get_provider_plugin
@@ -37,6 +39,8 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
     if model.price_input or model.price_output:
         d["price_input"] = model.price_input
         d["price_output"] = model.price_output
+    if getattr(model, "price_cache_read", None) is not None:
+        d["price_cache_read"] = model.price_cache_read
     if model.pricing_type != "per_token":
         d["pricing_type"] = model.pricing_type
     if model.knowledge_cutoff:
@@ -79,8 +83,11 @@ def _get_models_for_provider(
             from ..llm_gptme import GptmeAuthError  # fmt: skip
 
             if isinstance(e, GptmeAuthError):
-                # Auth error: surface the actionable hint to the user
-                logger.warning("gptme provider: %s", e)
+                # Auth error: one actionable line, not the full multi-line hint
+                logger.warning(
+                    "gptme provider: not logged in "
+                    "(run `gptme-auth login` or set GPTME_CLOUD_API_KEY)"
+                )
             else:
                 # Fall back to static models (only for built-in providers)
                 logger.debug(
@@ -130,6 +137,45 @@ _model_list_cache_time: float = 0
 _MODEL_LIST_CACHE_TTL = 300  # 5 minutes
 
 
+def _fetch_models_parallel(
+    providers: list[Provider], dynamic_fetch: bool
+) -> list[list[ModelMeta]]:
+    """Fetch each provider's models concurrently, preserving provider order.
+
+    One slow or unreachable endpoint then does not serialize the whole listing.
+    Each worker runs in a copy of the caller's context so ContextVar-backed
+    state (notably the project/chat config from ``get_config()``) is visible
+    there; otherwise custom providers would be unknown in the worker.
+    """
+    if not providers:
+        return []
+    tasks = [(copy_context(), p) for p in providers]
+    with ThreadPoolExecutor(max_workers=min(8, len(providers))) as pool:
+        return list(
+            pool.map(
+                lambda t: t[0].run(_get_models_for_provider, t[1], dynamic_fetch),
+                tasks,
+            )
+        )
+
+
+def get_known_providers() -> list[Provider]:
+    """All provider names gptme can list models for: built-in, custom (config) and plugin."""
+    from ...config import get_config  # fmt: skip
+
+    custom_providers: list[Provider] = [
+        CustomProvider(p.name) for p in get_config().user.providers
+    ]
+    plugin_providers: list[Provider] = [
+        CustomProvider(p.name) for p in discover_provider_plugins()
+    ]
+    return (
+        list(cast(list[Provider], list(MODELS.keys())))
+        + custom_providers
+        + plugin_providers
+    )
+
+
 def get_model_list(
     provider_filter: str | None = None,
     vision_only: bool = False,
@@ -154,8 +200,6 @@ def get_model_list(
         List of ModelMeta objects
     """
 
-    from ...config import get_config  # fmt: skip
-
     global _model_list_cache, _model_list_cache_time
 
     # Check cache for unfiltered dynamic fetches
@@ -177,29 +221,10 @@ def get_model_list(
 
     all_models: list[ModelMeta] = []
 
-    # Get custom providers from config
-    config = get_config()
-    custom_providers: list[Provider] = [
-        CustomProvider(p.name) for p in config.user.providers
+    providers = [
+        p for p in get_known_providers() if not provider_filter or p == provider_filter
     ]
-
-    # Combine built-in, custom, and plugin providers
-    plugin_providers: list[Provider] = [
-        CustomProvider(p.name) for p in discover_provider_plugins()
-    ]
-    all_providers: list[Provider] = (
-        list(cast(list[Provider], list(MODELS.keys())))
-        + custom_providers
-        + plugin_providers
-    )
-
-    for provider in all_providers:
-        if provider_filter and provider != provider_filter:
-            continue
-
-        # Get models for this provider
-        models = _get_models_for_provider(provider, dynamic_fetch)
-
+    for models in _fetch_models_parallel(providers, dynamic_fetch):
         # Apply filters
         filtered_models = _apply_model_filters(
             models, vision_only, reasoning_only, include_deprecated
@@ -343,8 +368,6 @@ def list_models(
         _print_simple_format(all_models)
     else:
         # Detailed format: print by provider with formatting
-        from ...config import get_config  # fmt: skip
-
         configured_set = (
             configured if configured is not None else _get_configured_providers()
         )
@@ -353,27 +376,16 @@ def list_models(
         else:
             print("Available models:")
 
-        config = get_config()
-        custom_providers: list[Provider] = [
-            CustomProvider(p.name) for p in config.user.providers
+        selected = [
+            provider
+            for provider in get_known_providers()
+            if (not provider_filter or provider == provider_filter)
+            and (not available_only or provider in configured_set)
         ]
-        plugin_providers_detail: list[Provider] = [
-            CustomProvider(p.name) for p in discover_provider_plugins()
-        ]
-        all_providers: list[Provider] = (
-            list(cast(list[Provider], list(MODELS.keys())))
-            + custom_providers
-            + plugin_providers_detail
-        )
 
-        for provider in all_providers:
-            if provider_filter and provider != provider_filter:
-                continue
-
-            if available_only and provider not in configured_set:
-                continue
-
-            models = _get_models_for_provider(provider, dynamic_fetch)
+        for provider, models in zip(
+            selected, _fetch_models_parallel(selected, dynamic_fetch), strict=True
+        ):
             filtered_models = _apply_model_filters(
                 models, vision_only, reasoning_only, include_deprecated
             )

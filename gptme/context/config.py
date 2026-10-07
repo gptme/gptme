@@ -69,6 +69,16 @@ class ContextConfig:
     # GPTME_CONTEXT_LENGTH overrides the *window* for local models; this controls the *budget*.
     budget: float | int | None = None
 
+    # Optional instructions appended to the compaction checkpoint prompt.
+    # Set via [context] compact_instructions = "..." in gptme.toml.
+    # Also appended when the user invokes /compact <instructions>.
+    compact_instructions: str | None = None
+
+    # Tokens of recent history to keep verbatim after the checkpoint (Phase 2).
+    # Default 20000 ≈ Claude Code / OpenCode's keep-recent window.
+    # Set 0 to disable (checkpoint only, no recent tail).
+    keep_recent_tokens: int = 20_000
+
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> "ContextConfig":
         """Create config from dictionary (typically from gptme.toml).
@@ -97,9 +107,22 @@ class ContextConfig:
         budget_raw = config_dict.get("budget")
         budget = parse_context_budget(budget_raw) if budget_raw is not None else None
 
+        keep_recent_raw = config_dict.get("keep_recent_tokens", 20_000)
+        if (
+            isinstance(keep_recent_raw, bool)
+            or not isinstance(keep_recent_raw, int)
+            or keep_recent_raw < 0
+        ):
+            raise ValueError(
+                f"context.keep_recent_tokens must be a non-negative integer, got {keep_recent_raw!r}"
+            )
+        keep_recent = keep_recent_raw
+
         return cls(
             enabled=config_dict.get("enabled", False),
             scout_model=config_dict.get("scout_model"),
             selector=selector,
             budget=budget,
+            compact_instructions=config_dict.get("compact_instructions"),
+            keep_recent_tokens=keep_recent,
         )

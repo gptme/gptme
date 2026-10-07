@@ -104,19 +104,23 @@ jobs:
 
           # Check individual check runs (not suites) to avoid blocking on
           # flaky/optional checks like external API tests.
-          # Exclude: API tests (external, flaky), and this workflow's own runs.
+          # Exclude: API tests (external, flaky), the report-only Dependency
+          # Advisory Scan (continue-on-error; a coalesced/cancelled run of it
+          # must not block a release), and this workflow's own runs.
           CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
             --paginate \
             --jq '[.check_runs[] | select(
               .app.slug == "github-actions" and
-              (.name | test("API tests|^Pre-flight checks$|^Create release$|^Publish release$") | not)
+              (.name | test("API tests|^Dependency Advisory Scan$|^Pre-flight checks$|^Create release$|^Publish release$") | not)
             )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
 
           echo "CI conclusions (excluding API tests): $CONCLUSIONS"
 
-          # If any required check has failed, skip
-          if echo "$CONCLUSIONS" | grep -qE "failure|action_required|timed_out"; then
-            echo "CI has failures on HEAD — skipping release."
+          # If any required check has failed or was cancelled (possible with the
+          # concurrency coalescing that lets queued master-push runs be superseded),
+          # skip the release — a cancelled check is incomplete validation, not a pass.
+          if echo "$CONCLUSIONS" | grep -qE "failure|action_required|timed_out|cancelled"; then
+            echo "CI has failures or cancelled checks on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

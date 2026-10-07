@@ -19,7 +19,7 @@ from .types import PROVIDERS, Provider
 # on that provider today. Providers without an entry (azure, nvidia, local,
 # ...) require an explicit model name.
 RECOMMENDED_MODELS: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-5-5",
     "openai": "gpt-5.6-sol",
     # GPT-6 Astra is flat-rate on ChatGPT Plus/Pro via Codex OAuth, so the
     # subscription default can be the frontier model without a cost tradeoff.
@@ -36,6 +36,8 @@ RECOMMENDED_MODELS: dict[str, str] = {
     "gemini": "gemini-3.1-pro-preview",
     "xai": "grok-4.6",
     "grok-subscription": "grok-4.6",
+    # Sonnet 5.5 is exposed only through OpenRouter on gptme.ai, where its
+    # billing metadata must be updated before changing this direct default.
     "gptme": "claude-sonnet-4-6",
     "deepseek": "deepseek-v4-flash",
     "groq": "llama-3.3-70b-versatile",

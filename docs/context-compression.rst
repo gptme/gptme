@@ -12,7 +12,7 @@ Overview
 The context compression system has one unified pipeline:
 
 1. **Context Budget** - A configurable token threshold at which compaction is triggered (distinct from the provider window)
-2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; also retried once on provider context-length overflow
+2. **Automatic Compaction** - Triggered after each turn when the log approaches the budget; shared CLI/server recovery handles provider context-length overflow
 3. **Plugin Interface** - Allows third-party packages to provide custom compression strategies
 
 The budget defaults to
@@ -30,6 +30,19 @@ tool schemas that a stored-text estimate misses. Usage is anchored to the stored
 input prefix and model: edits, compaction views, and model changes invalidate
 it. Conversations without a valid usage anchor fall back to tokenizer estimates
 until a new response arrives. UI-only status messages do not count as growth.
+
+At 90% of the budget, the normal conversation receives a one-shot reminder
+per active view to save durable state at a safe sub-task boundary: objective,
+decisions, work state, next move, and files to reload. Project
+``context.compact_instructions`` are included. The reminder is provider-visible,
+so the normal CLI/server tool loop can act on it; it does not run a separate
+summary request, switch views, or promise that notes have been saved. Pending
+tool calls defer the reminder until their results arrive. The marker persists
+across reloads, and a new compaction view can receive a fresh reminder.
+
+This warning is the first part of model-participating compaction. Automatic
+compaction at the budget still uses the trim/summary pipeline below; a full
+tool-executing checkpoint turn is not yet implemented.
 
 Configuring the Context Budget
 ===============================
@@ -61,6 +74,13 @@ than 10% of the estimated stored text. If estimated trim savings are too small,
 the automatic path requests an LLM summary instead. A failed summary latches
 the conversation to trim-only until sufficient message growth permits a retry.
 
+CLI and server overflow recovery try a trim first, then remove old whole
+assistant/user steps with their tool results toward 70% of the previous context
+size. The protected head, pinned steps, newest user request, and final step stay
+verbatim. Every retry must reduce the prepared input; at most eight retries run.
+Partial output stops retries. Failed recovery restores the original active view;
+successful recovery keeps the smaller view and preserves the lossless master log.
+
 Using Compaction
 ================
 
@@ -89,9 +109,20 @@ Two strategies are available:
   Fast and deterministic; no LLM call.
   If savings would be low, gptme will suggest ``/compact summarize`` instead.
 
-- **summarize** — LLM-powered: asks the model to produce a ``RESUME.md`` capturing
-  key decisions, open tasks, and relevant file paths, then starts a fresh context
-  from that summary. More thorough but requires a model call and restarts context.
+- **summarize** — LLM-powered: produces a structured checkpoint (objective,
+  decisions, current state, open items, files to reload), then rebuilds context
+  from that checkpoint plus the most recent ``keep_recent_tokens`` of history
+  (default 20k). More thorough but requires a model call.
+
+  Optional instructions can be passed inline::
+
+      /compact summarize focus on the failing test suite
+
+  Or set project-wide via ``[context] compact_instructions`` in ``gptme.toml``::
+
+      [context]
+      compact_instructions = "Always note the current task ID and git branch."
+      keep_recent_tokens = 15000   # tokens of history to keep after checkpoint
 
 .. deprecated::
    ``/compact auto`` and ``/compact resume`` are deprecated aliases for ``trim`` and

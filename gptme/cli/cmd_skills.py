@@ -1,5 +1,6 @@
 """CLI commands for skills and lessons management."""
 
+import re
 import sys
 from pathlib import Path
 
@@ -92,6 +93,25 @@ def skills_list(show_all: bool, json_output: bool):
             click.echo()
 
 
+def _search_hint(name: str) -> str:
+    """Build a ``skills search`` hint that is safe to paste into any shell.
+
+    The name is echoed only when it is made of characters that no common shell
+    (POSIX sh, cmd.exe, PowerShell) treats specially: bare if it is one token,
+    double-quoted if it has spaces. Anything else (``$``, ``%``, ``&``, quotes,
+    backticks, ...) gets a placeholder, because no single quoting is safe in
+    every shell. A leading ``-`` would be parsed as an option, so it also
+    gets the placeholder.
+    """
+    if name.startswith("-"):
+        return "gptme-util skills search <query>"
+    if re.fullmatch(r"[A-Za-z0-9_./:+-]+", name):
+        return f"gptme-util skills search {name}"
+    if re.fullmatch(r"[A-Za-z0-9_./:+ -]+", name):
+        return f'gptme-util skills search "{name}"'
+    return "gptme-util skills search <query>"
+
+
 @skills.command("show")
 @click.argument("name")
 def skills_show(name: str):
@@ -101,34 +121,54 @@ def skills_show(name: str):
     index = LessonIndex()
 
     if not index.lessons:
-        click.echo("No skills or lessons found.")
-        return
+        click.echo("No skills or lessons found.", err=True)
+        sys.exit(1)
 
     name_lower = name.lower()
 
-    # Search by skill name first, then lesson title/filename
-    for item in index.lessons:
-        if item.metadata.name and name_lower in item.metadata.name.lower():
-            if item.is_stub:
-                item = index.materialize_lesson(item)
-            click.echo(f"# {item.metadata.name}")
-            if item.metadata.description:
-                click.echo(f"\n{item.metadata.description}")
-            click.echo(f"\nPath: {item.path}\n")
-            click.echo(item.body)
-            return
+    def label(item) -> str:
+        return item.metadata.name or item.title
 
-    for item in index.lessons:
-        if name_lower in item.title.lower() or name_lower in item.path.stem.lower():
-            if item.is_stub:
-                item = index.materialize_lesson(item)
-            click.echo(f"# {item.title}")
-            click.echo(f"\nPath: {item.path}\n")
-            click.echo(item.body)
-            return
+    # Exact matches win over substring matches: skill name, then filename stem,
+    # then lesson title, then substring. The first tier with any hit decides;
+    # several hits in that tier are reported instead of picking one.
+    tiers = [
+        lambda item: (item.metadata.name or "").lower() == name_lower,
+        lambda item: item.path.stem.lower() == name_lower,
+        lambda item: item.title.lower() == name_lower,
+        lambda item: (
+            name_lower in (item.metadata.name or "").lower()
+            or name_lower in item.title.lower()
+            or name_lower in item.path.stem.lower()
+        ),
+    ]
+    candidates: list = []
+    for matches in tiers:
+        candidates = [item for item in index.lessons if matches(item)]
+        if candidates:
+            break
 
-    click.echo(f"Skill or lesson not found: {name}")
-    sys.exit(1)
+    if not candidates:
+        click.echo(f"Skill or lesson not found: {name}", err=True)
+        click.echo(f"Try: {_search_hint(name)}", err=True)
+        sys.exit(1)
+    if len(candidates) > 1:
+        click.echo(f"Multiple skills or lessons match '{name}':\n", err=True)
+        for item in candidates[:20]:
+            click.echo(f"  {label(item)}  ({item.path})", err=True)
+        if len(candidates) > 20:
+            click.echo(f"  ... and {len(candidates) - 20} more", err=True)
+        click.echo("\nUse a more specific name.", err=True)
+        sys.exit(1)
+
+    match = candidates[0]
+    if match.is_stub:
+        match = index.materialize_lesson(match)
+    click.echo(f"# {label(match)}")
+    if match.metadata.name and match.metadata.description:
+        click.echo(f"\n{match.metadata.description}")
+    click.echo(f"\nPath: {match.path}\n")
+    click.echo(match.body)
 
 
 @skills.command("search")

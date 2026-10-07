@@ -522,6 +522,12 @@ def start_background_job(
         stdin=subprocess.DEVNULL,
         **popen_kwargs,
     )
+    # A subprocess subagent's parent records the group so it can force the
+    # whole job down if the child CLI ignores SIGTERM. Imported lazily to
+    # avoid a circular import (shell imports this module at load time).
+    from .shell import _record_shell_pgid
+
+    _record_shell_pgid(process.pid)
 
     with _job_lock:
         job_id = _get_next_job_id_locked(conversation_id)

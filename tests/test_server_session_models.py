@@ -602,6 +602,64 @@ class TestSessionManagerCleanInactive:
         # Still present because generating=True
         assert SessionManager.get_session(session.id) is not None
 
+    def test_does_not_remove_sessions_with_connected_clients(self):
+        """A session with an open SSE client is not evicted even when idle.
+
+        SSE ping frames do not update ``last_activity``, so a client that keeps
+        the stream open without sending events would otherwise be evicted after
+        the max age — dropping a live client.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-clients")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        session.clients.add("client-1")
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        assert SessionManager.get_session(session.id) is not None
+
+    def test_removes_session_after_last_client_disconnects(self):
+        """Once the last client disconnects, an idle session becomes evictable."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-clients")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        session.clients.add("client-1")
+
+        # Connected during the first sweep: the client set alone keeps it.
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is session
+
+        session.clients.discard("client-1")
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is None
+
+    def test_attach_client_registers_on_live_session(self):
+        session = SessionManager.create_session("conv-attach")
+
+        attached = SessionManager.attach_client(session, "client-1")
+
+        assert attached is session
+        assert session.clients == {"client-1"}
+
+    def test_attach_client_replaces_evicted_session(self):
+        """Attaching to a session evicted after lookup yields a fresh, live one."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-attach")
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is None
+
+        attached = SessionManager.attach_client(session, "client-1")
+
+        assert attached is not session
+        assert attached.conversation_id == "conv-attach"
+        assert attached.clients == {"client-1"}
+        assert SessionManager.get_session(attached.id) is attached
+        assert attached.id in SessionManager._conversation_sessions["conv-attach"]
+
     def test_selective_cleanup(self):
         """Only old, non-generating sessions are removed; recent ones survive."""
         from datetime import datetime, timedelta, timezone
@@ -676,6 +734,43 @@ class TestSessionManagerCleanInactive:
         assert SessionManager.get_session(session.id) is None
         # generating flag is reset to False before removal (the key invariant this test verifies)
         assert session.generating is False
+
+    def test_stuck_session_with_clients_resets_but_not_evicted(self):
+        """Stuck-generating sessions with connected clients have generating reset but stay alive."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-stuck-with-client")
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        session.last_activity = datetime.now(tz=timezone.utc)
+        session.clients.add("client-1")
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        # Session is NOT removed — a live SSE client is connected
+        assert SessionManager.get_session(session.id) is not None
+        # generating is reset so the session is no longer considered stuck
+        assert session.generating is False
+
+    def test_stuck_acp_session_with_clients_is_evicted_and_runtime_closed(self):
+        """A stuck ACP session is evicted even with clients, so the next /step
+        cannot overlap the still-running prompt on the old runtime."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import MagicMock, patch
+
+        session = SessionManager.create_session("conv-stuck-acp-client")
+        runtime = MagicMock()
+        session.acp_runtime = runtime
+        session.use_acp = True
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        session.last_activity = datetime.now(tz=timezone.utc)
+        session.clients.add("client-1")
+
+        with patch("gptme.server.session_step.close_acp_runtime_bg") as close_bg:
+            SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        assert SessionManager.get_session(session.id) is None
+        close_bg.assert_called_once_with(runtime)
 
     def test_atomic_cleanup_removes_multiple_sessions(self):
         """clean_inactive_sessions removes multiple stale sessions atomically."""
@@ -815,3 +910,22 @@ class TestSessionManagerThreadSafety:
             t.join(timeout=10)
 
         assert not errors, f"Thread errors: {errors}"
+
+
+class TestSessionHealthMonitorStartup:
+    """The session health monitor must start with the app, not only on ACP use."""
+
+    def test_create_app_starts_session_health_monitor(self):
+        """create_app() starts the session cleanup thread unconditionally."""
+        from gptme.server import session_step  # fmt: skip
+        from gptme.server.app import create_app  # fmt: skip
+
+        session_step.stop_session_health_monitor()
+        assert session_step._health_monitor_thread is None
+
+        create_app()
+        try:
+            assert session_step._health_monitor_thread is not None
+            assert session_step._health_monitor_thread.is_alive()
+        finally:
+            session_step.stop_session_health_monitor()

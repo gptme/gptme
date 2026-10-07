@@ -108,9 +108,9 @@ def install(workspace: Path, global_install: bool, force: bool) -> None:
     # Load existing settings
     if settings_path.exists():
         try:
-            settings: dict = json.loads(settings_path.read_text())
-        except json.JSONDecodeError as e:
-            click.echo(f"❌ Failed to parse {settings_path}: {e}", err=True)
+            settings: dict = _load_settings(settings_path)
+        except ValueError as e:
+            click.echo(f"❌ {e}", err=True)
             sys.exit(1)
     else:
         settings = {}
@@ -194,9 +194,9 @@ def uninstall(workspace: Path, global_install: bool) -> None:
         return
 
     try:
-        settings: dict = json.loads(settings_path.read_text())
-    except json.JSONDecodeError as e:
-        click.echo(f"❌ Failed to parse {settings_path}: {e}", err=True)
+        settings: dict = _load_settings(settings_path)
+    except ValueError as e:
+        click.echo(f"❌ {e}", err=True)
         sys.exit(1)
 
     hooks_cfg = settings.get("hooks", {})
@@ -240,10 +240,9 @@ def status(workspace: Path) -> None:
             click.echo("  ⚪ settings.json not found")
         else:
             try:
-                settings: dict = json.loads(settings_path.read_text())
-                hooks_cfg = settings.get("hooks", {})
-            except json.JSONDecodeError:
-                click.echo("  ❌ settings.json parse error")
+                hooks_cfg = _load_settings(settings_path).get("hooks", {})
+            except ValueError as e:
+                click.echo(f"  ❌ settings.json unusable: {e}")
 
         for event in (_USERPROMPTSUBMIT, _PRETOOLUSE):
             installed = _is_hook_installed(hooks_cfg, event)
@@ -406,6 +405,40 @@ def run(workspace: Path | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _load_settings(path: Path) -> dict:
+    """Load a Claude Code settings.json, checking the parts gptme edits.
+
+    Raises ValueError (with a user-presentable message) if the file is not
+    UTF-8 JSON, is not an object, or the UserPromptSubmit/PreToolUse hook
+    entries do not have the shape Claude Code writes.
+    """
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ValueError(f"Failed to read {path}: {e}") from e
+    if not isinstance(settings, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    hooks_cfg = settings.get("hooks", {})
+    if not isinstance(hooks_cfg, dict):
+        raise ValueError(f"{path}: 'hooks' must be an object")
+    for event in (_USERPROMPTSUBMIT, _PRETOOLUSE):
+        entries = hooks_cfg.get(event, [])
+        if not isinstance(entries, list) or not all(
+            isinstance(e, dict)
+            and isinstance(e.get("hooks", []), list)
+            and all(
+                isinstance(h, dict) and isinstance(h.get("command", ""), str)
+                for h in e.get("hooks", [])
+            )
+            for e in entries
+        ):
+            raise ValueError(
+                f"{path}: hooks.{event} must be a list of "
+                '{"hooks": [{...}]} entries'
+            )
+    return settings
 
 
 def _is_gptme_entry(entry: dict) -> bool:

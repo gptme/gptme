@@ -18,6 +18,7 @@ class AudioPlayer(TypedDict):
 
 # Available system audio players (in order of preference)
 AUDIO_PLAYERS: list[AudioPlayer] = [
+    {"cmd": "afplay", "args": []},  # macOS built-in
     {"cmd": "paplay", "args": []},  # PulseAudio player
     {
         "cmd": "ffplay",
@@ -53,6 +54,9 @@ def play_with_system_command_blocking(file_path: Path, volume: float = 1.0) -> b
                 # paplay uses --volume (0-65536, where 65536 = 100%)
                 vol_arg = str(int(volume * 65536))
                 cmd.extend(["--volume", vol_arg])
+            elif player["cmd"] == "afplay" and volume != 1.0:
+                # afplay uses -v (1.0 = 100%)
+                cmd.extend(["-v", str(volume)])
             elif player["cmd"] == "ffplay" and volume != 1.0:
                 # ffplay uses -volume (0-100)
                 vol_arg = str(int(volume * 100))
@@ -96,6 +100,9 @@ def stop_system_audio():
         )
         subprocess.run(
             ["pkill", "-f", "ffplay"], check=False, capture_output=True, timeout=2
+        )
+        subprocess.run(
+            ["pkill", "-f", "afplay"], check=False, capture_output=True, timeout=2
         )
     except Exception:
         pass

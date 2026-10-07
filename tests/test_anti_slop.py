@@ -68,6 +68,54 @@ def test_detect_em_dash_tolerance():
     assert relaxed_em <= strict_em
 
 
+def test_gate_relaxed_single_em_dash_short_paragraph():
+    # Regression: round(tolerated) → 0 for short texts made even 1 em dash
+    # count as excess in relaxed mode, WARNing when it should PASS.
+    # 45-word paragraph with exactly one em dash — relaxed mode should pass.
+    text = (
+        "The compiler generates IR from the AST in a single forward pass. "
+        "Each node is visited exactly once — the visitor accumulates register "
+        "assignments and emits instructions as it goes. Jumps and branch targets "
+        "are patched in a second fixup pass after all instructions are emitted."
+    )
+    r = evaluate_gate(text, mode="relaxed")
+    assert r["status"] == "pass", (
+        f"Expected pass for 1 em dash in ~45 words (relaxed), got {r['status']!r} "
+        f"(score={r['smell_report']['weighted_score']})"
+    )
+
+
+def test_gate_strict_rounding_does_not_flip_gate():
+    # Regression: rounding em_excess to 2 dp before scoring changed gate decisions.
+    # 91 words, 1 em dash, strict mode (em_tol=3/1k, warn=8):
+    #   exact excess = 1 - 0.273 = 0.727; score = 0.727 × (1000/91) ≈ 7.99 → PASS
+    #   rounded excess = 0.73;            score = 0.73  × (1000/91) ≈ 8.02 → WARN (wrong)
+    text = " ".join(["word"] * 90) + " — sentence"
+    r = evaluate_gate(text, mode="strict")
+    assert r["status"] == "pass", (
+        f"Expected pass for 1 em dash in 91 words (strict), got {r['status']!r} "
+        f"(score={r['smell_report']['weighted_score']})"
+    )
+
+
+@pytest.mark.parametrize(
+    ("word_count", "tolerance", "expected_excess"),
+    [(100, 8.0, 0.2), (333, 3.0, 0.001)],
+)
+def test_gate_fractional_excess_is_reported(
+    word_count: int, tolerance: float, expected_excess: float
+):
+    # Every positive score contribution must remain positive in the report,
+    # including values below two decimal places.
+    text = " ".join(["word"] * (word_count - 1)) + " — sentence"
+    r = detect_smells(text, em_dash_tolerance=tolerance)
+    em_hits = [h for h in r["hits"] if h["category"] == "em_dash"]
+    assert len(em_hits) == 1
+    assert em_hits[0]["count"] == pytest.approx(expected_excess)
+    assert r["by_category"]["em_dash"] == pytest.approx(expected_excess)
+    assert r["total_hits"] == pytest.approx(expected_excess)
+
+
 def test_detect_returns_word_count():
     report = detect_smells("one two three four five")
     assert report["word_count"] == 5
@@ -163,6 +211,37 @@ def test_gate_skips_short_artifact_only_evidence():
     assert all(h["category"] in ("em_dash", "staccato") for h in hits)
 
 
+def test_staccato_no_false_positive_on_technical_doc_sentences():
+    """Technical documentation sentences of up to 8 words must not trigger staccato.
+    A run of three ≤8-word sentences used to fire because STACCATO_MAX_WORDS
+    was 8; lowering it to 7 excludes normal doc sentences while still catching
+    genuine punchy slop."""
+    # Sentences with 8, 6, and 8 words — normal technical documentation style
+    tech_doc = (
+        "The function returns a sorted list of integers. "
+        "Pass --verbose to enable debug output. "
+        "Exit code 0 means success, 1 means failure."
+    )
+    report = evaluate_gate(tech_doc)
+    assert report["status"] in ("pass", "skip"), (
+        f"technical doc sentences (≤8 words) should not fail staccato: {report}"
+    )
+    staccato_hits = [
+        h for h in report["smell_report"]["hits"] if h["category"] == "staccato"
+    ]
+    assert not staccato_hits, (
+        f"staccato false positive on technical docs: {staccato_hits}"
+    )
+
+    # Real slop still triggers (5, 4, and 6 word short punchy sentences)
+    slop = "It works well every time. It scales up fast. It delivers clean results every day."
+    report_slop = detect_smells(slop)
+    staccato_slop = [h for h in report_slop["hits"] if h["category"] == "staccato"]
+    assert staccato_slop, (
+        "staccato should still fire on genuinely short punchy sentences"
+    )
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
@@ -238,6 +317,21 @@ def test_cli_check_skips_short_text():
     result = runner.invoke(anti_slop, ["check", "--text", "Too short."])
     assert result.exit_code == 0
     assert "SKIP" in result.output
+
+
+@pytest.mark.parametrize(
+    ("word_count", "mode", "expected_count"),
+    [(100, "relaxed", "0.2"), (333, "strict", "0.001")],
+)
+def test_cli_check_formats_fractional_em_dash_count(
+    word_count: int, mode: str, expected_count: str
+):
+    text = " ".join(["word"] * (word_count - 1)) + " — sentence"
+    runner = CliRunner()
+    result = runner.invoke(anti_slop, ["check", "--text", text, "--mode", mode])
+    assert result.exit_code == 0
+    assert f"hits: {expected_count}" in result.output
+    assert f"em-dash abuse                x{expected_count}" in result.output
 
 
 def test_cli_check_fails_on_slop():

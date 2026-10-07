@@ -26,10 +26,13 @@ on:
         required: false
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
-# Every other run (master push, release, dispatch, schedule) gets its own
-# group, so none of them can cancel or replace another.
+# Master pushes share one group without cancel-in-progress: a running master
+# run finishes, but a queued one is replaced by the newer push, so a burst of
+# merges runs once on the latest commit instead of once per commit. Test keeps
+# one group per master commit (its slow suite attributes regressions); every
+# other run (release, dispatch, schedule) gets its own group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -115,6 +118,7 @@ jobs:
         file: ./scripts/Dockerfile
         context: .
         push: true
+        provenance: false
 
     # Derive OCI labels (created/version/revision/source) for the server image so
     # downstream consumers (e.g. gptme-cloud's image-bump automation) can read
@@ -143,6 +147,7 @@ jobs:
         build-args: |
           BASE=gptme:latest
         push: ${{ env.SHOULD_PUSH }}
+        provenance: false
 
     # Derive OCI labels for the eval image (same pattern as server)
     - name: Docker meta (eval)
@@ -164,6 +169,7 @@ jobs:
         file: ./scripts/Dockerfile.eval
         context: .
         push: ${{ env.SHOULD_PUSH }}
+        provenance: false
 
     # Now the full eval image
     # NOTE: takes a long time and leads to a big (1GB+) image

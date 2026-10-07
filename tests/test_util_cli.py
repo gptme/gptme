@@ -101,6 +101,55 @@ def test_tokens_count(tmp_path):
     assert result.exit_code == 1
     assert "No text provided" in result.output
 
+    # Unknown model → warning emitted on stderr (count still succeeds on stdout).
+    result = runner.invoke(
+        main, ["tokens", "count", "--model", "claude-3-5-sonnet", "hello"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert "No native tokenizer" in result.stderr
+    assert "count is an estimate" in result.stderr
+    assert "cl100k_base" not in result.stderr
+
+    # Known model → no warning emitted.
+    result = runner.invoke(main, ["tokens", "count", "--model", "gpt-4o", "hello"])
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert result.stderr == ""
+
+    # Routed OpenAI model names retain native tokenizer detection.
+    result = runner.invoke(
+        main,
+        [
+            "tokens",
+            "count",
+            "--model",
+            "requesty/openai/gpt-4o-mini",
+            "hello",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert result.stderr == ""
+
+    # A custom model merely containing a known model name remains unknown.
+    result = runner.invoke(
+        main, ["tokens", "count", "--model", "local/gpt-4o-gguf", "hello"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert "No native tokenizer" in result.stderr
+
+    # Both --file and text argument provided → file takes precedence + warning.
+    tmp_file2 = Path(tmp_path) / "file2.txt"
+    tmp_file2.write_text("from file")
+    result = runner.invoke(
+        main, ["tokens", "count", "-f", str(tmp_file2), "text arg ignored"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.stdout
+    assert "text argument ignored" in result.stderr
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""
@@ -311,9 +360,9 @@ def test_chats_read_start_and_context_options(tmp_path, monkeypatch, mocker):
 
     assert result.exit_code == 0, result.output
     assert f"Reading conversation: {conv_id} ({conv_id})" in result.output
-    assert "1. User: first line..." in result.output
-    assert "2. Assistant: second line..." in result.output
-    assert "3. User: third line..." not in result.output
+    assert "1. User: first line" in result.output
+    assert "2. Assistant: second line" in result.output
+    assert "3. User: third line" not in result.output
 
 
 def test_context_index_and_retrieve(tmp_path):
@@ -354,6 +403,15 @@ def test_context_index_and_retrieve(tmp_path):
         )
 
 
+def _runner_separate_stderr() -> CliRunner:
+    # Click < 8.2 defaults to mix_stderr=True; Click 8.2 removed that kwarg
+    # and separates streams by default. Use try/except to handle both.
+    try:
+        return CliRunner(mix_stderr=False)  # type: ignore[call-arg]
+    except TypeError:
+        return CliRunner()
+
+
 def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
     """`prompts expand` should still show path expansion under disabled include env.
 
@@ -372,6 +430,244 @@ def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
     assert "hello" in result.output
     assert str(test_file) in result.output
     assert os.environ["GPTME_DISABLE_PATH_INCLUDE"] == "1"
+
+
+def test_prompts_expand_warns_on_missing_path(tmp_path, monkeypatch):
+    """Missing explicit paths warn on stderr; stdout stays the unexpanded path."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = "/nonexistent/gptme-prompts-expand-missing.txt"
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert missing in result.stdout
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_no_warning_for_existing_path(tmp_path, monkeypatch):
+    """Existing files expand on stdout and do not emit a missing-path warning."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("hello\n")
+
+    result = runner.invoke(main, ["prompts", "expand", str(test_file)])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello" in result.stdout
+    assert str(test_file) in result.stdout
+
+
+def test_prompts_expand_warns_on_parent_relative_and_windows_paths(
+    tmp_path, monkeypatch
+):
+    """Whole-prompt parent-relative and Windows drive paths still warn."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    parent = runner.invoke(
+        main, ["prompts", "expand", "../gptme-definitely-missing.txt"]
+    )
+    windows = runner.invoke(
+        main, ["prompts", "expand", "C:/gptme-definitely-missing.txt"]
+    )
+
+    assert parent.exit_code == 0
+    assert windows.exit_code == 0
+    assert "warning: path not found, not expanded: ../gptme-definitely-missing.txt" in (
+        parent.stderr
+    )
+    assert "warning: path not found, not expanded: C:/gptme-definitely-missing.txt" in (
+        windows.stderr
+    )
+    assert "warning:" not in parent.stdout
+    assert "warning:" not in windows.stdout
+
+
+def test_prompts_expand_skips_slash_commands(tmp_path, monkeypatch):
+    """Slash commands are not missing files — include_paths skips them too."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(main, ["prompts", "expand", "/shell"])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "/shell" in result.stdout
+
+
+def test_prompts_expand_warns_on_single_component_missing_path(tmp_path, monkeypatch):
+    """Single-component absolute paths are files, not slash commands."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = "/nonexistent"
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert missing in result.stdout
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_mixed_prompt_does_not_warn(tmp_path, monkeypatch):
+    """Heuristic mixed text stays silent even if a later token looks like a path."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    first = "/tmp" if Path("/tmp").exists() else "/nonexistent-cmd-lookalike"
+    missing = "/nonexistent/gptme-prompts-expand-later.txt"
+
+    result = runner.invoke(main, ["prompts", "expand", first, missing])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_mixed_relative_path_no_warning(tmp_path, monkeypatch):
+    """Expand README; missing ./file.txt in the same sentence is not a warning."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("hello from readme\n")
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main,
+        ["prompts", "expand", "see README.md about something about a ./file.txt"],
+    )
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello from readme" in result.stdout
+
+
+def test_prompts_expand_relative_to_other_path_no_warning(tmp_path, monkeypatch):
+    """./file.txt next to proj/README.md may be relative to proj, not cwd."""
+    monkeypatch.chdir(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "README.md").write_text("proj readme\n")
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main,
+        ["prompts", "expand", "see proj/README.md about something about a ./file.txt"],
+    )
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "proj readme" in result.stdout
+
+
+def test_prompts_expand_plain_text_no_warning(tmp_path, monkeypatch):
+    """Bare words are not paths and must not warn."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(main, ["prompts", "expand", "hello"])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello" in result.stdout
+
+
+def test_prompts_expand_warns_on_quoted_path_with_spaces(tmp_path, monkeypatch):
+    """A single Click argument with spaces is still one explicit path."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = str(tmp_path / "missing file.txt")
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert missing in result.stdout
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_warns_on_relative_and_dotted_dir_spaced_paths(
+    tmp_path, monkeypatch
+):
+    """A dot from `./`, `../`, or a directory component is not prose."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    dotted_dir = tmp_path / "v1.2"
+    dotted_dir.mkdir()
+
+    for missing in (
+        "./missing file.txt",
+        "../missing file.txt",
+        str(dotted_dir / "missing file.txt"),
+    ):
+        result = runner.invoke(main, ["prompts", "expand", missing])
+
+        assert result.exit_code == 0
+        assert f"warning: path not found, not expanded: {missing}" in result.stderr
+        assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_no_warning_for_existing_path_with_trailing_punct(
+    tmp_path, monkeypatch
+):
+    """Trailing punctuation is stripped by path discovery; do not false-warn."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("hello\n")
+
+    result = runner.invoke(main, ["prompts", "expand", str(test_file) + "."])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "hello" in result.stdout
+
+
+def test_prompts_expand_quoted_mixed_prose_starting_with_path_no_warning(
+    tmp_path, monkeypatch
+):
+    """Quoted mixed prose that starts with a path prefix stays silent."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+
+    result = runner.invoke(
+        main, ["prompts", "expand", "./missing.txt is discussed here"]
+    )
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_quoted_mixed_prose_with_dotted_dir_no_warning(
+    tmp_path, monkeypatch
+):
+    """A dot in a directory component still marks the first token as file-ish."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = f"{tmp_path}/v1.2/readme is discussed here"
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert "warning:" not in result.stderr
+    assert "warning:" not in result.stdout
+
+
+def test_prompts_expand_warns_on_missing_path_with_trailing_punct(
+    tmp_path, monkeypatch
+):
+    """A missing explicit path still warns after trailing-punctuation strip."""
+    monkeypatch.chdir(tmp_path)
+    runner = _runner_separate_stderr()
+    missing = "/nonexistent/gptme-prompts-expand-missing.txt."
+
+    result = runner.invoke(main, ["prompts", "expand", missing])
+
+    assert result.exit_code == 0
+    assert f"warning: path not found, not expanded: {missing}" in result.stderr
+    assert "warning:" not in result.stdout
 
 
 def test_chats_send(tmp_path, monkeypatch):
@@ -752,10 +1048,9 @@ def test_models_info():
     assert "price_input" in data
     assert "price_output" in data
 
-    # Test unknown model (falls back to defaults — exit code 0)
+    # Test unrecognized provider exits 1 (new behavior: don't silently return fabricated metadata)
     result = runner.invoke(main, ["models", "info", "nonexistent/model"])
-    assert result.exit_code == 0
-    assert "nonexistent" in result.output
+    assert result.exit_code == 1
 
 
 def test_profile_validate_success(mocker):
@@ -1760,3 +2055,41 @@ def test_models_list_json_suppresses_warning_level_logs(mocker):
     assert parsed[0]["full"] == "openai/gpt-5"
     # Logging must be restored for the rest of the suite.
     assert logging.root.manager.disable == logging.NOTSET
+
+
+def test_models_list_unknown_provider_errors():
+    """A mistyped --provider must error, not silently list nothing."""
+    runner = CliRunner()
+    for extra in ([], ["--json"], ["--simple"]):
+        result = runner.invoke(
+            main, ["models", "list", "--provider", "antropic", *extra]
+        )
+        assert result.exit_code == 2, result.output
+        assert "unknown provider 'antropic'" in result.output
+        assert "anthropic" in result.output
+
+
+def test_models_list_json_provider_validation_is_log_silent(mocker):
+    """Provider validation loads config; its warnings must not reach --json output."""
+    import logging as _logging
+
+    observed: dict[str, int | None] = {"disabled": None}
+
+    def noisy_known_providers():
+        observed["disabled"] = _logging.root.manager.disable
+        return ["openai"]
+
+    mocker.patch(
+        "gptme.llm.models.listing.get_known_providers",
+        side_effect=noisy_known_providers,
+    )
+    mocker.patch("gptme.cli.util.get_model_list", return_value=[])
+
+    result = CliRunner().invoke(
+        main, ["models", "list", "--json", "--provider", "openai"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == []
+    assert observed["disabled"] == _logging.CRITICAL
+    assert _logging.root.manager.disable == _logging.NOTSET

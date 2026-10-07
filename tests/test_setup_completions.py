@@ -35,7 +35,7 @@ def test_generate_zsh_completion():
 
 def test_generate_unsupported_shell():
     """Test that unsupported shells return None."""
-    result = _generate_click_completion("powershell")
+    result = _generate_click_completion("tcsh")
     assert result is None
 
 

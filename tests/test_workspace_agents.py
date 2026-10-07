@@ -4,6 +4,8 @@ Tests the detect_runtime function for all supported agent runtimes,
 exclusion patterns, edge cases, and helper functions.
 """
 
+from pathlib import Path
+
 from gptme.hooks.workspace_agents import (
     AGENT_BINARIES,
     AgentInfo,
@@ -529,3 +531,36 @@ class TestParseGptmePromptFile:
             cwd="/tmp",
         )
         assert info.cmdline_summary == "gptme -n --name test nonexistent.txt"
+
+
+class TestParseGptmeConversationId:
+    """Conversation identity must come from the process, not from log-dir recency."""
+
+    def test_unnamed_process_does_not_borrow_newest_log_dir(
+        self, tmp_path, monkeypatch
+    ):
+        """Without --name, the newest log dir belongs to some other session."""
+        from gptme.hooks.workspace_agents import _parse_gptme
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".cache" / "gptme" / "logs" / "unrelated-session").mkdir(
+            parents=True
+        )
+
+        info = _parse_gptme(pid=100, cmdline=["gptme", "hello"], cwd="/tmp")
+        assert info.conversation_id is None
+        assert info.log_dir is None
+
+    def test_named_process_resolves_its_own_log_dir(self, tmp_path, monkeypatch):
+        from gptme.hooks.workspace_agents import _parse_gptme
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        log_dir = tmp_path / ".cache" / "gptme" / "logs" / "mine"
+        log_dir.mkdir(parents=True)
+        (tmp_path / ".cache" / "gptme" / "logs" / "newer-other").mkdir()
+
+        info = _parse_gptme(
+            pid=100, cmdline=["gptme", "--name", "mine", "hello"], cwd="/tmp"
+        )
+        assert info.conversation_id == "mine"
+        assert info.log_dir == str(log_dir)

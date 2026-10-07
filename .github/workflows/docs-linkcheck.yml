@@ -1,0 +1,60 @@
+name: Docs linkcheck
+
+# Checks docs for dead links. Kept out of docs.yml on purpose: running it on
+# every PR and master push (~100 runs/day) got the runners throttled by
+# github.com (429s), failing about half of all runs on links nobody touched.
+# External links rot on their own schedule, not a PR's, so check them daily
+# and on PRs that actually change the docs.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # daily at 06:00 UTC
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-linkcheck.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linkcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install poetry
+        run: |
+          pipx install poetry
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: 'poetry'
+
+      - name: Install dependencies
+        run: |
+          poetry install -E browser -E server
+
+      - name: Check docs for dead links
+        # Fail (rather than get cancelled at the job timeout) if a host keeps
+        # the run throttled: Sphinx honours a server's Retry-After uncapped.
+        run: |
+          timeout 10m make docs-linkcheck || {
+            rc=$?
+            if [ "$rc" -eq 124 ]; then
+              echo "::error::linkcheck did not finish within 10 minutes (rate-limited?)"
+            fi
+            exit "$rc"
+          }

@@ -784,6 +784,168 @@ def watch_allowlist_hook(
     return None
 
 
+# Shortest sleep treated as a poll: shorter sleeps are settle delays, not waits.
+_SLEEP_POLL_MIN_SECONDS = 5.0
+_SLEEP_RE = re.compile(r"^sleep\s+(\d+(?:\.\d+)?)([smhd]?)$")
+# Shell keywords that are loop/condition scaffolding, not the polled check.
+_CHAIN_FILLER = {"do", "done", "then", "fi", "else", "true", ":", "{", "}"}
+
+
+def _split_shell_commands(command: str) -> list[str]:
+    """Split a shell command on operators outside quoted strings.
+
+    Handles ``&&``, ``||``, ``;``, and newlines without treating quoted
+    semicolons (e.g. inside ``echo "a; b"``) as separators. A leading
+    ``do`` / ``then`` keyword is stripped from each segment (quote-safe);
+    splitting on those words mid-segment is avoided to protect quoted args
+    such as ``grep -q "ready then active" status``.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    quote = ""
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = ""
+        elif ch in ('"', "'"):
+            quote = ch
+            current.append(ch)
+        elif command[i : i + 2] in ("&&", "||"):
+            segments.append("".join(current).strip())
+            current = []
+            i += 1  # skip the second character of the two-char operator
+        elif ch in (";", "\n"):
+            segments.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    if current:
+        segments.append("".join(current).strip())
+    result = []
+    for seg in segments:
+        # Strip a leading `do` / `then` keyword from loop/conditional bodies.
+        # Using re.split on the whole segment would break quoted arguments like
+        # grep -q "ready then active" status — strip only the leading keyword.
+        cleaned = re.sub(r"^(do|then)\s+", "", seg).strip()
+        if cleaned:
+            result.append(cleaned)
+    return result
+
+
+# Commands that appear after the real check and should not be chosen as the check.
+_TRAILING_FILLERS = {"echo", "printf", "print", "true", ":"}
+
+
+def _find_sleep_poll(command: str) -> tuple[float, str] | None:
+    """Return ``(seconds, check)`` if ``command`` is a ``sleep N; check`` chain.
+
+    A chain is a sleep of at least ``_SLEEP_POLL_MIN_SECONDS`` combined with
+    another command, in either order or inside a loop. A bare ``sleep`` is
+    allowed: there is nothing to poll, so a watch has nothing to replace.
+    """
+    segments = _split_shell_commands(command)
+    seconds = 0.0
+    others: list[str] = []
+    for seg in segments:
+        # `while ! X; do sleep` waits for X to succeed, same as `until X`.
+        seg = re.sub(r"^(while\s+!|while|until|if)\s+", "", seg)
+        m = _SLEEP_RE.match(seg)
+        if m:
+            unit = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(m.group(2) or "s", 1)
+            seconds = max(seconds, float(m.group(1)) * unit)
+        elif seg not in _CHAIN_FILLER and not seg.startswith("for "):
+            others.append(seg)
+    if seconds < _SLEEP_POLL_MIN_SECONDS or not others:
+        return None
+    # Prefer the last segment that is not a trailing message command (e.g.
+    # `echo done`), falling back to the last segment if all are message-like.
+    # Use exact first-word match, not startswith, so `print` doesn't filter
+    # out `printenv READY` as if it were a print/echo call.
+    check = next(
+        (
+            s
+            for s in reversed(others)
+            if (s.split()[:1] or [""])[0] not in _TRAILING_FILLERS
+        ),
+        others[-1],
+    )
+    return seconds, check
+
+
+def _has_unquoted_pipe(s: str) -> bool:
+    """Return True if ``s`` contains a ``|`` outside quoted strings.
+
+    ``||`` (logical-OR) is not a pipe and is excluded.
+    Backslash-escaped ``\\|`` is also excluded (it is a literal character,
+    not a pipeline operator).
+    """
+    quote = ""
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch == "\\" and not quote:
+            i += 1  # skip the escaped character — it is a literal, not an operator
+        elif ch in ('"', "'"):
+            quote = ch
+        elif ch == "|":
+            if s[i : i + 2] == "||":
+                i += 1  # skip the second `|` so we don't re-examine it
+            else:
+                return True
+        i += 1
+    return False
+
+
+def sleep_poll_guard_hook(
+    tool_use,
+    preview: str | None = None,
+    workspace: Path | None = None,
+):
+    """Refuse ``sleep N; check`` polling in the shell when watches are available.
+
+    Registered only while the watch tool is loaded, so the refusal always
+    points at a tool the model can actually call.
+    """
+    from ..hooks.confirm import ConfirmationResult
+
+    if getattr(tool_use, "tool", None) != "shell":
+        return None
+    # Prefer `preview` (the post-edit command) over `content` (the original).
+    command = (preview or getattr(tool_use, "content", None) or "").strip()
+    found = _find_sleep_poll(command)
+    if found is None:
+        return None
+    seconds, check = found
+    # Preserve fractional seconds (e.g. 5.5s); use int only for whole-second
+    # values to avoid scientific notation on large durations (e.g. 1.0368e+06s).
+    every = f"{int(seconds)}s" if seconds == int(seconds) else f"{seconds}s"
+    logger.debug("Refusing sleep-poll chain (%s): %s", every, command[:80])
+    # timeout must exceed every so the watch can retry at least once.
+    timeout_s = max(int(seconds) * 2, 30 * 60)
+    timeout = f"{timeout_s // 60}m" if timeout_s % 60 == 0 else f"{timeout_s}s"
+    # Watches cannot run piped commands; omit the specific suggestion when the
+    # check contains an unquoted pipe and fall back to the generic timer hint.
+    has_pipe = _has_unquoted_pipe(check)
+    if has_pipe:
+        watch_hint = f"`watch timer {every}`"
+    else:
+        watch_hint = f"```watch\nuntil {check} --every {every} --timeout {timeout}\n```"
+    return ConfirmationResult.skip(
+        f"Refused a `sleep {every}` polling chain. Arm a watch and keep working "
+        f"instead of blocking:\n"
+        f"{watch_hint}\n"
+        f"(or `watch timer {every}` for a plain delay). You will be woken by a "
+        f"system message when it fires."
+    )
+
+
 def _get_path_fn(
     code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Path | None:
@@ -1004,7 +1166,8 @@ tool = ToolSpec(
         "Use watch whenever you would otherwise poll (`sleep N; check`) or "
         "block on a slow command: arm it, keep working, and get woken by a "
         "system message when the event fires. Prefer keep-working; never "
-        "poll with `sleep N; check`.\n"
+        "poll with `sleep N; check` (the shell refuses such chains while watch "
+        "is loaded).\n"
         "Arming a source:\n"
         "- `watch until <cmd> --every 30s`: fire once when cmd exits 0 (e.g. `gh pr checks`)\n"
         "- `watch run <cmd>`: fire when the process exits, with rc + output tail\n"
@@ -1041,6 +1204,9 @@ tool = ToolSpec(
     hooks={
         "drain_step_pre": ("step.pre", _watch_drain_hook, 940),
         "allowlist": ("tool.confirm", watch_allowlist_hook, 10),
+        # Above server_confirm (100)/cli_confirm (0) so the refusal lands
+        # before any prompt; below guardrails (200).
+        "sleep_poll_guard": ("tool.confirm", sleep_poll_guard_hook, 150),
     },
 )
 

@@ -71,13 +71,7 @@ const App: FC = () => {
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <ApiProvider queryClient={queryClient}>
-                <BrowserRouter
-                  basename={import.meta.env.BASE_URL}
-                  future={{
-                    v7_startTransition: true,
-                    v7_relativeSplatPath: true,
-                  }}
-                >
+                <BrowserRouter basename={import.meta.env.BASE_URL}>
                   <ErrorBoundary>
                     <Suspense fallback={<RouteLoader />}>
                       <Routes>

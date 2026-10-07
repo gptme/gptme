@@ -337,6 +337,7 @@ def test_type_changes_screen(xterm_window, monkeypatch):
 
 @pytest.mark.x11
 @pytest.mark.integration
+@pytest.mark.timeout(15)
 def test_wait_for_change_detects_terminal_output(xterm_window, monkeypatch):
     """wait_for_change returns as soon as the xterm renders new output.
 

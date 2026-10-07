@@ -1282,18 +1282,26 @@ def test_resume_via_llm_discards_stale_result_after_unlock():
         mock_m = MagicMock()
         mock_m.full = "test-model"
         mock_model.return_value = mock_m
-        results = list(
-            _resume_via_llm(
-                mock_manager,
-                messages,
-                use_view_branch=True,
-                llm_unlocked=released(),
-            )
+        gen = _resume_via_llm(
+            mock_manager,
+            messages,
+            use_view_branch=True,
+            llm_unlocked=released(),
         )
+        results = []
+        applied: bool | None = None
+        try:
+            while True:
+                results.append(next(gen))
+        except StopIteration as e:
+            applied = e.value
 
     mock_manager.create_view.assert_not_called()
     mock_manager.switch_view.assert_not_called()
     assert any("stale" in msg.content.lower() for msg in results)
+    assert applied is False, (
+        "Stale discard must return False so the hook does not record cooldown"
+    )
     lock.release()
 
 
@@ -1693,6 +1701,78 @@ def test_autocompact_throttle_allows_retry_after_failed_compaction(monkeypatch):
     )
 
 
+def test_autocompact_summarize_stale_does_not_throttle(monkeypatch):
+    """A discarded stale summarize must not populate the cooldown.
+
+    Regression: the summarize branch recorded _last_autocompact_attempt after
+    `yield from _resume_via_llm`, including the stale-discard early return.
+    The next unchanged-length attempt was then throttled for 60s even though
+    no compaction applied.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    hook_module._last_autocompact_attempt.clear()
+    monkeypatch.setattr(hook_module, "_autocompact_min_interval", 60)
+
+    msgs = [Message("user", f"m{i}") for i in range(3)]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-stale-summarize"
+    manager.current_branch = "master"
+    manager.log.messages = msgs
+    manager.workspace = None
+
+    def fake_resume(*args, **kwargs):
+        yield Message(
+            "system",
+            "Skipped stale auto-summarize: the conversation changed while "
+            "the summary was generating.",
+            hide=True,
+        )
+        return False
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ) as should_compact,
+        patch(
+            "gptme.tools.autocompact.hook._resume_via_llm",
+            side_effect=fake_resume,
+        ),
+        patch("gptme.tools.autocompact.hook.get_default_model") as mock_model,
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook.append_compaction_event",
+        ) as mock_event,
+        patch("gptme.tools.autocompact.hook.trigger_hook", return_value=iter([])),
+    ):
+        mock_m = MagicMock()
+        mock_m.model = "gpt-4"
+        mock_m.context = 200_000
+        mock_m.max_output = 8192
+        mock_model.return_value = mock_m
+
+        list(autocompact_hook(manager))
+
+        conv_key = (str(manager.logdir), manager.current_branch)
+        assert conv_key not in hook_module._last_autocompact_attempt, (
+            "A discarded summarize must not populate _last_autocompact_attempt; "
+            "the retry window should remain open"
+        )
+        mock_event.assert_not_called()
+
+        should_compact.reset_mock()
+        list(autocompact_hook(manager))
+
+    assert should_compact.called, (
+        "should_auto_compact must be called on retry after a stale summarize "
+        "with unchanged message count — no premature throttle should apply"
+    )
+
+
 def test_get_keep_head_negative_falls_back_to_default(monkeypatch):
     """_get_keep_head must treat negative env values as invalid and return the configured default.
 
@@ -1998,10 +2078,19 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     ctx = MagicMock()
     ctx.manager = manager
 
-    def fake_resume(active_manager, _msgs, *, use_view_branch):
+    def fake_resume(
+        active_manager,
+        _msgs,
+        *,
+        use_view_branch,
+        compact_instructions=None,
+        keep_recent_tokens=20_000,
+        keep_head=0,
+    ):
         assert use_view_branch is False
         active_manager.log = Log([Message("system", "summary")])
         yield Message("system", "done")
+        return True
 
     monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
 
@@ -2012,6 +2101,37 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     assert events[0]["trigger"] == "manual"
     assert events[0]["method"] == "summarize"
     assert events[0]["messages"] == {"before": 2, "after": 1}
+
+
+def test_manual_summarize_skips_event_when_resume_not_applied(tmp_path, monkeypatch):
+    """A False return from _resume_via_llm must not write a summarize event.
+
+    Too-few-messages / no-model early exits yield a status message and return
+    False without replacing the log. Recording a compaction event in that case
+    claims a summarize that never happened.
+    """
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.tools.autocompact.handlers import _compact_summarize
+
+    messages = [Message("system", "system prompt"), Message("user", "task")]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+
+    def fake_resume(*args, **kwargs):
+        yield Message(
+            "system", "Not enough conversation history to create a meaningful resume."
+        )
+        return False
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+
+    list(_compact_summarize(ctx, messages))
+
+    assert read_compaction_events(manager.logdir) == []
 
 
 def test_compact_trim_handler_honors_env_keep_head(monkeypatch):
@@ -2996,6 +3116,482 @@ def test_hook_installs_view_above_min_savings(monkeypatch):
         list(hook_module.autocompact_hook(manager))
 
     assert manager.create_view.called, "a view with real savings should be installed"
+
+
+# ── Phase 2: compact_instructions and keep_recent_tokens ───────────────────
+
+
+def test_resume_via_llm_appends_compact_instructions(tmp_path, monkeypatch):
+    """compact_instructions are appended to the checkpoint prompt."""
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task 1"),
+        Message("assistant", "done 1"),
+        Message("user", "task 2"),
+        Message("assistant", "done 2"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    captured_prompt: list[str] = []
+
+    def fake_reply(msgs, **kwargs):
+        last_user = next((m for m in reversed(msgs) if m.role == "user"), None)
+        captured_prompt.append(last_user.content if last_user else "")
+        return Message(
+            "assistant", "## Objective\nTest task.\n\n## Context Files\n(none)"
+        )
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, compact_instructions="Focus on test X."))
+
+    assert captured_prompt, "LLM was never called"
+    assert "Focus on test X." in captured_prompt[0]
+
+
+@pytest.mark.parametrize("content", ["", "   \n\t  "])
+@pytest.mark.parametrize("use_view_branch", [True, False])
+def test_resume_via_llm_rejects_empty_checkpoint(
+    tmp_path, monkeypatch, content, use_view_branch
+):
+    """An empty checkpoint must not replace history; the caller falls back to trim."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task 1"),
+        Message("assistant", "done 1"),
+        Message("user", "task 2"),
+        Message("assistant", "done 2"),
+    ]
+    logdir = tmp_path / "conversation"
+    manager = LogManager(list(messages), logdir=logdir)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.llm.reply",
+        lambda *a, **k: Message("assistant", content),
+    )
+
+    gen = _resume_via_llm(manager, messages, use_view_branch=use_view_branch)
+    out: list[Message] = []
+    try:
+        while True:
+            out.append(next(gen))
+    except StopIteration as stop:
+        applied = stop.value
+
+    assert applied is False
+    assert [m.content for m in manager.log.messages] == [m.content for m in messages]
+    assert manager.current_view is None
+    assert not (logdir / "RESUME.md").exists()
+    assert any("empty checkpoint" in m.content for m in out)
+
+
+def test_resume_via_llm_keep_recent_appends_tail(tmp_path, monkeypatch):
+    """keep_recent_tokens > 0 preserves a tail of recent history after checkpoint."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=500))
+
+    new_msgs = manager.log.messages
+    contents = [m.content for m in new_msgs]
+    # Recent tail should be preserved
+    assert any("recent task" in c for c in contents), "Recent tail not in new log"
+
+
+def test_resume_via_llm_keep_recent_no_system_duplication(tmp_path, monkeypatch):
+    """The recent tail must not duplicate the leading system messages that
+    fixed_parts already re-add verbatim (short-conversation case)."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=500))
+
+    new_msgs = manager.log.messages
+    system_prompts = [
+        m for m in new_msgs if m.role == "system" and m.content == "system prompt"
+    ]
+    assert len(system_prompts) == 1, (
+        f"System prompt duplicated {len(system_prompts)}x in compacted log"
+    )
+
+
+def test_resume_via_llm_keep_recent_zero_no_tail(tmp_path, monkeypatch):
+    """keep_recent_tokens=0 omits the recent tail — checkpoint only."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=0))
+
+    new_msgs = manager.log.messages
+    contents = [m.content for m in new_msgs]
+    # No raw history should remain (only system + checkpoint)
+    assert not any("recent task" in c or "old message" in c for c in contents), (
+        "Raw history unexpectedly present with keep_recent_tokens=0"
+    )
+
+
+def test_cmd_compact_summarize_passes_instructions(tmp_path, monkeypatch):
+    """/compact summarize <instructions> passes them to _resume_via_llm."""
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import Log, LogManager
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task"),
+        Message("user", "/compact summarize focus on issue #123"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+    ctx.args = ["summarize", "focus", "on", "issue", "#123"]
+
+    captured: list[str] = []
+
+    def fake_resume(
+        mgr,
+        msgs,
+        *,
+        use_view_branch,
+        compact_instructions=None,
+        keep_recent_tokens=20_000,
+        keep_head=0,
+    ):
+        captured.append(compact_instructions or "")
+        mgr.log = Log([Message("system", "checkpoint")])
+        yield Message("system", "compacted")
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+    list(cmd_compact_handler(ctx))
+
+    assert captured, "resume was not called"
+    assert "focus on issue #123" in captured[0]
+
+
+def test_autocompact_hook_cooldown_not_set_on_early_exit(monkeypatch):
+    """Cooldown is NOT updated when action == 'none' (no premature rate-limit)."""
+    from unittest.mock import MagicMock
+
+    from gptme.tools.autocompact.hook import (
+        _last_autocompact_attempt,
+        autocompact_hook,
+    )
+
+    mock_manager = MagicMock()
+    mock_manager.logdir = "/fake/conv"
+    mock_manager.current_branch = "main"
+    mock_manager.log.messages = [Message("user", "hello")]
+    conv_key = (str(mock_manager.logdir), mock_manager.current_branch)
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.hook.should_auto_compact",
+        lambda msgs, limit=None, keep_head=0: "none",
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.hook.get_default_model",
+        lambda: MagicMock(context=200_000, max_output=8192),
+    )
+
+    _last_autocompact_attempt.pop(conv_key, None)
+    list(autocompact_hook(mock_manager))
+    assert conv_key not in _last_autocompact_attempt, (
+        "Cooldown must not be set when action is 'none'"
+    )
+
+
+def test_resume_via_llm_fixed_content_over_budget_fits(tmp_path, monkeypatch):
+    """When fixed content (checkpoint + system) alone exceeds the budget, the
+    compacted view is shrunk (files dropped, checkpoint truncated) so the new
+    log actually fits — instead of silently exceeding the budget."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    # Large checkpoint (~2000+ tokens) so fixed parts alone exceed the budget.
+    big_checkpoint = "## Objective\n" + ("lorem ipsum dolor sit amet " * 400)
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", big_checkpoint)
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    # Small-budget fake model: budget = min(0.9*3000, 3000-200-1000) = 1800.
+    fake_model = SimpleNamespace(
+        model="gpt-4", context=3000, max_output=200, full="gpt-4"
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+
+    budget = 1800
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    new_msgs = manager.log.messages
+    total = len_tokens(new_msgs, model="gpt-4")
+    assert total <= budget, (
+        f"Compacted view exceeds budget: {total} > {budget} ({len(new_msgs)} messages)"
+    )
+    # The checkpoint must still be present in truncated form
+    contents = [m.content for m in new_msgs]
+    assert any("Objective" in c for c in contents), "Checkpoint lost entirely"
+    assert any("truncated to fit context budget" in c for c in contents), (
+        "Truncation notice missing"
+    )
+
+
+def test_truncate_to_tokens_preserves_tail_sections():
+    """Truncation must keep the checkpoint's tail (Open Items, Context Files),
+    not only its beginning — otherwise the agent loses its remaining work."""
+    from gptme.tools.autocompact.resume import _truncate_to_tokens
+    from gptme.util.tokens import len_tokens
+
+    head = "## Objective\nfix the thing\n\n" + ("filler line of text here\n" * 200)
+    tail = "## Open Items\n- pending item xyz\n\n## Context Files\n- src/main.py"
+    text = head + tail
+
+    out = _truncate_to_tokens(text, 80, model="gpt-4")
+    assert "Open Items" in out, "Open Items section lost to truncation"
+    assert "pending item xyz" in out, "tail content lost to truncation"
+    assert "Context Files" in out, "Context Files section lost to truncation"
+    # Truncation mark marks the elided middle.
+    assert "middle truncated" in out
+    # And the result actually fits the budget (with slack for the mark/lines).
+    assert len_tokens(out, model="gpt-4") <= 90
+
+
+def test_get_recent_tail_drops_trailing_unmatched_tool_call():
+    """A tail ending on an assistant tool-call whose result never arrived
+    (mid-turn) must not keep the unmatched tool call."""
+    from gptme.tools import ToolUse
+    from gptme.tools.autocompact.resume import _get_recent_tail
+
+    # End the conversation with the assistant tool call itself (result never
+    # arrives) so the trailing-unmatched-tool-call branch is actually reached.
+    msgs = [
+        Message("system", "system prompt"),
+        Message("user", "run the thing"),
+        Message("user", "thanks"),
+        Message("assistant", "```shell\necho hi\n```"),
+    ]
+    tail = _get_recent_tail(msgs, 10_000)
+    assert tail, "tail unexpectedly empty"
+    assert tail[-1].role != "assistant" or not any(
+        tooluse.is_runnable for tooluse in ToolUse.iter_from_content(tail[-1].content)
+    ), "Trailing unmatched tool call left in tail"
+    assert any("run the thing" in m.content for m in tail), (
+        "earlier messages unexpectedly dropped"
+    )
+
+
+def test_get_recent_tail_drops_interrupted_tool_call():
+    """An assistant tool-call followed directly by a user message (the user
+    interrupted before the result) is unmatched too and must be dropped."""
+    from gptme.tools.autocompact.resume import _get_recent_tail
+
+    call = Message("assistant", "```shell\necho hi\n```")
+    msgs = [
+        Message("user", "run the thing"),
+        call,
+        Message("user", "stop, do something else"),
+        Message("assistant", "ok"),
+    ]
+    tail = _get_recent_tail(msgs, 10_000)
+    assert call not in tail
+    assert [m.content for m in tail] == [
+        "run the thing",
+        "stop, do something else",
+        "ok",
+    ]
+
+
+def test_get_recent_tail_keeps_answered_tool_call():
+    """A tool call followed by its result stays in the tail."""
+    from gptme.tools.autocompact.resume import _get_recent_tail
+
+    msgs = [
+        Message("user", "run the thing"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "Ran command: echo hi\nhi"),
+        Message("user", "thanks"),
+    ]
+    assert _get_recent_tail(msgs, 10_000) == msgs
+
+
+def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
+    """The file-dropping loop must compare total fixed tokens (essential +
+    files) against the budget, not subtract file tokens from the essential
+    count. With essentials over budget, the checkpoint gets truncated."""
+    from types import SimpleNamespace
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "old message 1"),
+        Message("assistant", "old answer 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    big_checkpoint = "## Objective\n" + ("lorem ipsum dolor sit amet " * 400)
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", big_checkpoint)
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+    fake_model = SimpleNamespace(
+        model="gpt-4", context=3000, max_output=200, full="gpt-4"
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+
+    # Suggest a context file that cannot save the over-budget essentials.
+    # Stubs respect the real contracts: _parse_context_files returns paths,
+    # _load_context_files returns (path, content) tuples.
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume._parse_context_files",
+        lambda content: ["README.md"],
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume._load_context_files",
+        lambda suggested, workspace: [(s, "small file") for s in suggested],
+    )
+
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=20_000))
+
+    new_msgs = manager.log.messages
+    total = len_tokens(new_msgs, model="gpt-4")
+    assert total <= 1800, f"Compacted view exceeds budget: {total} > 1800"
+    assert any("truncated to fit context budget" in m.content for m in new_msgs), (
+        "Checkpoint truncation notice missing"
+    )
+
+
+# ── Phase 2 (1.5b): checkpoint input clip, output cap, keep_head ────────────
+
+
+def test_resume_via_llm_caps_checkpoint_max_tokens(tmp_path, monkeypatch):
+    """The checkpoint call reserves a bounded output budget (1.5b cap)."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import (
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _resume_via_llm,
+    )
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("user", "task 1"),
+        Message("assistant", "done 1"),
+        Message("user", "task 2"),
+        Message("assistant", "done 2"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    captured: dict = {}
+
+    def fake_reply(msgs, **kwargs):
+        captured.update(kwargs)
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    list(_resume_via_llm(manager, messages))
+
+    assert captured.get("max_tokens") is not None, "max_tokens was not passed"
+    assert captured["max_tokens"] <= SUMMARY_MAX_OUTPUT_TOKENS
+
+
+def test_resume_via_llm_keep_head_preserves_prefix(tmp_path, monkeypatch):
+    """keep_head protects the first N messages of the original log verbatim,
+    even past the always-kept system block."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = [
+        Message("system", "core system prompt"),
+        Message("user", "EARLY_USER_MARKER"),
+        Message("assistant", "assistant 1"),
+        Message("user", "recent task"),
+        Message("assistant", "recent answer"),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+
+    def fake_reply(msgs, **kwargs):
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+
+    # keep_recent_tokens=0 so the early message can only survive via keep_head.
+    list(_resume_via_llm(manager, messages, keep_recent_tokens=0, keep_head=2))
+
+    contents = [m.content for m in manager.log.messages]
+    assert any("EARLY_USER_MARKER" in c for c in contents), (
+        "keep_head prefix not preserved in new view"
+    )
 
 
 def test_bound_summarize_input_clips_tool_output_and_drops_oldest():

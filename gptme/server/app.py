@@ -114,6 +114,7 @@ def create_app(
     webui_dir: str | Path | None = None,
     default_profile: str | None = None,
     allowed_hosts: list[str] | None = None,
+    tool_allowlist: list[str] | None = None,
 ) -> flask.Flask:
     """Create the Flask app.
 
@@ -150,6 +151,13 @@ def create_app(
     # inject the profile's system prompt when the client doesn't set one.
     if default_profile is not None:
         app.config["SERVER_DEFAULT_PROFILE"] = default_profile
+
+    # Server-level tool allowlist (``--tools``). init() stores it in a
+    # ContextVar that request threads don't see, so keep it on the app and use
+    # it as the default (and upper bound) for new conversations. ``[]`` means
+    # "no tools"; ``None`` means unrestricted.
+    if tool_allowlist is not None:
+        app.config["SERVER_TOOL_ALLOWLIST"] = list(tool_allowlist)
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts
@@ -318,5 +326,14 @@ def create_app(
 
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py
+
+    # Start the session health monitor unconditionally. It evicts idle
+    # client-less sessions and reaps dead ACP subprocesses. Previously it only
+    # started on the first use_acp step, so a plain webui/server deployment
+    # never evicted sessions — each SSE connect without a session_id leaked a
+    # session holding up to 10K events for the process lifetime.
+    from .session_step import start_session_health_monitor  # fmt: skip
+
+    start_session_health_monitor()
 
     return app

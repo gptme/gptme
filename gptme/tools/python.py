@@ -42,6 +42,11 @@ if TYPE_CHECKING:
 
 logger = getLogger(__name__)
 
+# Default byte cap for python tool output (10 MiB)
+_DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
+# Headroom reserved in the capture buffer for the omission marker
+_CAPTURE_MARKER_RESERVE = 256
+
 _IMAGE_EXTS: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".svg", ".gif", ".pdf"}
 )
@@ -53,6 +58,42 @@ _IMAGE_MIME: dict[str, str] = {
     ".gif": "image/gif",
     ".pdf": "application/pdf",
 }
+
+
+def _decode_slice(data: bytes) -> str:
+    """Decode a byte slice that may cut a character in half.
+
+    Tries surrogatepass first (round-trips lone surrogates); on a mid-character
+    split falls back to dropping the partial bytes, which never expands the text.
+    """
+    try:
+        return data.decode("utf-8", errors="surrogatepass")
+    except UnicodeDecodeError:
+        return data.decode("utf-8", errors="ignore")
+
+
+def _cap_output(output: str) -> str:
+    """Cap output to a reasonable size (10 MiB) with head+tail truncation.
+
+    The cap is measured in UTF-8 bytes, not characters, so multibyte characters
+    are counted correctly.
+    """
+    # surrogatepass: valid Python strings may hold lone surrogates (e.g. from
+    # surrogateescape-decoded filenames) that strict UTF-8 encoding rejects
+    encoded = output.encode("utf-8", errors="surrogatepass")
+    total_bytes = len(encoded)
+    if total_bytes <= _DEFAULT_MAX_OUTPUT_BYTES:
+        return output
+
+    # Output exceeds cap; return head+tail with truncation marker (byte-level slice)
+    # Reserve room for the marker so the result stays within the cap
+    half = (_DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE) // 2
+    head_bytes = encoded[:half]
+    tail_bytes = encoded[-half:]
+    omitted = total_bytes - len(head_bytes) - len(tail_bytes)
+    head = _decode_slice(head_bytes)
+    tail = _decode_slice(tail_bytes)
+    return f"{head}\n\n[... {omitted:,} bytes omitted ({total_bytes:,} total) ...]\n\n{tail}"
 
 
 def _snapshot_images(cwd: Path) -> dict[Path, float]:
@@ -241,6 +282,9 @@ class TeeIO(io.StringIO):
         super().__init__()
         self.original_stream = original_stream
         self.in_result_block = False
+        self._byte_count = 0
+        self._buffered_bytes = 0
+        self._truncated = False
 
     def write(self, s):
         # hack to get rid of ipython result-prompt ("Out[0]: ...") and everything after it
@@ -253,7 +297,37 @@ class TeeIO(io.StringIO):
                 s = ""
         self.original_stream.write(s)
         self.original_stream.flush()  # Ensure immediate display
+        # Stop buffering once the cap is reached to avoid unbounded memory growth,
+        # but keep the part of a crossing write that still fits.
+        n_chars = len(s)
+        encoded = s.encode("utf-8", errors="surrogatepass")
+        self._byte_count += len(encoded)
+        limit = _DEFAULT_MAX_OUTPUT_BYTES - _CAPTURE_MARKER_RESERVE
+        room = limit - self._buffered_bytes
+        if len(encoded) > room:
+            self._truncated = True
+            if room <= 0:
+                return n_chars
+            kept = _decode_slice(encoded[:room])
+            self._buffered_bytes += len(kept.encode("utf-8", errors="surrogatepass"))
+            super().write(kept)
+            # Report the full write as accepted: the cap limits retention only
+            return n_chars
+        self._buffered_bytes += len(encoded)
         return super().write(s)
+
+    def get_captured(self) -> str:
+        """Return buffered output, appending a truncation marker if writes were dropped."""
+        value = self.getvalue()
+        if not self._truncated:
+            return value
+        # The buffer never exceeds cap - marker reserve, so head + marker stays
+        # within the cap and downstream _cap_output() will not truncate again.
+        dropped = self._byte_count - self._buffered_bytes
+        return (
+            value + f"\n\n[... {dropped:,} bytes omitted "
+            f"({self._byte_count:,} total — capture limit reached, head only) ...]"
+        )
 
 
 @contextmanager
@@ -319,9 +393,9 @@ def execute_python(
             label = "Wasmtime sandbox"
         output = ""
         if stdout:
-            output += md_codeblock("stdout", stdout.rstrip()) + "\n\n"
+            output += md_codeblock("stdout", _cap_output(stdout).rstrip()) + "\n\n"
         if stderr:
-            output += md_codeblock("stderr", stderr.rstrip()) + "\n\n"
+            output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
         if returncode not in (0, None):
             output += f"Process exited with code {returncode}\n"
         yield Message(
@@ -344,8 +418,8 @@ def execute_python(
             code, silent=False, store_history=False
         )
 
-    captured_stdout = stdout_capture.getvalue()
-    captured_stderr = stderr_capture.getvalue()
+    captured_stdout = stdout_capture.get_captured()
+    captured_stderr = stderr_capture.get_captured()
 
     output = ""
     terminal_output = ""
@@ -363,14 +437,23 @@ def execute_python(
     if result.result is not None:
         # show stdout before result if both exist
         if captured_stdout:
+            # Cap large stdout
+            captured_stdout = _cap_output(captured_stdout)
             output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
-        result_output = f"Result:\n{md_codeblock('', str(result.result))}\n\n"
+        result_str = str(result.result)
+        # Cap large result representations
+        result_str = _cap_output(result_str)
+        result_output = f"Result:\n{md_codeblock('', result_str)}\n\n"
         output += result_output
         terminal_output += result_output
 
     elif captured_stdout:
+        # Cap large stdout
+        captured_stdout = _cap_output(captured_stdout)
         output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
     if captured_stderr:
+        # Cap large stderr (tracebacks, etc.) the same way stdout is capped
+        captured_stderr = _cap_output(captured_stderr)
         output += md_codeblock("stderr", captured_stderr.rstrip()) + "\n\n"
     if result.error_in_exec:
         tb = result.error_in_exec.__traceback__
@@ -379,7 +462,8 @@ def execute_python(
         if tb:
             exception_output = (
                 f"Exception during execution on line {tb.tb_lineno}:\n"
-                f"  {result.error_in_exec.__class__.__name__}: {result.error_in_exec}"
+                f"  {result.error_in_exec.__class__.__name__}: "
+                f"{_cap_output(str(result.error_in_exec))}"
             )
             output += exception_output
             # Do NOT add to terminal_output: the live IPython stream already

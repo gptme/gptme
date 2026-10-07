@@ -2600,3 +2600,85 @@ class TestSafeSessionIdForLog:
 
         sid = str(uuid.uuid4())
         assert _safe_session_id_for_log(sid) == sid
+
+
+class TestSessionEviction:
+    """SSE connects without a session_id must not leak sessions forever."""
+
+    @staticmethod
+    def _connect(client: FlaskClient, conversation_id: str):
+        """Open an SSE stream and consume the connected event."""
+        response = client.get(
+            f"/api/v2/conversations/{conversation_id}/events", buffered=False
+        )
+        assert response.status_code == 200
+        first = next(iter(response.response))
+        assert b'"type": "connected"' in first
+        return response
+
+    def test_connect_disconnect_sessions_are_evicted(self, client: FlaskClient):
+        """N SSE connects without session_id clean up after the clients leave."""
+        from datetime import datetime, timedelta, timezone
+
+        conv = create_conversation(client)["conversation_id"]
+
+        streams = [self._connect(client, conv) for _ in range(3)]
+        sessions = SessionManager.get_sessions_for_conversation(conv)
+        # The conversation's own session plus one per SSE connect.
+        assert len(sessions) == 4
+        # Each open stream holds exactly one client on its session.
+        assert sum(len(s.clients) for s in sessions) == 3
+
+        # Close the streams: each client is discarded from its session.
+        for stream in streams:
+            stream.close()
+        sessions = SessionManager.get_sessions_for_conversation(conv)
+        assert all(not s.clients for s in sessions)
+
+        # Age every session and sweep: all client-less sessions must go.
+        old = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+        for session in sessions:
+            session.last_activity = old
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+        assert SessionManager.get_sessions_for_conversation(conv) == []
+
+    def test_connected_session_is_not_evicted(self, client: FlaskClient):
+        """A session with an open SSE client survives an otherwise-stale sweep."""
+        from datetime import datetime, timedelta, timezone
+
+        conv = create_conversation(client)["conversation_id"]
+        stream = self._connect(client, conv)
+        try:
+            sessions = SessionManager.get_sessions_for_conversation(conv)
+            connected = [s for s in sessions if s.clients]
+            assert len(connected) == 1
+            session = connected[0]
+
+            old = datetime.now(tz=timezone.utc) - timedelta(minutes=120)
+            session.last_activity = old
+            SessionManager.clean_inactive_sessions(max_age_minutes=60)
+
+            assert SessionManager.get_session(session.id) is not None
+        finally:
+            stream.close()
+
+    def test_stream_ends_when_its_session_is_evicted(self, client: FlaskClient):
+        """An evicted session must not leave its stream open on a dead ID."""
+        conv = create_conversation(client)["conversation_id"]
+        stream = self._connect(client, conv)
+        try:
+            session = next(
+                s
+                for s in SessionManager.get_sessions_for_conversation(conv)
+                if s.clients
+            )
+            SessionManager.remove_session(session.id)
+            session.event_flag.set()  # wake the generator instead of waiting 15s
+
+            # The stream drains its pings and then terminates, so the client
+            # reconnects and attaches to a fresh session.
+            remaining = list(stream.response)  # would block forever if it stayed open
+            assert all(b'"type": "ping"' in chunk for chunk in remaining)
+        finally:
+            stream.close()
