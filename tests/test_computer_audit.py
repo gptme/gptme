@@ -415,6 +415,27 @@ def test_ipython_shell_capture_does_not_drop_block():
     assert records[0]["coordinate"] == [10, 20]
 
 
+def test_multiline_string_with_bang_is_not_corrupted():
+    """A line starting with ! inside a triple-quoted string must not be replaced with pass."""
+    code = (
+        'fill_native(coordinate=(100, 200), text="""\n  color: red;\n  !important\n""")'
+    )
+    records = _records(code)
+    assert len(records) == 1
+    assert records[0]["action"] == "fill_native"
+    # Original string is "\n  color: red;\n  !important\n" = 28 chars
+    assert records[0]["value_len"] == 28
+
+
+def test_unicode_line_separator_in_string_does_not_drop_block():
+    """U+2028 (LINE SEPARATOR) inside a quoted string value must not break parsing."""
+    code = 'fill_element(selector="#s", value="test val")\ncomputer(\'screenshot\')'
+    records = _records(code)
+    actions = [r["action"] for r in records]
+    assert "fill_element" in actions
+    assert "screenshot" in actions
+
+
 def test_unparseable_code_is_skipped():
     assert _records("computer('left_click'") == []
 

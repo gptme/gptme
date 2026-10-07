@@ -78,25 +78,43 @@ def _str_const(node: Any) -> str | None:
 def _parse_ipython(code: str) -> _ast.Module | None:
     """Parse an ipython block, handling ``!shell`` / ``%magic`` lines.
 
-    Three transformations:
+    Three transformations (only applied OUTSIDE string literals):
     - ``%magic expr``  → keep ``expr`` so embedded calls survive
     - ``!shell`` / standalone ``%magic``  → blank to ``pass``
     - ``name = !cmd``  → ``name = None``  (IPython shell capture)
+
+    Uses ``split('\\n')`` instead of ``splitlines()`` so that U+2028/U+2029
+    characters inside quoted string values are not treated as line separators
+    (which would corrupt the string and make the block unparseable).
     """
-    new_lines = []
-    for line in code.splitlines():
-        # %magic expr — preserve the expression so embedded calls are not lost
-        m = re.match(r"^(\s*)%\w+\s+(.*)", line)
-        if m:
-            new_lines.append(m.group(1) + m.group(2))
-        # standalone %magic or bare !shell → pass
-        elif re.match(r"^\s*[!%]", line):
-            new_lines.append(re.sub(r"^(\s*)[!%].*$", r"\1pass", line))
-        # lhs = !cmd (IPython shell-capture) → lhs = None
-        elif re.search(r"=\s*!", line):
-            new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
-        else:
+    # split('\n') avoids treating U+2028/U+2029 as line breaks inside strings
+    lines = code.split("\n")
+    new_lines: list[str] = []
+    in_triple: str | None = None  # None, '"""', or "'''"
+    for line in lines:
+        if in_triple is not None:
+            # Inside a triple-quoted string: pass through unchanged
             new_lines.append(line)
+            if line.count(in_triple) % 2 == 1:
+                in_triple = None
+        else:
+            # Apply IPython transforms only outside string literals
+            m = re.match(r"^(\s*)%\w+\s+(.*)", line)
+            if m:
+                new_lines.append(m.group(1) + m.group(2))
+            # standalone %magic or bare !shell → pass
+            elif re.match(r"^\s*[!%]", line):
+                new_lines.append(re.sub(r"^(\s*)[!%].*$", r"\1pass", line))
+            # lhs = !cmd (IPython shell-capture) → lhs = None
+            elif re.search(r"=\s*!", line):
+                new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
+            else:
+                new_lines.append(line)
+            # Track if a triple-quoted string was opened (but not closed) on this line
+            for q in ('"""', "'''"):
+                if line.count(q) % 2 == 1:
+                    in_triple = q
+                    break
     try:
         return _ast.parse("\n".join(new_lines))
     except (SyntaxError, ValueError):
