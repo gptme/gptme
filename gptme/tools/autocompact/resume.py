@@ -578,7 +578,16 @@ def _build_dropped_result_stubs(
     content = f"{_RESULT_STUBS_PREFIX} Recall one by its stable ID:\n" + "\n".join(
         lines
     )
-    return Message("system", content)
+    return Message("system", content, metadata={"result_stubs": True})
+
+
+def _is_result_stubs_message(msg: Message) -> bool:
+    """Return True iff this message is a generated result-stubs catalog.
+
+    Uses metadata instead of content prefix so user messages that quote the
+    catalog are not incorrectly filtered.
+    """
+    return bool(msg.metadata and msg.metadata.get("result_stubs"))
 
 
 _TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
@@ -960,7 +969,7 @@ def _resume_via_llm(
     for msg in msgs:
         if msg.role == "system":
             leading_system_end += 1
-            if not msg.content.startswith(_RESULT_STUBS_PREFIX):
+            if not _is_result_stubs_message(msg):
                 original_system_msgs.append(msg)
         elif msg.role in ("user", "assistant"):
             # Stop when we hit the first non-system message
@@ -971,9 +980,7 @@ def _resume_via_llm(
     # system block is always kept, so this only extends past it.
     head_end = max(leading_system_end, min(keep_head, len(msgs)))
     preserved_head = [
-        message
-        for message in msgs[:head_end]
-        if not message.content.startswith(_RESULT_STUBS_PREFIX)
+        message for message in msgs[:head_end] if not _is_result_stubs_message(message)
     ]
 
     # Create file context messages for each loaded file
@@ -1003,9 +1010,7 @@ def _resume_via_llm(
     # tail is derived from the conversation after them to avoid duplication.
     model_meta = get_default_model()
     tail_source = [
-        message
-        for message in msgs[head_end:]
-        if not message.content.startswith(_RESULT_STUBS_PREFIX)
+        message for message in msgs[head_end:] if not _is_result_stubs_message(message)
     ]
     recent_tail = _get_recent_tail(
         tail_source,
@@ -1071,6 +1076,8 @@ def _resume_via_llm(
                 overhead = len_tokens(
                     preserved_head + [resume_intro_msg], model=model_str
                 ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
+                if result_stubs_msg is not None:
+                    overhead += len_tokens([result_stubs_msg], model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
                     resume_content, room, model=model_str
@@ -1114,9 +1121,11 @@ def _resume_via_llm(
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
     else:
-        # Replace the log directly (user-invoked /compact resume)
-        manager.log = Log(new_log)
-        manager.write()
+        # User-invoked /compact: store compact history in a named view so
+        # the main branch (master_log) is preserved intact for recall_result.
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, new_log)
+        manager.switch_view(view_name)
 
     # Build status message
     files_loaded_str = ""
@@ -1129,9 +1138,7 @@ def _resume_via_llm(
     elif suggested_files:
         files_loaded_str = f"• Suggested files not found: {len(suggested_files)}\n"
 
-    view_note = ""
-    if use_view_branch:
-        view_note = f"• View: {view_name} (master branch preserved with full history)\n"
+    view_note = f"• View: {view_name} (master branch preserved with full history)\n"
 
     resume_note = ""
     if resume_path:
