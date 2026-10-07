@@ -401,6 +401,31 @@ def test_load_mcp_server_in_config(mock_config):
             del _dynamic_servers["test-server"]
 
 
+@pytest.mark.parametrize("failure_stage", ["connect", "spec_build"])
+def test_failed_mcp_reload_preserves_disabled_state(
+    mock_config, mock_mcp_client, failure_stage
+):
+    """A failed reload must not advertise the disabled server as enabled."""
+    server = mock_config.user.mcp.servers[0]
+    server.enabled = False
+    if failure_stage == "connect":
+        mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        patch("gptme.tools.mcp_adapter._build_tool_specs_for_server") as build,
+    ):
+        build.side_effect = ValueError("invalid schema")
+        result = load_mcp_server("test-server")
+
+        assert "Failed to load" in result
+        assert not server.enabled
+        assert "test-server" not in _dynamic_servers
+        assert "✗ disabled" in list_loaded_servers()
+
+
 def test_unload_mcp_server_not_loaded():
     """Test unload_mcp_server when server is not loaded."""
     result = unload_mcp_server("nonexistent")

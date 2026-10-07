@@ -567,6 +567,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # If the server was previously unloaded (enabled=False), re-enable it so the
     # config accurately reflects the loaded state after this call.
     config_added = False
+    was_enabled = server_config.enabled
     if server_config not in config.mcp.servers:
         config.mcp.servers.append(server_config)
         set_config(config)
@@ -646,6 +647,9 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
+            set_config(config)
+        elif server_config.enabled != was_enabled:
+            server_config.enabled = was_enabled
             set_config(config)
         # Clean up any partial registration that happened before the failure
         if name in _dynamic_servers:
