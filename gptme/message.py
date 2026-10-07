@@ -224,6 +224,11 @@ class MessageMetadata(TypedDict, total=False):
     # Durable rejection marker for a checkpoint request on this view. Requests
     # before the latest marker are not retried after process reload.
     compaction_checkpoint_failed_view: str
+    # Whether the task interrupted by the checkpoint request still owed a
+    # model response (tool results pending an answer). The CLI/server loop
+    # resumes that work after the checkpoint turn completes instead of
+    # stopping.
+    compaction_checkpoint_needs_continuation: bool
     # Written by the CLI when GPTME_MAX_STEPS ends a turn; never inferred from text.
     max_steps_stop: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),

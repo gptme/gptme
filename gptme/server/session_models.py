@@ -143,6 +143,12 @@ class ConversationSession(BaseSession):
     # Tool workers compare their captured epoch before releasing or continuing.
     step_seq: int = 0
 
+    # Whether the task interrupted by a compaction checkpoint request still
+    # owed a model response. Set when the request is injected (the request
+    # message itself is excluded from the compacted view); consumed by the
+    # step that completes the checkpoint turn to resume the task.
+    checkpoint_needs_continuation: bool = False
+
     # Invocation ownership follows this session across generation/tool workers.
     # Access these fields only while holding step_lock.
     skill_invocation_ids: set[str] = field(default_factory=set)

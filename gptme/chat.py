@@ -546,6 +546,10 @@ def _process_message_conversation(
                 f"Invalid GPTME_MAX_STEPS value: {max_steps_str!r}, ignoring"
             )
     step_count = 0
+    # Set when a compaction checkpoint request is injected: records whether
+    # the interrupted task still owed a model response, so the turn that
+    # completes the checkpoint can resume it instead of stopping.
+    checkpoint_followup = False
 
     while True:
         try:
@@ -646,13 +650,26 @@ def _process_message_conversation(
         # compaction the resumed view ends with the summary resume instead of
         # the assistant's tool call, so the content-based check would wrongly
         # end the turn — keep the pre-compaction continuation decision.
-        if mid_turn_compacted:
+        if mid_turn_compacted and checkpoint_followup:
+            # The checkpoint turn just completed: the resumed view ends with
+            # the checkpoint summary instead of the pre-compaction task
+            # state, so the content-based checks cannot see the pending
+            # work. Resume the task the original turn still owed a response
+            # to, then fall back to the normal continuation decision.
+            checkpoint_followup = False
+            has_runnable = True
+        elif mid_turn_compacted:
             has_runnable = pending_continuation
         elif checkpoint_requested:
             # Autocompaction injected a user request for a normal checkpoint
             # turn. Re-enter step() immediately even when the completed task
             # response had no tool call (especially important for -n runs,
             # whose outer loop exits when the prompt queue is empty).
+            checkpoint_followup = bool(
+                (manager.log.messages[-1].metadata or {}).get(
+                    "compaction_checkpoint_needs_continuation"
+                )
+            )
             has_runnable = True
         else:
             last_content = next(

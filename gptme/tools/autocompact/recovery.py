@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from ...logmanager import LogManager
-    from ...message import Message
+    from ...message import Message, MessageMetadata
 
 
 def compact_for_overflow(manager: LogManager) -> list[Message]:
@@ -60,6 +60,38 @@ def compact_for_overflow(manager: LogManager) -> list[Message]:
         else:
             result.append(message)
     return result
+
+
+def _carry_checkpoint_request(messages: list[Message], view_name: str) -> list[Message]:
+    """Re-point the live checkpoint request at the recovery view.
+
+    Overflow recovery builds a new view from the log, but the checkpoint
+    request it carries is stamped with the view it was created on. Without
+    this the request goes unrecognized on the recovery view: the hook would
+    either leave the internal checkpoint transcript in place or start a
+    second checkpoint instead of installing the response already received.
+    Failure latches move with the request so rejected requests stay rejected.
+    """
+    last_request_idx = max(
+        (
+            i
+            for i, msg in enumerate(messages)
+            if "compaction_checkpoint_view" in (msg.metadata or {})
+        ),
+        default=None,
+    )
+    carried: list[Message] = []
+    for index, msg in enumerate(messages):
+        metadata = msg.metadata or {}
+        if index == last_request_idx or "compaction_checkpoint_failed_view" in metadata:
+            updated: MessageMetadata = {**metadata}
+            if "compaction_checkpoint_view" in metadata:
+                updated["compaction_checkpoint_view"] = view_name
+            if "compaction_checkpoint_failed_view" in metadata:
+                updated["compaction_checkpoint_failed_view"] = view_name
+            msg = msg.replace(metadata=updated)
+        carried.append(msg)
+    return carried
 
 
 def _drop_oldest_turn(messages: list[Message]) -> list[Message]:
@@ -161,9 +193,9 @@ def recover_reply(
             try:
                 while True:
                     with guard():
-                        manager.create_view(
-                            view_name := manager.get_next_view_name(), candidate
-                        )
+                        view_name = manager.get_next_view_name()
+                        candidate = _carry_checkpoint_request(candidate, view_name)
+                        manager.create_view(view_name, candidate)
                         manager.switch_view(view_name)
                     retry_messages = prepare(manager.log.messages)
                     provider_after = len_tokens(retry_messages, model)
