@@ -33,7 +33,7 @@ import logging
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -242,7 +242,7 @@ class GptmeAcpClient:
         env: dict[str, str] | None = None,
         on_update: Callable[[str, Any], None | Awaitable[None]] | None = None,
         auto_confirm: bool = True,
-        client_factory: Callable[[], Any] | None = None,
+        client_factory: Callable[[], _MinimalClient] | None = None,
     ) -> None:
         self.workspace = Path(workspace) if workspace else Path.cwd()
         self.command = command
@@ -283,7 +283,7 @@ class GptmeAcpClient:
         self._client_handler = client
 
         self._ctx = spawn_agent_process(
-            client,
+            cast(Any, client),
             self.command,
             *self.extra_args,
             cwd=self.workspace,
