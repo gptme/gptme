@@ -528,6 +528,9 @@ def _bound_summarize_input(
         )
     if pinned_part and pin_body_at is not None:
         pin_at_kept = max(pin_body_at - dropped, 0)
+        if dropped and pin_at_kept:
+            # The omission marker adds a slot before retained pre-checkpoint messages.
+            pin_at_kept += 1
         kept[pin_at_kept:pin_at_kept] = pinned_part
     return head + kept
 

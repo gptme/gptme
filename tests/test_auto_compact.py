@@ -3878,6 +3878,27 @@ def test_bound_summarize_input_keeps_pre_checkpoint_head_chronology():
     assert out == [system, original_request, checkpoint, newer]
 
 
+def test_bound_summarize_input_keeps_chronology_after_omission_marker():
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    system = Message("system", "core system prompt")
+    older = Message("user", "obsolete work " * 6000)
+    original_request = Message("user", "Use SQLite")
+    checkpoint = Message("assistant", "## Objective\nChanged database to PostgreSQL")
+    newer = Message("user", "Continue " * 1600)
+
+    out = _bound_summarize_input(
+        [system, older, original_request, checkpoint, newer],
+        "gpt-4",
+        14000,
+        keep_head=1,
+        pinned=checkpoint,
+    )
+
+    assert any("older messages omitted" in m.content for m in out)
+    assert out.index(original_request) < out.index(checkpoint) < out.index(newer)
+
+
 def test_bound_summarize_input_reinserts_pinned_checkpoint_dropped_upstream():
     """prepare_messages can drop the checkpoint before pinning; it must come back."""
     from gptme.tools.autocompact.resume import _bound_summarize_input
