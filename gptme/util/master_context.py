@@ -29,12 +29,16 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
     message = messages[index]
     if message.role != "system":
         return False
-    # Status/UI messages (hook notices, compaction status, UI-only messages)
-    # are never tool results, and never outputs of a call.
-    if message.hide or message.quiet or message.ui_only:
+    # ui_only messages are never tool results regardless of other flags.
+    if message.ui_only:
         return False
+    # Native tool results carry a call_id — check before display flags so that
+    # hide=True (e.g. elicit secrets) or quiet=True outputs are still recallable.
     if message.call_id:
         return True
+    # Non-native (markdown/XML) status/notification messages are not tool results.
+    if message.hide or message.quiet:
+        return False
     if index == 0:
         return False
 
