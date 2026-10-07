@@ -110,11 +110,15 @@ def _parse_ipython(code: str) -> _ast.Module | None:
                 new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
             else:
                 new_lines.append(line)
-            # Track if a triple-quoted string was opened (but not closed) on this line
-            for q in ('"""', "'''"):
-                if line.count(q) % 2 == 1:
-                    in_triple = q
-                    break
+            # Track if a triple-quoted string was opened (but not closed) on this line.
+            # Skip comment lines so that a # containing """ does not falsely enter
+            # string mode and cause subsequent IPython lines to be left untransformed
+            # (which would make the block fail to parse and drop all its actions).
+            if not re.match(r"^\s*#", line):
+                for q in ('"""', "'''"):
+                    if line.count(q) % 2 == 1:
+                        in_triple = q
+                        break
     try:
         return _ast.parse("\n".join(new_lines))
     except (SyntaxError, ValueError):

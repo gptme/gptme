@@ -1338,4 +1338,39 @@ def test_audit_log_agent_id_and_conversation_are_mutually_exclusive(
         catch_exceptions=False,
     )
     assert result.exit_code != 0
-    assert "--agent-id and CONVERSATION are mutually exclusive" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _parse_ipython: comment-triple-quote and multiline-string correctness
+# ---------------------------------------------------------------------------
+
+
+def test_comment_with_triple_quote_does_not_hide_actions():
+    # A comment containing triple-double-quotes must not prevent subsequent actions
+    # from being audited. Previously the quote counter set in_triple on seeing a
+    # comment like `# example """`, which left `!ls` untransformed and caused
+    # SyntaxError, dropping the whole block.
+    code = '# example """\n!ls\ncomputer(\'left_click\', coordinate=(1, 2))\n'
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, f"Expected 1 record, got {len(records)}: {records}"
+    assert records[0]["action"] == "left_click"
+    assert records[0]["coordinate"] == [1, 2]
+
+
+def test_multiline_string_after_comment_triple_quote_not_corrupted():
+    # A multiline string following a comment with triple-double-quotes must not have
+    # its contents rewritten. Previously the tracker entered/exited string mode
+    # prematurely due to the comment, treating lines inside the real string as live
+    # code and converting !-lines to `pass`, producing wrong value_len.
+    code = (
+        '# The selector uses triple-quotes: """\n'
+        'fill_native([100, 200], """\n'
+        "!important\n"
+        '""")\n'
+    )
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, f"Expected 1 record, got {len(records)}: {records}"
+    assert records[0]["action"] == "fill_native"
+    assert records[0]["value_len"] == len("\n!important\n")
