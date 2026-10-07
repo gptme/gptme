@@ -190,6 +190,12 @@ def detect_smells(text: str, *, em_dash_tolerance: float = 1.0) -> dict[str, Any
         Dict with keys: ``word_count``, ``total_hits``, ``weighted_score``
         (hits per 1 000 words), ``em_dash_count``, ``em_dash_per_1k``,
         ``by_category``, ``hits`` (sorted by impact, descending).
+
+        ``total_hits`` is a ``float`` (not ``int``) because em-dash excess is
+        fractional.  Likewise ``by_category["em_dash"]`` and the ``count``
+        field of any em_dash entry in ``hits`` are floats.  All other
+        category counts remain integers.  Use ``_format_count`` (or
+        ``:.12g``) to format them without spurious trailing zeros.
     """
     word_count = len(_WORD.findall(text))
     hits: list[dict[str, Any]] = []
@@ -317,10 +323,12 @@ def evaluate_gate(
     # tells — repeating one soft tell ("robust robust robust") adds weight
     # 1, not 3.
     # Only curated pattern-registry tells count as corroborating evidence,
-    # so the cadence/punctuation artifacts are filtered out. Below
-    # MIN_WORDS_FOR_GATE the em-dash tolerance rounds to zero, so a lone
-    # em-dash in ordinary short prose would otherwise contribute weight 1
-    # and manufacture "evidence" the stated policy does not recognize.
+    # so the cadence/punctuation artifacts are filtered out. Em-dash excess
+    # is a punctuation artifact (fractional count, not a vocabulary tell),
+    # not a curated slop tell, so it must not be used as corroborating
+    # evidence — even a lone em-dash in short prose contributes weight 1
+    # from the hit's weight field, which would otherwise manufacture
+    # "evidence" the stated policy does not recognise.
     evidence_weight = sum(
         h["weight"]
         for h in smell_report["hits"]
