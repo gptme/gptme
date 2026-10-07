@@ -409,24 +409,28 @@ def test_load_mcp_server_registers_toolspecs(mock_config, mock_mcp_client):
 def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client):
     """After load, the server's tools must be selectable/executable via get_tools()/get_tool(), not just listed in the cache."""
     from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
 
-    with (
-        patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
-        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
-    ):
-        result = load_mcp_server("test-server")
-        assert "Successfully loaded" in result
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
 
-        loaded = tools_mod.get_tools()
-        assert "test-server.test_tool" in [t.name for t in loaded], (
-            "tool should be active in the loaded context after load"
-        )
-        assert tools_mod.get_tool("test-server.test_tool") is not None
+            loaded = tools_mod.get_tools()
+            assert "test-server.test_tool" in [t.name for t in loaded], (
+                "tool should be active in the loaded context after load"
+            )
+            assert tools_mod.get_tool("test-server.test_tool") is not None
 
-        unload_mcp_server("test-server")
-        assert tools_mod.get_tool("test-server.test_tool") is None, (
-            "tool should be gone from the loaded context after unload"
-        )
+            unload_mcp_server("test-server")
+            assert tools_mod.get_tool("test-server.test_tool") is None, (
+                "tool should be gone from the loaded context after unload"
+            )
+    finally:
+        _set_available_tools_cache(None)  # restore cold cache for other tests
 
 
 def test_unload_exact_names_does_not_touch_prefix_sibling_servers():
