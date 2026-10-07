@@ -1199,7 +1199,11 @@ def _reply_stream(
         # Tag here rather than relying on `reply()`'s outer handler: direct
         # `_reply_stream` callers (e.g. the server session-step loop) bypass
         # that handler and would otherwise miss the provider-recovery path.
-        mark_llm_reply_origin(err, output_emitted=False, visible_output_emitted=False)
+        mark_llm_reply_origin(
+            err,
+            output_emitted=bool(output),
+            visible_output_emitted=bool(output) and (display_enabled or emit_active),
+        )
         raise err
 
     return Message("assistant", output, metadata=stream.metadata)

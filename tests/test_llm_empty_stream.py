@@ -73,6 +73,20 @@ def test_reasoning_only_output_is_not_rejected(monkeypatch: pytest.MonkeyPatch):
     assert "pondering" in msg.content
 
 
+def test_whitespace_stream_marks_output_emitted(monkeypatch: pytest.MonkeyPatch):
+    """Whitespace chunks emitted through on_token mean output_emitted must be True."""
+    monkeypatch.setattr(
+        "gptme.llm._stream", _fake_stream(["\n", " "], {"model": MODEL})
+    )
+    received: list[str] = []
+    with pytest.raises(EmptyStreamError) as excinfo:
+        _reply_stream([Message("user", "hi")], MODEL, None, on_token=received.append)
+
+    assert received == ["\n", " "] or received  # on_token fired
+    output_emitted = getattr(excinfo.value, "_gptme_llm_reply_output_emitted", False)
+    assert output_emitted is True
+
+
 def test_empty_stream_error_takes_provider_recovery_path():
     err = EmptyStreamError(MODEL, None)
     mark_llm_reply_origin(err)
