@@ -477,6 +477,100 @@ def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client
         _set_available_tools_cache(None)  # restore cold cache for other tests
 
 
+def test_load_mcp_server_respects_session_allowlist(mock_config, mock_mcp_client):
+    """Dynamic discovery must not widen a restricted executable toolset.
+
+    The new specs are listed in the available-tools cache (discovery), but only
+    tools matching the operator's session allowlist become executable, mirroring
+    the init_tools() rule for startup MCP servers.
+    """
+    from gptme import tools as tools_mod
+    from gptme.tools import (
+        _get_available_tools_cache,
+        _set_available_tools_cache,
+        set_session_allowlist,
+    )
+
+    _set_available_tools_cache([])
+    set_session_allowlist(["shell"])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
+
+            cached = _get_available_tools_cache()
+            assert cached is not None
+            assert "test-server.test_tool" in [t.name for t in cached], (
+                "discovery should still list the new tool"
+            )
+            assert tools_mod.get_tool("test-server.test_tool") is None, (
+                "a tool outside the session allowlist must not become executable"
+            )
+
+            unload_mcp_server("test-server")
+            cached_after = _get_available_tools_cache()
+            assert cached_after is not None
+            assert "test-server.test_tool" not in [t.name for t in cached_after]
+    finally:
+        set_session_allowlist(None)
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_load_mcp_server_reenables_previously_unloaded_server(
+    mock_config, mock_mcp_client
+):
+    """Reloading a server that unload left enabled=False must flip it back on."""
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    server = mock_config.user.mcp.servers[0]
+    server.enabled = False
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.tools.mcp_adapter.set_config") as set_cfg,
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
+            assert server.enabled
+            set_cfg.assert_called()
+            assert "✓ enabled" in list_loaded_servers()
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+@pytest.mark.parametrize("failure_stage", ["connect", "spec_build"])
+def test_failed_mcp_reload_preserves_disabled_state(
+    mock_config, mock_mcp_client, failure_stage
+):
+    """A failed reload must not advertise the disabled server as enabled."""
+    server = mock_config.user.mcp.servers[0]
+    server.enabled = False
+    if failure_stage == "connect":
+        mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        patch("gptme.tools.mcp_adapter._build_tool_specs_for_server") as build,
+    ):
+        if failure_stage == "spec_build":
+            build.side_effect = ValueError("invalid schema")
+        result = load_mcp_server("test-server")
+
+        assert "Failed to load" in result
+        assert not server.enabled
+        assert "test-server" not in _dynamic_servers
+        assert "✗ disabled" in list_loaded_servers()
+
+
 def test_unload_exact_names_does_not_touch_prefix_sibling_servers():
     """Unloading 'foo' must not remove tools of a distinct 'foo.bar' server."""
     from gptme.tools import _get_available_tools_cache, _set_available_tools_cache

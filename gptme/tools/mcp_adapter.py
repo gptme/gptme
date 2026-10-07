@@ -609,12 +609,18 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if "env" in config_override:
             server_config.env = config_override["env"]
 
-    # Add to config BEFORE connecting (connect() looks up server by name in config)
+    # Add to config BEFORE connecting (connect() looks up server by name in config).
+    # A server that was previously unloaded is still in config with
+    # enabled=False; re-enable it so config reflects the loaded state.
     config_added = False
+    was_enabled = server_config.enabled
     if server_config not in config.mcp.servers:
         config.mcp.servers.append(server_config)
         set_config(config)
         config_added = True
+    elif not server_config.enabled:
+        server_config.enabled = True
+        set_config(config)
 
     client: MCPClient | None = None
     try:
@@ -638,11 +644,25 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if new_specs:
             from gptme.tools import (  # lazy import avoids circular
                 extend_tools_cache,
+                get_session_allowlist,
                 load_dynamic_tool_specs,
             )
 
+            from ._allowlist import tool_matches_allowlist
+
+            # Discovery lists every new spec; execution stays inside the
+            # operator's session allowlist (same rule init_tools() applies
+            # to startup MCP servers). An unrestricted session activates all.
             extend_tools_cache(list(new_specs))
-            load_dynamic_tool_specs(new_specs)
+            allowlist = get_session_allowlist()
+            permitted = [
+                spec
+                for spec in new_specs
+                if allowlist is None
+                or tool_matches_allowlist(spec.name, allowlist, spec.hints)
+            ]
+            if permitted:
+                load_dynamic_tool_specs(permitted)
         _dynamic_server_tool_names[name] = [spec.name for spec in new_specs]
 
         tool_names = [tool.name for tool in tools.tools]
@@ -659,6 +679,9 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
+            set_config(config)
+        elif server_config.enabled != was_enabled:
+            server_config.enabled = was_enabled
             set_config(config)
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
