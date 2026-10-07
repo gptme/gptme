@@ -1242,14 +1242,12 @@ def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
     # "# <Section>:" header as the re-applied copy, but no resume_key
     # metadata. When a newer copy of the same section is hoisted, replace the
     # legacy section instead of sending both versions to the model.
-    drop_prefixes: set[str] = set()
-    for msg in latest.values():
-        content = msg.content if isinstance(msg.content, str) else ""
-        if not content:
-            continue
-        first_line = content.split("\n", 1)[0]
-        if 0 < len(first_line) < 80 and ":" in first_line:
-            drop_prefixes.add(first_line.split(":", 1)[0] + ":")
+    # Scoped to known section kinds: a generic first-line prefix match could
+    # drop an unrelated user-authored section that happens to share the header.
+    SECTION_HEADER_BY_KEY = {"agent_profile": "# Agent Profile:"}
+    drop_prefixes = {
+        SECTION_HEADER_BY_KEY[key] for key in latest if key in SECTION_HEADER_BY_KEY
+    }
     if drop_prefixes:
         remaining = [
             m
