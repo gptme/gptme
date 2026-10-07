@@ -108,7 +108,8 @@ def _parse_ipython(code: str) -> _ast.Module | None:
             # lhs = !cmd (IPython shell-capture) → lhs = None
             # Anchor to identifier at line start so =! inside a string literal
             # (e.g. computer('type', text='a=!b')) is not mishandled.
-            elif re.match(r"^\s*[\w.]+\s*=\s*!", line):
+            # LHS allows subscript access (e.g. results['files'] = !ls).
+            elif re.match(r"^\s*[\w.\[\]'\"]+\s*=\s*!", line):
                 new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
             else:
                 new_lines.append(line)

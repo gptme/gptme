@@ -415,6 +415,16 @@ def test_ipython_shell_capture_does_not_drop_block():
     assert records[0]["coordinate"] == [10, 20]
 
 
+def test_ipython_subscript_capture_does_not_drop_block():
+    """results['files'] = !ls is valid IPython; subscript LHS must not break parsing."""
+    records = _records(
+        "results['files'] = !ls\ncomputer('left_click', coordinate=(3, 4))"
+    )
+    assert len(records) == 1
+    assert records[0]["action"] == "left_click"
+    assert records[0]["coordinate"] == [3, 4]
+
+
 def test_string_arg_containing_equals_bang_is_not_corrupted():
     """=! inside a string argument must not truncate the line and drop the call."""
     # computer('type', text='a=!b') contains =! inside a quoted string;
