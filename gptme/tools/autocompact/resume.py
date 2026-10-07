@@ -10,7 +10,7 @@ from collections import Counter
 from collections.abc import Generator
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ... import llm
 from ...llm.models import get_default_model
@@ -658,6 +658,122 @@ def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None)
     return head + _TRUNCATION_MARK + tail
 
 
+def _apply_native_compaction(
+    manager: "LogManager",
+    prepared_msgs: list[Message],
+    *,
+    use_view_branch: bool,
+    compact_instructions: str | None,
+    keep_recent_tokens: int,
+    keep_head: int,
+    model_meta: Any,
+    llm_unlocked: AbstractContextManager[object] | None,
+) -> Generator[Message, None, bool]:
+    """Attempt provider-native (Anthropic) compaction.
+
+    Returns True iff the native view was applied; False means the caller must
+    fall back to the generic LLM checkpoint (unsupported model, capability
+    lookup failed, provider returned no signed block, or the conversation
+    changed while the request was in flight).
+    """
+    from .native_anthropic import (
+        anthropic_compaction_supported,
+        anthropic_native_compact,
+    )
+
+    model_str = model_meta.model
+    if not anthropic_compaction_supported(model_str):
+        return False
+
+    # Preserve the leading system block verbatim, mirroring the generic path.
+    n_head = 0
+    for msg in prepared_msgs:
+        if msg.role != "system":
+            break
+        n_head += 1
+    head_end = max(n_head, min(keep_head, len(prepared_msgs)))
+    preserved_head = prepared_msgs[:head_end]
+    body = prepared_msgs[head_end:]
+
+    # One canonical whole-assistant-step cut shared with the view builder:
+    # the provider summarizes exactly the prefix and the tail is appended
+    # unchanged, so the retained steps are never summarized twice.
+    prefix, tail = _split_recent_tail(body, keep_recent_tokens, model=model_str)
+    if len(prefix) < 3:
+        return False
+
+    yield Message(
+        "system",
+        "🔄 Compacting via provider-native compaction (Anthropic)...",
+        hide=use_view_branch,
+        ui_only=True,
+    )
+
+    snapshot = None
+    file_snapshot = None
+    conv_snapshot = None
+    if llm_unlocked is not None:
+        snapshot = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        file_snapshot = _logfile_snapshot(manager.logfile)
+        if manager.current_branch != "main" and manager.logdir:
+            conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
+    with llm_unlocked or nullcontext():
+        block_msg = anthropic_native_compact(
+            prefix, model_str, instructions=compact_instructions
+        )
+    if block_msg is None:
+        return False
+    if snapshot is not None:
+        current = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        conv_changed = conv_snapshot is not None and (
+            _logfile_snapshot(manager.logdir / "conversation.jsonl") != conv_snapshot
+        )
+        if (
+            current != snapshot
+            or _logfile_snapshot(manager.logfile) != file_snapshot
+            or conv_changed
+        ):
+            logger.info(
+                "Discarding stale native compaction result; conversation "
+                "changed during the provider request"
+            )
+            yield Message(
+                "system",
+                "Skipped stale native compaction: the conversation changed "
+                "while the provider request was in flight.",
+                hide=use_view_branch,
+                ui_only=True,
+            )
+            return False
+
+    new_log = preserved_head + [block_msg] + tail
+    if use_view_branch:
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, new_log)
+        manager.switch_view(view_name)
+    else:
+        manager.log = Log(new_log)
+        manager.write()
+
+    yield Message(
+        "system",
+        f"✅ Native compaction completed:\n"
+        f"• {len(prefix)} messages summarized by the provider into a signed block\n"
+        f"• {len(tail)} recent messages kept verbatim\n"
+        f"• Original conversation preserved losslessly on disk",
+        hide=use_view_branch,
+    )
+    return True
+
+
 def _resume_via_llm(
     manager: "LogManager",
     msgs: list[Message],
@@ -721,6 +837,24 @@ def _resume_via_llm(
             ui_only=True,
         )
         return False
+    # Provider-native compaction first: when the Anthropic model supports the
+    # compaction capability, the old prefix is summarized server-side and the
+    # signed block is replayed verbatim. Any failure here falls through to the
+    # generic checkpoint below.
+    if checkpoint_response is None and m.full.startswith("anthropic/"):
+        native_applied = yield from _apply_native_compaction(
+            manager,
+            prepared_msgs,
+            use_view_branch=use_view_branch,
+            compact_instructions=compact_instructions,
+            keep_recent_tokens=keep_recent_tokens,
+            keep_head=keep_head,
+            model_meta=m,
+            llm_unlocked=llm_unlocked,
+        )
+        if native_applied:
+            return True
+
     if checkpoint_response is None:
         # Legacy/manual path: ask the model directly without tools. Automatic
         # compaction supplies a checkpoint from the normal turn loop instead.

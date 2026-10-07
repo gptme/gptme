@@ -250,6 +250,9 @@ class MessageMetadata(TypedDict, total=False):
     skill_invocation_id: str  # Explicit skill invocation that queued this prompt
     # Set when the degeneration guard aborted mid-stream and retried on another provider.
     degeneration: DegenerationData
+    # Signed Anthropic native-compaction block (compact-2026-09-04 beta),
+    # round-tripped verbatim as the first content block of later requests.
+    anthropic_compaction_block: dict[str, Any]
 
 
 _TOKEN_KEYS = (
