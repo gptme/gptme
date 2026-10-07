@@ -386,59 +386,103 @@ def test_apply_native_compaction_supplies_system_head(monkeypatch):
     assert kwargs["messages"], "summarized body must be non-empty"
 
 
-def test_resume_via_llm_fallback_with_exhausted_unlock_cm(monkeypatch):
-    """When native compaction runs the provider request and returns None, the
-    @contextmanager-based llm_unlocked CM is consumed.  _resume_via_llm must not
-    try to enter it a second time for the generic fallback path — that raises
-    RuntimeError("generator didn't yield") on an exhausted generator."""
-    from contextlib import contextmanager
+def test_block_bearing_message_not_merged_with_adjacent_assistant():
+    """Block-bearing assistant message must stay separate from adjacent tail
+    assistant messages so the tail content is not lost during replay."""
+    from gptme.logmanager import prepare_messages
 
-    entered: list[int] = []
+    block_msg = Message(
+        "assistant",
+        "[compacted]",
+        metadata={"anthropic_compaction_block": dict(BLOCK)},
+    )
+    tail_assistant = Message("assistant", "recent answer from tail")
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "old question"),
+        block_msg,
+        Message("user", "recent question"),
+        tail_assistant,
+    ]
+    prepared = prepare_messages(messages)
+    # The block-bearing message and the tail assistant message must remain separate.
+    block_msgs = [
+        m
+        for m in prepared
+        if m.metadata and m.metadata.get("anthropic_compaction_block")
+    ]
+    assert len(block_msgs) == 1, "block-bearing message should not be merged away"
+    # Tail assistant content must not be swallowed into the block message.
+    assert "recent answer from tail" not in block_msgs[0].content
+    assert any("recent answer from tail" in m.content for m in prepared)
 
-    @contextmanager
-    def single_use_cm():
-        entered.append(1)
-        yield
-        # generator is now exhausted; a second __enter__ raises RuntimeError
 
+def test_native_compact_includes_summary_text_in_body(monkeypatch):
+    """Provider-switch safety: the message body must contain the readable summary
+    text from the compaction block so non-Anthropic providers still see it."""
+    response = MagicMock()
+    summary = "This is the readable summary of the compacted conversation."
+    block = MagicMock(
+        type="compaction", content=summary, encrypted_content="enc", signature="sig"
+    )
+    response.content = [block]
+    client = MagicMock()
+    client.beta.messages.create.return_value = response
+    monkeypatch.setattr(native, "_client", lambda: client)
+
+    msgs = [
+        Message("system", "System prompt"),
+        Message("user", "old question"),
+        Message("assistant", "old answer"),
+    ]
+    result = native.anthropic_native_compact(msgs, "claude-test")
+    assert result is not None
+    assert summary in result.content, (
+        "summary text must be in message body for non-Anthropic providers"
+    )
+
+
+def test_apply_native_compaction_manual_creates_backup_view(monkeypatch):
+    """Manual compaction (use_view_branch=False) must create a backup view of the
+    original log before replacing it so users can recover the dropped messages."""
     manager = MagicMock()
     manager.workspace = None
     manager.logdir = None
     manager.current_branch = "main"
 
-    # Native path: model is supported, prefix is long enough, but provider
-    # returns None (simulates a transient API failure).
+    block_msg = Message(
+        "assistant",
+        "[compacted]",
+        metadata={"anthropic_compaction_block": dict(BLOCK)},
+    )
     monkeypatch.setattr(native, "anthropic_compaction_supported", lambda m: True)
-    monkeypatch.setattr(native, "anthropic_native_compact", lambda *a, **k: None)
+    monkeypatch.setattr(native, "anthropic_native_compact", lambda *a, **k: block_msg)
 
     model_meta = MagicMock()
     model_meta.full = "anthropic/claude-test"
     model_meta.model = "claude-test"
-    model_meta.context = 200_000
-    model_meta.max_output = 8192
 
-    resume_content = "# Resume\n## Summary\nDone.\n"
-    with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
-        mock_response = MagicMock()
-        mock_response.content = resume_content
-        mock_llm.reply.return_value = mock_response
-        with patch(
-            "gptme.tools.autocompact.resume.get_default_model",
-            return_value=model_meta,
-        ):
-            # Must not raise RuntimeError from double-entering the CM.
-            # keep_recent_tokens=1 forces a non-empty prefix so native actually
-            # enters the with-block (and consumes the CM) before returning None.
-            results = list(
-                _resume_via_llm(
-                    manager,
-                    _conversation_msgs(),
-                    use_view_branch=False,
-                    llm_unlocked=single_use_cm(),
-                    keep_recent_tokens=1,
-                )
-            )
+    from gptme.logmanager import prepare_messages
 
-    assert any("LLM-powered resume completed" in r.content for r in results)
-    # The CM was entered exactly once (by the native path).
-    assert entered == [1]
+    prepared = prepare_messages(_conversation_msgs())
+    list(
+        _apply_native_compaction(
+            manager,
+            prepared,
+            use_view_branch=False,
+            compact_instructions=None,
+            keep_recent_tokens=1,
+            keep_head=0,
+            model_meta=model_meta,
+            llm_unlocked=None,
+        )
+    )
+    # A backup view must be created before the log is replaced.
+    create_view_calls = manager.create_view.call_args_list
+    assert create_view_calls, "create_view must be called to backup the original log"
+    backup_call = create_view_calls[0]
+    backup_name = backup_call[0][0]
+    assert backup_name.startswith("pre-compact-"), (
+        f"backup view name should start with 'pre-compact-', got {backup_name!r}"
+    )
+    manager.write.assert_called_once()

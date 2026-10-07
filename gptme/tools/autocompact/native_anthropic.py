@@ -145,9 +145,17 @@ def anthropic_native_compact(
         "signature": signature,
     }
     summarized = len(messages_dicts)
+    summary_text = getattr(block, "content", None) or ""
+    body = (
+        f"[Conversation compacted via Anthropic native compaction: "
+        f"{summarized} messages summarized into a signed provider block.]\n\n"
+        f"{summary_text}"
+        if summary_text
+        else f"[Conversation compacted via Anthropic native compaction: "
+        f"{summarized} messages summarized into a signed provider block.]"
+    )
     return Message(
         "assistant",
-        f"[Conversation compacted via Anthropic native compaction: "
-        f"{summarized} messages summarized into a signed provider block.]",
+        body,
         metadata=cast(MessageMetadata, {COMPACTION_BLOCK_KEY: block_dict}),
     )

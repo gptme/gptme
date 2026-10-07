@@ -554,21 +554,12 @@ class LogManager:
             # Append to master (main branch) for full history preservation
             if "main" in self._branches:
                 self._branches["main"] = self._branches["main"].append(msg)
-            if "lossless" in self._branches:
-                # Keep the preserved lossless transcript current under views
-                # too, so results appended after an in-place compaction stay
-                # recallable.
-                self._branches["lossless"] = self._branches["lossless"].append(msg)
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
-            if "lossless" in self._branches:
-                # Keep the preserved lossless transcript current so results
-                # appended after an in-place compaction stay recallable.
-                self._branches["lossless"] = self._branches["lossless"].append(msg)
 
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
@@ -974,26 +965,8 @@ class LogManager:
 
     @property
     def master_log(self) -> Log:
-        """Get the master log (always the main branch, never compacted).
-
-        Prefers the preserved ``lossless`` snapshot when an in-place (manual)
-        compaction replaced the active branch, so result-recall IDs keep
-        pointing at the full transcript.
-        """
-        if "lossless" in self._branches:
-            return self._branches["lossless"]
+        """Get the master log (always the main branch, never compacted)."""
         return self._branches.get("main", self._branches[self.current_branch])
-
-    def preserve_lossless_log(self) -> None:
-        """Snapshot the current branch log under the ``lossless`` branch.
-
-        Used before an in-place compaction replaces the active log: the
-        snapshot keeps the full transcript available to ``master_log`` so
-        recallable result IDs remain valid.
-        """
-        current = self._branches.get(self.current_branch)
-        if current is not None and "lossless" not in self._branches:
-            self._branches["lossless"] = current
 
     def fork(self, name: str) -> None:
         """
@@ -1092,6 +1065,9 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
         value = msg.metadata.get("prompt_generation")
         return value if isinstance(value, str) else None
 
+    def _has_compaction_block(m: Message) -> bool:
+        return bool(m.metadata and m.metadata.get("anthropic_compaction_block"))
+
     merged: list[Message] = []
     for msg in msgs:
         if (
@@ -1102,6 +1078,8 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
             and msg.content != SYSTEM_PROMPT_CACHE_BOUNDARY
             and merged[-1].content != SYSTEM_PROMPT_CACHE_BOUNDARY
             and _generation(merged[-1]) == _generation(msg)
+            and not _has_compaction_block(msg)
+            and not _has_compaction_block(merged[-1])
         ):
             merged[-1] = merged[-1].concat(msg)
         else:
