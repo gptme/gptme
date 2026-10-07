@@ -235,6 +235,7 @@ linkcheck_ignore = [
     r"https://(www\.)?reddit\.com/.*",  # blocks datacenter IPs (403)
     r"https://app\.requesty\.ai/.*",  # SPA dashboard: server 404s client-side routes
     r"llms(-full)?\.txt$",  # generated into the build output by sphinx-llms-txt
+    r"https://github\.com/.*/blob/.*",  # GitHub source-file blob URLs get 429 during heavy CI crawls
 ]
 # GitHub renders README heading anchors as "user-content-*" ids (resolved by JS),
 # so the anchor check always fails; still check that the page itself exists.
