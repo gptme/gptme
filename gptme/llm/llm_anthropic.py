@@ -820,6 +820,29 @@ def _make_schema_tool(
     )
 
 
+def _chat_timeout() -> float:
+    """Return the timeout for non-streaming Anthropic calls.
+
+    Passing NOT_GIVEN triggers the SDK's streaming-required check when
+    max_tokens > ~21k (expected_time > 10 min), which rejects non-streaming
+    calls for 64k+ max_output models. An explicit float bypasses that check
+    while still allowing long responses. Respects LLM_API_TIMEOUT; falls back
+    to the SDK default (600s).
+    """
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    if not timeout_str:
+        return 600.0
+    try:
+        return float(timeout_str)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+        ) from exc
+
+
 @retry_on_overloaded()
 def chat(
     messages: list[Message],
@@ -894,11 +917,15 @@ def chat(
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
         **_fast_mode_kwargs(),
-        # Use NOT_GIVEN to inherit the client-level timeout (set from
-        # LLM_API_TIMEOUT or the SDK default of 600s).  The old hardcoded 60s
-        # cap caused APITimeoutError on long Opus/thinking responses and for
-        # subagent calls that use stream=False.
-        timeout=NOT_GIVEN,
+        # Pass an explicit timeout. With NOT_GIVEN and the SDK default client
+        # timeout, anthropic>=0.5x runs _calculate_nonstreaming_timeout(), which
+        # raises "Streaming is required for operations that may take longer
+        # than 10 minutes" whenever max_tokens > ~21k — i.e. for every model
+        # whose max_output is 64k+ when chat() is called non-streaming (subagent
+        # thread mode, evals). An explicit float bypasses that check; the value
+        # is LLM_API_TIMEOUT when configured, else the SDK default of 600s. The
+        # old hardcoded 60s cap is still avoided (long thinking responses).
+        timeout=_chat_timeout(),
     )
     content = response.content
     metadata = _stamp_served_model(
