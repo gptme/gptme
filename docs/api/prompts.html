@@ -936,7 +936,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa541606ca0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc48eaecfe0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2169,6 +2169,10 @@ those shortcuts when the file itself is the source of truth.
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with &#39;#&#39; are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
+For files over 1 MiB, always supply start_line and end_line to read a section at a
+time; advance start_line to the next line after the shown range to paginate through
+the file. hashline_edit is not available for large-file ranged reads; use the save
+or patch tool to edit large files.
 
 Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</span> to read a file. For multiple files, place one path per line inside the code block.
 
@@ -3041,7 +3045,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20006</p>
+<p>Tokens: 20076</p>
 </dd></dl>
 
 <dl class="py function">

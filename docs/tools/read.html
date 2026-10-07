@@ -649,6 +649,10 @@ those shortcuts when the file itself is the source of truth.
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with &#39;#&#39; are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
+For files over 1 MiB, always supply start_line and end_line to read a section at a
+time; advance start_line to the next line after the shown range to paginate through
+the file. hashline_edit is not available for large-file ranged reads; use the save
+or patch tool to edit large files.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
