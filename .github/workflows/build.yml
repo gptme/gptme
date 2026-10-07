@@ -244,7 +244,9 @@ jobs:
         # Add timeout and retry to apt-get update to handle slow mirrors
         for i in {1..3}; do
           echo "apt-get update attempt $i/3"
-          timeout 300 sudo apt-get update && break || true
+          timeout 300 sudo apt-get update && break
+          if [ "$i" -eq 3 ]; then echo "apt-get update failed after 3 attempts"; exit 1; fi
+          sleep 5
         done
         sudo apt-get install -y python3-dev build-essential libffi-dev
 
