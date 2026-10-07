@@ -242,7 +242,7 @@ class GptmeAcpClient:
         env: dict[str, str] | None = None,
         on_update: Callable[[str, Any], None | Awaitable[None]] | None = None,
         auto_confirm: bool = True,
-        client_factory: Callable[[], _MinimalClient] | None = None,
+        client_factory: Callable[[], Any] | None = None,
     ) -> None:
         self.workspace = Path(workspace) if workspace else Path.cwd()
         self.command = command

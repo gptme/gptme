@@ -1353,7 +1353,7 @@ def test_audit_log_agent_id_and_conversation_are_mutually_exclusive(
         catch_exceptions=False,
     )
     assert result.exit_code != 0
-    assert "mutually exclusive" in result.output
+    assert "--agent-id and CONVERSATION are mutually exclusive" in result.output
 
 
 # ---------------------------------------------------------------------------
