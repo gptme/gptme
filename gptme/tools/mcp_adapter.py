@@ -322,20 +322,23 @@ def create_mcp_tools(
 
     # Initialize connections to all servers
     for server_config in server_configs:
-        if clients is None and server_config.name in _dynamic_servers:
-            dynamic_client = _dynamic_servers[server_config.name]
-            if dynamic_client.tools is not None:
-                tool_specs.extend(
-                    _build_tool_specs_for_server(
-                        server_config,
-                        dynamic_client.tools,
-                        client_config,
-                        _dynamic_servers,
-                    )
-                )
-            continue
         client: MCPClient | None = None
         try:
+            if clients is None and server_config.name in _dynamic_servers:
+                # Borrow the connection, but share per-server error handling.
+                # Do not mark it owned: discovery must not close a client
+                # previously published by load_mcp_server() on setup failure.
+                dynamic_client = _dynamic_servers[server_config.name]
+                if dynamic_client.tools is not None:
+                    tool_specs.extend(
+                        _build_tool_specs_for_server(
+                            server_config,
+                            dynamic_client.tools,
+                            client_config,
+                            _dynamic_servers,
+                        )
+                    )
+                continue
             client = MCPClient(config=client_config)
 
             # Connect to server

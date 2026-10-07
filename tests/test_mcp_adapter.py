@@ -9,6 +9,7 @@ from gptme.config import Config, MCPConfig, MCPServerConfig
 from gptme.mcp.registry import MCPServerInfo
 from gptme.message import Message
 from gptme.tools.mcp_adapter import (
+    _dynamic_server_tool_names,
     _dynamic_servers,
     _mcp_clients,
     _restart_mcp_client,
@@ -25,11 +26,17 @@ from gptme.tools.mcp_adapter import (
 @pytest.fixture(autouse=True)
 def clear_mcp_state():
     """Reset global MCP client state between tests."""
+    from gptme.tools import clear_tools
+
     _dynamic_servers.clear()
+    _dynamic_server_tool_names.clear()
     _mcp_clients.clear()
+    clear_tools()
     yield
     _dynamic_servers.clear()
+    _dynamic_server_tool_names.clear()
     _mcp_clients.clear()
+    clear_tools()
 
 
 @pytest.fixture
@@ -171,6 +178,41 @@ def test_create_mcp_tools_strict_closes_earlier_clients():
     ok_client.close.assert_called_once_with()
     bad_client.close.assert_called_once_with()
     assert registry == {}
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_dynamic_spec_failure_preserves_borrowed_client(
+    mock_config, mock_mcp_client, strict
+):
+    """Discovery isolates failures without closing a dynamically owned client."""
+    earlier = MagicMock()
+    earlier.connect.return_value = (SimpleNamespace(tools=[]), MagicMock())
+    later = MagicMock()
+    later.connect.return_value = mock_mcp_client.connect.return_value
+    mock_config.user.mcp.servers = [
+        MCPServerConfig(name="earlier", command="earlier"),
+        *mock_config.user.mcp.servers,
+        MCPServerConfig(name="later", command="later"),
+    ]
+    bad_tool = MagicMock()
+    bad_tool.name = "bad"
+    bad_tool.inputSchema = {"properties": None}
+    mock_mcp_client.tools = SimpleNamespace(tools=[bad_tool])
+    _dynamic_servers["test-server"] = mock_mcp_client
+
+    with patch("gptme.mcp.client.MCPClient", side_effect=[earlier, later]):
+        if strict:
+            with pytest.raises(RuntimeError, match="test-server"):
+                create_mcp_tools(mock_config, strict=True)
+            earlier.close.assert_called_once_with()
+            assert "earlier" not in _mcp_clients
+            later.connect.assert_not_called()
+        else:
+            specs = create_mcp_tools(mock_config)
+            assert [s.name for s in specs] == ["later.test_tool"]
+            earlier.close.assert_not_called()
+    assert _dynamic_servers["test-server"] is mock_mcp_client
+    mock_mcp_client.close.assert_not_called()
 
 
 def test_create_mcp_execute_function(mock_config):
