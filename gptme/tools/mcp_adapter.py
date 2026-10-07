@@ -567,6 +567,19 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     """
     Dynamically load an MCP server during the session.
 
+    The server's ToolSpecs are registered in two places:
+    - ``_dynamic_servers`` (process-global): the MCPClient instance.
+    - the current ContextVar context: the loaded-tools list seen by
+      ``get_tools()`` / ``get_tool()``.
+
+    **Context contract**: ``unload_mcp_server()`` must be called from the
+    same ContextVar context that called ``load_mcp_server()``.  Unloading
+    from a ``copy_context()`` child that loaded in the parent is unsupported:
+    the client is removed from the global dict, but the parent context's
+    loaded-tools list retains a dangling reference.  (No current caller uses
+    ``copy_context()`` around MCP load/unload, so this is a latent edge case
+    — see gptme/gptme#4217.)
+
     Args:
         name: Server name (will search registries if not in config)
         config_override: Optional config overrides (command, args, url, etc.)
@@ -690,6 +703,15 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
 def unload_mcp_server(name: str) -> str:
     """
     Unload a dynamically loaded MCP server.
+
+    Removes the server from both the process-global ``_dynamic_servers`` dict
+    and the **current** ContextVar context's loaded-tools list.
+
+    **Context contract**: must be called from the same ContextVar context that
+    called ``load_mcp_server()``.  Calling from a ``copy_context()`` child
+    removes the client globally and unloads the tool from the child's context,
+    but leaves the parent context's loaded-tools list with a dangling reference
+    to a tool whose client no longer exists.  See gptme/gptme#4217.
 
     Args:
         name: Server name

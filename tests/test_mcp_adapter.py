@@ -711,6 +711,64 @@ def test_unload_mcp_server_success():
     mock_client.close.assert_called_once_with()
 
 
+def test_unload_from_copy_context_child_leaves_parent_with_dangling_tool(
+    mock_config, mock_mcp_client
+):
+    """Document the latent copy_context / cross-context unload limitation (#4217).
+
+    If load_mcp_server() is called in a parent context and unload_mcp_server()
+    is called from a copy_context() child, the MCPClient is removed from the
+    process-global _dynamic_servers dict (visible everywhere), but the parent
+    context's loaded-tools ContextVar retains a reference to the now-gone tool.
+    This is the known limitation documented in the load/unload_mcp_server()
+    docstrings.  No current gptme caller uses copy_context() around load/unload,
+    so this is a latent edge case — see gptme/gptme#4217.
+    """
+    from contextvars import copy_context
+
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            # Load in the parent context
+            result = load_mcp_server("test-server")
+            assert "Successfully loaded" in result
+            assert tools_mod.get_tool("test-server.test_tool") is not None, (
+                "tool should be active in parent context after load"
+            )
+            assert "test-server" in _dynamic_servers, (
+                "client should be registered globally after load"
+            )
+
+            # Unload from a copy_context() child
+            child = copy_context()
+            child.run(unload_mcp_server, "test-server")
+
+            # Global state is cleaned up (the client is gone)
+            assert "test-server" not in _dynamic_servers, (
+                "client must be removed from global registry by child's unload"
+            )
+
+            # Known limitation: parent context still has the tool in its loaded list
+            # (unload_dynamic_tool_specs only edits the calling context's ContextVar)
+            assert tools_mod.get_tool("test-server.test_tool") is not None, (
+                "parent context retains a dangling tool reference after child unload "
+                "(documented limitation — gptme/gptme#4217)"
+            )
+
+            # Child context has the tool removed (unload worked in its own context)
+            assert child.run(tools_mod.get_tool, "test-server.test_tool") is None, (
+                "child context must not see the tool after its own unload"
+            )
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
 def test_session_client_retry_stays_in_session_registry(mock_config):
     """Connection recovery must replace only the supplied session client."""
     from gptme.mcp.client import MCPClient
