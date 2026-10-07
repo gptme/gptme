@@ -1163,9 +1163,10 @@ def _parse_prompt_files(prompt: str) -> Path | None:
         if not (p.exists() and p.is_file()):
             return None
 
-        # Try to read as text
+        # Try to read as text; use the capped reader so a multi-GB file doesn't
+        # load entirely into memory just to check decodability.
         try:
-            p.read_text()
+            _read_text_capped(p)
             return p
         except UnicodeDecodeError:
             # If not text, check if supported binary format
