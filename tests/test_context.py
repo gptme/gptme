@@ -442,6 +442,17 @@ def test_read_text_capped_json_file_is_not_binary(tmp_path):
     assert "value" in result
 
 
+def test_read_text_capped_svg_file_is_not_binary(tmp_path):
+    """SVG files (image/svg+xml) are a text format and must not be rejected."""
+    from gptme.util.context import _read_text_capped
+
+    svg_content = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>'
+    f = tmp_path / "icon.svg"
+    f.write_text(svg_content)
+    result = _read_text_capped(f)
+    assert "circle" in result
+
+
 def test_read_text_capped_survives_path_removed_after_read(tmp_path, monkeypatch):
     """The size comes from the open handle, so rotation after read can't raise."""
     import pathlib

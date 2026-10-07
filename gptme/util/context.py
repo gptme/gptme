@@ -191,10 +191,17 @@ def _read_text_capped(f: Path) -> str:
     """
     mime, _ = mimetypes.guess_type(str(f))
     # Block known binary MIME categories; allow text/*, application/json, etc.
+    # Structured-text subtypes (+xml, +json) are text despite a binary prefix,
+    # e.g. image/svg+xml is an XML text format, not a raster image.
     _BINARY_MIME_PREFIXES = ("image/", "audio/", "video/", "font/")
-    if mime and (
-        any(mime.startswith(p) for p in _BINARY_MIME_PREFIXES)
-        or mime in ("application/octet-stream", "application/pdf")
+    _TEXT_MIME_SUFFIXES = ("+xml", "+json", "+text")
+    if (
+        mime
+        and not any(mime.endswith(s) for s in _TEXT_MIME_SUFFIXES)
+        and (
+            any(mime.startswith(p) for p in _BINARY_MIME_PREFIXES)
+            or mime in ("application/octet-stream", "application/pdf")
+        )
     ):
         raise UnicodeDecodeError("utf-8", b"", 0, 1, f"binary MIME type: {mime}")
 
