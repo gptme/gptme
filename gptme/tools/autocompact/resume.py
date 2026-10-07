@@ -28,6 +28,49 @@ _DEFAULT_KEEP_RECENT_TOKENS = 20_000
 logger = logging.getLogger(__name__)
 
 
+def build_checkpoint_prompt(
+    compact_instructions: str | None = None,
+    *,
+    tool_capable: bool = False,
+) -> str:
+    """Build the structured checkpoint request used by both compaction paths."""
+    prompt = """Context budget has been reached — produce a structured checkpoint before history is compacted.
+
+Write a concise checkpoint with these sections:
+
+## Objective
+One sentence: what is this conversation trying to accomplish?
+
+## Key Decisions
+Bullet list of important decisions or constraints already established.
+
+## Current State
+What has been completed; what is in progress; what blockers exist.
+
+## Open Items
+Numbered list of remaining work, in priority order.
+
+## Context Files
+Files that must be reloaded to continue effectively. Format:
+- `path/to/file.py` — reason this file is needed
+- `docs/spec.md` — contains the specification being implemented
+
+Focus on files that are actively referenced or modified. Omit files that are
+only mentioned in passing.
+"""
+    if tool_capable:
+        prompt += """
+
+Before writing the checkpoint, use your available tools now to persist any
+important state that is not durable yet. Only claim a write happened if the
+tool result confirms it. When the durable writes are complete, respond with
+the structured checkpoint and no further tool calls.
+"""
+    if compact_instructions:
+        prompt += f"\n\nAdditional instructions:\n{compact_instructions}"
+    return prompt
+
+
 def _parse_context_files(content: str) -> list[str]:
     """
     Parse file paths from the LLM-generated resume.
@@ -510,6 +553,7 @@ def _resume_via_llm(
     compact_instructions: str | None = None,
     keep_recent_tokens: int = _DEFAULT_KEEP_RECENT_TOKENS,
     keep_head: int = 0,
+    checkpoint_response: Message | None = None,
 ) -> Generator[Message, None, bool]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
 
@@ -530,6 +574,8 @@ def _resume_via_llm(
         keep_head: Number of leading messages to preserve verbatim in the new
             view, mirroring the trim path's positional protection. The leading
             system block is always kept; this only extends past it.
+        checkpoint_response: A checkpoint produced by the normal tool-capable
+            turn loop. When supplied, install it without making a second LLM call.
     """
 
     # Prepare messages for summarization
@@ -544,44 +590,14 @@ def _resume_via_llm(
         )
         return False
 
-    # Generate conversation summary using LLM
-    yield Message(
-        "system",
-        "🔄 Generating conversation resume with LLM...",
-        hide=use_view_branch,
-        ui_only=True,
-    )
+    if checkpoint_response is None:
+        yield Message(
+            "system",
+            "🔄 Generating conversation resume with LLM...",
+            hide=use_view_branch,
+            ui_only=True,
+        )
 
-    resume_prompt = """Context budget has been reached — produce a structured checkpoint before history is compacted.
-
-Write a concise checkpoint with these sections:
-
-## Objective
-One sentence: what is this conversation trying to accomplish?
-
-## Key Decisions
-Bullet list of important decisions or constraints already established.
-
-## Current State
-What has been completed; what is in progress; what blockers exist.
-
-## Open Items
-Numbered list of remaining work, in priority order.
-
-## Context Files
-Files that must be reloaded to continue effectively. Format:
-- `path/to/file.py` — reason this file is needed
-- `docs/spec.md` — contains the specification being implemented
-
-Focus on files that are actively referenced or modified. Omit files that are
-only mentioned in passing.
-"""
-    if compact_instructions:
-        resume_prompt += f"\n\nAdditional instructions:\n{compact_instructions}"
-
-    # Create a temporary message for the LLM prompt
-    resume_request = Message("user", resume_prompt)
-    # Generate the resume using LLM
     m = get_default_model()
     if not m:
         yield Message(
@@ -592,72 +608,79 @@ only mentioned in passing.
             ui_only=True,
         )
         return False
-    n_head = 0
-    for msg in prepared_msgs:
-        if msg.role != "system":
-            break
-        n_head += 1
-    context_window = m.context if isinstance(m.context, int) else None
-    llm_msgs = _bound_summarize_input(
-        prepared_msgs,
-        m.model,
-        context_window,
-        keep_head=n_head,
-        extra_reserve_tokens=len_tokens(resume_request, m.model),
-    ) + [resume_request]
-    snapshot = None
-    file_snapshot = None
-    conv_snapshot = None
-    if llm_unlocked is not None:
-        # The conversation lock is released while the summary generates, so
-        # other workers may append via their own LogManager instances. Those
-        # writes update the file on disk but not this in-memory log, so the
-        # in-memory comparison alone can never detect them.
-        snapshot = (
-            manager.current_view,
-            len(manager.log.messages),
-            manager.log.messages[-1].content if manager.log.messages else None,
-        )
-        file_snapshot = _logfile_snapshot(manager.logfile)
-        if manager.current_branch != "main" and manager.logdir:
-            # On non-main branches, logfile is branches/<branch>.jsonl but
-            # concurrent view-path appends (dual-write) update conversation.jsonl
-            # and views/<view>.jsonl, not the branch file.  Snapshot
-            # conversation.jsonl too so those appends are detected.
-            conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
-    with llm_unlocked or nullcontext():
-        resume_response = llm.reply(
-            llm_msgs,
-            model=m.full,
-            tools=[],
-            workspace=None,
-            max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
-        )
-    if snapshot is not None:
-        current = (
-            manager.current_view,
-            len(manager.log.messages),
-            manager.log.messages[-1].content if manager.log.messages else None,
-        )
-        conv_changed = conv_snapshot is not None and (
-            _logfile_snapshot(manager.logdir / "conversation.jsonl") != conv_snapshot
-        )
-        if (
-            current != snapshot
-            or _logfile_snapshot(manager.logfile) != file_snapshot
-            or conv_changed
-        ):
-            logger.info(
-                "Discarding stale summarizer result; conversation changed during llm.reply"
+    if checkpoint_response is None:
+        # Legacy/manual path: ask the model directly without tools. Automatic
+        # compaction supplies a checkpoint from the normal turn loop instead.
+        resume_request = Message("user", build_checkpoint_prompt(compact_instructions))
+        n_head = 0
+        for msg in prepared_msgs:
+            if msg.role != "system":
+                break
+            n_head += 1
+        context_window = m.context if isinstance(m.context, int) else None
+        llm_msgs = _bound_summarize_input(
+            prepared_msgs,
+            m.model,
+            context_window,
+            keep_head=n_head,
+            extra_reserve_tokens=len_tokens(resume_request, m.model),
+        ) + [resume_request]
+        snapshot = None
+        file_snapshot = None
+        conv_snapshot = None
+        if llm_unlocked is not None:
+            # The conversation lock is released while the summary generates, so
+            # other workers may append via their own LogManager instances. Those
+            # writes update the file on disk but not this in-memory log, so the
+            # in-memory comparison alone can never detect them.
+            snapshot = (
+                manager.current_view,
+                len(manager.log.messages),
+                manager.log.messages[-1].content if manager.log.messages else None,
             )
-            yield Message(
-                "system",
-                "Skipped stale auto-summarize: the conversation changed while "
-                "the summary was generating.",
-                hide=use_view_branch,
-                ui_only=True,
+            file_snapshot = _logfile_snapshot(manager.logfile)
+            if manager.current_branch != "main" and manager.logdir:
+                # On non-main branches, logfile is branches/<branch>.jsonl but
+                # concurrent view-path appends (dual-write) update conversation.jsonl
+                # and views/<view>.jsonl, not the branch file. Snapshot both.
+                conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
+        with llm_unlocked or nullcontext():
+            resume_response = llm.reply(
+                llm_msgs,
+                model=m.full,
+                tools=[],
+                workspace=None,
+                max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
             )
-            return False
+        if snapshot is not None:
+            current = (
+                manager.current_view,
+                len(manager.log.messages),
+                manager.log.messages[-1].content if manager.log.messages else None,
+            )
+            conv_changed = conv_snapshot is not None and (
+                _logfile_snapshot(manager.logdir / "conversation.jsonl")
+                != conv_snapshot
+            )
+            if (
+                current != snapshot
+                or _logfile_snapshot(manager.logfile) != file_snapshot
+                or conv_changed
+            ):
+                logger.info(
+                    "Discarding stale summarizer result; conversation changed "
+                    "during llm.reply"
+                )
+                yield Message(
+                    "system",
+                    "Skipped stale auto-summarize: the conversation changed while "
+                    "the summary was generating.",
+                    hide=use_view_branch,
+                    ui_only=True,
+                )
+                return False
+    else:
+        resume_response = checkpoint_response
     resume_content = resume_response.content
 
     # An empty checkpoint would replace the whole history with nothing. Report
