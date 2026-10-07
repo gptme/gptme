@@ -137,6 +137,11 @@ DECLINED_CONTENT = "Execution declined by user"
 # auto-generating (which would hammer a still-down provider).
 LLM_REQUEST_FAILED_PREFIX = "LLM request failed:"
 
+# Prefix of the system message written when GPTME_MAX_STEPS is reached.
+# `_should_prompt_for_input` treats this like interrupt/decline so the loop
+# returns control to the user instead of generating an unrequested extra turn.
+MAX_STEPS_STOP_PREFIX = "Stopped: reached max steps limit"
+
 # Maximum length for user message content (characters)
 # This prevents unbounded memory usage and context window overflow
 # 100k characters ≈ 25k tokens for typical English text

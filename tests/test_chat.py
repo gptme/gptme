@@ -998,6 +998,50 @@ def test_should_prompt_after_provider_error_system_message():
     assert _should_prompt_for_input(with_budget_reminder) is True
 
 
+def test_should_prompt_after_max_steps_stop():
+    """A trailing GPTME_MAX_STEPS stop message must return control to the user.
+
+    Without this, the scan sees a system message that doesn't match the
+    assistant/decline/error control markers and auto-generates another turn,
+    bypassing the step limit on every call (Greptile P1 on PR #4174).
+    """
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import MAX_STEPS_STOP_PREFIX
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    stopped = Log(
+        [
+            Message("user", "do it"),
+            Message("assistant", "working..."),
+            Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)"),
+        ]
+    )
+    assert _should_prompt_for_input(stopped) is True
+
+    # A newer user turn supersedes the stop marker.
+    resumed = Log(
+        [
+            Message("user", "do it"),
+            Message("assistant", "working..."),
+            Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)"),
+            Message("user", "continue"),
+        ]
+    )
+    assert _should_prompt_for_input(resumed) is False
+
+    # Hook system messages after the marker must still return to the user.
+    hooked = Log(
+        [
+            Message("user", "do it"),
+            Message("assistant", "working..."),
+            Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)"),
+            Message("system", "cost: $0.01"),
+        ]
+    )
+    assert _should_prompt_for_input(hooked) is True
+
+
 @pytest.mark.parametrize("with_reminder", [False, True])
 def test_should_resume_after_markdown_tool_result(with_reminder):
     from gptme.chat import _should_prompt_for_input
