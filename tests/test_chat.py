@@ -1010,11 +1010,15 @@ def test_should_prompt_after_max_steps_stop():
     from gptme.logmanager import Log
     from gptme.message import Message
 
+    stop = Message(
+        "system", f"{MAX_STEPS_STOP_PREFIX} (3)", metadata={"max_steps_stop": True}
+    )
     stopped = Log(
         [
             Message("user", "do it"),
-            Message("assistant", "working..."),
-            Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)"),
+            Message("assistant", "```shell\npwd\n```"),
+            Message("system", "/home/user"),
+            stop,
         ]
     )
     assert _should_prompt_for_input(stopped) is True
@@ -1024,7 +1028,7 @@ def test_should_prompt_after_max_steps_stop():
         [
             Message("user", "do it"),
             Message("assistant", "working..."),
-            Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)"),
+            stop,
             Message("user", "continue"),
         ]
     )
@@ -1035,11 +1039,58 @@ def test_should_prompt_after_max_steps_stop():
         [
             Message("user", "do it"),
             Message("assistant", "working..."),
-            Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)"),
+            stop,
             Message("system", "cost: $0.01"),
         ]
     )
     assert _should_prompt_for_input(hooked) is True
+
+
+def test_max_steps_stop_is_tagged_and_survives_reload(tmp_path, monkeypatch):
+    import importlib
+
+    from gptme.chat import _process_message_conversation, _should_prompt_for_input
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager([Message("user", "run tools")], logdir=tmp_path / "chat")
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    monkeypatch.setattr(
+        chat_module, "step", lambda *_a, **_k: iter([Message("assistant", "working")])
+    )
+    monkeypatch.setattr(chat_module, "trigger_hook", lambda *_a, **_k: [])
+    monkeypatch.setattr(chat_module, "_run_post_tool_compaction", lambda *_a: False)
+    monkeypatch.setattr(chat_module, "get_default_model", lambda: None)
+    _process_message_conversation(manager, False, "markdown", None)
+
+    assert manager.log[-1].metadata == {"max_steps_stop": True}
+    manager.write()
+    reloaded = LogManager.load(manager.logdir)
+    assert reloaded.log[-1].metadata == {"max_steps_stop": True}
+    assert _should_prompt_for_input(reloaded.log) is True
+
+
+@pytest.mark.parametrize("with_reminder", [False, True])
+@pytest.mark.parametrize("metadata", [None, {"tool": "shell"}])
+def test_step_limit_text_in_tool_output_does_not_stop_turn(with_reminder, metadata):
+    from gptme.chat import _should_prompt_for_input
+    from gptme.constants import MAX_STEPS_STOP_PREFIX
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    messages = [
+        Message("user", "read the issue"),
+        Message("assistant", "```shell\ngh api --jq .body\n```"),
+        Message("system", f"{MAX_STEPS_STOP_PREFIX} (3)", metadata=metadata),
+    ]
+    if with_reminder:
+        messages.append(
+            Message(
+                "system", "Budget reminder", metadata={"compaction_reminder_view": ""}
+            )
+        )
+    assert _should_prompt_for_input(Log(messages)) is False
 
 
 @pytest.mark.parametrize("with_reminder", [False, True])

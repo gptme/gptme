@@ -627,7 +627,13 @@ def _process_message_conversation(
         if max_steps is not None and step_count >= max_steps:
             if not is_output_json() and not is_output_quiet():
                 console.log(f"Reached max steps limit ({max_steps}), stopping.")
-            manager.append(Message("system", f"{MAX_STEPS_STOP_PREFIX} ({max_steps})"))
+            manager.append(
+                Message(
+                    "system",
+                    f"{MAX_STEPS_STOP_PREFIX} ({max_steps})",
+                    metadata={"max_steps_stop": True},
+                )
+            )
             break
 
         # Check if there are any runnable tools left. After a mid-turn
@@ -736,7 +742,7 @@ def _should_prompt_for_input(log: Log) -> bool:
             and (
                 msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
                 or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
-                or msg.content.startswith(MAX_STEPS_STOP_PREFIX)
+                or (msg.metadata or {}).get("max_steps_stop") is True
             )
         ):
             has_recent_return_to_prompt = True
