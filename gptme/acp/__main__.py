@@ -22,7 +22,7 @@ import json
 import logging
 import os
 import sys
-from typing import IO, Any
+from typing import IO, Any, cast
 
 from gptme.util.stdio import capture_stdio_transport
 
@@ -181,7 +181,7 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
     agent = GptmeAgent()
     try:
         await run_agent(
-            agent,
+            cast(Any, agent),
             input_stream=writer,
             output_stream=reader,
             **connection_kwargs,

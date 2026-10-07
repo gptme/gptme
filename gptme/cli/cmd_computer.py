@@ -33,27 +33,6 @@ from ..tools.base import ToolUse
 # Patterns that indicate text/key content (redact for privacy)
 _SENSITIVE_ACTIONS = frozenset({"type", "key"})
 
-# Browser interaction functions whose first arg is a URL
-_URL_BROWSER_FNS = frozenset({"observe_web", "snapshot_url", "open_page"})
-
-# Browser interaction functions whose first arg is a CSS/DOM selector
-_SELECTOR_BROWSER_FNS = frozenset(
-    {
-        "click_element",
-        "hover_element",  # added PR #3104
-        "wait_for_element",  # added PR #3095
-    }
-)
-
-# Browser functions with no arguments (observation only)
-_NO_ARG_BROWSER_FNS = frozenset(
-    {
-        "read_page_text",
-        "snapshot_page",  # added PR #3104
-        "get_current_url",  # added PR #3104
-    }
-)
-
 # ACTION_RISK_* and action_risk_level are imported from _computer_gate
 # (re-exported here for backward compatibility with any existing callers)
 __all__ = [
@@ -64,32 +43,160 @@ __all__ = [
 ]
 
 
-def _slice_call(code: str, start: int) -> str:
-    """Return the source span for a function call starting at ``start``."""
-    depth = 0
-    quote: str | None = None
-    escaped = False
+# Audited calls and their positional parameter names (signature order), so that
+# positional, keyword and mixed call forms all resolve to the same arguments.
+_COMPUTER_PARAMS_FNS = ("computer", "act_and_observe")
+_COMPUTER_PARAMS = ("action", "text", "coordinate")
+_CALL_PARAMS: dict[str, tuple[str, ...]] = {
+    "computer": _COMPUTER_PARAMS,
+    "act_and_observe": _COMPUTER_PARAMS,
+    "observe_desktop": (),
+    "fill_native": ("coordinate", "text"),
+    "observe_web": ("url",),
+    "snapshot_url": ("url",),
+    "open_page": ("url",),
+    "click_element": ("selector",),
+    "hover_element": ("selector",),
+    "wait_for_element": ("selector",),
+    "fill_element": ("selector", "value"),
+    "select_option": ("selector", "value"),
+    "press_key": ("key",),
+    "scroll_page": ("direction",),
+    "read_page_text": (),
+    "snapshot_page": (),
+    "get_current_url": (),
+    "load_browser_state": (),
+}
 
-    for i, ch in enumerate(code[start:], start=start):
-        if quote:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == quote:
-                quote = None
+
+def _str_const(node: Any) -> str | None:
+    if isinstance(node, _ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _parse_ipython(code: str) -> _ast.Module | None:
+    """Parse an ipython block, handling ``!shell`` / ``%magic`` lines.
+
+    Three transformations (only applied OUTSIDE string literals):
+    - ``%magic expr``  → keep ``expr`` so embedded calls survive
+    - ``!shell`` / standalone ``%magic``  → blank to ``pass``
+    - ``name = !cmd``  → ``name = None``  (IPython shell capture)
+
+    Uses ``split('\\n')`` instead of ``splitlines()`` so that U+2028/U+2029
+    characters inside quoted string values are not treated as line separators
+    (which would corrupt the string and make the block unparseable).
+    """
+    # split('\n') avoids treating U+2028/U+2029 as line breaks inside strings
+    lines = code.split("\n")
+    new_lines: list[str] = []
+    in_triple: str | None = None  # None, '"""', or "'''"
+    for line in lines:
+        if in_triple is not None:
+            # Inside a triple-quoted string: pass through unchanged
+            new_lines.append(line)
+            if line.count(in_triple) % 2 == 1:
+                in_triple = None
+        else:
+            # Apply IPython transforms only outside string literals
+            m = re.match(r"^(\s*)%\w+\s+(.*)", line)
+            if m:
+                new_lines.append(m.group(1) + m.group(2))
+            # standalone %magic or bare !shell → pass
+            elif re.match(r"^\s*[!%]", line):
+                new_lines.append(re.sub(r"^(\s*)[!%].*$", r"\1pass", line))
+            # lhs = !cmd (IPython shell-capture) → lhs = None
+            # Anchor to identifier at line start so =! inside a string literal
+            # (e.g. computer('type', text='a=!b')) is not mishandled.
+            # LHS allows subscript access (e.g. results['files'] = !ls).
+            elif re.match(r"^\s*[\w.\[\]'\"]+\s*=\s*!", line):
+                new_lines.append(re.sub(r"=\s*!.*$", "= None", line))
+            else:
+                new_lines.append(line)
+            # Track if a triple-quoted string was opened (but not closed) on this line.
+            # Skip comment lines so that a # containing """ does not falsely enter
+            # string mode and cause subsequent IPython lines to be left untransformed
+            # (which would make the block fail to parse and drop all its actions).
+            if not re.match(r"^\s*#", line):
+                for q in ('"""', "'''"):
+                    if line.count(q) % 2 == 1:
+                        in_triple = q
+                        break
+    try:
+        return _ast.parse("\n".join(new_lines))
+    except (SyntaxError, ValueError):
+        return None
+
+
+def _call_record(fn: str, args: dict[str, Any], ts: str | None) -> dict | None:
+    """Audit record for one call, or None if it cannot be classified."""
+    record: dict = {"timestamp": ts}
+    if fn in _COMPUTER_PARAMS_FNS:
+        action = _str_const(args.get("action"))
+        if action is None:
+            return None  # action is computed at runtime; risk is unknowable
+        record["action"] = action
+        if fn == "act_and_observe":
+            record["source"] = "act_and_observe"
+        record["risk_level"] = action_risk_level(action)
+        coordinate = args.get("coordinate")
+        if (
+            isinstance(coordinate, (_ast.Tuple, _ast.List))
+            and len(coordinate.elts) == 2
+            and all(
+                isinstance(e, _ast.Constant) and type(e.value) is int
+                for e in coordinate.elts
+            )
+        ):
+            record["coordinate"] = [e.value for e in coordinate.elts]  # type: ignore[attr-defined]
+        if action in _SENSITIVE_ACTIONS:
+            text = _str_const(args.get("text"))
+            record["text_len"] = None if text is None else len(text)
+        return record
+
+    if fn == "observe_desktop":
+        record.update(action="screenshot", source="observe_desktop")
+    elif fn == "fill_native":
+        record.update(action=fn, source="computer")
+    else:
+        record.update(action=fn, source="browser")
+    record["risk_level"] = action_risk_level(fn)
+    # Typed/filled values are never logged raw, only their length.
+    if fn in ("fill_native", "fill_element"):
+        value = _str_const(args.get("text" if fn == "fill_native" else "value"))
+        record["value_len"] = None if value is None else len(value)
+    elif fn == "select_option":
+        record["value"] = _str_const(args.get("value"))
+    for field in ("url", "selector", "direction", "key"):
+        if field in _CALL_PARAMS[fn]:
+            record[field] = _str_const(args.get(field))
+    return record
+
+
+def _extract_block_calls(code: str, ts: str | None) -> list[dict]:
+    """Audit records for every audited call in ``code``, in source order.
+
+    Walks the parsed code rather than regex-matching the text, so ``action=``
+    keyword calls, positional text, list coordinates and mixed-quote strings
+    are all seen, and calls inside comments or string literals are not.
+    """
+    tree = _parse_ipython(code)
+    if tree is None:
+        return []
+    found: list[tuple[int, int, dict]] = []
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Call):
             continue
-
-        if ch in {"'", '"'}:
-            quote = ch
-        elif ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return code[start : i + 1]
-
-    return code[start:]
+        func = node.func
+        fn = func.id if isinstance(func, _ast.Name) else getattr(func, "attr", None)
+        if fn not in _CALL_PARAMS:
+            continue
+        args: dict[str, Any] = dict(zip(_CALL_PARAMS[fn], node.args))
+        args.update({kw.arg: kw.value for kw in node.keywords if kw.arg})
+        record = _call_record(fn, args, ts)
+        if record is not None:
+            found.append((node.lineno, node.col_offset, record))
+    return [r for _, _, r in sorted(found, key=lambda f: f[:2])]
 
 
 def _extract_computer_calls(messages) -> list[dict]:
@@ -122,281 +229,10 @@ def _extract_computer_calls(messages) -> list[dict]:
     for msg in messages:
         if msg.role != "assistant":
             continue
+        ts = msg.timestamp.isoformat() if msg.timestamp else None
         for tu in ToolUse.iter_from_content(msg.content):
-            if not tu.is_runnable or not tu.content:
-                continue
-            code = tu.content
-            ts = msg.timestamp.isoformat() if msg.timestamp else None
-
-            # All calls tracked with their byte-offset so desktop and browser
-            # calls within the same block are emitted in source order.
-            all_positioned: list[tuple[int, dict]] = []
-
-            # --- computer("action", ...) ---
-            for m in re.finditer(r"""computer\s*\(\s*['"]([^'"]+)['"]""", code):
-                action = m.group(1)
-                call_source = _slice_call(code, m.start())
-                record: dict = {
-                    "timestamp": ts,
-                    "action": action,
-                    "risk_level": action_risk_level(action),
-                }
-                coord_m = re.search(
-                    r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", call_source
-                )
-                if coord_m:
-                    record["coordinate"] = [
-                        int(coord_m.group(1)),
-                        int(coord_m.group(2)),
-                    ]
-                if action in _SENSITIVE_ACTIONS:
-                    text_m = re.search(r"""text\s*=\s*['"]([^'"]*)['"]""", call_source)
-                    record["text_len"] = len(text_m.group(1)) if text_m else None
-                all_positioned.append((m.start(), record))
-
-            # --- act_and_observe("action", ...) ---
-            # The computer-use profile's system prompt recommends act_and_observe() as
-            # the primary "act then look" primitive. Without this branch those calls
-            # would vanish from the audit trail even though they trigger real actions.
-            for m in re.finditer(r"""act_and_observe\s*\(\s*['"]([^'"]+)['"]""", code):
-                aao_action = m.group(1)
-                aao_call_source = _slice_call(code, m.start())
-                aao_record: dict = {
-                    "timestamp": ts,
-                    "action": aao_action,
-                    "source": "act_and_observe",
-                    "risk_level": action_risk_level(aao_action),
-                }
-                aao_coord_m = re.search(
-                    r"coordinate\s*=\s*\((\d+)\s*,\s*(\d+)\)", aao_call_source
-                )
-                if aao_coord_m:
-                    aao_record["coordinate"] = [
-                        int(aao_coord_m.group(1)),
-                        int(aao_coord_m.group(2)),
-                    ]
-                if aao_action in _SENSITIVE_ACTIONS:
-                    aao_text_m = re.search(
-                        r"""text\s*=\s*['"]([^'"]*)['"]""", aao_call_source
-                    )
-                    aao_record["text_len"] = (
-                        len(aao_text_m.group(1)) if aao_text_m else None
-                    )
-                all_positioned.append((m.start(), aao_record))
-
-            # --- observe_desktop() ---
-            all_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "screenshot",
-                        "source": "observe_desktop",
-                        "risk_level": action_risk_level("observe_desktop"),
-                    },
-                )
-                for m in re.finditer(r"\bobserve_desktop\s*\(", code)
-            )
-
-            # --- browser interaction calls ---
-            # Collected with their byte-offset in the code block so they can be
-            # sorted into code order before appending (multiple passes would
-            # otherwise interleave URL-fns, selector-fns, fill-fns, etc.).
-            browser_positioned: list[tuple[int, dict]] = []
-
-            # Functions whose first arg is a URL (no mixed-quote risk)
-            for fn in _URL_BROWSER_FNS:
-                browser_positioned.extend(
-                    (
-                        m.start(),
-                        {
-                            "timestamp": ts,
-                            "action": fn,
-                            "source": "browser",
-                            "url": m.group(1) or m.group(2),
-                            "risk_level": action_risk_level(fn),
-                        },
-                    )
-                    for m in re.finditer(
-                        rf"""\b{fn}\s*\(\s*(?:'([^']+)'|"([^"]+)")""", code
-                    )
-                )
-
-            # click_element(selector) — selectors may contain the opposite quote
-            # type (e.g. '[name="q"]'), so match each quote style separately.
-            for fn in _SELECTOR_BROWSER_FNS:
-                browser_positioned.extend(
-                    (
-                        m.start(),
-                        {
-                            "timestamp": ts,
-                            "action": fn,
-                            "source": "browser",
-                            "selector": m.group(1)
-                            if m.group(1) is not None
-                            else m.group(2),
-                            "risk_level": action_risk_level(fn),
-                        },
-                    )
-                    for m in re.finditer(
-                        rf"""\b{fn}\s*\(\s*(?:'([^']*)'|"([^"]*)")""", code
-                    )
-                )
-
-            # fill_element(selector, value) — value is potentially sensitive;
-            # log only its length. Selector may contain opposite-type quotes.
-            browser_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "fill_element",
-                        "source": "browser",
-                        "selector": m.group(1)
-                        if m.group(1) is not None
-                        else m.group(2),
-                        "value_len": len(
-                            m.group(3) if m.group(3) is not None else (m.group(4) or "")
-                        ),
-                        "risk_level": action_risk_level("fill_element"),
-                    },
-                )
-                for m in re.finditer(
-                    r"""\bfill_element\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*,\s*(?:'([^']*)'|"([^"]*)")""",
-                    code,
-                )
-            )
-
-            # fill_native(coordinate, text) — native field fill; text is sensitive.
-            # Use _slice_call + ast.parse to handle all valid text forms:
-            # triple-quoted strings, escaped quotes, variables, keyword args.
-            for m in re.finditer(r"\bfill_native\s*\(", code):
-                call_src = _slice_call(code, m.start())
-                value_len: int | None = None
-                try:
-                    tree = _ast.parse(call_src, mode="eval")
-                    call_node = tree.body
-                    if isinstance(call_node, _ast.Call):
-                        text_node = None
-                        if len(call_node.args) >= 2:
-                            text_node = call_node.args[1]
-                        else:
-                            for kw in call_node.keywords:
-                                if kw.arg == "text":
-                                    text_node = kw.value
-                                    break
-                        if isinstance(text_node, _ast.Constant) and isinstance(
-                            text_node.value, str
-                        ):
-                            value_len = len(text_node.value)
-                except (SyntaxError, AttributeError, TypeError):
-                    pass
-                all_positioned.append(
-                    (
-                        m.start(),
-                        {
-                            "timestamp": ts,
-                            "action": "fill_native",
-                            "source": "computer",
-                            "value_len": value_len,
-                            "risk_level": action_risk_level("fill_native"),
-                        },
-                    )
-                )
-
-            # No-argument browser observation functions
-            # (read_page_text, snapshot_page, get_current_url)
-            for fn in _NO_ARG_BROWSER_FNS:
-                browser_positioned.extend(
-                    (
-                        m.start(),
-                        {
-                            "timestamp": ts,
-                            "action": fn,
-                            "source": "browser",
-                            "risk_level": action_risk_level(fn),
-                        },
-                    )
-                    for m in re.finditer(rf"\b{fn}\s*\(", code)
-                )
-
-            # scroll_page(direction)
-            browser_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "scroll_page",
-                        "source": "browser",
-                        "direction": m.group(1),
-                        "risk_level": action_risk_level("scroll_page"),
-                    },
-                )
-                for m in re.finditer(r"""\bscroll_page\s*\(\s*['"]([^'"]+)['"]""", code)
-            )
-
-            # press_key(key) — navigation key presses (Enter, Tab, Escape, …)
-            browser_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "press_key",
-                        "source": "browser",
-                        "key": m.group(1) if m.group(1) is not None else m.group(2),
-                        "risk_level": action_risk_level("press_key"),
-                    },
-                )
-                for m in re.finditer(
-                    r"""\bpress_key\s*\(\s*(?:'([^']*)'|"([^"]*)")""", code
-                )
-            )
-
-            # select_option(selector, value) — dropdown selection; value not sensitive
-            browser_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "select_option",
-                        "source": "browser",
-                        "selector": m.group(1)
-                        if m.group(1) is not None
-                        else m.group(2),
-                        "value": m.group(3)
-                        if m.group(3) is not None
-                        else (m.group(4) or ""),
-                        "risk_level": action_risk_level("select_option"),
-                    },
-                )
-                for m in re.finditer(
-                    r"""\bselect_option\s*\(\s*(?:'([^']*)'|"([^"]*)")\s*,\s*(?:'([^']*)'|"([^"]*)")""",
-                    code,
-                )
-            )
-
-            # load_browser_state(path) — restores a saved browser session
-            browser_positioned.extend(
-                (
-                    m.start(),
-                    {
-                        "timestamp": ts,
-                        "action": "load_browser_state",
-                        "source": "browser",
-                        "risk_level": action_risk_level("load_browser_state"),
-                    },
-                )
-                for m in re.finditer(r"\bload_browser_state\s*\(", code)
-            )
-
-            # Merge desktop and browser records, emit in source order
-            records.extend(
-                r
-                for _, r in sorted(
-                    all_positioned + browser_positioned, key=lambda x: x[0]
-                )
-            )
-
+            if tu.is_runnable and tu.content:
+                records.extend(_extract_block_calls(tu.content, ts))
     return records
 
 
@@ -581,7 +417,10 @@ def audit_log(
         elif source == "browser":
             if "url" in r:
                 url = r["url"]
-                details = url[:70] + ("…" if len(url) > 70 else "")
+                if url is None:
+                    details = "(computed)"
+                else:
+                    details = url[:70] + ("…" if len(url) > 70 else "")
             elif "key" in r:
                 # press_key(key) — show which key was pressed
                 details = repr(r["key"])

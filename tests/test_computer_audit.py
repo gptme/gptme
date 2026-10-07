@@ -349,32 +349,6 @@ def test_audit_log_cli_no_logs_dir(tmp_path, monkeypatch):
     assert "No conversations found." in result.output
 
 
-# ---------------------------------------------------------------------------
-# _slice_call edge cases (lines 27, 29, 43)
-# ---------------------------------------------------------------------------
-
-from gptme.cli.cmd_computer import _slice_call
-
-
-def test_slice_call_handles_escaped_quote():
-    """Backslash-escaped quote inside string is not treated as end-of-string (lines 27–29)."""
-    code = "computer('type', text='pass\\'word')"
-    result = _slice_call(code, 0)
-    assert result == code
-
-
-def test_slice_call_unclosed_paren_returns_remainder():
-    """When no closing ')' is found the fallback returns the rest of the string (line 43)."""
-    code = "computer('screenshot'"  # no closing paren
-    result = _slice_call(code, 0)
-    assert result == code
-
-
-# ---------------------------------------------------------------------------
-# _extract_computer_calls edge cases (lines 59, 84)
-# ---------------------------------------------------------------------------
-
-
 def test_type_action_without_text_param():
     """type() called without a text= argument sets text_len to None (line 84)."""
     msgs = [_msg("assistant", _ipython_block("computer('type')"))]
@@ -382,6 +356,148 @@ def test_type_action_without_text_param():
     assert len(records) == 1
     assert records[0]["action"] == "type"
     assert records[0]["text_len"] is None
+
+
+def _records(code: str) -> list[dict]:
+    return _extract_computer_calls([_msg("assistant", _ipython_block(code))])
+
+
+def test_keyword_action_is_audited():
+    """computer(action=...) is valid Python and must not vanish from the audit."""
+    records = _records(
+        "computer(action='left_click', coordinate=(10, 20))\n"
+        "computer(action='type', text='hunter2')\n"
+        "act_and_observe(action='key', text='Return')"
+    )
+    assert [(r["action"], r.get("coordinate"), r.get("text_len")) for r in records] == [
+        ("left_click", [10, 20], None),
+        ("type", None, 7),
+        ("key", None, 6),
+    ]
+    assert records[2]["source"] == "act_and_observe"
+
+
+def test_positional_text_and_coordinate_lengths():
+    records = _records(
+        "computer('type', 'hunter2')\ncomputer('left_click', None, [3, 4])"
+    )
+    assert records[0]["text_len"] == 7
+    assert records[1]["coordinate"] == [3, 4]
+
+
+def test_text_length_with_opposite_quote():
+    records = _records("""computer('type', text="it's a secret")""")
+    assert records[0]["text_len"] == len("it's a secret")
+
+
+def test_commented_out_call_not_counted():
+    assert _records("# computer('left_click', coordinate=(1, 2))\nprint(1)") == []
+
+
+def test_ipython_magic_lines_do_not_hide_calls():
+    records = _records("!ls\ncomputer('left_click', coordinate=(1, 2))\n%time pass")
+    assert [(r["action"], r["coordinate"]) for r in records] == [("left_click", [1, 2])]
+
+
+def test_ipython_magic_with_call_preserves_call():
+    """%time open_page('url') must keep the open_page call, not lose it to the blanker."""
+    records = _records("%time open_page('https://example.com')")
+    assert len(records) == 1
+    assert records[0]["action"] == "open_page"
+    assert records[0]["url"] == "https://example.com"
+
+
+def test_ipython_shell_capture_does_not_drop_block():
+    """files = !ls is valid IPython but invalid Python; must not drop later calls."""
+    records = _records("files = !ls\ncomputer('left_click', coordinate=(10, 20))")
+    assert len(records) == 1
+    assert records[0]["action"] == "left_click"
+    assert records[0]["coordinate"] == [10, 20]
+
+
+def test_ipython_subscript_capture_does_not_drop_block():
+    """results['files'] = !ls is valid IPython; subscript LHS must not break parsing."""
+    records = _records(
+        "results['files'] = !ls\ncomputer('left_click', coordinate=(3, 4))"
+    )
+    assert len(records) == 1
+    assert records[0]["action"] == "left_click"
+    assert records[0]["coordinate"] == [3, 4]
+
+
+def test_string_arg_containing_equals_bang_is_not_corrupted():
+    """=! inside a string argument must not truncate the line and drop the call."""
+    # computer('type', text='a=!b') contains =! inside a quoted string;
+    # the IPython shell-capture rewrite must not fire here.
+    records = _records("computer('type', text='a=!b')")
+    assert len(records) == 1
+    assert records[0]["action"] == "type"
+    assert records[0]["text_len"] == 4  # 'a=!b'
+
+    # fill_element with a value containing =! must also be audited correctly.
+    records2 = _records("fill_element(selector='#pw', value='x=!y')")
+    assert len(records2) == 1
+    assert records2[0]["action"] == "fill_element"
+
+
+def test_multiline_string_with_bang_is_not_corrupted():
+    """A line starting with ! inside a triple-quoted string must not be replaced with pass."""
+    code = (
+        'fill_native(coordinate=(100, 200), text="""\n  color: red;\n  !important\n""")'
+    )
+    records = _records(code)
+    assert len(records) == 1
+    assert records[0]["action"] == "fill_native"
+    # Original string is "\n  color: red;\n  !important\n" = 28 chars
+    assert records[0]["value_len"] == 28
+
+
+def test_unicode_line_separator_in_string_does_not_drop_block():
+    """U+2028 (LINE SEPARATOR) inside a quoted string value must not break parsing."""
+    code = 'fill_element(selector="#s", value="test val")\ncomputer(\'screenshot\')'
+    records = _records(code)
+    actions = [r["action"] for r in records]
+    assert "fill_element" in actions
+    assert "screenshot" in actions
+
+
+def test_unparseable_code_is_skipped():
+    assert _records("computer('left_click'") == []
+
+
+def test_browser_keyword_calls_are_audited():
+    records = _records(
+        "open_page(url='https://example.com')\n"
+        "click_element(selector='#go')\n"
+        "fill_element(selector='#pw', value='hunter2')\n"
+        "press_key(key='Enter')\n"
+        "scroll_page(direction='up')\n"
+        "select_option(selector='#s', value='a')"
+    )
+    assert [r["action"] for r in records] == [
+        "open_page",
+        "click_element",
+        "fill_element",
+        "press_key",
+        "scroll_page",
+        "select_option",
+    ]
+    assert records[0]["url"] == "https://example.com"
+    assert records[2]["value_len"] == 7
+    assert "value" not in records[2]
+    assert records[3]["key"] == "Enter"
+
+
+def test_browser_call_with_computed_argument_still_audited():
+    records = _records("u = 'https://a.b'\nopen_page(u)\nfill_element('#pw', pw)")
+    assert [(r["action"], r.get("url"), r.get("value_len")) for r in records] == [
+        ("open_page", None, None),
+        ("fill_element", None, None),
+    ]
+
+
+def test_browser_call_in_comment_or_string_not_counted():
+    assert _records("# click_element('#go')\nprint(\"click_element('#x')\")") == []
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +813,22 @@ def test_mixed_desktop_browser_source_order():
         "click_element",
         "click",
     ], f"Expected source order but got: {actions}"
+
+
+def test_audit_log_cli_table_computed_url_does_not_crash(tmp_path):
+    """Table output must not crash when open_page() was called with a variable URL."""
+    conv_dir = tmp_path / "computed-url-conv"
+    jsonl = conv_dir / "conversation.jsonl"
+    # 'u' is a variable — url field will be None in the record
+    msgs = [
+        _msg("assistant", _ipython_block("u = 'https://example.com'\nopen_page(u)"))
+    ]
+    _write_conv_jsonl(jsonl, msgs)
+
+    runner = CliRunner()
+    result = runner.invoke(audit_log, [str(jsonl)], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "(computed)" in result.output
 
 
 def test_audit_log_cli_table_shows_browser_url(tmp_path, monkeypatch):
@@ -1232,3 +1364,39 @@ def test_audit_log_agent_id_and_conversation_are_mutually_exclusive(
     )
     assert result.exit_code != 0
     assert "--agent-id and CONVERSATION are mutually exclusive" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _parse_ipython: comment-triple-quote and multiline-string correctness
+# ---------------------------------------------------------------------------
+
+
+def test_comment_with_triple_quote_does_not_hide_actions():
+    # A comment containing triple-double-quotes must not prevent subsequent actions
+    # from being audited. Previously the quote counter set in_triple on seeing a
+    # comment like `# example """`, which left `!ls` untransformed and caused
+    # SyntaxError, dropping the whole block.
+    code = '# example """\n!ls\ncomputer(\'left_click\', coordinate=(1, 2))\n'
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, f"Expected 1 record, got {len(records)}: {records}"
+    assert records[0]["action"] == "left_click"
+    assert records[0]["coordinate"] == [1, 2]
+
+
+def test_multiline_string_after_comment_triple_quote_not_corrupted():
+    # A multiline string following a comment with triple-double-quotes must not have
+    # its contents rewritten. Previously the tracker entered/exited string mode
+    # prematurely due to the comment, treating lines inside the real string as live
+    # code and converting !-lines to `pass`, producing wrong value_len.
+    code = (
+        '# The selector uses triple-quotes: """\n'
+        'fill_native([100, 200], """\n'
+        "!important\n"
+        '""")\n'
+    )
+    msgs = [_msg("assistant", _ipython_block(code))]
+    records = _extract_computer_calls(msgs)
+    assert len(records) == 1, f"Expected 1 record, got {len(records)}: {records}"
+    assert records[0]["action"] == "fill_native"
+    assert records[0]["value_len"] == len("\n!important\n")

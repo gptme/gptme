@@ -26,7 +26,9 @@ from gptme.acp.types import (
 def _acp_has_session_model_state() -> bool:
     """Check if ACP schema has SessionModelState (removed in 0.11.0)."""
     try:
-        from acp.schema import SessionModelState  # noqa: F401
+        from acp.schema import (  # type: ignore[attr-defined]
+            SessionModelState,  # noqa: F401
+        )
 
         return True
     except ImportError:
