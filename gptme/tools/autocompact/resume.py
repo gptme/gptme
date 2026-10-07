@@ -529,6 +529,11 @@ def _message_identity(message: Message) -> tuple[object, ...]:
     )
 
 
+def _is_result_stubs_message(message: Message) -> bool:
+    """Whether a message is the generated dropped-result catalog."""
+    return bool((message.metadata or {}).get("result_stubs"))
+
+
 def _build_dropped_result_stubs(
     manager: "LogManager",
     retained: list[Message],
@@ -561,7 +566,7 @@ def _build_dropped_result_stubs(
     content = f"{_RESULT_STUBS_PREFIX} Recall one by its stable ID:\n" + "\n".join(
         lines
     )
-    return Message("system", content)
+    return Message("system", content, metadata={"result_stubs": True})
 
 
 _TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
@@ -799,7 +804,7 @@ def _resume_via_llm(
     for msg in msgs:
         if msg.role == "system":
             leading_system_end += 1
-            if not msg.content.startswith(_RESULT_STUBS_PREFIX):
+            if not _is_result_stubs_message(msg):
                 original_system_msgs.append(msg)
         elif msg.role in ("user", "assistant"):
             # Stop when we hit the first non-system message
@@ -810,9 +815,7 @@ def _resume_via_llm(
     # system block is always kept, so this only extends past it.
     head_end = max(leading_system_end, min(keep_head, len(msgs)))
     preserved_head = [
-        message
-        for message in msgs[:head_end]
-        if not message.content.startswith(_RESULT_STUBS_PREFIX)
+        message for message in msgs[:head_end] if not _is_result_stubs_message(message)
     ]
 
     # Create file context messages for each loaded file
@@ -842,9 +845,7 @@ def _resume_via_llm(
     # tail is derived from the conversation after them to avoid duplication.
     model_meta = get_default_model()
     tail_source = [
-        message
-        for message in msgs[head_end:]
-        if not message.content.startswith(_RESULT_STUBS_PREFIX)
+        message for message in msgs[head_end:] if not _is_result_stubs_message(message)
     ]
     recent_tail = _get_recent_tail(
         tail_source,
@@ -903,6 +904,17 @@ def _resume_via_llm(
                 > budget
             ):
                 file_context_msgs.pop()
+            if essential_tokens > budget and result_stubs_msg is not None:
+                # The catalog counts toward the budget too: when it cannot fit
+                # alongside the essentials, drop it before truncating the
+                # checkpoint, so the view is never over budget by construction.
+                catalog_tokens = len_tokens([result_stubs_msg], model=model_str)
+                if essential_tokens - catalog_tokens <= budget:
+                    result_stubs_msg = None
+                    logger.warning(
+                        "Result catalog exceeds remaining context budget; "
+                        "dropped the recall catalog."
+                    )
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.
@@ -910,6 +922,8 @@ def _resume_via_llm(
                 overhead = len_tokens(
                     preserved_head + [resume_intro_msg], model=model_str
                 ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
+                if result_stubs_msg is not None:
+                    overhead += len_tokens([result_stubs_msg], model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
                     resume_content, room, model=model_str
@@ -953,7 +967,10 @@ def _resume_via_llm(
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
     else:
-        # Replace the log directly (user-invoked /compact resume)
+        # Replace the log directly (user-invoked /compact resume). Recallable
+        # result IDs point into the lossless master log, so preserve it before
+        # the in-place replacement strands every stub ID.
+        manager.preserve_lossless_log()
         manager.log = Log(new_log)
         manager.write()
 

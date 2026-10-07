@@ -1,6 +1,7 @@
 """Recall tool results dropped from a compacted conversation view."""
 
 from ..logmanager import LogManager
+from ..message import Message
 from ..util.master_context import is_tool_result_message
 from .base import ToolFunction, ToolSpec
 
@@ -61,6 +62,34 @@ def recall_result(
     return f"{header}\n{chunk}{continuation}"
 
 
+def execute_recall(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+) -> Message:
+    """Native tool-call handler: recall a dropped result by stable ID."""
+    kwargs = kwargs or {}
+
+    def _int(name: str, position: int, default: int) -> int:
+        raw = kwargs.get(name)
+        if raw is None and args and len(args) > position:
+            raw = args[position]
+        try:
+            return int(raw) if raw is not None else default
+        except ValueError:
+            return default
+
+    result_id = _int("result_id", 0, 0)
+    start_char = _int("start_char", 1, 0)
+    max_chars = _int("max_chars", 2, _DEFAULT_MAX_CHARS)
+    if result_id <= 0:
+        return Message(
+            "system",
+            "Error: recall_result requires a result_id from a [result #N, ...] stub.",
+        )
+    return Message("system", recall_result(result_id, start_char, max_chars))
+
+
 instructions = """
 Use recall_result() when a compacted conversation contains a
 `[result #N, M tokens]` stub and the original tool output is needed. Result IDs
@@ -78,6 +107,7 @@ tool = ToolSpec(
         "recall_result(result_id, start_char=0, max_chars=20000)."
     },
     functions=[ToolFunction.from_callable(recall_result)],
+    execute=execute_recall,
     read_only=True,
 )
 

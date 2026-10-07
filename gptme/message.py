@@ -229,6 +229,10 @@ class MessageMetadata(TypedDict, total=False):
     # resumes that work after the checkpoint turn completes instead of
     # stopping.
     compaction_checkpoint_needs_continuation: bool
+    # Marks a system message as the generated dropped-result catalog, so
+    # re-compaction filters it by metadata instead of by content prefix
+    # (a user message that merely quotes the catalog must not be dropped).
+    result_stubs: bool
     # Written by the CLI when GPTME_MAX_STEPS ends a turn; never inferred from text.
     max_steps_stop: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),

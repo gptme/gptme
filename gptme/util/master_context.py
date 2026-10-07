@@ -36,7 +36,15 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
 
     from .reduce import message_contains_tool_use
 
-    return message_contains_tool_use(messages[index - 1])
+    # Markdown and XML tool calls can emit several output messages (e.g. a
+    # non-blocking warning before the final result). Every system message
+    # following the assistant tool call — past other outputs of the same call —
+    # belongs to it, so look back past system messages to the nearest
+    # non-system message.
+    lookback = index - 1
+    while lookback >= 0 and messages[lookback].role == "system":
+        lookback -= 1
+    return lookback >= 0 and message_contains_tool_use(messages[lookback])
 
 
 @dataclass
