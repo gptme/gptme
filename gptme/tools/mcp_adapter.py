@@ -711,8 +711,13 @@ def unload_mcp_server(name: str) -> str:
 
         unload_dynamic_tool_specs(spec_names)
 
-    # Remove from dynamic servers
-    del _dynamic_servers[name]
+    # Remove from dynamic servers and close the connection: the client holds
+    # a subprocess/stdio transport that must not outlive the unload.
+    client = _dynamic_servers.pop(name)
+    try:
+        client.close()
+    except Exception:
+        logger.debug("Failed to close client for '%s' during unload", name)
 
     # Remove this server's ToolSpecs from the available-tools cache
     from gptme.tools import remove_from_tools_cache  # lazy import avoids circular

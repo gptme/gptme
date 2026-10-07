@@ -707,6 +707,8 @@ def test_unload_mcp_server_success():
     result = unload_mcp_server("test-server")
     assert "Successfully unloaded" in result or "unloaded" in result
     assert "test-server" not in _dynamic_servers
+    # The subprocess/stdio transport must not outlive the unload.
+    mock_client.close.assert_called_once_with()
 
 
 def test_session_client_retry_stays_in_session_registry(mock_config):
