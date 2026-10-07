@@ -140,3 +140,76 @@ def test_recall_tool_is_read_only_and_available():
     assert recall.read_only is True
     assert recall.functions
     assert [function.name for function in recall.functions] == ["recall_result"]
+
+
+def test_recall_tool_has_native_execute_handler(tmp_path):
+    from gptme.tools import get_available_tools
+
+    messages = _messages()
+    LogManager(messages, logdir=tmp_path / "conversation", lock=False).write()
+
+    recall = next(
+        tool for tool in get_available_tools(include_mcp=False) if tool.name == "recall"
+    )
+    assert recall.execute is not None
+    result = recall.execute(
+        None, None, {"result_id": "3", "start_char": "0", "max_chars": "4"}
+    )
+    content = (
+        result.content
+        if isinstance(result, Message)
+        else "".join(message.content for message in result)
+    )
+    assert "0123" in content
+
+
+def test_multi_message_tool_outputs_are_results(tmp_path):
+    from gptme.util.master_context import is_tool_result_message
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "warning: shellcheck note"),
+        Message("system", "actual output", call_id="call-1"),
+    ]
+    assert is_tool_result_message(messages, 2)
+    assert is_tool_result_message(messages, 3)
+
+
+def test_manual_compaction_preserves_lossless_master(tmp_path):
+    from gptme.tools.autocompact.resume import _resume_via_llm
+
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+
+    list(
+        _resume_via_llm(
+            manager,
+            messages,
+            use_view_branch=False,
+            keep_recent_tokens=0,
+            checkpoint_response=Message("assistant", "## Objective\nManual compact."),
+        )
+    )
+
+    master_contents = [m.content for m in manager.master_log.messages]
+    assert "0123456789" in master_contents
+    recall_msg = manager.master_log.messages[2]
+    assert recall_msg.content == "0123456789"
+
+
+def test_user_message_quoting_catalog_is_not_filtered(tmp_path):
+    from gptme.tools.autocompact.resume import _is_result_stubs_message
+
+    quoted = Message(
+        "user",
+        "Tool results dropped from the active context remain in the lossless master log.\nNow do X.",
+    )
+    real = Message(
+        "system",
+        "Tool results dropped from the active context remain in the lossless master log. Recall one by its stable ID:",
+        metadata={"result_stubs": True},
+    )
+    assert not _is_result_stubs_message(quoted)
+    assert _is_result_stubs_message(real)
