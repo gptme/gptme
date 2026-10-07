@@ -3653,6 +3653,27 @@ def test_get_recent_tail_drops_interrupted_tool_call():
     ]
 
 
+def test_split_recent_tail_is_lossless():
+    """The split pair must reconstruct the input exactly: prefix + tail == msgs.
+
+    Cleanup of unmatched tool calls belongs to the tail-only consumer
+    (:func:`_get_recent_tail`); the split itself never omits a message, so a
+    caller that summarizes ``prefix`` and appends ``tail`` cannot silently
+    drop an interrupted tool call (or any other message).
+    """
+    from gptme.tools.autocompact.resume import _split_recent_tail
+
+    msgs = [
+        Message("system", "system prompt"),
+        Message("user", "run the thing"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("user", "stop, do something else"),
+        Message("assistant", "ok"),
+    ]
+    prefix, tail = _split_recent_tail(msgs, 10_000)
+    assert prefix + tail == msgs
+
+
 def test_get_recent_tail_keeps_answered_tool_call():
     """A tool call followed by its result stays in the tail."""
     from gptme.tools.autocompact.resume import _get_recent_tail
@@ -3685,6 +3706,19 @@ def test_get_recent_tail_never_splits_multi_message_tool_step():
 
     assert len_tokens([call, warning, result, final], model="gpt-4") > budget
     assert _get_recent_tail(msgs, budget, model="gpt-4") == [final]
+
+
+def test_split_recent_tail_returns_provider_compaction_prefix():
+    from gptme.tools.autocompact.resume import _split_recent_tail
+
+    old_step = [Message("user", "old"), Message("assistant", "old answer")]
+    recent_step = [Message("user", "recent"), Message("assistant", "recent answer")]
+    budget = len_tokens(recent_step, model="gpt-4")
+
+    prefix, tail = _split_recent_tail(old_step + recent_step, budget, model="gpt-4")
+
+    assert prefix == old_step
+    assert tail == recent_step
 
 
 def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
