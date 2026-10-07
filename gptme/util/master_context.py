@@ -54,7 +54,27 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
         messages[lookback].role == "system" or _is_status_message(messages[lookback])
     ):
         lookback -= 1
-    return lookback >= 0 and message_contains_tool_use(messages[lookback])
+    if lookback < 0:
+        return False
+    if message_contains_tool_use(messages[lookback]):
+        return True
+    # Fallback for unloaded tools: message_contains_tool_use() requires the
+    # tool to be currently registered. If a tool was disabled via
+    # request_tool_change or the conversation resumed without it, the codeblock
+    # lang tag still appears in the assistant message — use it as a structural
+    # proxy so old results stay recallable.
+    from ..codeblock import Codeblock
+
+    _non_tool_langs = frozenset(
+        {"csv", "json", "html", "xml", "stdout", "stderr", "result"}
+    )
+    prev_msg = messages[lookback]
+    if prev_msg.role == "assistant":
+        for codeblock in Codeblock.iter_from_markdown(prev_msg.content):
+            lang = codeblock.lang.split()[0] if codeblock.lang else ""
+            if lang and lang not in _non_tool_langs:
+                return True
+    return False
 
 
 def _is_status_message(message: Message) -> bool:
