@@ -303,32 +303,31 @@ files = [
 
 [[package]]
 name = "anthropic"
-version = "0.120.0"
+version = "1.12.0"
 description = "The official Python library for the anthropic API"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "anthropic-0.120.0-py3-none-any.whl", hash = "sha256:591bd531563ec7b63a1e138f5c11f14cb94edda99623b349c2ce2ece8e08b8a5"},
-    {file = "anthropic-0.120.0.tar.gz", hash = "sha256:6ba6007dc9b00365b20f6101a6618f5196ac1ceef81512e4b5cc0e7436d4975d"},
+    {file = "anthropic-1.12.0-py3-none-any.whl", hash = "sha256:e7781a0c88452e695ff5524b9daa490e9c0d47c1529cd0bc14370973e48b12d4"},
+    {file = "anthropic-1.12.0.tar.gz", hash = "sha256:a54f6a63e3a4ad94acca6fc9528da531a523bfc846d304d02d7f190d6b7c9b48"},
 ]
 
 [package.dependencies]
-anyio = ">=3.5.0,<5"
-distro = ">=1.7.0,<2"
+anyio = ">=4.1.0,<5"
 docstring-parser = ">=0.15,<1"
-httpx = ">=0.25.0,<1"
+httpx2 = ">=2.0.0,<3"
 jiter = ">=0.4.0,<1"
-pydantic = ">=1.9.0,<3"
-sniffio = "*"
+pydantic = ">=1.10.0,<3"
+sniffio = ">=1,<2"
 typing-extensions = ">=4.14,<5"
 
 [package.extras]
-aiohttp = ["aiohttp", "httpx-aiohttp (>=0.1.9,<1)"]
-aws = ["boto3 (>=1.28.57)", "botocore (>=1.31.57)"]
-bedrock = ["boto3 (>=1.28.57)", "botocore (>=1.31.57)"]
+aiohttp = ["aiohttp (>=3.10.0,<4)"]
+aws = ["boto3 (>=1.28.57,<2)", "botocore (>=1.31.57,<2)"]
+bedrock = ["boto3 (>=1.28.57,<2)", "botocore (>=1.31.57,<2)"]
 google-cloud = ["google-auth[requests] (>=2,<3)"]
-mcp = ["mcp (>=1.0) ; python_version >= \"3.10\""]
+mcp = ["mcp (>=1.0,<3) ; python_version >= \"3.10\""]
 vertex = ["google-auth[requests] (>=2,<3)"]
 webhooks = ["standardwebhooks (>=1.0.1,<2)"]
 
@@ -2898,6 +2897,29 @@ socks = ["socksio (==1.*)"]
 trio = ["trio (>=0.22.0,<1.0)"]
 
 [[package]]
+name = "httpcore2"
+version = "2.13.1"
+description = "A minimal low-level HTTP client."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "sys_platform != \"emscripten\""
+files = [
+    {file = "httpcore2-2.13.1-py3-none-any.whl", hash = "sha256:e1e05d4f25f7d7d496bfb96748f6f4b67657b03da069b3a68c36069f3db73d0a"},
+    {file = "httpcore2-2.13.1.tar.gz", hash = "sha256:e0aa977abe17e69a3b820a24542a6fa88702676d83880b8d194dcd18408e5103"},
+]
+
+[package.dependencies]
+h11 = ">=0.16"
+truststore = ">=0.10"
+
+[package.extras]
+asyncio = ["anyio (>=4.5.0,<5.0)"]
+http2 = ["h2 (>=3,<5)"]
+socks = ["socksio (==1.*)"]
+trio = ["trio (>=0.34.0,<1.0)"]
+
+[[package]]
 name = "httptools"
 version = "0.8.0"
 description = "A collection of framework independent HTTP protocol utils."
@@ -2994,6 +3016,47 @@ groups = ["main"]
 files = [
     {file = "httpx-sse-0.4.0.tar.gz", hash = "sha256:1e81a3a3070ce322add1d3529ed42eb5f70817f45ed6ec915ab753f961139721"},
     {file = "httpx_sse-0.4.0-py3-none-any.whl", hash = "sha256:f329af6eae57eaa2bdfd962b42524764af68075ea87370a2de920af5341e318f"},
+]
+
+[[package]]
+name = "httpx2"
+version = "2.13.1"
+description = "The next generation HTTP client."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "httpx2-2.13.1-py3-none-any.whl", hash = "sha256:6dff50fabc270ee5fd25d845d0b078ed20564579744d6d962850975996d2f9a4"},
+    {file = "httpx2-2.13.1.tar.gz", hash = "sha256:e48744a19e3af5ee48313d0ce5fe941d5422fae5705ea922a4aabf94d7800dfa"},
+]
+
+[package.dependencies]
+anyio = {version = ">=4.10", markers = "sys_platform != \"emscripten\""}
+httpcore2 = {version = "2.13.1", markers = "sys_platform != \"emscripten\""}
+httpx2-jsfetch = {version = "*", markers = "sys_platform == \"emscripten\" and python_version >= \"3.12\""}
+idna = ">=3.18"
+truststore = {version = ">=0.10", markers = "sys_platform != \"emscripten\""}
+typing-extensions = {version = ">=4.5.0", markers = "python_version < \"3.13\""}
+
+[package.extras]
+brotli = ["brotli (>=1.2.0) ; platform_python_implementation == \"CPython\"", "brotlicffi (>=1.2.0.2) ; platform_python_implementation != \"CPython\""]
+cli = ["click (>=8.4.2)", "pygments (==2.*)", "rich (>=10,<16)"]
+http2 = ["h2 (>=3,<5)"]
+socks = ["socksio (==1.*)"]
+ws = ["wsproto (>=1.2)"]
+zstd = ["backports-zstd (>=1.0.0) ; python_version <= \"3.13\""]
+
+[[package]]
+name = "httpx2-jsfetch"
+version = "1.0"
+description = "httpx2 transports for Emscripten/Pyodide, backed by the JavaScript fetch API."
+optional = false
+python-versions = ">=3.12"
+groups = ["main"]
+markers = "sys_platform == \"emscripten\" and python_version >= \"3.12\""
+files = [
+    {file = "httpx2_jsfetch-1.0-py3-none-any.whl", hash = "sha256:cb916b707601e69a07721aabc8f3f6659be3a6893bc1ff5c6f9e02241df2da32"},
+    {file = "httpx2_jsfetch-1.0.tar.gz", hash = "sha256:70a0e3eabfef7cce5ad9c629f7d01ca05e418f586646f4ddf14782e4c1454c60"},
 ]
 
 [[package]]
@@ -9403,6 +9466,19 @@ files = [
 ]
 
 [[package]]
+name = "truststore"
+version = "0.10.4"
+description = "Verify certificates using native system trust stores"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "sys_platform != \"emscripten\""
+files = [
+    {file = "truststore-0.10.4-py3-none-any.whl", hash = "sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981"},
+    {file = "truststore-0.10.4.tar.gz", hash = "sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301"},
+]
+
+[[package]]
 name = "typeguard"
 version = "4.4.3"
 description = "Run-time type checker for Python"
@@ -10413,4 +10489,4 @@ tui = ["textual"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.15"
-content-hash = "eb5b594a56d4b409e72c58190b0ece61b014e6c6c482df6eda2ef0bd640ae9ea"
+content-hash = "8c86f204edcb91444f019b1731b948386ad04463f1fdce4c84f39077e088867c"
