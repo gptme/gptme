@@ -42,6 +42,10 @@ _registry_instance: MCPRegistry | None = None
 # Cache of dynamically loaded servers
 _dynamic_servers: dict[str, MCPClient] = {}
 
+# Tracks the ToolSpec names each dynamically-loaded server registered, so
+# unload removes exactly that server's tools (server names may share prefixes).
+_dynamic_server_tool_names: dict[str, list[str]] = {}
+
 
 def _get_registry() -> MCPRegistry:
     """Lazy getter for MCPRegistry — defers the import until first MCP registry call."""
@@ -214,11 +218,19 @@ def _build_tool_specs_for_server(
         if isinstance(input_schema, dict) and "properties" in input_schema:
             required_params = input_schema.get("required", [])
             for param_name, param_schema in input_schema["properties"].items():
+                # A property schema can be a bare boolean (JSON Schema
+                # shorthand, e.g. {"flag": true} = allow anything).
+                if isinstance(param_schema, dict):
+                    description = param_schema.get("description", "")
+                    ptype = param_schema.get("type", "string")
+                else:
+                    description = ""
+                    ptype = "string"
                 parameters.append(
                     Parameter(
                         name=param_name,
-                        description=param_schema.get("description", ""),
-                        type=param_schema.get("type", "string"),
+                        description=description,
+                        type=ptype,
                         required=param_name in required_params,
                     )
                 )
@@ -576,6 +588,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         set_config(config)
         config_added = True
 
+    client: MCPClient | None = None
     try:
         from ..mcp.client import MCPClient
 
@@ -583,23 +596,38 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         client = MCPClient(config=config)
         tools, session = client.connect(name)
 
-        # Store in dynamic servers
-        _dynamic_servers[name] = client
-
-        # Build ToolSpecs and register them in the available-tools cache so the
-        # new tools are immediately invocable without a full cache rebuild.
+        # Build ToolSpecs BEFORE publishing the client: a spec-building error
+        # (e.g. a malformed input schema) must not leave the server marked as
+        # loaded with an open connection and no registered tools.
         new_specs = _build_tool_specs_for_server(
             server_config, tools, config, _dynamic_servers
         )
-        if new_specs:
-            from gptme.tools import extend_tools_cache  # lazy import avoids circular
 
-            extend_tools_cache(new_specs)
+        # Publish the client, then register the specs everywhere tools are
+        # discovered: the available-tools cache (prompt/listing) and the
+        # context-local loaded set (get_tools()/get_tool() selection+execution).
+        _dynamic_servers[name] = client
+        if new_specs:
+            from gptme.tools import (  # lazy import avoids circular
+                extend_tools_cache,
+                load_dynamic_tool_specs,
+            )
+
+            extend_tools_cache(list(new_specs))
+            load_dynamic_tool_specs(new_specs)
+        _dynamic_server_tool_names[name] = [spec.name for spec in new_specs]
 
         tool_names = [tool.name for tool in tools.tools]
         return f"Successfully loaded server '{name}' with {len(tool_names)} tools: {', '.join(tool_names)}"
 
     except Exception as e:
+        # Roll back everything the attempt may have published
+        if client is not None:
+            _dynamic_servers.pop(name, None)
+            try:
+                client.close()
+            except Exception:
+                logger.debug("Failed to close client for '%s' during rollback", name)
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
             config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
@@ -621,13 +649,24 @@ def unload_mcp_server(name: str) -> str:
     if name not in _dynamic_servers:
         return f"Server '{name}' is not loaded."
 
+    # Remove this server's ToolSpecs from the loaded set and the available-tools
+    # cache. Exact names (tracked at load time) — unloading 'foo' must not
+    # touch a distinct 'foo.bar' server's tools.
+    spec_names = _dynamic_server_tool_names.pop(name, [])
+    if spec_names:
+        from gptme.tools import (  # lazy import avoids circular
+            unload_dynamic_tool_specs,
+        )
+
+        unload_dynamic_tool_specs(spec_names)
+
     # Remove from dynamic servers
     del _dynamic_servers[name]
 
     # Remove this server's ToolSpecs from the available-tools cache
     from gptme.tools import remove_from_tools_cache  # lazy import avoids circular
 
-    remove_from_tools_cache(name)
+    remove_from_tools_cache(spec_names)
 
     # Optionally disable in config (but don't remove)
     config = get_config()

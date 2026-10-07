@@ -870,17 +870,54 @@ def extend_tools_cache(new_specs: list[ToolSpec]) -> None:
         _set_available_tools_cache([*cached, *new_specs])
 
 
-def remove_from_tools_cache(server_name: str) -> None:
+def remove_from_tools_cache(spec_names: list[str]) -> None:
     """Remove a server's ToolSpecs from the cache when it is unloaded.
 
-    Called by mcp_adapter.unload_mcp_server(). Filters out all specs whose
-    names start with ``server_name.`` so the cache stays coherent without a
-    full rebuild.
+    Called by mcp_adapter.unload_mcp_server(). Matches exact tool names (a
+    server owns ``server.<tool>`` specs it registered at load time), so
+    unloading ``foo`` never touches a distinct ``foo.bar`` server's tools.
     """
+    names = set(spec_names)
     cached = _get_available_tools_cache()
     if cached is not None:
-        prefix = f"{server_name}."
-        _set_available_tools_cache([s for s in cached if not s.name.startswith(prefix)])
+        _set_available_tools_cache([s for s in cached if s.name not in names])
+
+
+def load_dynamic_tool_specs(specs: list[ToolSpec]) -> None:
+    """Make dynamically-loaded ToolSpecs active in the current context.
+
+    Called by mcp_adapter.load_mcp_server() after the available-tools cache is
+    extended: initializes each spec (hooks, etc.) and appends it to the
+    context-local loaded tool set so get_tools()/get_tool() can select and
+    execute it immediately. Tools already loaded are skipped.
+    """
+    with _tools_init_lock:
+        for spec in specs:
+            if has_tool(spec.name):
+                continue
+            initialized = _init_single_tool(spec, on_error="skip")
+            if initialized is None:
+                continue
+            _get_loaded_tools().append(initialized)
+            logger.info("Loaded dynamic tool '%s'", initialized.name)
+
+
+def unload_dynamic_tool_specs(spec_names: list[str]) -> None:
+    """Remove dynamically-loaded ToolSpecs from the current context on unload.
+
+    Complement of load_dynamic_tool_specs(): matches exact names and
+    best-effort unregisters session-local hooks.
+    """
+    names = set(spec_names)
+    removed = [t for t in _get_loaded_tools() if t.name in names]
+    if not removed:
+        return
+    with _tools_init_lock:
+        for tool in removed:
+            _unregister_tool_hooks(tool)
+        _get_loaded_tools()[:] = [t for t in _get_loaded_tools() if t.name not in names]
+        for tool in removed:
+            logger.info("Unloaded dynamic tool '%s'", tool.name)
 
 
 def clear_tools():
