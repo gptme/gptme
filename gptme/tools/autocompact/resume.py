@@ -597,10 +597,6 @@ def _split_recent_tail(
     one of several result messages while dropping the assistant tool call. The
     returned prefix is the exact input a provider-native compactor may summarize
     before the returned tail is appended unchanged.
-
-    The split is lossless: ``prefix + tail == msgs``. Cleanup of dangling
-    tool results and unmatched tool calls in the tail is the tail-consumer's
-    job (:func:`_get_recent_tail`); the pair itself never omits a message.
     """
     if keep_tokens <= 0 or not msgs:
         return list(msgs), []
@@ -641,33 +637,16 @@ def _split_recent_tail(
         tail[:0] = step
         cut = step_start
         total += step_tokens
-    return msgs[:cut], tail
-
-
-def _get_recent_tail(
-    msgs: list[Message],
-    keep_tokens: int,
-    *,
-    model: str | None = None,
-) -> list[Message]:
-    """Return the retained side of :func:`_split_recent_tail`.
-
-    This is the cleanup point for the tail: dangling tool results at the head
-    (no matching tool-call) and assistant tool-calls whose result never
-    follows (the conversation ends mid-turn, or the user interrupted before
-    the result) are dropped here — an unmatched tool call in the compacted
-    view breaks strict providers. Keeping the cleanup on the tail-only side
-    preserves the lossless ``prefix + tail == msgs`` property of
-    :func:`_split_recent_tail`.
-    """
-    tail = _split_recent_tail(msgs, keep_tokens, model=model)[1]
-
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
     # (e.g. system/user role in some provider formats).
     while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
 
+    # Drop an assistant tool-call whose result never follows it: either the
+    # conversation ends mid-turn, or the user interrupted before the result
+    # (the call is followed directly by a user message). An unmatched tool
+    # call in the compacted view breaks strict providers.
     def _unmatched_call(i: int) -> bool:
         if tail[i].role != "assistant" or not any(
             tooluse.is_runnable
@@ -684,7 +663,17 @@ def _get_recent_tail(
                 tail = tail[:i] + tail[i + 1 :]
                 changed = True
                 break
-    return tail
+    return msgs[:cut], tail
+
+
+def _get_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> list[Message]:
+    """Return the retained side of :func:`_split_recent_tail`."""
+    return _split_recent_tail(msgs, keep_tokens, model=model)[1]
 
 
 def _message_identity(message: Message) -> tuple[object, ...]:
@@ -696,11 +685,6 @@ def _message_identity(message: Message) -> tuple[object, ...]:
         message.content,
         tuple(str(path) for path in message.files),
     )
-
-
-def _is_result_stubs_message(message: Message) -> bool:
-    """Whether a message is the generated dropped-result catalog."""
-    return bool((message.metadata or {}).get("result_stubs"))
 
 
 def _build_dropped_result_stubs(
@@ -741,7 +725,7 @@ def _build_dropped_result_stubs(
         "/tools load recall before requesting saved output."
     )
     content = f"{_RESULT_STUBS_PREFIX} {instructions}\n" + "\n".join(lines)
-    return Message("system", content, metadata={"result_stubs": True})
+    return Message("system", content)
 
 
 _TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
@@ -909,16 +893,23 @@ def _apply_native_compaction(
         view_name = manager.get_next_view_name()
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
+        preservation_note = "• Original conversation preserved losslessly on disk"
     else:
+        # Save the full original log as a backup view before replacing it.
+        _idx = 1
+        while f"pre-compact-{_idx:03d}" in getattr(manager, "_views", {}):
+            _idx += 1
+        manager.create_view(f"pre-compact-{_idx:03d}", manager.log)
         manager.log = Log(new_log)
         manager.write()
+        preservation_note = "• Original conversation backed up to recovery view"
 
     yield Message(
         "system",
         f"✅ Native compaction completed:\n"
         f"• {len(prefix)} messages summarized by the provider into a signed block\n"
         f"• {len(tail)} recent messages kept verbatim\n"
-        f"• Original conversation preserved losslessly on disk",
+        f"{preservation_note}",
         hide=use_view_branch,
     )
     return True
@@ -1009,13 +1000,6 @@ def _resume_via_llm(
         )
         if native_applied:
             return True
-        # After _apply_native_compaction the CM may be exhausted: if the model
-        # was supported and the prefix long enough, it entered `with llm_unlocked`
-        # around the provider request before returning False.  A @contextmanager-
-        # based CM (like session_step._released) is single-use — a second
-        # __enter__ raises RuntimeError.  Null it out so the generic fallback
-        # runs with the lock held rather than crashing.
-        llm_unlocked = None
 
     if checkpoint_response is None:
         # Legacy/manual path: ask the model directly without tools. Automatic
@@ -1138,7 +1122,7 @@ def _resume_via_llm(
     for msg in msgs:
         if msg.role == "system":
             leading_system_end += 1
-            if not _is_result_stubs_message(msg):
+            if not msg.content.startswith(_RESULT_STUBS_PREFIX):
                 original_system_msgs.append(msg)
         elif msg.role in ("user", "assistant"):
             # Stop when we hit the first non-system message
@@ -1167,10 +1151,12 @@ def _resume_via_llm(
             for i, m in enumerate(msgs[:head_end])
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
-            and not _is_result_stubs_message(m)
+            and not m.content.startswith(_RESULT_STUBS_PREFIX)
         ]
     else:
-        preserved_head = [m for m in msgs[:head_end] if not _is_result_stubs_message(m)]
+        preserved_head = [
+            m for m in msgs[:head_end] if not m.content.startswith(_RESULT_STUBS_PREFIX)
+        ]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
@@ -1213,7 +1199,9 @@ def _resume_via_llm(
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
-    tail_source = [m for m in tail_source if not _is_result_stubs_message(m)]
+    tail_source = [
+        m for m in tail_source if not m.content.startswith(_RESULT_STUBS_PREFIX)
+    ]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,
@@ -1275,17 +1263,6 @@ def _resume_via_llm(
                 > budget
             ):
                 file_context_msgs.pop()
-            if essential_tokens > budget and result_stubs_msg is not None:
-                # The catalog counts toward the budget too: when it cannot fit
-                # alongside the essentials, drop it before truncating the
-                # checkpoint, so the view is never over budget by construction.
-                catalog_tokens = len_tokens([result_stubs_msg], model=model_str)
-                result_stubs_msg = None
-                essential_tokens -= catalog_tokens
-                logger.warning(
-                    "Result catalog exceeds remaining context budget; "
-                    "dropped the recall catalog."
-                )
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.
@@ -1293,8 +1270,6 @@ def _resume_via_llm(
                 overhead = len_tokens(
                     preserved_head + [resume_intro_msg], model=model_str
                 ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
-                if result_stubs_msg is not None:
-                    overhead += len_tokens([result_stubs_msg], model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
                     resume_content, room, model=model_str
@@ -1354,10 +1329,7 @@ def _resume_via_llm(
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
     else:
-        # Replace the log directly (user-invoked /compact resume). Recallable
-        # result IDs point into the lossless master log, so preserve it before
-        # the in-place replacement strands every stub ID.
-        manager.preserve_lossless_log()
+        # Replace the log directly (user-invoked /compact resume)
         manager.log = Log(new_log)
         manager.write()
 
