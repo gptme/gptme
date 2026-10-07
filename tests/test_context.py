@@ -405,7 +405,8 @@ def test_stored_attachment_content_is_capped(tmp_path, monkeypatch):
 
 
 def test_read_text_capped_keeps_large_pdf_as_attachment(tmp_path, monkeypatch):
-    """A PDF with a decodable prefix is not mistaken for text and removed."""
+    """A PDF is blocked by MIME type before any content is read, so even one
+    with an all-decodable prefix stays an attachment for provider handling."""
     from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
     from gptme.util.context import include_paths
 
@@ -417,6 +418,23 @@ def test_read_text_capped_keeps_large_pdf_as_attachment(tmp_path, monkeypatch):
     msg = include_paths(Message("user", str(pdf)))
     assert msg.files == [pdf]
     assert "%PDF-1.7" not in msg.content
+
+
+def test_read_text_capped_large_prefix_then_invalid_utf8_is_text(tmp_path):
+    """A large text file whose capped prefix is decodable (no NUL) is
+    truncated, not rejected: the invalid bytes beyond the cap are never read.
+
+    This exercises the bounded-read path itself, not the MIME pre-check —
+    under a whole-file read this would raise UnicodeDecodeError instead.
+    """
+    from gptme.constants import CONTENT_SIZE_WARN_THRESHOLD
+    from gptme.util.context import _read_text_capped
+
+    f = tmp_path / "events.txt"
+    f.write_bytes(b"L" * (CONTENT_SIZE_WARN_THRESHOLD * 2) + b"\xff\xff")
+    result = _read_text_capped(f)
+    assert "truncated" in result.lower()
+    assert len(result) <= CONTENT_SIZE_WARN_THRESHOLD
 
 
 def test_read_text_capped_treats_nul_prefix_as_binary(tmp_path):
