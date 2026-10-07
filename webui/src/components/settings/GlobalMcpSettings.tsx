@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { useApi } from '@/contexts/ApiContext';
 import { Form } from '@/components/ui/form';
@@ -22,8 +22,12 @@ function toForm(config: GlobalMcpConfig): FormSchema {
       auto_start: config.auto_start,
       servers: config.servers.map((server) => ({
         ...server,
-        args: server.args.join(', '),
-        original_args: server.args,
+        args: JSON.stringify(server.args),
+
+        original_name: server.name,
+        rename_locked: [...Object.values(server.env), ...Object.values(server.headers)].includes(
+          '***'
+        ),
         env: Object.entries(server.env).map(([key, value]) => ({ key, value })),
       })),
     },
@@ -39,6 +43,17 @@ async function readResponse(response: Response): Promise<GlobalMcpConfig> {
 /** The same server-owned editor is used by browsers and the Tauri webview. */
 export function GlobalMcpSettings() {
   const { api } = useApi();
+  return (
+    <GlobalMcpForm
+      key={JSON.stringify([api.baseUrl, api.authHeader])}
+      baseUrl={api.baseUrl}
+      authHeader={api.authHeader}
+    />
+  );
+}
+
+function GlobalMcpForm({ baseUrl, authHeader }: { baseUrl: string; authHeader: string | null }) {
+  const active = useRef(true);
   const [config, setConfig] = useState<GlobalMcpConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,11 +63,12 @@ export function GlobalMcpSettings() {
 
   useEffect(() => {
     const controller = new AbortController();
+    active.current = true;
     setLoading(true);
     setConfig(null);
     setError(null);
-    fetch(`${api.baseUrl}/api/v2/user/config/mcp`, {
-      headers: api.authHeader ? { Authorization: api.authHeader } : {},
+    fetch(`${baseUrl}/api/v2/user/config/mcp`, {
+      headers: authHeader ? { Authorization: authHeader } : {},
       signal: controller.signal,
     })
       .then(readResponse)
@@ -68,33 +84,44 @@ export function GlobalMcpSettings() {
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
-    return () => controller.abort();
-  }, [api.baseUrl, api.authHeader, form]);
+    return () => {
+      active.current = false;
+      controller.abort();
+    };
+  }, [baseUrl, authHeader, form]);
 
   const save = async (values: FormSchema) => {
     setError(null);
     try {
-      const servers = (values.mcp.servers ?? []).map((server) => ({
-        name: server.name,
-        enabled: server.enabled,
-        command: server.command,
-        args:
-          server.original_args && server.args === server.original_args.join(', ')
-            ? server.original_args
-            : server.args
-                .split(',')
-                .map((arg) => arg.trim())
-                .filter(Boolean),
-        env: Object.fromEntries((server.env ?? []).map(({ key, value }) => [key, value])),
-        url: server.url ?? '',
-        headers: server.headers ?? {},
-      }));
+      const servers = (values.mcp.servers ?? []).map((server) => {
+        if (server.rename_locked && server.name !== server.original_name) {
+          throw new Error('Rename servers with hidden secrets using Config files.');
+        }
+        let args: unknown;
+        try {
+          args = JSON.parse(server.args || '[]');
+        } catch {
+          throw new Error('Arguments must be a JSON array of strings.');
+        }
+        if (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) {
+          throw new Error('Arguments must be a JSON array of strings.');
+        }
+        return {
+          name: server.name,
+          enabled: server.enabled,
+          command: server.command,
+          args,
+          env: Object.fromEntries((server.env ?? []).map(({ key, value }) => [key, value])),
+          url: server.url ?? '',
+          headers: server.headers ?? {},
+        };
+      });
       const data = await readResponse(
-        await fetch(`${api.baseUrl}/api/v2/user/config/mcp`, {
+        await fetch(`${baseUrl}/api/v2/user/config/mcp`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            ...(api.authHeader ? { Authorization: api.authHeader } : {}),
+            ...(authHeader ? { Authorization: authHeader } : {}),
           },
           body: JSON.stringify({
             enabled: values.mcp.enabled,
@@ -103,10 +130,12 @@ export function GlobalMcpSettings() {
           }),
         })
       );
+      if (!active.current) return;
       setConfig(data);
       form.reset(toForm(data));
       toast.success('Global MCP settings saved. Restart running sessions to apply changes.');
     } catch (err) {
+      if (!active.current) return;
       const message = err instanceof Error ? err.message : 'Failed to save MCP configuration';
       setError(message);
       toast.error(message);
@@ -134,6 +163,7 @@ export function GlobalMcpSettings() {
                 form={form}
                 serverFields={serverFields}
                 isSubmitting={isSubmitting}
+                argsFormat="json"
               />
               <Button type="submit" disabled={!isDirty || isSubmitting}>
                 {isSubmitting ? 'Saving…' : 'Save global MCP settings'}

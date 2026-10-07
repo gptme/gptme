@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { GlobalMcpSettings } from '../GlobalMcpSettings';
 import { toast } from 'sonner';
 
@@ -27,6 +27,7 @@ const response = (data: unknown, ok = true) => ({ ok, json: async () => data });
 beforeEach(() => {
   jest.clearAllMocks();
   mockFetch.mockReset();
+  mockApi.baseUrl = 'http://localhost:5700';
   global.fetch = mockFetch;
   global.ResizeObserver = class {
     observe() {}
@@ -86,8 +87,8 @@ it('adds servers through the reused form', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Add MCP Server' }));
   fireEvent.change(screen.getByLabelText('Server Name'), { target: { value: 'local' } });
   fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'python' } });
-  fireEvent.change(screen.getByLabelText('Arguments (comma-separated)'), {
-    target: { value: '-m, my_server' },
+  fireEvent.change(screen.getByLabelText('Arguments (JSON array)'), {
+    target: { value: '["-m", "my_server"]' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Save global MCP settings' }));
   await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
@@ -102,4 +103,67 @@ it('adds servers through the reused form', async () => {
       headers: {},
     },
   ]);
+});
+
+it.each([true, false])('ignores a stale save after changing servers (success=%s)', async (ok) => {
+  let finishSave!: (value: unknown) => void;
+  const pending = new Promise((resolve) => {
+    finishSave = resolve;
+  });
+  const other = { ...config, path: '/tmp/other.toml', servers: [] };
+  mockFetch
+    .mockResolvedValueOnce(response(config))
+    .mockReturnValueOnce(pending)
+    .mockResolvedValueOnce(response(other));
+  const { rerender } = render(<GlobalMcpSettings />);
+  await screen.findByText('/tmp/config.toml');
+  fireEvent.click(screen.getByRole('switch', { name: 'Auto-Start MCP Servers' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save global MCP settings' }));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  mockApi.baseUrl = 'http://other-server';
+  rerender(<GlobalMcpSettings />);
+  await screen.findByText('/tmp/other.toml');
+  await act(async () => finishSave(response(ok ? config : { error: 'Old server error' }, ok)));
+  expect(screen.getByText('/tmp/other.toml')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(toast.success).not.toHaveBeenCalled();
+  expect(toast.error).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('switch', { name: 'Auto-Start MCP Servers' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save global MCP settings' }));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(4));
+  expect(JSON.parse(mockFetch.mock.calls[3][1].body).servers).toEqual([]);
+});
+
+it('prevents renaming servers with redacted environment or header secrets', async () => {
+  mockFetch.mockResolvedValue(response(config));
+  render(<GlobalMcpSettings />);
+  await screen.findByText('/tmp/config.toml');
+  fireEvent.click(screen.getByRole('button', { name: /MCP Servers.*Add or remove/ }));
+  expect(screen.getByLabelText('Server Name')).toBeDisabled();
+  expect(screen.getByText(/Rename.*Config files/)).toBeInTheDocument();
+});
+
+it('preserves commas, whitespace and empty arguments when editing', async () => {
+  mockFetch.mockResolvedValue(response(config));
+  render(<GlobalMcpSettings />);
+  await screen.findByText('/tmp/config.toml');
+  fireEvent.click(screen.getByRole('button', { name: /MCP Servers.*Add or remove/ }));
+  const args = ['contains, comma', ' spaced ', '', 'new'];
+  fireEvent.change(screen.getByLabelText('Arguments (JSON array)'), {
+    target: { value: JSON.stringify(args) },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save global MCP settings' }));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body).servers[0].args).toEqual(args);
+});
+
+it.each(['broken', '{}', '[1]'])('rejects invalid argument arrays: %s', async (args) => {
+  mockFetch.mockResolvedValue(response(config));
+  render(<GlobalMcpSettings />);
+  await screen.findByText('/tmp/config.toml');
+  fireEvent.click(screen.getByRole('button', { name: /MCP Servers.*Add or remove/ }));
+  fireEvent.change(screen.getByLabelText('Arguments (JSON array)'), { target: { value: args } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save global MCP settings' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('JSON array of strings');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
 });

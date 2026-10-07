@@ -20,9 +20,15 @@ interface McpConfigurationProps {
   form: UseFormReturn<FormSchema>;
   serverFields: UseFieldArrayReturn<FormSchema, 'mcp.servers'>;
   isSubmitting: boolean;
+  argsFormat?: 'comma' | 'json';
 }
 
-export const McpConfiguration = ({ form, serverFields, isSubmitting }: McpConfigurationProps) => {
+export const McpConfiguration = ({
+  form,
+  serverFields,
+  isSubmitting,
+  argsFormat = 'comma',
+}: McpConfigurationProps) => {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [newServerEnvInputs, setNewServerEnvInputs] = useState<
     Record<number, { key: string; value: string }>
@@ -154,9 +160,14 @@ export const McpConfiguration = ({ form, serverFields, isSubmitting }: McpConfig
                           <Input
                             placeholder="e.g., my_api_server"
                             {...field}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || serverField.rename_locked}
                           />
                         </FormControl>
+                        {serverField.rename_locked && (
+                          <FormDescription>
+                            Rename servers with hidden secrets using Config files.
+                          </FormDescription>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -200,10 +211,18 @@ export const McpConfiguration = ({ form, serverFields, isSubmitting }: McpConfig
                     name={`mcp.servers.${serverIndex}.args`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Arguments (comma-separated)</FormLabel>
+                        <FormLabel>
+                          {argsFormat === 'json'
+                            ? 'Arguments (JSON array)'
+                            : 'Arguments (comma-separated)'}
+                        </FormLabel>
                         <FormControl>
                           <Input
-                            placeholder="e.g., -m, my_module, --port, 8000"
+                            placeholder={
+                              argsFormat === 'json'
+                                ? '["-m", "my_module", "--port", "8000"]'
+                                : 'e.g., -m, my_module, --port, 8000'
+                            }
                             {...field}
                             disabled={isSubmitting}
                           />
