@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 from rich import print as rprint
 from rich.text import Text
 
@@ -285,6 +286,27 @@ _PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx", "requests"}
 _LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
 _LLM_REPLY_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_output_emitted"
 _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_visible_output_emitted"
+
+
+class EmptyStreamError(httpx.RemoteProtocolError):
+    """A provider stream ended normally without producing any assistant output.
+
+    Subclasses ``RemoteProtocolError`` so it takes the same provider-error
+    recovery path as an explicit stream failure (see ``ResponsesStreamError``)
+    instead of being persisted as an empty assistant turn that the no-tool
+    nudge then treats as a completed reply.
+    """
+
+    def __init__(self, model: str, metadata: MessageMetadata | None):
+        self.model = model
+        self.metadata = metadata
+        usage = (metadata or {}).get("usage")
+        detail = f" (usage: {usage})" if usage else ""
+        super().__init__(
+            f"Provider stream for {model} ended without any output{detail}"
+        )
+
+
 _CONTEXT_LENGTH_ERROR_CODES = frozenset(
     {"context_length_exceeded", "context_window_exceeded", "request_too_large"}
 )
@@ -1167,6 +1189,13 @@ def _reply_stream(
                 meta = dict(stream.metadata) if stream.metadata else {}
                 meta["timings"] = timings
                 stream.metadata = cast(MessageMetadata, meta)
+
+    if not output.strip():
+        # Normal exhaustion with nothing usable: a zero-chunk stream (observed
+        # with positive output usage in metadata) must not become an empty
+        # assistant turn. Partial/interrupted output and reasoning-only text
+        # are non-empty here and are left alone.
+        raise EmptyStreamError(model, stream.metadata)
 
     return Message("assistant", output, metadata=stream.metadata)
 
