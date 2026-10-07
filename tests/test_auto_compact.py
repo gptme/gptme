@@ -2585,6 +2585,7 @@ def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch)
     """The CLI continues into a normal step after the hook queues the request."""
     from unittest.mock import patch
 
+    import gptme.chat as chat_module
     from gptme.chat import _process_message_conversation
     from gptme.logmanager import LogManager
 
@@ -2619,9 +2620,9 @@ def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch)
         return True
 
     with (
-        patch("gptme.chat.step", side_effect=fake_step),
-        patch("gptme.chat.get_default_model", return_value=None),
-        patch("gptme.chat.trigger_hook", return_value=iter([])),
+        patch.object(chat_module, "step", side_effect=fake_step),
+        patch.object(chat_module, "get_default_model", return_value=None),
+        patch.object(chat_module, "trigger_hook", return_value=iter([])),
         patch(
             "gptme.tools.autocompact.hook.should_auto_compact",
             return_value="summarize",
