@@ -295,6 +295,9 @@ nitpick_ignore = [
     ("py:class", "HookFunc"),
     # Profile is TYPE_CHECKING-only in prompts/__init__.py; not visible to autodoc
     ("py:class", "Profile"),
+    # EmptyStreamError.__init__ signature refs MessageMetadata (a TypedDict in
+    # gptme.message) which is not autodoc'ed anywhere in the API pages.
+    ("py:class", "gptme.message.MessageMetadata"),
     # docstring references in API pages (docs/api/) that autodoc can't resolve:
     # re-exported functions documented under their public path, and napoleon
     # parsing descriptive return/field text as types
