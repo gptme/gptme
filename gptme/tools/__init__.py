@@ -909,10 +909,13 @@ def unload_dynamic_tool_specs(spec_names: list[str]) -> None:
     best-effort unregisters session-local hooks.
     """
     names = set(spec_names)
-    removed = [t for t in _get_loaded_tools() if t.name in names]
-    if not removed:
-        return
+    # Compute and mutate under the lock: reading outside it could snapshot a
+    # tool a concurrent load just added, unregistering hooks for the old object
+    # while the list replacement removes the new one (stale-hook race).
     with _tools_init_lock:
+        removed = [t for t in _get_loaded_tools() if t.name in names]
+        if not removed:
+            return
         for tool in removed:
             _unregister_tool_hooks(tool)
         _get_loaded_tools()[:] = [t for t in _get_loaded_tools() if t.name not in names]
