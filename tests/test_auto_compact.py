@@ -3666,6 +3666,27 @@ def test_get_recent_tail_keeps_answered_tool_call():
     assert _get_recent_tail(msgs, 10_000) == msgs
 
 
+def test_get_recent_tail_never_splits_multi_message_tool_step():
+    """A boundary before an assistant call drops all of that call's results.
+
+    Native execution can emit an unpaired warning before the final call-id
+    result. Message-by-message selection kept that warning and result when the
+    assistant call itself was just over the token boundary.
+    """
+    from gptme.tools.autocompact.resume import _get_recent_tail
+    from gptme.util.tokens import len_tokens
+
+    call = Message("assistant", "```shell\n" + ("# setup\n" * 200) + "echo hi\n```")
+    warning = Message("system", "shellcheck warning")
+    result = Message("system", "hi", call_id="call-1")
+    final = Message("assistant", "The command completed.")
+    msgs = [Message("user", "run it"), call, warning, result, final]
+    budget = len_tokens([warning, result, final], model="gpt-4") + 5
+
+    assert len_tokens([call, warning, result, final], model="gpt-4") > budget
+    assert _get_recent_tail(msgs, budget, model="gpt-4") == [final]
+
+
 def test_resume_via_llm_file_drop_loop_counts_files(tmp_path, monkeypatch):
     """The file-dropping loop must compare total fixed tokens (essential +
     files) against the budget, not subtract file tokens from the essential

@@ -589,18 +589,47 @@ def _get_recent_tail(
     *,
     model: str | None = None,
 ) -> list[Message]:
-    """Return the last messages that fit within keep_tokens, preserving tool-call pairs."""
+    """Return recent whole assistant steps bounded by ``keep_tokens``.
+
+    A step contains the input preceding an assistant message, that assistant
+    message, and every following system/tool result up to the next user or
+    assistant message. Selecting whole steps prevents a boundary from keeping
+    one of several result messages while dropping the assistant tool call.
+    """
     if keep_tokens <= 0 or not msgs:
         return []
+
+    steps: list[list[Message]] = []
+    pending: list[Message] = []
+    idx = 0
+    while idx < len(msgs):
+        msg = msgs[idx]
+        if msg.role != "assistant":
+            pending.append(msg)
+            idx += 1
+            continue
+
+        step = pending + [msg]
+        pending = []
+        idx += 1
+        while idx < len(msgs) and msgs[idx].role not in ("assistant", "user"):
+            step.append(msgs[idx])
+            idx += 1
+        steps.append(step)
+    if pending:
+        # A conversation can end on a user message during interruption. Keep
+        # that pending input as its own newest boundary when it fits.
+        steps.append(pending)
+
     tail: list[Message] = []
     total = 0
     model_str: str = model or "gpt-4"
-    for msg in reversed(msgs):
-        t = len_tokens([msg], model=model_str)
-        if total + t > keep_tokens:
+    for step in reversed(steps):
+        step_tokens = len_tokens(step, model=model_str)
+        if total + step_tokens > keep_tokens:
             break
-        tail.insert(0, msg)
-        total += t
+        tail[:0] = step
+        total += step_tokens
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
     # (e.g. system/user role in some provider formats).
