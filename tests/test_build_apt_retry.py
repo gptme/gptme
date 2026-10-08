@@ -44,7 +44,10 @@ def test_apt_retry(
     sleeps = tmp_path / "sleeps"
     script = """
     timeout() {
-        [[ "$*" == '300 sudo apt-get update' ]]
+        if [[ "$*" != '300 sudo apt-get update' ]]; then
+            echo "bad timeout args: $*" >&2
+            exit 64
+        fi
         local count=0
 
         if [[ -f "$ATTEMPTS" ]]; then count=$(wc -l < "$ATTEMPTS"); fi
@@ -56,7 +59,10 @@ def test_apt_retry(
         echo 'Fetched all indexes'
     }
     sleep() {
-        [[ "$1" == 5 ]]
+        if [[ "$1" != 5 ]]; then
+            echo "bad sleep args: $*" >&2
+            exit 65
+        fi
         echo sleep >> "$SLEEPS"
     }
     """
