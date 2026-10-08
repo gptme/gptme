@@ -66,7 +66,7 @@ def capabilities(
     if from_json:
         try:
             snapshot = json.loads(from_json.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise click.ClickException(f"invalid JSON in {from_json}: {exc}") from exc
     else:
         snapshot = collect_live(

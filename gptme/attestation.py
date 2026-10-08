@@ -254,7 +254,7 @@ def write_attestation(
 def load_attestation(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text())
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise AttestationError(f"Invalid attestation JSON: {path}") from exc
 
     if not isinstance(data, dict):
