@@ -708,8 +708,9 @@ def unload_mcp_server(name: str) -> str:
         that called ``load_mcp_server()``.  Calling this from a ``copy_context()``
         child when the server was loaded in the parent is unsupported: the child's
         ContextVar-backed tool list is updated, but the parent retains a dangling
-        tool reference that is never cleaned up.  gptme's single-execution-context
-        design naturally upholds this invariant.
+        tool reference that is never cleaned up.  Callers that execute commands
+        in separate copied contexts (including server tool-execution threads)
+        cannot rely on load/unload changes propagating between those contexts.
     """
     if name not in _dynamic_servers:
         return f"Server '{name}' is not loaded."
