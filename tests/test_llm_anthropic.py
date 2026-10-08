@@ -373,7 +373,7 @@ def test_anthropic_rate_limit_honors_retry_after():
     from unittest.mock import patch
 
     from anthropic import RateLimitError
-    from httpx import Request, Response
+    from httpx2 import Request, Response
 
     from gptme.llm.llm_anthropic import _handle_anthropic_transient_error
 
