@@ -1072,3 +1072,47 @@ def test_create_mcp_tools_failed_spec_build_removes_closed_client():
     assert tools == []
     client.close.assert_called_once_with()
     assert registry == {}, "closed client must not stay registered as loaded"
+
+
+def test_copy_context_unload_does_not_clean_parent_tool_list():
+    """Regression guard for the ContextVar contract on load/unload_mcp_server.
+
+    When unload_mcp_server() is called from a copy_context() child after the
+    server was loaded in the parent, the parent's ContextVar-backed tool list
+    retains the tool — creating a dangling reference.  This documents the
+    unsupported scenario described in the load/unload_mcp_server docstrings.
+    """
+    import contextvars
+
+    from gptme.tools import _loaded_tools_var
+
+    # Simulate a loaded MCP tool in the parent context by inserting directly
+    # into the shared dicts and the ContextVar-backed tool list.
+    mock_client = MagicMock()
+    server_name = "ctx-test-server"
+    tool_name = "ctx_test_tool"
+
+    _dynamic_servers[server_name] = mock_client
+    _dynamic_server_tool_names[server_name] = [tool_name]
+
+    fake_spec = MagicMock()
+    fake_spec.name = tool_name
+    _loaded_tools_var.set([*(_loaded_tools_var.get() or []), fake_spec])
+
+    parent_names_before = {t.name for t in (_loaded_tools_var.get() or [])}
+    assert tool_name in parent_names_before
+
+    # Attempt to unload from a copy_context() child
+    ctx = contextvars.copy_context()
+    ctx.run(lambda: unload_mcp_server(server_name))
+
+    # The shared dicts are modified (server is gone) — mixed state
+    assert server_name not in _dynamic_servers
+
+    # But the parent's ContextVar-backed tool list still contains the tool
+    # because copy_context() child ContextVar mutations do not propagate back
+    parent_names_after = {t.name for t in (_loaded_tools_var.get() or [])}
+    assert tool_name in parent_names_after, (
+        "parent ContextVar must retain tool after child unload: "
+        "cross-context unload is unsupported (see load/unload_mcp_server docstring)"
+    )
