@@ -244,10 +244,14 @@ jobs:
         # Add timeout and retry to apt-get update to handle slow/flaky mirrors.
         # Also checks for "W: Failed to fetch" lines: apt-get can exit 0 while
         # still failing to fetch some indexes, leaving packages unfindable.
+        # Use `if` form to capture exit code safely under errexit.
         for i in {1..3}; do
           echo "apt-get update attempt $i/3"
-          APT_OUT=$(timeout 300 sudo apt-get update 2>&1)
-          APT_RC=$?
+          if APT_OUT=$(timeout 300 sudo apt-get update 2>&1); then
+            APT_RC=0
+          else
+            APT_RC=$?
+          fi
           echo "$APT_OUT"
           if [ $APT_RC -eq 0 ] && ! echo "$APT_OUT" | grep -q "W: Failed to fetch"; then
             break
