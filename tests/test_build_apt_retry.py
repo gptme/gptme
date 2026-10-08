@@ -13,20 +13,23 @@ import pytest
 @pytest.mark.parametrize(
     ("failures", "status", "warning", "expected_attempts", "expected_status"),
     [
-        (0, 0, False, 1, 0),
-        (1, 100, False, 2, 0),
-        (1, 124, False, 2, 0),
-        (1, 0, True, 2, 0),
-        (3, 100, False, 3, 1),
-        (3, 124, False, 3, 1),
-        (3, 0, True, 3, 1),
+        (0, 0, "", 1, 0),
+        (1, 100, "", 2, 0),
+        (1, 124, "", 2, 0),
+        (1, 0, "W: Failed to fetch mirror", 2, 0),
+        (1, 0, "W: Some index files failed to download", 2, 0),
+        (1, 0, "W: Fehler beim Holen", 2, 0),
+        (3, 100, "", 3, 1),
+        (3, 124, "", 3, 1),
+        (3, 0, "W: Failed to fetch mirror", 3, 1),
+        (3, 0, "W: Fehler beim Holen", 3, 1),
     ],
 )
 def test_apt_retry(
     tmp_path: Path,
     failures: int,
     status: int,
-    warning: bool,
+    warning: str,
     expected_attempts: int,
     expected_status: int,
 ) -> None:
@@ -38,13 +41,13 @@ def test_apt_retry(
     end = workflow.index("        sudo apt-get install", start)
     loop = textwrap.dedent(workflow[start:end])
     output = tmp_path / "apt-output"
-    # A warning early in large output reproduces grep -q's SIGPIPE/pipefail bug.
-    output.write_text(("W: Failed to fetch mirror\n" if warning else "") + "x" * 262144)
+    # Keep large/localized diagnostics to guard against parsing output again.
+    output.write_text((warning + "\n" if warning else "") + "x" * 262144)
     attempts = tmp_path / "attempts"
     sleeps = tmp_path / "sleeps"
     script = """
     timeout() {
-        if [[ "$*" != '300 sudo apt-get update' ]]; then
+        if [[ "$*" != '300 sudo apt-get update -o APT::Update::Error-Mode=any' ]]; then
             echo "bad timeout args: $*" >&2
             exit 64
         fi
@@ -54,6 +57,11 @@ def test_apt_retry(
         echo attempt >> "$ATTEMPTS"
         if (( count < FAILURES )); then
             cat "$OUTPUT"
+            # With Error-Mode=any, partial fetch warnings produce exit 100,
+            # independent of the language or wording of apt's diagnostics.
+            if [[ -n "$FETCH_FAILURE" ]]; then
+                return 100
+            fi
             return "$STATUS"
         fi
         echo 'Fetched all indexes'
@@ -75,6 +83,7 @@ def test_apt_retry(
             "OUTPUT": str(output),
             "FAILURES": str(failures),
             "STATUS": str(status),
+            "FETCH_FAILURE": warning,
         },
         check=False,
         capture_output=True,
