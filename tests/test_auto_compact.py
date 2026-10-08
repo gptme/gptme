@@ -4486,6 +4486,8 @@ def test_resume_via_llm_recompaction_tail_does_not_keep_old_checkpoint(
     idx = _find_previous_checkpoint_index(view)
     assert idx is not None and "NEW_CHECKPOINT" in view[idx].content
     assert any(m.content == "newer answer" for m in view)
+
+
 def test_checkpoint_turn_treats_unavailable_tool_call_as_intermediate():
     """A structured call to an unavailable tool is an intermediate step, never
     the finished checkpoint: it carries a call_id even though is_runnable is
