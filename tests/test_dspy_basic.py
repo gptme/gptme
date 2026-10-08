@@ -240,7 +240,7 @@ def test_is_quota_error_type_based():
     """Test is_quota_error with anthropic exception types (isinstance-based paths)."""
     try:
         from anthropic import BadRequestError, RateLimitError
-        from httpx import Request, Response
+        from httpx2 import Request, Response
 
         request = Request("POST", "https://api.anthropic.com/v1/messages")
 
