@@ -253,7 +253,7 @@ jobs:
             APT_RC=$?
           fi
           echo "$APT_OUT"
-          if [ $APT_RC -eq 0 ] && ! echo "$APT_OUT" | grep -q "W: Failed to fetch"; then
+          if [ "$APT_RC" -eq 0 ] && [[ "$APT_OUT" != *"W: Failed to fetch"* ]]; then
             break
           fi
           echo "apt-get update failed or had fetch warnings (attempt $i/3)"
