@@ -39,6 +39,11 @@ def recall_result(
         return f"Error: result #{result_id} does not exist in the master log."
     if not is_tool_result_message(messages, index):
         return f"Error: master-log message #{result_id} is not a tool result."
+    if messages[index].hide:
+        return (
+            f"Error: result #{result_id} is hidden (e.g. a secret entered via "
+            "elicit) and cannot be recalled."
+        )
 
     content = messages[index].content
     if start_char > len(content):

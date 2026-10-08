@@ -565,9 +565,11 @@ class LogManager:
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
-            if "lossless" in self._branches:
+            if "lossless" in self._branches and self.current_branch == "main":
                 # Keep the preserved lossless transcript current so results
-                # appended after an in-place compaction stay recallable.
+                # appended after an in-place compaction stay recallable. Only
+                # mirror main: messages from other (experiment) branches must
+                # not leak into the main conversation's recallable results.
                 self._branches["lossless"] = self._branches["lossless"].append(msg)
 
         self.write()

@@ -216,3 +216,52 @@ def test_user_message_quoting_catalog_is_not_filtered(tmp_path):
     )
     assert not _is_result_stubs_message(quoted)
     assert _is_result_stubs_message(real)
+
+
+def test_recall_result_refuses_hidden_results(tmp_path):
+    from gptme.tools.recall import recall_result
+
+    messages = _messages() + [
+        Message("system", "hunter2", call_id="call-secret", hide=True)
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+
+    assert "hidden" in recall_result(6)
+
+
+def test_resume_keeps_intro_and_checkpoint_adjacent(tmp_path):
+    from gptme.tools.autocompact.resume import (
+        _find_previous_checkpoint_index,
+        _resume_via_llm,
+    )
+
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    checkpoint = Message("assistant", "## Objective\nKeep building the recall path.")
+
+    list(
+        _resume_via_llm(
+            manager,
+            messages,
+            use_view_branch=False,
+            keep_recent_tokens=0,
+            checkpoint_response=checkpoint,
+        )
+    )
+
+    assert _find_previous_checkpoint_index(manager.log.messages) is not None
+
+
+def test_append_non_main_branch_does_not_mirror_to_lossless(tmp_path):
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    manager.preserve_lossless_log()
+
+    manager.branch("experiment")
+    manager.append(Message("system", "experiment result", call_id="call-exp"))
+
+    lossless_contents = [m.content for m in manager._branches["lossless"].messages]
+    assert "experiment result" not in lossless_contents

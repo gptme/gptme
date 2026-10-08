@@ -992,9 +992,7 @@ def _resume_via_llm(
             and not _is_result_stubs_message(m)
         ]
     else:
-        preserved_head = [
-            m for m in msgs[:head_end] if not _is_result_stubs_message(m)
-        ]
+        preserved_head = [m for m in msgs[:head_end] if not _is_result_stubs_message(m)]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
@@ -1037,9 +1035,7 @@ def _resume_via_llm(
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
-    tail_source = [
-        m for m in tail_source if not _is_result_stubs_message(m)
-    ]
+    tail_source = [m for m in tail_source if not _is_result_stubs_message(m)]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,
@@ -1058,10 +1054,14 @@ def _resume_via_llm(
     )
 
     def assemble_fixed_parts() -> list[Message]:
+        # The result catalog goes AFTER the checkpoint, not between the
+        # compaction intro and the checkpoint: _find_previous_checkpoint_index()
+        # requires those two messages to be adjacent, and splitting them would
+        # make the next re-compaction fail to recognize the saved checkpoint.
         result_parts = preserved_head + file_context_msgs + [resume_intro_msg]
+        result_parts.append(resume_msg)
         if result_stubs_msg is not None:
             result_parts.append(result_stubs_msg)
-        result_parts.append(resume_msg)
         return result_parts
 
     # Budget guard: if fixed parts + recent_tail exceeds the model's context
