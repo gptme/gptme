@@ -31,6 +31,7 @@ import glob
 import importlib
 import io
 import json
+import locale
 import logging
 import os
 import subprocess
@@ -430,21 +431,39 @@ def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""
     from ..util.tokens import len_tokens  # fmt: skip
 
-    # Get text from file if specified (or stdin via "-")
+    # Get text from file if specified (or stdin via "-"). Read raw bytes and
+    # decode explicitly: UTF-8 first, then the locale encoding as a fallback
+    # so valid non-UTF-8 text files (e.g. cp1252) keep working as before.
+    data: bytes | None = None
     try:
         if file:
             if file == "-":
-                text = sys.stdin.buffer.read().decode("utf-8")
+                data = sys.stdin.buffer.read()
             else:
-                with open(file, encoding="utf-8", newline="") as f:
-                    text = f.read()
+                with open(file, "rb") as f:
+                    data = f.read()
         elif text == "-":
-            text = sys.stdin.buffer.read().decode("utf-8")
-    except UnicodeDecodeError as e:
-        source = "stdin" if file in (None, "-") else file
-        raise click.ClickException(
-            f"{source} is not valid UTF-8 text: {e.reason}"
-        ) from None
+            data = sys.stdin.buffer.read()
+
+        if data is not None:
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError as e:
+                source = "stdin" if file in (None, "-") else file
+                fallback = locale.getpreferredencoding(False) or "utf-8"
+                try:
+                    text = data.decode(fallback)
+                except (UnicodeDecodeError, LookupError):
+                    raise click.ClickException(
+                        f"{source} is not valid UTF-8 text"
+                        f" (and not decodable as {fallback}): {e.reason}"
+                    ) from None
+                click.echo(
+                    f"Warning: {source} is not UTF-8; decoded using {fallback}",
+                    err=True,
+                )
+    except OSError as e:
+        raise click.ClickException(f"failed to read {file}: {e}") from None
 
     if not text:
         print(

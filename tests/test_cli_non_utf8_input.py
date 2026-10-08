@@ -1,6 +1,6 @@
 """gptme-util: non-UTF-8 input files produce clean errors, not tracebacks."""
 
-import builtins
+import locale
 import os
 import subprocess
 import sys
@@ -11,10 +11,15 @@ from click.testing import CliRunner
 
 from gptme.cli.util import main
 
+# Bytes invalid in both UTF-8 and common single-byte encodings like cp1252
+# (0x81/0x8D/0x90 are undefined in cp1252), so the locale fallback cannot save
+# them and the clean-error path fires.
+UNDECODABLE = b"\x81\x8d\x90 not decodable in utf-8 or cp1252"
+
 
 def test_tokens_count_binary_file_is_clean_error(tmp_path: Path):
     f = tmp_path / "blob.bin"
-    f.write_bytes(b"\xff\xfe\x80 not utf-8")
+    f.write_bytes(UNDECODABLE)
     result = CliRunner().invoke(main, ["tokens", "count", "-f", str(f)])
     assert result.exit_code == 1
     assert "not valid UTF-8" in result.output
@@ -22,11 +27,28 @@ def test_tokens_count_binary_file_is_clean_error(tmp_path: Path):
 
 
 def test_tokens_count_binary_stdin_is_clean_error():
-    result = CliRunner().invoke(
-        main, ["tokens", "count", "-f", "-"], input=b"\xff\xfe\x80 bad"
-    )
+    result = CliRunner().invoke(main, ["tokens", "count", "-f", "-"], input=UNDECODABLE)
     assert result.exit_code == 1
     assert "stdin is not valid UTF-8" in result.output
+
+
+def test_tokens_count_cp1252_file_falls_back_with_warning(tmp_path: Path, monkeypatch):
+    """A valid cp1252 text file still counts (previous behavior), with a warning."""
+    monkeypatch.setattr(
+        locale, "getpreferredencoding", lambda do_setlocale=False: "cp1252"
+    )
+    f = tmp_path / "legacy.txt"
+    f.write_bytes("café résumé".encode("cp1252"))
+    result = CliRunner().invoke(main, ["tokens", "count", "-f", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "decoded using cp1252" in result.output
+    assert "Token count (gpt-4):" in result.output
+    # the decoded text matches what cp1252 decoding yields, not mojibake of a
+    # strict-UTF-8 misread
+    from gptme.util.tokens import len_tokens
+
+    expected = len_tokens("café résumé", "gpt-4")
+    assert f"Token count (gpt-4): {expected}" in result.output
 
 
 @pytest.mark.parametrize("args", [["-f", "-"], ["-"]])
@@ -64,18 +86,16 @@ def test_tokens_count_real_stdin(args: list[str], encoding: str, valid: bool):
 
 
 @pytest.mark.parametrize("valid", [False, True])
-def test_tokens_count_file_ignores_locale(tmp_path: Path, monkeypatch, valid: bool):
+def test_tokens_count_file_prefers_utf8_over_locale(
+    tmp_path: Path, monkeypatch, valid: bool
+):
+    """UTF-8 wins over the locale fallback; locale is only a last resort."""
+    monkeypatch.setattr(
+        locale, "getpreferredencoding", lambda do_setlocale=False: "cp1252"
+    )
     f = tmp_path / "input.txt"
-    payload = "héllo 世界".encode() if valid else b"\xff\xfe\x80 bad"
+    payload = "héllo 世界".encode() if valid else UNDECODABLE
     f.write_bytes(payload)
-    original_open = builtins.open
-
-    def locale_open(path, *args, **kwargs):
-        if path == str(f):
-            kwargs.setdefault("encoding", "cp1252")
-        return original_open(path, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "open", locale_open)
     result = CliRunner().invoke(main, ["tokens", "count", "-f", str(f)])
     if valid:
         from gptme.util.tokens import len_tokens
@@ -83,6 +103,7 @@ def test_tokens_count_file_ignores_locale(tmp_path: Path, monkeypatch, valid: bo
         assert result.exit_code == 0, result.output
         expected = len_tokens(payload.decode("utf-8"), "gpt-4")
         assert f"Token count (gpt-4): {expected}" in result.output
+        assert "Warning" not in result.output  # decoded as UTF-8, no fallback
     else:
         assert result.exit_code == 1
         assert "not valid UTF-8" in result.output
