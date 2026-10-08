@@ -190,9 +190,17 @@ def _apply_resume_msgs(manager: LogManager, resume_msgs: list[Message]) -> None:
         if latest is not None and latest.content == content:
             continue
 
-        # Already part of the persisted startup prompt?
+        # Already part of the persisted startup prompt (exact match only)?
+        # Substring matching is intentionally avoided: a profile edit that
+        # shortens the system_prompt to text contained in the old startup
+        # prompt would never be re-applied, silently leaving a stale profile
+        # in effect.  Embedded copies (profile text inside a larger block) are
+        # stripped by _hoist_resume_msgs so the provider receives only the
+        # newest standalone copy; here we only skip appending when the startup
+        # message IS the profile exactly, meaning the profile was already
+        # captured at conversation creation and has not changed.
         if content and any(
-            isinstance(m.content, str) and content in m.content
+            isinstance(m.content, str) and m.content == content
             for m in _leading_system_messages(manager.log)
         ):
             continue

@@ -1249,13 +1249,32 @@ def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
         SECTION_HEADER_BY_KEY[key] for key in latest if key in SECTION_HEADER_BY_KEY
     }
     if drop_prefixes:
+
+        def _is_standalone_profile_section(content: str, prefix: str) -> bool:
+            """Return True only if content is a pure profile section.
+
+            A pure section starts with the known prefix and contains no other
+            top-level section headers (lines starting with ``# `` and ending
+            with ``:``).  This guards against dropping a user-authored startup
+            message that happens to begin with ``# Agent Profile:`` but also
+            carries other content beyond the profile block.
+            """
+            if not content.startswith(prefix):
+                return False
+            for line in content.split("\n")[1:]:
+                if line.startswith("# ") and line.rstrip().endswith(":"):
+                    return False
+            return True
+
         remaining = [
             m
             for i, m in enumerate(remaining)
             if not (
                 i < leading_len
                 and isinstance(m.content, str)
-                and any(m.content.startswith(p) for p in drop_prefixes)
+                and any(
+                    _is_standalone_profile_section(m.content, p) for p in drop_prefixes
+                )
             )
         ]
 
