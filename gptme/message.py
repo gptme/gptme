@@ -231,6 +231,8 @@ class MessageMetadata(TypedDict, total=False):
     # Identifies one generated startup-prompt generation. A newer generation
     # supersedes older ones in provider context while all remain on disk.
     prompt_generation: str
+    # Provenance marker for system messages generated around a compaction checkpoint.
+    compaction_artifact: str
     skill_invocation_id: str  # Explicit skill invocation that queued this prompt
     # Set when the degeneration guard aborted mid-stream and retried on another provider.
     degeneration: DegenerationData
