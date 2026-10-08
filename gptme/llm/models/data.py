@@ -627,6 +627,20 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     "openrouter": {
+        # Mistral Large 4 (2026-10-06). OpenRouter enables reasoning at high
+        # effort by default; callers can disable it for routine tool work with
+        # ``GPTME_THINKING_EFFORT=none``.
+        # https://openrouter.ai/mistralai/mistral-large-4-0
+        "mistralai/mistral-large-4-0": {
+            "context": 524_288,
+            "max_output": 262_144,
+            "price_input": 0.68,
+            "price_output": 2.09,
+            "price_cache_read": 0.07,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
         "qwen/qwen3-max": {
             "context": 256_000,
             "max_output": 8192,

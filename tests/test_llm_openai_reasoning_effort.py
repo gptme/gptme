@@ -166,6 +166,15 @@ def test_openrouter_sends_max_effort(monkeypatch):
     assert body["reasoning"] == {"effort": "max"}
 
 
+def test_mistral_large_4_can_disable_default_reasoning(monkeypatch):
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "none")
+    model = get_model("openrouter/mistralai/mistral-large-4-0")
+
+    body = extra_body("openrouter", model)
+
+    assert body["reasoning"] == {"effort": "none"}
+
+
 def test_openrouter_rejects_unknown_effort(monkeypatch):
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "extreme")
     with pytest.raises(
