@@ -573,6 +573,12 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
 
     Returns:
         Status message
+
+    Note:
+        ContextVar contract: ToolSpecs are registered in the *current* ContextVar
+        context.  A caller using ``copy_context()`` that loads a server inside the
+        child will not expose those tools to the parent context.  Always pair
+        ``load_mcp_server`` and ``unload_mcp_server`` within the same context.
     """
     config = get_config()
 
@@ -696,6 +702,15 @@ def unload_mcp_server(name: str) -> str:
 
     Returns:
         Status message
+
+    Note:
+        ContextVar contract: must be called from the **same** ContextVar context
+        that called ``load_mcp_server()``.  Calling this from a ``copy_context()``
+        child when the server was loaded in the parent is unsupported: the child's
+        ContextVar-backed tool list is updated, but the parent retains a dangling
+        tool reference that is never cleaned up.  Callers that execute commands
+        in separate copied contexts (including server tool-execution threads)
+        cannot rely on load/unload changes propagating between those contexts.
     """
     if name not in _dynamic_servers:
         return f"Server '{name}' is not loaded."

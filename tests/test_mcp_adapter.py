@@ -1072,3 +1072,54 @@ def test_create_mcp_tools_failed_spec_build_removes_closed_client():
     assert tools == []
     client.close.assert_called_once_with()
     assert registry == {}, "closed client must not stay registered as loaded"
+
+
+def test_copy_context_unload_does_not_clean_parent_tool_list(
+    mock_config, mock_mcp_client
+):
+    """Document cross-context unload while guarding cleanup in the child.
+
+    When unload_mcp_server() is called from a copy_context() child after the
+    server was loaded in the parent, the parent's ContextVar-backed tool list
+    retains the tool — creating a dangling reference.  This documents the
+    unsupported scenario described in the load/unload_mcp_server docstrings.
+    """
+    from contextvars import copy_context
+
+    from gptme.tools import (
+        _get_available_tools_cache,
+        _set_available_tools_cache,
+        get_tool,
+    )
+
+    server_name = "test-server"
+    tool_name = "test-server.test_tool"
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=mock_config),
+            patch("gptme.tools.mcp_adapter.set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server(server_name)
+            assert "Successfully loaded" in result
+            parent_tool = get_tool(tool_name)
+            assert parent_tool is not None
+
+            # Attempt to unload from a copy_context() child.
+            ctx = copy_context()
+            assert ctx.run(get_tool, tool_name) is parent_tool
+            result = ctx.run(unload_mcp_server, server_name)
+            assert "Successfully unloaded" in result
+            assert ctx.run(get_tool, tool_name) is None
+
+            # Shared state is cleaned, but the parent retains a dangling tool.
+            assert server_name not in _dynamic_servers
+            assert server_name not in _dynamic_server_tool_names
+            mock_mcp_client.close.assert_called_once_with()
+            assert tool_name not in {
+                tool.name for tool in (ctx.run(_get_available_tools_cache) or [])
+            }
+            assert get_tool(tool_name) is parent_tool
+    finally:
+        _set_available_tools_cache(None)
