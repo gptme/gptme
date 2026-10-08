@@ -241,7 +241,13 @@ jobs:
         sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
         sudo find /etc/apt/sources.list.d/ -name "*google*" -o -name "*chrome*" | xargs sudo rm -f || true
         sudo rm -rf /var/lib/apt/lists/*
-        sudo apt-get update
+        # Add timeout and retry to apt-get update to handle slow/flaky mirrors
+        for i in {1..3}; do
+          echo "apt-get update attempt $i/3"
+          timeout 300 sudo apt-get update && break
+          if [ "$i" -eq 3 ]; then echo "apt-get update failed after 3 attempts"; exit 1; fi
+          sleep 5
+        done
         sudo apt-get install -y python3-dev build-essential libffi-dev
 
     - name: Install dependencies
