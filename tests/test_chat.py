@@ -2160,8 +2160,44 @@ def test_apply_resume_msgs_appends_when_absent(tmp_path):
     assert (msgs[-1].metadata or {}).get("resume_key") == "agent_profile"
 
 
-def test_apply_resume_msgs_skips_when_already_present(tmp_path):
-    """A profile embedded in the persisted startup prompt must not be re-applied."""
+def test_apply_resume_msgs_skips_when_exact_startup_match(tmp_path):
+    """A startup prompt that IS the profile exactly must not be re-applied.
+
+    The resume skip uses exact content match: a profile embedded in a larger
+    startup prompt is appended (the newest standalone copy wins in
+    prepare_messages, and the embedded copy is stripped there), but an
+    unchanged profile captured verbatim at conversation creation is a true
+    duplicate and is skipped.
+    """
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    profile = "# Agent Profile: explorer\n\nRead-only."
+    manager = LogManager(
+        [
+            Message("system", profile, hide=True, pinned=True),
+            Message("user", "hello"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    before = len(manager.log.messages)
+
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg(profile)])
+
+    assert len(manager.log.messages) == before
+
+
+def test_apply_resume_msgs_appends_embedded_in_startup_prompt(tmp_path):
+    """A profile embedded in a larger startup prompt is appended, not skipped.
+
+    Exact-match deliberately does not suppress the embedded case: a later
+    edit that shortens the profile to text contained in the old startup block
+    must still be re-applied. prepare_messages/_hoist_resume_msgs strips the
+    embedded copy so the provider sees only the newest standalone profile.
+    """
     import importlib
 
     from gptme.logmanager import LogManager
@@ -2184,7 +2220,11 @@ def test_apply_resume_msgs_skips_when_already_present(tmp_path):
 
     chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
 
-    assert len(manager.log.messages) == before
+    assert len(manager.log.messages) == before + 1
+    assert manager.log.messages[-1].content.startswith("# Agent Profile: explorer")
+    assert (manager.log.messages[-1].metadata or {}).get(
+        "resume_key"
+    ) == "agent_profile"
 
 
 def test_apply_resume_msgs_user_text_does_not_suppress(tmp_path):
