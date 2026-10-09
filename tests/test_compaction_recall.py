@@ -318,3 +318,20 @@ def test_lossless_view_appends_survive_reload(tmp_path):
     assert reloaded.master_log.messages[result_id - 1].content == "later result"
     assert "later result" in recall_result(result_id)
     assert "0123456789" in recall_result(3)
+
+
+def test_checkpoint_final_response_after_declined_call_is_recognized(monkeypatch):
+    from gptme.tools.autocompact.hook import _pending_checkpoint_turn
+
+    monkeypatch.setattr("gptme.tools.base.get_tool_format", lambda: "tool")
+    request = Message(
+        "user", "Create checkpoint", metadata={"compaction_checkpoint_view": ""}
+    )
+    final = Message("assistant", "## Objective\nContinue building.")
+    messages = [
+        request,
+        Message("assistant", '@missing_tool(call-1): {"arg": "x"}'),
+        Message("system", "Tool declined", call_id="call-1"),
+        final,
+    ]
+    assert _pending_checkpoint_turn(messages, "") == (0, final)
