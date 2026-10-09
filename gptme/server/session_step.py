@@ -1272,6 +1272,11 @@ def step(
         released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
+                if skill_outcome == "failed" or session.interrupted:
+                    # A failed/revoked checkpoint chain must not resume after
+                    # an unrelated user turn. Only its epoch owner can clear
+                    # this state; a stale worker must leave a replacement alone.
+                    session.checkpoint_needs_continuation = False
                 if session.interrupted or not session.generating:
                     session.finish_skill_turn("abandoned")
                 elif skill_outcome is not None:
