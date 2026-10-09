@@ -252,6 +252,14 @@ def _compact_after_tool_results(
             if isinstance(hook_msg, StopPropagation):
                 continue
             _append_and_notify(manager, session, hook_msg)
+            if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                hook_msg.metadata or {}
+            ):
+                session.checkpoint_needs_continuation = bool(
+                    (hook_msg.metadata or {}).get(
+                        "compaction_checkpoint_needs_continuation"
+                    )
+                )
     except Exception:
         logger.exception(
             "Post-tool compaction failed for conversation %s", conversation_id
@@ -1203,7 +1211,9 @@ def step(
                 temperature=temperature,
                 top_p=top_p,
             )
-        elif checkpoint_requested or session.checkpoint_needs_continuation:
+        elif (
+            checkpoint_requested or session.checkpoint_needs_continuation
+        ) and not session.pending_tools:
             # A checkpoint request is a real follow-up turn, not a status
             # message. Transfer this step's reservation to a continuation so
             # the normal server model/tool loop handles it immediately. The

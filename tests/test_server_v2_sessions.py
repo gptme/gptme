@@ -1002,8 +1002,32 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 2
 
+    def test_post_tool_checkpoint_preserves_task_continuation(self, conv):
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import _compact_after_tool_results
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        manager = LogManager.load(conv["conversation_id"], lock=False)
+        request = Message(
+            "user",
+            "Create a checkpoint",
+            metadata={
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": True,
+            },
+        )
+        with patch(
+            "gptme.tools.autocompact.hook.autocompact_hook", return_value=[request]
+        ):
+            _compact_after_tool_results(manager, session, conv["conversation_id"])
+        assert manager.log.messages[-1] == request
+        assert session.checkpoint_needs_continuation is True
+
+    @pytest.mark.parametrize("pending_tool", [False, True])
     def test_checkpoint_request_starts_normal_server_continuation(
-        self, conv, tmp_path, monkeypatch
+        self, conv, tmp_path, monkeypatch, pending_tool
     ):
         """A TURN_POST checkpoint request must not wait for another API call."""
         monkeypatch.chdir(tmp_path)
@@ -1018,6 +1042,7 @@ class TestInterruptEndpoint:
         session.step_seq = 1
         session.generating = True
 
+        session.checkpoint_needs_continuation = pending_tool
         checkpoint_request = Message(
             "user",
             "Create a checkpoint with tools",
@@ -1028,10 +1053,17 @@ class TestInterruptEndpoint:
         )
 
         def hooks(hook_type, **kwargs):
+            if pending_tool:
+                return []
             return [checkpoint_request] if hook_type == HookType.TURN_POST else []
 
         with (
-            patch("gptme.server.session_step._stream", return_value=iter(["done"])),
+            patch(
+                "gptme.server.session_step._stream",
+                return_value=iter(
+                    ["```shell\necho checkpoint\n```" if pending_tool else "done"]
+                ),
+            ),
             patch("gptme.server.session_step.require_workspace_exists"),
             patch("gptme.server.session_step.prepare_execution_environment"),
             patch("gptme.server.session_step.trigger_hook", side_effect=hooks),
@@ -1067,6 +1099,12 @@ class TestInterruptEndpoint:
                 step_seq=1,
             )
 
+        if pending_tool:
+            start_step.assert_not_called()
+            assert session.pending_tools
+            assert session.checkpoint_needs_continuation is True
+            assert session.generating is False
+            return
         start_step.assert_called_once()
         kwargs = start_step.call_args.kwargs
         assert kwargs["reserved"] is True
