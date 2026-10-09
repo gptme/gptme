@@ -265,3 +265,56 @@ def test_append_non_main_branch_does_not_mirror_to_lossless(tmp_path):
 
     lossless_contents = [m.content for m in manager._branches["lossless"].messages]
     assert "experiment result" not in lossless_contents
+
+
+def test_unknown_codeblock_language_is_not_a_tool_result():
+    from gptme.util.master_context import is_tool_result_message
+
+    messages = [
+        Message("assistant", "Example:\n```rust\nfn main() {}\n```"),
+        Message("system", "ordinary system notice"),
+    ]
+    assert not is_tool_result_message(messages, 1)
+
+
+def test_disabled_shell_results_remain_recallable(monkeypatch):
+    import gptme.tools
+    from gptme.util.master_context import is_tool_result_message
+
+    monkeypatch.setattr(gptme.tools, "_get_loaded_tools", lambda: [])
+    messages = [
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "shellcheck warning"),
+        Message("system", "hi"),
+    ]
+    assert is_tool_result_message(messages, 1)
+    assert is_tool_result_message(messages, 2)
+
+
+def test_lossless_view_appends_survive_reload(tmp_path):
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    logdir = tmp_path / "conversation"
+    manager = LogManager(messages, logdir=logdir, lock=False)
+    manager.write()
+    list(
+        _resume_via_llm(
+            manager,
+            messages,
+            use_view_branch=False,
+            keep_recent_tokens=0,
+            checkpoint_response=Message("assistant", "## Objective\nManual compact."),
+        )
+    )
+    manager.create_view("compacted-001", list(manager.log.messages))
+    manager.switch_view("compacted-001")
+    manager.append(Message("assistant", "later tool call"))
+    manager.append(Message("system", "later result", call_id="call-later"))
+    result_id = len(manager.master_log.messages)
+
+    reloaded = LogManager.load(logdir, lock=False)
+    assert reloaded.master_log.messages[result_id - 1].content == "later result"
+    assert "later result" in recall_result(result_id)
+    assert "0123456789" in recall_result(3)

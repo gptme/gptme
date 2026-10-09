@@ -58,21 +58,23 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
         return False
     if message_contains_tool_use(messages[lookback]):
         return True
-    # Fallback for unloaded tools: message_contains_tool_use() requires the
-    # tool to be currently registered. If a tool was disabled via
-    # request_tool_change or the conversation resumed without it, the codeblock
-    # lang tag still appears in the assistant message — use it as a structural
-    # proxy so old results stay recallable.
+    # Fallback for disabled tools: markdown parsing checks only loaded tools.
+    # Discover available block types without enabling tools or connecting MCP
+    # servers, so old results remain recallable without treating arbitrary
+    # example languages as executable calls.
     from ..codeblock import Codeblock
+    from ..tools import get_available_tools
 
-    _non_tool_langs = frozenset(
-        {"csv", "json", "html", "xml", "stdout", "stderr", "result"}
-    )
+    tool_langs = {
+        lang
+        for tool in get_available_tools(include_mcp=False)
+        for lang in tool.block_types
+    }
     prev_msg = messages[lookback]
     if prev_msg.role == "assistant":
         for codeblock in Codeblock.iter_from_markdown(prev_msg.content):
             lang = codeblock.lang.split()[0] if codeblock.lang else ""
-            if lang and lang not in _non_tool_langs:
+            if lang in tool_langs:
                 return True
     return False
 
