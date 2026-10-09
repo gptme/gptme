@@ -116,12 +116,11 @@ def test_reminder_uses_anchored_provider_input(manager):
 
 @pytest.mark.parametrize("entrypoint", ["cli", "server"])
 def test_post_tool_path_appends_reminder_without_rewriting_history(manager, entrypoint):
-    from unittest.mock import MagicMock
-
     from gptme.chat import _run_post_tool_compaction
 
     if entrypoint == "server":
         pytest.importorskip("flask")
+        from gptme.server.session_models import ConversationSession
         from gptme.server.session_step import _compact_after_tool_results
 
     original = list(manager.log.messages)
@@ -132,8 +131,9 @@ def test_post_tool_path_appends_reminder_without_rewriting_history(manager, entr
         if entrypoint == "cli":
             assert not _run_post_tool_compaction(manager)
         else:
-            session = MagicMock()
-            session.conversation_id = "test-reminder"
+            session = ConversationSession(
+                id="test-session", conversation_id="test-reminder"
+            )
             with patch("gptme.server.session_step.SessionManager.add_event") as notify:
                 _compact_after_tool_results(manager, session, "test-reminder")
             assert notify.call_count == 1
