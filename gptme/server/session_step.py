@@ -236,6 +236,8 @@ def _compact_after_tool_results(
     session: ConversationSession,
     conversation_id: str,
     llm_unlocked: AbstractContextManager[object] | None = None,
+    *,
+    step_seq: int | None = None,
 ) -> None:
     """Run always-on compaction after tool results are on the log.
 
@@ -247,19 +249,31 @@ def _compact_after_tool_results(
     from ..hooks import StopPropagation
     from ..tools.autocompact.hook import autocompact_hook
 
+    with session.step_lock:
+        if session.interrupted or (
+            step_seq is not None and session.step_seq != step_seq
+        ):
+            return
     try:
         for hook_msg in autocompact_hook(manager, llm_unlocked=llm_unlocked):
             if isinstance(hook_msg, StopPropagation):
                 continue
-            _append_and_notify(manager, session, hook_msg)
-            if hook_msg.role == "user" and "compaction_checkpoint_view" in (
-                hook_msg.metadata or {}
-            ):
-                session.checkpoint_needs_continuation = bool(
-                    (hook_msg.metadata or {}).get(
-                        "compaction_checkpoint_needs_continuation"
+            # The hook may release the conversation lock for model work.
+            # Recheck ownership before publishing its request or resume flag.
+            with session.step_lock:
+                if session.interrupted or (
+                    step_seq is not None and session.step_seq != step_seq
+                ):
+                    return
+                _append_and_notify(manager, session, hook_msg)
+                if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                    hook_msg.metadata or {}
+                ):
+                    session.checkpoint_needs_continuation = bool(
+                        (hook_msg.metadata or {}).get(
+                            "compaction_checkpoint_needs_continuation"
+                        )
                     )
-                )
     except Exception:
         logger.exception(
             "Post-tool compaction failed for conversation %s", conversation_id
@@ -1585,6 +1599,7 @@ def start_tool_execution(
                         session,
                         conversation_id,
                         llm_unlocked=_released(conv_lock),
+                        step_seq=my_seq,
                     )
             except Exception:
                 logger.exception(

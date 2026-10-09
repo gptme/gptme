@@ -1025,6 +1025,59 @@ class TestInterruptEndpoint:
         assert manager.log.messages[-1] == request
         assert session.checkpoint_needs_continuation is True
 
+    @pytest.mark.parametrize("revoke_during_hook", [False, True])
+    def test_revoked_tool_worker_cannot_set_checkpoint_continuation(
+        self, conv, revoke_during_hook
+    ):
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import _compact_after_tool_results
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        manager = LogManager.load(conv["conversation_id"], lock=False)
+        original_messages = list(manager.log.messages)
+        session.step_seq = 1
+        request = Message(
+            "user",
+            "Create a checkpoint",
+            metadata={
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": True,
+            },
+        )
+
+        def revoke():
+            session.step_seq = 2
+            # A replacement /step can already have cleared interrupted.
+            session.interrupted = False
+
+        def hook(*args, **kwargs):
+            if revoke_during_hook:
+                revoke()
+            yield request
+
+        if not revoke_during_hook:
+            revoke()
+        with patch("gptme.tools.autocompact.hook.autocompact_hook", side_effect=hook):
+            _compact_after_tool_results(
+                manager, session, conv["conversation_id"], step_seq=1
+            )
+        assert session.checkpoint_needs_continuation is False
+        assert manager.log.messages == original_messages
+
+    def test_interrupt_clears_checkpoint_continuation(self, conv, client):
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        session.checkpoint_needs_continuation = True
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+        assert response.status_code == 200
+        assert session.checkpoint_needs_continuation is False
+
     @pytest.mark.parametrize("pending_tool", [False, True])
     def test_checkpoint_request_starts_normal_server_continuation(
         self, conv, tmp_path, monkeypatch, pending_tool
