@@ -235,8 +235,10 @@ linkcheck_ignore = [
     r"https://(www\.)?reddit\.com/.*",  # blocks datacenter IPs (403)
     r"https://app\.requesty\.ai/.*",  # SPA dashboard: server 404s client-side routes
     r"llms(-full)?\.txt$",  # generated into the build output by sphinx-llms-txt
-    # Verified source exists; this specific blob viewer returns 429 in CI.
-    r"https://github\.com/gptme/gptme-contrib/blob/master/scripts/perplexity\.py$",
+    # github.com 429s CI runners on blob/tree pages, failing runs on links nobody
+    # touched. scripts/check_docs_repo_links.py checks these paths against git
+    # instead (run by `make docs-linkcheck`).
+    r"https://github\.com/gptme/[^/]+/(blob|tree)/master/.*",
 ]
 # GitHub renders README heading anchors as "user-content-*" ids (resolved by JS),
 # so the anchor check always fails; still check that the page itself exists.
