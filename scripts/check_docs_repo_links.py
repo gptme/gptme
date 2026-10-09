@@ -40,8 +40,8 @@ def find_links() -> dict[str, dict[str, set[str]]]:
                 f.read_text(errors="replace").splitlines(), 1
             ):
                 for repo, path in LINK.findall(line):
-                    # RST trailing "_" (``link <url>`_``) and sentence punctuation
-                    links[repo][path.rstrip("/._,;:")].add(f"{rel}:{lineno}")
+                    # Trailing slash and sentence punctuation after a bare URL
+                    links[repo][path.rstrip("/.,;:")].add(f"{rel}:{lineno}")
     return links
 
 
