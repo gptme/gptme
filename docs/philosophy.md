@@ -27,7 +27,10 @@ runtime projected into a different medium, not separate products.
 ### Local-first, you own the compute
 
 By default gptme runs on your machine against your own API keys or local models.
-Conversations, context and files stay with you unless you choose a hosted setup.
+Conversation logs and files are stored locally unless you choose a hosted setup,
+but cloud models receive the conversations and context you supply, including
+file contents read into the conversation. For data that must stay on your
+machine, use a local model; see [security](security.rst).
 A tool that can run offline against open-weight models remains yours regardless
 of what happens to any one vendor or endpoint.
 
@@ -78,7 +81,9 @@ architecture.
   protocols, no data routed through gptme-operated servers by default.
 - **Not opaque.** Agents may run lights-out, with nobody watching, but they remain
   transparent to the person who owns them: everything is logged and inspectable,
-  and changes land in version control where they can be reviewed and reverted.
+  and workspace changes can be reviewed and reverted once committed to version
+  control. Actions outside the repository need separate safeguards; see
+  [autonomous-operation guardrails](agents/autonomous.rst).
 
 ## On autonomous operation
 
