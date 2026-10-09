@@ -147,6 +147,7 @@ docs-structure: ## Show the built docs' sidebar navigation with each page's head
 	poetry run python scripts/docs_structure.py docs/_build/html --headings
 
 docs-linkcheck: docs/conf.py docs/*.rst ## Check docs for dead links (see docs/conf.py linkcheck_ignore)
+	python3 scripts/check_docs_repo_links.py
 	poetry run make -C docs linkcheck
 
 docs-auto:

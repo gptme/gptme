@@ -16,6 +16,7 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs-linkcheck.yml'
+      - 'scripts/check_docs_repo_links.py'
 
 permissions:
   contents: read
