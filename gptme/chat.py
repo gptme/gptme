@@ -563,6 +563,21 @@ def _process_message_conversation(
                 for msg in pre_msgs:
                     manager.append(msg)
 
+            # Restore a saved checkpoint's follow-up before its response can
+            # replace the request with a compacted view (including restarts
+            # between the checkpoint's tool calls).
+            from .tools.autocompact.hook import _pending_checkpoint_turn
+
+            pending_checkpoint = _pending_checkpoint_turn(
+                manager.log.messages, manager.current_view or ""
+            )
+            if pending_checkpoint is not None and pending_checkpoint[1] is None:
+                checkpoint_followup = bool(
+                    (manager.log.messages[pending_checkpoint[0]].metadata or {}).get(
+                        "compaction_checkpoint_needs_continuation"
+                    )
+                )
+
             response_msgs = list(
                 step(
                     manager.log,

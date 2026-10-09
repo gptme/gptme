@@ -945,6 +945,24 @@ def step(
         manager.write()
         logger.debug("Wrote step.pre hook messages to disk")
 
+    # A new server session has no in-memory continuation flag. Recover it
+    # from the live request before the checkpoint response removes that request
+    # from the active view. Failed/superseded requests are excluded by the helper.
+    from ..tools.autocompact.hook import _pending_checkpoint_turn
+
+    pending_checkpoint = _pending_checkpoint_turn(
+        manager.log.messages, manager.current_view or ""
+    )
+    if pending_checkpoint is not None and pending_checkpoint[1] is None:
+        with session.step_lock:
+            if session.step_seq != my_step_seq or session.interrupted:
+                return
+            session.checkpoint_needs_continuation = bool(
+                (manager.log.messages[pending_checkpoint[0]].metadata or {}).get(
+                    "compaction_checkpoint_needs_continuation"
+                )
+            )
+
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
     if not msgs:
@@ -1225,20 +1243,22 @@ def step(
                 temperature=temperature,
                 top_p=top_p,
             )
-        elif (
-            checkpoint_requested or session.checkpoint_needs_continuation
-        ) and not session.pending_tools:
+        elif not session.pending_tools:
             # A checkpoint request is a real follow-up turn, not a status
             # message. Transfer this step's reservation to a continuation so
             # the normal server model/tool loop handles it immediately. The
             # same transfer resumes the interrupted task when this step just
             # completed the checkpoint turn and the original task still owed
             # a model response.
-            if not checkpoint_requested:
-                session.checkpoint_needs_continuation = False
             continuation_seq: int | None = None
             with session.step_lock:
-                if session.step_seq == my_step_seq and not session.interrupted:
+                if (
+                    session.step_seq == my_step_seq
+                    and not session.interrupted
+                    and (checkpoint_requested or session.checkpoint_needs_continuation)
+                ):
+                    if not checkpoint_requested:
+                        session.checkpoint_needs_continuation = False
                     session.step_seq += 1
                     continuation_seq = session.step_seq
                     session.generating = True

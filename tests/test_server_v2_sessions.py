@@ -1079,8 +1079,16 @@ class TestInterruptEndpoint:
         assert session.checkpoint_needs_continuation is False
 
     @pytest.mark.parametrize("pending_tool", [False, True])
+    @pytest.mark.parametrize("saved_request", [False, True])
+    @pytest.mark.parametrize("replaced_during_naming", [False, True])
     def test_checkpoint_request_starts_normal_server_continuation(
-        self, conv, tmp_path, monkeypatch, pending_tool
+        self,
+        conv,
+        tmp_path,
+        monkeypatch,
+        pending_tool,
+        saved_request,
+        replaced_during_naming,
     ):
         """A TURN_POST checkpoint request must not wait for another API call."""
         monkeypatch.chdir(tmp_path)
@@ -1105,10 +1113,24 @@ class TestInterruptEndpoint:
             },
         )
 
+        if saved_request:
+            from gptme.logmanager import LogManager
+
+            manager = LogManager.load(conv["conversation_id"], lock=False)
+            manager.append(checkpoint_request)
+            manager.write()
+
         def hooks(hook_type, **kwargs):
-            if pending_tool:
+            if pending_tool or saved_request:
                 return []
             return [checkpoint_request] if hook_type == HookType.TURN_POST else []
+
+        def auto_name(*args):
+            if replaced_during_naming:
+                with session.step_lock:
+                    session.step_seq += 1
+                    session.checkpoint_needs_continuation = True
+                    session.generating = True
 
         with (
             patch(
@@ -1124,7 +1146,10 @@ class TestInterruptEndpoint:
                 "gptme.server.session_step.prepare_messages",
                 return_value=[Message("user", "test")],
             ),
-            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch(
+                "gptme.server.session_step._try_auto_name_and_notify",
+                side_effect=auto_name,
+            ),
             patch("gptme.server.session_step.set_workspace_cwd"),
             patch(
                 "gptme.server.session_step.ChatConfig.load_or_create",
@@ -1152,6 +1177,12 @@ class TestInterruptEndpoint:
                 step_seq=1,
             )
 
+        if replaced_during_naming:
+            start_step.assert_not_called()
+            assert session.step_seq == 2
+            assert session.checkpoint_needs_continuation is True
+            assert session.generating is True
+            return
         if pending_tool:
             start_step.assert_not_called()
             assert session.pending_tools
@@ -1164,7 +1195,7 @@ class TestInterruptEndpoint:
         assert kwargs["step_seq"] == 2
         assert session.step_seq == 2
         assert session.generating is True
-        assert session.checkpoint_needs_continuation is True
+        assert session.checkpoint_needs_continuation is (not saved_request)
 
     def test_failed_checkpoint_does_not_continue_next_user_turn(
         self, conv, tmp_path, monkeypatch
