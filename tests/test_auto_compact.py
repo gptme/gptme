@@ -3653,7 +3653,8 @@ def test_get_recent_tail_drops_interrupted_tool_call():
     ]
 
 
-def test_split_recent_tail_is_lossless():
+@pytest.mark.parametrize("ending", ["answered", "interrupted", "pending"])
+def test_split_recent_tail_is_lossless(ending):
     """The split pair must reconstruct the input exactly: prefix + tail == msgs.
 
     Cleanup of unmatched tool calls belongs to the tail-only consumer
@@ -3663,15 +3664,37 @@ def test_split_recent_tail_is_lossless():
     """
     from gptme.tools.autocompact.resume import _split_recent_tail
 
-    msgs = [
-        Message("system", "system prompt"),
-        Message("user", "run the thing"),
-        Message("assistant", "```shell\necho hi\n```"),
-        Message("user", "stop, do something else"),
-        Message("assistant", "ok"),
+    steps = [
+        [
+            Message("system", "system prompt"),
+            Message("user", "run the thing"),
+            Message("assistant", "```shell\necho hi\n```"),
+            Message("system", "shellcheck warning"),
+            Message("system", "hi", call_id="call-1"),
+        ],
+        [Message("user", "stop, do something else"), Message("assistant", "ok")],
     ]
-    prefix, tail = _split_recent_tail(msgs, 10_000)
-    assert prefix + tail == msgs
+    if ending == "interrupted":
+        steps.append([Message("assistant", "```shell\necho interrupted\n```")])
+    elif ending == "pending":
+        steps.append([Message("user", "one more thing")])
+    msgs = [msg for step in steps for msg in step]
+    step_tokens = [len_tokens(step, model="gpt-4") for step in steps]
+
+    # Check every budget, including just below/at each whole-step boundary.
+    # An interrupted tool call must remain in the split, not be cleaned away.
+    for budget in range(-1, sum(step_tokens) + 2):
+        prefix, tail = _split_recent_tail(msgs, budget, model="gpt-4")
+        expected_tail: list[Message] = []
+        total = 0
+        for step, tokens in reversed(list(zip(steps, step_tokens))):
+            if total + tokens > budget:
+                break
+            expected_tail = step + expected_tail
+            total += tokens
+        assert prefix + tail == msgs, budget
+        assert tail == expected_tail, budget
+        assert prefix == msgs[: len(msgs) - len(expected_tail)], budget
 
 
 def test_get_recent_tail_keeps_answered_tool_call():
