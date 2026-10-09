@@ -320,6 +320,68 @@ def test_lossless_view_appends_survive_reload(tmp_path):
     assert "0123456789" in recall_result(3)
 
 
+def test_resume_catalog_rebuild_does_not_exceed_budget(tmp_path, monkeypatch):
+    """A catalog dropped by the budget guard must not be re-appended over budget.
+
+    The catalog is rebuilt after tail selection so remaining results are not
+    stubbed twice. That rebuild used to ignore a prior drop, so a checkpoint
+    that fit without the catalog went back over budget once the catalog
+    returned.
+    """
+    from types import SimpleNamespace
+
+    from gptme.tools.autocompact.resume import (
+        _build_dropped_result_stubs,
+        _resume_via_llm,
+    )
+    from gptme.util.tokens import len_tokens
+
+    messages = [Message("system", "system prompt"), Message("user", "run tools")]
+    for i in range(30):
+        messages.append(Message("assistant", f"```shell\necho {i}\n```"))
+        messages.append(Message("system", f"out-{i}", call_id=f"call-{i}"))
+
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+
+    stub = _build_dropped_result_stubs(manager, retained=[messages[0]], model="gpt-4")
+    assert stub is not None
+    catalog_tokens = len_tokens([stub], model="gpt-4")
+    assert catalog_tokens > 80
+
+    checkpoint = Message("assistant", "## Objective\nContinue.\n" + ("step " * 40))
+    without_catalog = (
+        len_tokens([messages[0]], model="gpt-4")
+        + 80  # intro message allowance
+        + len_tokens([checkpoint], model="gpt-4")
+    )
+    budget = without_catalog + catalog_tokens // 3
+    assert without_catalog < budget < without_catalog + catalog_tokens
+
+    fake_model = SimpleNamespace(
+        model="gpt-4", context=10_000, max_output=100, full="gpt-4"
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: fake_model
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+
+    list(
+        _resume_via_llm(
+            manager,
+            messages,
+            use_view_branch=True,
+            keep_recent_tokens=0,
+            checkpoint_response=checkpoint,
+        )
+    )
+    total = len_tokens(manager.log.messages, model="gpt-4")
+    assert total <= budget, f"Compacted view exceeds budget: {total} > {budget}"
+
+
 def test_checkpoint_final_response_after_declined_call_is_recognized(monkeypatch):
     from gptme.tools.autocompact.hook import _pending_checkpoint_turn
 

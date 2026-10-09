@@ -1104,6 +1104,7 @@ def _resume_via_llm(
                 catalog_tokens = len_tokens([result_stubs_msg], model=model_str)
                 if essential_tokens - catalog_tokens <= budget:
                     result_stubs_msg = None
+                    essential_tokens -= catalog_tokens
                     logger.warning(
                         "Result catalog exceeds remaining context budget; "
                         "dropped the recall catalog."
@@ -1151,6 +1152,22 @@ def _resume_via_llm(
         retained=preserved_head + recent_tail,
         model=model_str,
     )
+    if (
+        model_meta
+        and isinstance(model_meta.context, int)
+        and model_meta.context > 0
+        and result_stubs_msg is not None
+    ):
+        # The rebuild can re-introduce a catalog the budget guard dropped
+        # (or one that no longer fits after checkpoint truncation). Drop it
+        # rather than violate the budget-by-construction guarantee.
+        candidate = assemble_fixed_parts()
+        if len_tokens(candidate + recent_tail, model=model_str) > budget:
+            result_stubs_msg = None
+            logger.warning(
+                "Result catalog exceeds remaining context budget; "
+                "dropped the recall catalog."
+            )
     fixed_parts = assemble_fixed_parts()
 
     new_log = fixed_parts + recent_tail
