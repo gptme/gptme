@@ -64,6 +64,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
+from ..hooks._policy_block import policy_block_message
 from ..message import Message
 from ..sandbox import (
     SandboxConfig,
@@ -3618,7 +3619,9 @@ def execute_shell(
 
     is_denied, deny_reason, matched_cmd = is_denylisted(cmd)
     if is_denied:
-        yield Message("system", format_denylist_denial(matched_cmd, deny_reason))
+        yield policy_block_message(
+            "denylist", format_denylist_denial(matched_cmd, deny_reason)
+        )
         return
 
     logger.debug("Routing shell command through hook chain: %s", cmd[:80])
@@ -3628,8 +3631,8 @@ def execute_shell(
             command
         )
         if is_edited_denied:
-            yield Message(
-                "system",
+            yield policy_block_message(
+                "denylist",
                 format_denylist_denial(edited_matched_cmd, edited_deny_reason),
             )
             return

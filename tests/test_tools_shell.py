@@ -1137,8 +1137,10 @@ def test_denied_compound_command_says_nothing_executed(tmp_path, monkeypatch):
 
     assert not marker.exists()
     denial = messages[-1].content
-    assert denial.startswith("Command denied: `git reflog expire`")
-    assert denial.endswith(NOT_EXECUTED_NOTE)
+    # The message is prefixed with the [policy-block] marker; the denial text
+    # and the not-executed note follow it.
+    assert "Command denied: `git reflog expire`" in denial
+    assert NOT_EXECUTED_NOTE in denial
 
 
 def test_shellcheck_block_says_nothing_executed(monkeypatch):

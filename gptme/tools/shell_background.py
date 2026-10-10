@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from ..hooks._policy_block import policy_block_message
 from ..hooks.types import StopPropagation
 from ..message import Message
 from ..sandbox import apply_memory_limit
@@ -840,8 +841,8 @@ def execute_bg_command(
     # Check if command is denylisted - blocked even for background jobs
     is_denied, deny_reason, matched_cmd = is_denylisted(command)
     if is_denied:
-        yield Message(
-            "system",
+        yield policy_block_message(
+            "denylist-bg",
             format_denylist_denial(
                 matched_cmd, deny_reason, label="Background command denied"
             ),
