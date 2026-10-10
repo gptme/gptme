@@ -52,7 +52,8 @@ def _client() -> "Anthropic | None":
 
     # Direct client only: the gptme gateway path must not be enabled until the
     # gateway is verified to forward the beta header and compaction parameter.
-    return llm_anthropic.get_client()
+    client = llm_anthropic.get_client()
+    return None if llm_anthropic._is_proxy else client
 
 
 def anthropic_compaction_supported(model: str) -> bool:
@@ -61,12 +62,12 @@ def anthropic_compaction_supported(model: str) -> bool:
     Any lookup failure returns False so callers fall back to the generic
     checkpoint; capability data is cached per model id.
     """
-    cached = _capability_cache.get(model)
-    if cached is not None:
-        return cached
     client = _client()
     if client is None:
         return False
+    cached = _capability_cache.get(model)
+    if cached is not None:
+        return cached
     try:
         info = client.beta.models.retrieve(model)
         supported = bool(

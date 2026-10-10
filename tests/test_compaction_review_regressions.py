@@ -213,3 +213,41 @@ def test_repeated_manual_compaction_preserves_original_recall_ids(
     reloaded = LogManager.load(manager.logdir, lock=False)
     assert reloaded.master_log.messages[3].content == "original result"
     assert reloaded.master_log.messages[3].call_id == "old-call"
+
+
+def test_lossless_write_failure_does_not_advance_active_transcript(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    import pytest
+
+    from gptme.logmanager import Log
+
+    manager = LogManager(_history(), logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    manager.preserve_lossless_log()
+    before = manager.logfile.read_bytes()
+    original_write = Log.write_jsonl
+
+    def write(log: Log, path: Path, *args, **kwargs) -> Log:
+        if path.name == "lossless.jsonl":
+            raise OSError("disk full")
+        return original_write(log, path, *args, **kwargs)
+
+    monkeypatch.setattr(Log, "write_jsonl", write)
+    with pytest.raises(OSError, match="disk full"):
+        manager.append(Message("user", "new message"))
+    assert manager.logfile.read_bytes() == before
+
+
+def test_native_client_declines_proxy_even_with_cached_capability(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from gptme.llm import llm_anthropic
+
+    monkeypatch.setattr(llm_anthropic, "get_client", lambda: MagicMock())
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", True)
+    monkeypatch.setattr(native, "_capability_cache", {"claude-test": True})
+    assert native._client() is None
+    assert not native.anthropic_compaction_supported("claude-test")
