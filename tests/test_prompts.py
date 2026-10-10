@@ -24,8 +24,9 @@ def test_get_prompt_full():
     combined_content = "\n\n".join(msg.content for msg in prompt_msgs)
 
     # TODO: lower this significantly by selectively removing examples from the full prompt
-    # Note: Ceiling bumped to 8250 to accommodate memory read+write tool instructions
-    assert 500 < len_tokens(combined_content, "gpt-4") < 8250 + user_config_size
+    # Note: Ceiling bumped to 8250 to accommodate memory read+write tool instructions,
+    # then to 8400 for the recall tool (dropped tool-result recall, #4225)
+    assert 500 < len_tokens(combined_content, "gpt-4") < 8400 + user_config_size
 
 
 def test_get_prompt_short():

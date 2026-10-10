@@ -1,5 +1,6 @@
 """Automatic lesson inclusion based on context."""
 
+import hashlib
 import json
 import logging
 import math
@@ -146,7 +147,7 @@ def _get_dropout_log_dir() -> Path:
 # --- Lesson policy manifest (Stage 1 shadow logging) ---
 
 _policy_manifest_cache: "dict[str, Any] | None" = None
-_policy_manifest_cache_key: "tuple[str, Path, int | None, int | None, int | None] | None" = None
+_policy_manifest_cache_key: "tuple[str, Path, int | None, int | None, int | None, str | None] | None" = None
 
 
 def _get_policy_manifest_path() -> Path:
@@ -188,16 +189,21 @@ def _load_policy_manifest() -> "dict[str, Any]":
         manifest_mtime_ns = stat.st_mtime_ns
         manifest_ctime_ns = stat.st_ctime_ns
         manifest_size = stat.st_size
+        # Include content hash to detect changes with preserved mtime
+        with open(manifest_abs_path, "rb") as f:
+            manifest_hash = hashlib.sha256(f.read()).hexdigest()[:16]
     except OSError:
         manifest_mtime_ns = None
         manifest_ctime_ns = None
         manifest_size = None
+        manifest_hash = None
     cache_key = (
         configured_path,
         manifest_abs_path,
         manifest_mtime_ns,
         manifest_ctime_ns,
         manifest_size,
+        manifest_hash,
     )
     if _policy_manifest_cache is not None and _policy_manifest_cache_key == cache_key:
         return _policy_manifest_cache

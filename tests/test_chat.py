@@ -1420,11 +1420,12 @@ def test_interactive_does_not_swallow_tool_httpx_errors():
         )
 
 
-def test_step_marks_httpx_from_reply_as_provider_error():
-    """httpx raised by the provider call inside reply() is recoverable."""
+@pytest.mark.parametrize("transport", ["httpx", "httpx2"])
+def test_step_marks_httpx_from_reply_as_provider_error(transport):
+    """Both SDK transports are recoverable only at the provider boundary."""
     import importlib
 
-    import httpx
+    httpx = importlib.import_module(transport)
 
     from gptme.llm import is_provider_error, mark_llm_reply_origin
     from gptme.message import Message
