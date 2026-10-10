@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "y-api",
         "openrouter",
         "nvidia",
         "azure",
@@ -870,6 +871,21 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.6,
             "supports_vision": True,
             "preferred_edit_format": "whole",
+        },
+    },
+    # Y-API — OpenAI-compatible LLM gateway using vendor/model paths
+    # (e.g. "y-api/deepseek/deepseek-v4-flash"), like requesty/openrouter.
+    # The catalog is account-scoped and fetched dynamically; only the default
+    # model is registered statically so PROVIDER_DEFAULT_MODELS resolves.
+    "y-api": {
+        "deepseek/deepseek-v4-flash": {
+            "context": 1_048_576,
+            # price omitted: served at zero cost in the Y-API catalog today.
+            # Catalog-verified 2026-10-04. Free flags on a resale gateway can
+            # be withdrawn, in which case it bills at its listed rate.
+            # supports_vision deliberately not set: this model is not in the
+            # gateway's image-capable set (no measured vision round-trip).
+            "preferred_edit_format": "diff",
         },
     },
     # gptme managed service — proxies to multiple providers
