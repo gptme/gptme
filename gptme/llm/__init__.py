@@ -96,7 +96,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "openai": "openai/gpt-4o-mini",
     "openrouter": "openrouter/anthropic/claude-haiku-4.5",
     "requesty": "requesty/openai/gpt-4o-mini",
-    "atlascloud": "atlascloud/deepseek-ai/DeepSeek-V3.1-Terminus",
+    "atlascloud": "atlascloud/deepseek-ai/deepseek-v4-flash",
     "gemini": "gemini/gemini-2.0-flash",
     "groq": "groq/llama-3.3-70b-versatile",
     "xai": "xai/grok-3-mini",

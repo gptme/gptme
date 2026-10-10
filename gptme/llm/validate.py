@@ -38,7 +38,7 @@ PROVIDER_DOCS: dict[str, str] = {
     "azure": "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub",
     "nvidia": "https://build.nvidia.com/",
     "requesty": "https://app.requesty.ai/",
-    "atlascloud": "https://atlascloud.ai/docs/api-keys",
+    "atlascloud": "https://console.atlascloud.ai/api-keys",
     "moonshot": "https://platform.moonshot.ai/console/api-keys",
     "local": "https://gptme.org/docs/getting-started.html#local-models",
     "openai-subscription": "https://gptme.org/docs/providers-supported.html#openai-subscription",

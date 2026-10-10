@@ -876,35 +876,43 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Atlas Cloud — OpenAI-compatible LLM gateway, vendor/model naming.
     # Model keys use the full vendor/model path (everything after "atlascloud/").
     # Context, output limits and prices read from the gateway's public catalog
-    # (GET https://api.atlascloud.ai/v1/models) on 2026-10-05.
+    # (GET https://api.atlascloud.ai/v1/models) on 2026-10-10; prices there are
+    # per token and converted to USD per 1M tokens here.
     "atlascloud": {
-        "deepseek-ai/DeepSeek-V3.1-Terminus": {
-            "context": 131_072,
-            "max_output": 65_536,
-            "price_input": 0.3,
-            "price_output": 0.95,
+        "deepseek-ai/deepseek-v4-flash": {
+            "context": 1_048_576,
+            "max_output": 393_216,
+            "price_input": 0.14,
+            "price_output": 0.28,
             "supports_vision": False,
         },
-        "Qwen/Qwen3-235B-A22B-Instruct-2507": {
-            "context": 131_072,
+        "qwen/qwen3.5-plus": {
+            "context": 1_000_000,
+            "max_output": 67_072,
+            # Prices above 262k input tokens are 0.5/3.0; this is the base tier.
+            "price_input": 0.4,
+            "price_output": 2.4,
+            "supports_vision": False,
+        },
+        "zai-org/glm-5.2": {
+            "context": 1_048_576,
             "max_output": 131_072,
-            "price_input": 0.2,
-            "price_output": 0.88,
+            "price_input": 1.4,
+            "price_output": 4.4,
             "supports_vision": False,
+            "supports_reasoning": True,
         },
-        "zai-org/glm-4.7": {
-            "context": 202_752,
-            "max_output": 202_752,
-            "price_input": 0.52,
-            "price_output": 1.85,
-            "supports_vision": False,
-        },
-        "moonshotai/kimi-k2.6": {
-            "context": 262_144,
-            "max_output": 262_144,
-            "price_input": 0.95,
-            "price_output": 4.0,
+        "moonshotai/kimi-k3": {
+            "context": 1_048_576,
+            # The catalog reports max_output equal to the whole window.
+            # gptme reserves max_output out of the window when it sizes the
+            # compaction budget, so a window-sized value would clamp the budget
+            # to the 1,000-token floor; 131,072 is a practical output cap.
+            "max_output": 131_072,
+            "price_input": 3.0,
+            "price_output": 15.0,
             "supports_vision": True,
+            "supports_reasoning": True,
         },
     },
     # gptme managed service — proxies to multiple providers
