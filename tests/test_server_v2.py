@@ -2584,6 +2584,9 @@ def test_v2_create_conversation_default_system_prompt(
         "gptme.prompts.workspace.config_path",
         str(tmp_path / "config.toml"),
     )
+    # Isolate from any configured default model: its default_tool_format would
+    # change the prompt content and break the hardcoded "markdown" comparison below.
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
     # Explicit external workspace: creation accepts client-supplied workspace
