@@ -646,6 +646,17 @@ def _split_recent_tail(
         tail[:0] = step
         cut = step_start
         total += step_tokens
+    return msgs[:cut], tail
+
+
+def _clean_tail(tail: list[Message]) -> list[Message]:
+    """Drop dangling tool results and unmatched tool calls from a tail.
+
+    Dangling tool results (no matching call in the tail) appear when the cut
+    lands inside a step.  Unmatched tool calls (call with no following result)
+    break strict providers.  This cleanup belongs on consumers that need clean
+    context, not on the lossless splitter itself.
+    """
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
     # (e.g. system/user role in some provider formats).
@@ -672,7 +683,7 @@ def _split_recent_tail(
                 tail = tail[:i] + tail[i + 1 :]
                 changed = True
                 break
-    return msgs[:cut], tail
+    return tail
 
 
 def _get_recent_tail(
@@ -681,8 +692,10 @@ def _get_recent_tail(
     *,
     model: str | None = None,
 ) -> list[Message]:
-    """Return the retained side of :func:`_split_recent_tail`."""
-    return _split_recent_tail(msgs, keep_tokens, model=model)[1]
+    """Return the retained side of :func:`_split_recent_tail`, with dangling
+    tool results and unmatched tool calls stripped."""
+    _, tail = _split_recent_tail(msgs, keep_tokens, model=model)
+    return _clean_tail(tail)
 
 
 def _message_identity(message: Message) -> tuple[object, ...]:
@@ -840,6 +853,7 @@ def _apply_native_compaction(
     # the provider summarizes exactly the prefix and the tail is appended
     # unchanged, so the retained steps are never summarized twice.
     prefix, tail = _split_recent_tail(body, keep_recent_tokens, model=model_str)
+    tail = _clean_tail(tail)
     if len(prefix) < 3:
         return False
 
@@ -1338,6 +1352,9 @@ def _resume_via_llm(
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
     else:
+        # Preserve lossless snapshot first — must succeed before conversation.jsonl is touched.
+        # If this raises (e.g. ENOSPC), conversation.jsonl is left unchanged.
+        manager.preserve_lossless_log()
         # Replace the log directly (user-invoked /compact resume)
         manager.log = Log(new_log)
         manager.write()

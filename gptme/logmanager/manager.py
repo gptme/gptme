@@ -317,6 +317,15 @@ class LogManager:
                     messages=self.snapshot_message_files(branch_log.messages)
                 )
 
+        # Load lossless snapshot (written by manual compaction to preserve full history)
+        self._lossless_log: Log | None = None
+        lossless_path = self.logdir / "lossless.jsonl"
+        if lossless_path.exists():
+            lossless_log = Log.read_jsonl(lossless_path)
+            self._lossless_log = lossless_log.replace(
+                messages=self.snapshot_message_files(lossless_log.messages)
+            )
+
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
         views_dir = self.logdir / "views"
@@ -622,12 +631,18 @@ class LogManager:
             # Append to master (main branch) for full history preservation
             if "main" in self._branches:
                 self._branches["main"] = self._branches["main"].append(msg)
+            # Keep lossless snapshot current (manual-compact path: lossless + view)
+            if self._lossless_log is not None:
+                self._lossless_log = self._lossless_log.append(msg)
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
+            # Keep lossless snapshot current when on main (manual-compact path)
+            if self._lossless_log is not None and self.current_branch == "main":
+                self._lossless_log = self._lossless_log.append(msg)
 
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
@@ -699,6 +714,14 @@ class LogManager:
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
             paths.add(self.logfile)
+
+        # Persist lossless snapshot (new messages appended after manual compaction)
+        if self._lossless_log is not None and self.logdir:
+            lossless_path = self.logdir / "lossless.jsonl"
+            self._lossless_log = self._lossless_log.write_jsonl(
+                lossless_path, append=True
+            )
+            paths.add(lossless_path)
 
         # write other branches
         if branches:
@@ -904,17 +927,19 @@ class LogManager:
         return manager
 
     def preserve_lossless_log(self) -> None:
-        """Explicitly write the main (lossless) log to disk.
+        """Write the full lossless history to lossless.jsonl.
 
-        Call before creating non-main branches to ensure conversation.jsonl
-        captures the full history up to this point.
+        Call before manual compaction to ensure the original transcript is
+        preserved even after conversation.jsonl is replaced.  Raises on
+        failure so callers can abort before touching conversation.jsonl.
         """
         if not self.logdir:
             return
-        main_path = self.logdir / "conversation.jsonl"
-        main_path.parent.mkdir(parents=True, exist_ok=True)
+        lossless_path = self.logdir / "lossless.jsonl"
+        lossless_path.parent.mkdir(parents=True, exist_ok=True)
         main_log = self._branches.get("main", self.log)
-        self._branches["main"] = main_log.write_jsonl(main_path, append=True)
+        written = main_log.write_jsonl(lossless_path, append=True)
+        self._lossless_log = written
 
     def branch(self, name: str) -> None:
         """Switches to a branch."""
@@ -1046,7 +1071,9 @@ class LogManager:
 
     @property
     def master_log(self) -> Log:
-        """Get the master log (always the main branch, never compacted)."""
+        """Get the master log (always the full lossless history)."""
+        if self._lossless_log is not None:
+            return self._lossless_log
         return self._branches.get("main", self._branches[self.current_branch])
 
     def fork(self, name: str) -> None:
