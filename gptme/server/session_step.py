@@ -26,7 +26,7 @@ from ..dirs import get_logs_dir
 from ..executor import prepare_execution_environment
 from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
-from ..llm import _chat_complete, _stream, mark_llm_reply_origin
+from ..llm import EmptyStreamError, _chat_complete, _stream, mark_llm_reply_origin
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message, MessageMetadata, MessageTimings
 from ..telemetry import trace_function
@@ -1107,6 +1107,15 @@ def step(
                 and stream_wrapper.metadata
             ):
                 metadata = stream_wrapper.metadata
+
+            if not output.strip():
+                # Same contract as `_reply_stream`: a provider reply that ends
+                # normally with nothing usable must take the provider-error
+                # path, not be persisted as an empty assistant turn.
+                # Interrupted output carries " [INTERRUPTED]" and is non-empty.
+                err = EmptyStreamError(model, metadata)
+                mark_llm_reply_origin(err, output_emitted=bool(output))
+                raise err
 
             # Persist the assistant message. Anchor the *resolved* model (e.g.
             # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity

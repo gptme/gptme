@@ -185,6 +185,48 @@ def test_generation_error_persists_system_message(
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("empty_reply", ["", "\n "])
+def test_empty_stream_is_not_persisted_as_assistant_turn(
+    setup_conversation,
+    event_listener,
+    wait_for_event,
+    auth_headers,
+    mock_generation,
+    empty_reply,
+):
+    """A provider stream that ends with no usable output takes the error path
+    instead of persisting an empty assistant turn."""
+    port, conversation_id, session_id = setup_conversation
+
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Say hello"},
+        headers=auth_headers,
+    )
+
+    with unittest.mock.patch(
+        "gptme.server.session_step._stream", mock_generation([empty_reply])
+    ):
+        # Not asserting the HTTP status: whitespace output streams progress
+        # before the error, so the early-error poll may already have said OK.
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id, "model": "openai/mock-model"},
+            headers=auth_headers,
+        )
+        assert wait_for_event(event_listener, "error")
+
+    resp = requests.get(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        headers=auth_headers,
+    )
+    messages = resp.json()["log"]
+    assert not any(m["role"] == "assistant" for m in messages)
+    assert messages[-1]["role"] == "system"
+    assert "ended without any output" in messages[-1]["content"]
+
+
+@pytest.mark.timeout(30)
 def test_generation_complete_keeps_assistant_payload_after_turn_post_hook(
     setup_conversation,
     event_listener,
