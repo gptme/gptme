@@ -863,7 +863,12 @@ def _handle_openai_transient_error(
     - Connection errors: Network issues, timeouts
     - httpx transport/protocol errors: Incomplete reads, server disconnects mid-stream
     """
-    from openai import APIConnectionError, APIStatusError, RateLimitError  # fmt: skip
+    from openai import (
+        APIConnectionError,
+        APIError,
+        APIStatusError,
+        RateLimitError,
+    )
 
     try:
         httpx = importlib.import_module("httpx")
@@ -979,6 +984,36 @@ def _handle_openai_transient_error(
                         "key / account; gptme will not retry. Detail: %s",
                         combined_error[:500],
                     )
+    elif isinstance(e, APIError):
+        # Plain APIError: the OpenAI SDK raises this (not APIStatusError) when
+        # an OpenAI-compatible provider sends an error inside an HTTP-200
+        # stream body ({"error": {...}}), e.g. OpenRouter proxying an upstream
+        # "Overloaded". The identical error delivered as an HTTP status is
+        # retried above, so apply the same keyword check here. Only reached
+        # while no content has been yielded (the generator retry wrapper
+        # enforces that invariant before calling this handler).
+        error_texts = []
+        if hasattr(e, "message"):
+            error_texts.append(str(e.message))
+        if hasattr(e, "body") and e.body:
+            if isinstance(e.body, dict):
+                error_texts.append(str(e.body.get("error", "")))
+                error_texts.append(str(e.body.get("message", "")))
+            error_texts.append(str(e.body))
+        error_texts.append(str(e))
+
+        combined_error = " ".join(error_texts).lower()
+        if any(
+            keyword in combined_error
+            for keyword in (
+                "overload",
+                "internal",
+                "timeout",
+                "rate limit",
+                "server_error",
+            )
+        ):
+            should_retry = True
 
     # Re-raise if not transient or max retries reached
     if not should_retry or attempt == max_retries - 1:
