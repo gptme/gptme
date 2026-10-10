@@ -1265,7 +1265,7 @@ def _mock_anthropic_chat_client():
     from unittest.mock import MagicMock
 
     client = MagicMock()
-    client.timeout = httpx.Timeout(600.0)
+    client.timeout = httpx2.Timeout(600.0)
     response = MagicMock()
     response.content = []
     response.usage = MagicMock(
@@ -1354,7 +1354,7 @@ def test_chat_subagent_expired_deadline_stops_retry(monkeypatch):
     monkeypatch.setattr(llm_anthropic, "backoff_wait", expire_during_backoff)
     mock_client = _mock_anthropic_chat_client()
     mock_client.messages.create.side_effect = APIConnectionError(
-        request=httpx.Request("POST", "https://example.test")
+        request=httpx2.Request("POST", "https://example.test")
     )
     set_subagent_request_deadline(now + 1.0)
     try:
@@ -1378,7 +1378,7 @@ def test_chat_subagent_deadline_capped_by_client_timeout():
     from gptme.llm.llm_anthropic import set_subagent_request_deadline
 
     mock_client = _mock_anthropic_chat_client()
-    mock_client.timeout = httpx.Timeout(60.0)
+    mock_client.timeout = httpx2.Timeout(60.0)
     set_subagent_request_deadline(time.time() + 300.0)
     try:
         with patch.object(llm_anthropic, "_anthropic", mock_client):
