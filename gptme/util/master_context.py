@@ -8,10 +8,79 @@ preserving exact recovery via byte ranges.
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..message import Message
+
 logger = logging.getLogger(__name__)
+
+
+def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
+    """Return whether ``messages[index]`` is a persisted tool result.
+
+    Native tool results have a ``call_id``. Markdown and XML tool formats do
+    not, so their result is identified by the runnable assistant tool call
+    immediately before it. This mirrors the compaction engine's pairing rule.
+    """
+    if index < 0 or index >= len(messages):
+        return False
+    message = messages[index]
+    if message.role != "system":
+        return False
+    # ui_only messages are never tool results regardless of other flags.
+    if message.ui_only:
+        return False
+    # Native tool results carry a call_id — check before display flags so that
+    # hide=True (e.g. elicit secrets) or quiet=True outputs are still recallable.
+    if message.call_id:
+        return True
+    # Non-native (markdown/XML) status/notification messages are not tool results.
+    if message.hide or message.quiet:
+        return False
+    if index == 0:
+        return False
+
+    from .reduce import message_contains_tool_use
+
+    # Markdown and XML tool calls can emit several provider-visible output
+    # messages (e.g. a non-blocking warning before the final result). Look
+    # back past system messages and flagged status messages to the nearest
+    # provider-visible non-system message; every system output in that run
+    # belongs to the call.
+    lookback = index - 1
+    while lookback >= 0 and (
+        messages[lookback].role == "system" or _is_status_message(messages[lookback])
+    ):
+        lookback -= 1
+    if lookback < 0:
+        return False
+    if message_contains_tool_use(messages[lookback]):
+        return True
+    # Fallback for disabled tools: markdown parsing checks only loaded tools.
+    # Discover available block types without enabling tools or connecting MCP
+    # servers, so old results remain recallable without treating arbitrary
+    # example languages as executable calls.
+    from ..codeblock import Codeblock
+    from ..tools import get_available_tools
+
+    tool_langs = {
+        lang
+        for tool in get_available_tools(include_mcp=False)
+        for lang in tool.block_types
+    }
+    prev_msg = messages[lookback]
+    if prev_msg.role == "assistant":
+        for codeblock in Codeblock.iter_from_markdown(prev_msg.content):
+            lang = codeblock.lang.split()[0] if codeblock.lang else ""
+            if lang in tool_langs:
+                return True
+    return False
+
+
+def _is_status_message(message: Message) -> bool:
+    return bool(message.hide or message.quiet or message.ui_only)
 
 
 @dataclass

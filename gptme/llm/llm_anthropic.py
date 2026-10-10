@@ -11,10 +11,9 @@ from typing import (
     cast,
 )
 
-from httpx import NetworkError, RemoteProtocolError, TimeoutException
+from httpx2 import NetworkError, RemoteProtocolError, TimeoutException
 from pydantic import BaseModel  # fmt: skip
 
-from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec, truncate_tool_description
@@ -833,6 +832,11 @@ def chat(
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
+    if temperature is not None or top_p is not None:
+        logger.warning(
+            "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
+        )
+
     client = _get_gptme_client() if via_gptme else _anthropic
     if not client:
         raise RuntimeError("LLM not initialized")
@@ -881,14 +885,10 @@ def chat(
     output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
     thinking_param = _build_thinking_param(model, use_thinking, thinking_budget)
 
-    _temperature = temperature if temperature is not None else TEMPERATURE
-    _top_p = top_p if top_p is not None else TOP_P
     response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
-        temperature=_temperature if not model_meta.supports_reasoning else 1,
-        top_p=_top_p if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict or NOT_GIVEN,
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
@@ -944,6 +944,11 @@ def stream(
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
 
+    if temperature is not None or top_p is not None:
+        logger.warning(
+            "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
+        )
+
     # Variable to capture metadata from usage recording
     captured_metadata: MessageMetadata | None = None
     # Model id Anthropic reports on message_start (message.model).
@@ -997,14 +1002,10 @@ def stream(
     output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
     thinking_param = _build_thinking_param(model, use_thinking, thinking_budget)
 
-    _temperature = temperature if temperature is not None else TEMPERATURE
-    _top_p = top_p if top_p is not None else TOP_P
     with client.messages.stream(  # type: ignore[call-arg]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
-        temperature=_temperature if not model_meta.supports_reasoning else 1,
-        top_p=_top_p if not model_meta.supports_reasoning else NOT_GIVEN,  # type: ignore[arg-type]
         max_tokens=max_tokens,
         tools=tools_dict or NOT_GIVEN,  # type: ignore[arg-type]
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,  # type: ignore[arg-type]
