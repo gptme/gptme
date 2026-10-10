@@ -267,7 +267,9 @@ def _load_policy_manifest() -> "dict[str, Any]":
     return _policy_manifest_cache
 
 
-def _classify_lesson(lesson_path: str) -> tuple[str, int]:
+def _classify_lesson(
+    lesson_path: str, manifest: dict[str, Any] | None = None
+) -> tuple[str, int]:
     """Classify a lesson by its path against the policy manifest.
 
     Args:
@@ -282,7 +284,8 @@ def _classify_lesson(lesson_path: str) -> tuple[str, int]:
         - ``"holdout"``: under evaluation (default)
         - ``"unknown"``: not in manifest (created after manifest timestamp)
     """
-    manifest = _load_policy_manifest()
+    if manifest is None:
+        manifest = _load_policy_manifest()
     try:
         policy_version = int(manifest.get("version", 1))
     except (TypeError, ValueError):
@@ -455,11 +458,12 @@ def _apply_lesson_dropout(matches: list) -> list:
     if epsilon <= 0.0:
         return matches
 
+    manifest = _load_policy_manifest()
     kept: list = []
     withheld: list[dict] = []
     for match in matches:
         lesson = match.lesson
-        policy_class, _ = _classify_lesson(str(lesson.path))
+        policy_class, _ = _classify_lesson(str(lesson.path), manifest)
         eff_epsilon = _get_dropout_epsilon_for_class(policy_class, epsilon)
         if eff_epsilon > 0.0 and random.random() < eff_epsilon:
             withheld.append(
@@ -472,12 +476,17 @@ def _apply_lesson_dropout(matches: list) -> list:
         else:
             kept.append(match)
 
-    _log_dropout(epsilon, kept, withheld)
+    _log_dropout(epsilon, kept, withheld, manifest)
 
     return kept
 
 
-def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
+def _log_dropout(
+    epsilon: float,
+    kept: list,
+    withheld: list[dict],
+    manifest: dict[str, Any] | None = None,
+) -> None:
     """Append a randomized-dropout record for causal LOO analysis.
 
     Stage 1 shadow logging: includes ``policy_class``, ``policy_version``, and
@@ -493,10 +502,14 @@ def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
         log_dir = _get_dropout_log_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
 
+        if manifest is None:
+            manifest = _load_policy_manifest()
         # Enrich withheld entries with policy classification (Stage 1 shadow).
         enriched_withheld = []
         for entry in withheld:
-            policy_class, policy_version = _classify_lesson(entry.get("path", ""))
+            policy_class, policy_version = _classify_lesson(
+                entry.get("path", ""), manifest
+            )
             enriched_withheld.append(
                 {
                     **entry,
@@ -512,7 +525,7 @@ def _log_dropout(epsilon: float, kept: list, withheld: list[dict]) -> None:
         enriched_matched = []
         for match in kept:
             lesson = match.lesson
-            policy_class, policy_version = _classify_lesson(str(lesson.path))
+            policy_class, policy_version = _classify_lesson(str(lesson.path), manifest)
             enriched_matched.append(
                 {
                     "path": str(lesson.path),

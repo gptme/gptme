@@ -397,3 +397,85 @@ def test_checkpoint_final_response_after_declined_call_is_recognized(monkeypatch
         final,
     ]
     assert _pending_checkpoint_turn(messages, "") == (0, final)
+
+
+def test_manual_compaction_on_branch_preserves_catalog_source(tmp_path):
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    logdir = tmp_path / "conversation"
+    manager = LogManager(messages, logdir=logdir, lock=False)
+    manager.write()
+    manager.branch("main")
+    manager.branch("experiment")
+    manager.log = type(manager.log)(
+        [
+            messages[0],
+            Message("user", "Try another tool"),
+            Message("assistant", "different call"),
+            Message("system", "different result", call_id="call-exp"),
+        ]
+    )
+    list(
+        _resume_via_llm(
+            manager,
+            list(manager.log.messages),
+            use_view_branch=False,
+            keep_recent_tokens=0,
+            checkpoint_response=Message("assistant", "## Objective\nManual compact."),
+        )
+    )
+
+    assert any("[result #3," in m.content for m in manager.log.messages)
+    assert manager.master_log.messages == messages
+    assert "0123456789" in recall_result(3)
+    manager.switch_to_master()
+    assert "0123456789" in recall_result(3)
+    manager.write()
+    reloaded = LogManager.load(logdir, lock=False)
+    assert reloaded.master_log.messages == messages
+
+
+def test_oversized_checkpoint_drops_catalog_before_truncating(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.util.tokens import len_tokens
+
+    messages = [Message("system", "system prompt")]
+    for i in range(50):
+        messages.extend(
+            [
+                Message("assistant", f"old tool call {i}"),
+                Message("system", f"result {i}", call_id=f"call-{i}"),
+            ]
+        )
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    checkpoint = Message(
+        "assistant", "## Objective\nIMPORTANT SAVED WORK\n" + "step " * 1000
+    )
+    budget = 200
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model",
+        lambda: SimpleNamespace(
+            model="gpt-4", context=10_000, max_output=100, full="gpt-4"
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: budget,
+    )
+    list(
+        _resume_via_llm(
+            manager,
+            messages,
+            use_view_branch=True,
+            keep_recent_tokens=0,
+            checkpoint_response=checkpoint,
+        )
+    )
+    assert any("IMPORTANT SAVED WORK" in m.content for m in manager.log.messages)
+    assert any("checkpoint truncated" in m.content for m in manager.log.messages)
+    assert len_tokens(manager.log.messages, model="gpt-4") <= budget

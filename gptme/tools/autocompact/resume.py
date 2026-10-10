@@ -1130,13 +1130,12 @@ def _resume_via_llm(
                 # alongside the essentials, drop it before truncating the
                 # checkpoint, so the view is never over budget by construction.
                 catalog_tokens = len_tokens([result_stubs_msg], model=model_str)
-                if essential_tokens - catalog_tokens <= budget:
-                    result_stubs_msg = None
-                    essential_tokens -= catalog_tokens
-                    logger.warning(
-                        "Result catalog exceeds remaining context budget; "
-                        "dropped the recall catalog."
-                    )
+                result_stubs_msg = None
+                essential_tokens -= catalog_tokens
+                logger.warning(
+                    "Result catalog exceeds remaining context budget; "
+                    "dropped the recall catalog."
+                )
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.

@@ -1055,15 +1055,14 @@ class LogManager:
         return self._branches.get("main", self._branches[self.current_branch])
 
     def preserve_lossless_log(self) -> None:
-        """Snapshot the current branch log under the ``lossless`` branch.
+        """Snapshot the catalog's master transcript under the ``lossless`` branch.
 
         Used before an in-place compaction replaces the active log: the
         snapshot keeps the full transcript available to ``master_log`` so
         recallable result IDs remain valid.
         """
-        current = self._branches.get(self.current_branch)
-        if current is not None and "lossless" not in self._branches:
-            self._branches["lossless"] = current
+        if "lossless" not in self._branches:
+            self._branches["lossless"] = self.master_log
 
     def fork(self, name: str) -> None:
         """
