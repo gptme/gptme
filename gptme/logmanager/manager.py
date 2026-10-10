@@ -709,6 +709,16 @@ class LogManager:
         Path(self.logfile).parent.mkdir(parents=True, exist_ok=True)
         paths: set[Path] = set()
 
+        # Save original outputs before replacing the active transcript with a
+        # checkpoint. If the snapshot fails, the on-disk original stays intact.
+        # Persist saved history even when the caller skips ordinary branches.
+        if self._lossless_log is not None:
+            lossless_path = self.logdir / "lossless.jsonl"
+            self._lossless_log = self._lossless_log.write_jsonl(
+                lossless_path, append=True
+            )
+            paths.add(lossless_path)
+
         # write current branch (or main branch if on a view)
         # When on a view, conversation.jsonl must always contain the full main
         # branch history — the view is persisted separately in views/ directory.
@@ -720,14 +730,6 @@ class LogManager:
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
             paths.add(self.logfile)
-
-        # Persist saved history even when the caller skips ordinary branches.
-        if self._lossless_log is not None:
-            lossless_path = self.logdir / "lossless.jsonl"
-            self._lossless_log = self._lossless_log.write_jsonl(
-                lossless_path, append=True
-            )
-            paths.add(lossless_path)
 
         # write other branches
         if branches:

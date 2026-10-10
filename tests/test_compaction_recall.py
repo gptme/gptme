@@ -641,3 +641,44 @@ def test_user_lossless_branch_does_not_replace_saved_history(tmp_path):
     assert "branch-only result" not in [
         m.content for m in LogManager.load(logdir, lock=False).master_log.messages
     ]
+
+
+def test_failed_lossless_write_keeps_original_transcript(tmp_path, monkeypatch):
+    """A failed snapshot must not leave only the compacted checkpoint on disk."""
+    import errno
+
+    import pytest
+
+    from gptme.logmanager import Log
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    logdir = tmp_path / "conversation"
+    manager = LogManager(messages, logdir=logdir, lock=False)
+    manager.write()
+    original_bytes = (logdir / "conversation.jsonl").read_bytes()
+    write_jsonl = Log.write_jsonl
+
+    def fail_snapshot(self, output, append=False):
+        if output.name == "lossless.jsonl":
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return write_jsonl(self, output, append=append)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Log, "write_jsonl", fail_snapshot)
+        with pytest.raises(OSError, match="No space left"):
+            list(
+                _resume_via_llm(
+                    manager,
+                    messages,
+                    use_view_branch=False,
+                    keep_recent_tokens=0,
+                    checkpoint_response=Message("assistant", "## Objective\nCompact."),
+                )
+            )
+
+    assert (logdir / "conversation.jsonl").read_bytes() == original_bytes
+    reloaded = LogManager.load(logdir, lock=False)
+    assert reloaded.master_log.messages == messages
+    assert "0123456789" in recall_result(3)
