@@ -1930,15 +1930,23 @@ def api_conversation_put(conversation_id: str):
         env_tool_format = get_config().get_env("TOOL_FORMAT")
         if env_tool_format in get_args(ToolFormat):
             chat_config.tool_format = cast("ToolFormat", env_tool_format)
-        elif env_tool_format:
-            logger.warning("Ignoring invalid TOOL_FORMAT=%r", env_tool_format)
-        elif chat_config.model:
-            try:
-                model_default = get_model(chat_config.model).default_tool_format
-                if model_default:
-                    chat_config.tool_format = cast("ToolFormat", model_default)
-            except (KeyError, ValueError, AttributeError):
-                pass
+        else:
+            if env_tool_format:
+                logger.warning("Ignoring invalid TOOL_FORMAT=%r", env_tool_format)
+            # Resolve effective model (explicit or server default) so the prompt
+            # and step handler agree on the tool format even when the webui omits model.
+            effective_model = chat_config.model
+            if not effective_model:
+                _dm = get_default_model()
+                if _dm:
+                    effective_model = _dm.full
+            if effective_model:
+                try:
+                    model_default = get_model(effective_model).default_tool_format
+                    if model_default:
+                        chat_config.tool_format = model_default
+                except (KeyError, ValueError, AttributeError):
+                    pass
 
     # Default tools before building the prompt so it only advertises tools the
     # conversation will actually have.
