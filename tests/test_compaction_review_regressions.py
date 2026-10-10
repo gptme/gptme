@@ -103,6 +103,37 @@ def test_native_recompaction_replaces_block_in_retained_head(
     assert blocks[0].content == "new summary"
 
 
+def test_native_recompaction_does_not_duplicate_preserved_head(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """A block inside the keep_head window must not drag head messages into the body.
+
+    Regression: ``body_start = min(head_end, min(block_indices))`` made the body
+    begin at the old checkpoint, so every message between the checkpoint and
+    ``head_end`` was both preserved verbatim (preserved_head) and summarized
+    again into the replacement block.
+    """
+    messages = _history()
+    old = _block("old summary")
+    # Place the previous checkpoint just after the system prompt so it sits
+    # inside the keep_head window, with retained messages after it.
+    messages.insert(1, old)
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    applied, captured = _native_run(manager, monkeypatch, keep_head=3)
+    assert applied
+    assert old in captured  # previous checkpoint still re-summarized
+    captured_contents = {m.content for m in captured}
+    for msg in manager.log.messages:
+        # The leading system prompt is deliberately sent alongside the prefix so
+        # the provider has it; only conversation messages must not be duplicated.
+        if msg.role == "system" or native.compaction_block_of(msg):
+            continue
+        assert msg.content not in captured_contents, (
+            f"message preserved verbatim was also summarized: {msg.content[:40]!r}"
+        )
+
+
 def test_native_over_budget_falls_back_without_changing_history(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:

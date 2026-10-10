@@ -852,13 +852,15 @@ def _apply_native_compaction(
         if not compaction_block_of(msg) and not _is_result_stubs_message(msg)
     ]
     # A previous signed checkpoint must be summarized, never retained alongside
-    # its replacement. Include it even when keep_head would protect its position.
-    block_indices = [
-        i for i, msg in enumerate(prepared_msgs) if compaction_block_of(msg)
-    ]
-    body_start = min(head_end, min(block_indices)) if block_indices else head_end
+    # its replacement — even when keep_head would protect its position. Pull only
+    # the block(s) themselves into the body: messages inside the preserved head
+    # must not also be summarized, or they appear twice (once verbatim in
+    # preserved_head, once summarized in the replacement block).
     body = [
-        msg for msg in prepared_msgs[body_start:] if not _is_result_stubs_message(msg)
+        msg
+        for i, msg in enumerate(prepared_msgs)
+        if (i < head_end and compaction_block_of(msg))
+        or (i >= head_end and not _is_result_stubs_message(msg))
     ]
     system_head = [
         msg for msg in prepared_msgs[:n_head] if not _is_result_stubs_message(msg)
