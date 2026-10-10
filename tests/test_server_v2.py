@@ -2610,10 +2610,16 @@ def test_v2_create_conversation_default_system_prompt(
     assert data is not None
     assert "log" in data
 
+    # Compute effective tool_format the same way the server does:
+    # model default > "markdown" fallback.
+    _dm = get_default_model()
+    _effective_tf = (
+        _dm.default_tool_format if _dm and _dm.default_tool_format else None
+    ) or "markdown"
     prompt_msgs = get_prompt(
         tools=list(get_toolchain(None)),
         interactive=True,
-        tool_format="markdown",
+        tool_format=_effective_tf,
         model=None,
         prompt="full",
         workspace=tmp_path,
