@@ -198,6 +198,9 @@ def init_hooks(
         "knowledge_inject": lambda: __import__(
             "gptme.hooks.knowledge_inject", fromlist=["register"]
         ).register(),
+        "dirty_diff": lambda: __import__(
+            "gptme.hooks.dirty_diff", fromlist=["register"]
+        ).register(),
         "context_scout": lambda: __import__(
             "gptme.context.scout", fromlist=["register"]
         ).register(),
