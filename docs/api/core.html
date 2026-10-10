@@ -690,6 +690,7 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.load"><code class="docutils literal notranslate"><span class="pre">LogManager.load()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.master_log"><code class="docutils literal notranslate"><span class="pre">LogManager.master_log</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.name"><code class="docutils literal notranslate"><span class="pre">LogManager.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.preserve_lossless_log"><code class="docutils literal notranslate"><span class="pre">LogManager.preserve_lossless_log()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.read_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.read_model_trace()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.snapshot_message_files"><code class="docutils literal notranslate"><span class="pre">LogManager.snapshot_message_files()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.switch_to_master"><code class="docutils literal notranslate"><span class="pre">LogManager.switch_to_master()</span></code></a></li>
@@ -1056,12 +1057,24 @@ pass</p>
 <dt class="sig sig-object py" id="gptme.logmanager.LogManager.master_log">
 <em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">master_log</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#gptme.logmanager.Log" title="gptme.logmanager.manager.Log"><span class="pre">Log</span></a></em><a class="headerlink" href="#gptme.logmanager.LogManager.master_log" title="Link to this definition">#</a></dt>
 <dd><p>Get the master log (always the main branch, never compacted).</p>
+<p>Prefers the preserved snapshot in <code class="docutils literal notranslate"><span class="pre">lossless.jsonl</span></code> when an in-place
+(manual) compaction replaced the active branch, so result-recall IDs
+keep pointing at the full transcript. User branches never own this store.</p>
 </dd></dl>
 
 <dl class="py property">
 <dt class="sig sig-object py" id="gptme.logmanager.LogManager.name">
 <em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a></em><a class="headerlink" href="#gptme.logmanager.LogManager.name" title="Link to this definition">#</a></dt>
 <dd><p>Get the user-friendly display name from ChatConfig, fallback to chat_id.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.logmanager.LogManager.preserve_lossless_log">
+<span class="sig-name descname"><span class="pre">preserve_lossless_log</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.LogManager.preserve_lossless_log" title="Link to this definition">#</a></dt>
+<dd><p>Snapshot the catalog’s master transcript separately from user branches.</p>
+<p>Used before an in-place compaction replaces the active log: the
+snapshot keeps the full transcript available to <code class="docutils literal notranslate"><span class="pre">master_log</span></code> so
+recallable result IDs remain valid.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1398,6 +1411,7 @@ never dropped regardless of TTL.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.load"><code class="docutils literal notranslate"><span class="pre">LogManager.load()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.master_log"><code class="docutils literal notranslate"><span class="pre">LogManager.master_log</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.name"><code class="docutils literal notranslate"><span class="pre">LogManager.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.preserve_lossless_log"><code class="docutils literal notranslate"><span class="pre">LogManager.preserve_lossless_log()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.read_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.read_model_trace()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.snapshot_message_files"><code class="docutils literal notranslate"><span class="pre">LogManager.snapshot_message_files()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.switch_to_master"><code class="docutils literal notranslate"><span class="pre">LogManager.switch_to_master()</span></code></a></li>

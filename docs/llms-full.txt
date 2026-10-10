@@ -15469,7 +15469,11 @@ Two strategies are available:
 - **summarize** — LLM-powered: produces a structured checkpoint (objective,
   decisions, current state, open items, files to reload), then rebuilds context
   from that checkpoint plus the most recent ``keep_recent_tokens`` of history
-  (default 20k). More thorough but requires a model call.
+  (default 20k). Tool results outside that retained tail become compact
+  ``[result #N, M tokens]`` references instead of disappearing. Use
+  ``recall_result(N)`` to read the original result from the lossless master log;
+  large results can be paged with ``start_char``. More thorough but requires a
+  model call.
 
   Optional instructions can be passed inline::
 

@@ -815,7 +815,11 @@ If savings would be low, gptme will suggest <code class="docutils literal notran
 <li><p><strong>summarize</strong> — LLM-powered: produces a structured checkpoint (objective,
 decisions, current state, open items, files to reload), then rebuilds context
 from that checkpoint plus the most recent <code class="docutils literal notranslate"><span class="pre">keep_recent_tokens</span></code> of history
-(default 20k). More thorough but requires a model call.</p>
+(default 20k). Tool results outside that retained tail become compact
+<code class="docutils literal notranslate"><span class="pre">[result</span> <span class="pre">#N,</span> <span class="pre">M</span> <span class="pre">tokens]</span></code> references instead of disappearing. Use
+<code class="docutils literal notranslate"><span class="pre">recall_result(N)</span></code> to read the original result from the lossless master log;
+large results can be paged with <code class="docutils literal notranslate"><span class="pre">start_char</span></code>. More thorough but requires a
+model call.</p>
 <p>Optional instructions can be passed inline:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/</span><span class="n">compact</span> <span class="n">summarize</span> <span class="n">focus</span> <span class="n">on</span> <span class="n">the</span> <span class="n">failing</span> <span class="n">test</span> <span class="n">suite</span>
 </pre></div>

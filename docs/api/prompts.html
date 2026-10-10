@@ -937,7 +937,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f864f7f5120&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff731e93e20&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2191,6 +2191,21 @@ Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</sp
 <span class="s">goodbye.py</span>
 <span class="sb">```</span>
 
+<span class="gu">## recall</span>
+
+<span class="gs">**Description:**</span> Recall a dropped tool result from the current conversation&#39;s lossless master log
+
+<span class="gs">**Instructions:**</span> Use recall_result() when a compacted conversation contains a
+<span class="sb">`[result #N, M tokens]`</span> stub and the original tool output is needed. Result IDs
+refer only to the current conversation&#39;s lossless master log. Large results are
+paged; continue from the start_char shown in the response.
+
+The following Python functions are available:
+
+<span class="sb">```txt</span>
+<span class="s">recall_result(result_id: int, start_char: int, max_chars: int) -&gt; str: Read a tool result from the current conversation&#39;s lossless master log.</span>
+<span class="sb">```</span>
+
 <span class="gu">## request_tool_change</span>
 
 <span class="gs">**Description:**</span> Enable or disable a tool for the current session, or record a configuration change request
@@ -3046,7 +3061,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20076</p>
+<p>Tokens: 20218</p>
 </dd></dl>
 
 <dl class="py function">
