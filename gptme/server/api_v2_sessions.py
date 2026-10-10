@@ -1292,6 +1292,7 @@ def api_conversation_interrupt(conversation_id: str):
                     sess.step_seq += 1
                     sess.finish_skill_turn("abandoned")
                     sess.pending_tools.clear()
+                    sess.checkpoint_needs_continuation = False
 
     if not interrupted:
         # Idempotent: if nothing is generating, treat as already interrupted

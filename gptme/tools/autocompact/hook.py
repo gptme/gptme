@@ -29,7 +29,7 @@ from .decision import (
 )
 from .events import append_compaction_event
 from .handlers import cmd_compact_handler
-from .resume import _resume_via_llm
+from .resume import _resume_via_llm, build_checkpoint_prompt
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager
@@ -56,6 +56,77 @@ _MAX_TRACKED_CONVERSATIONS = 512
 # (logdir, branch); values are the effective message count at the failure.
 _failed_summarize: dict[tuple[str, str], int] = {}
 _FAILURE_RETRY_GROWTH_MESSAGES = 20
+
+
+def _pending_checkpoint_turn(
+    messages: list[Message], view: str
+) -> tuple[int, Message | None] | None:
+    """Return the latest live checkpoint request and its final response.
+
+    Tool-calling assistant messages are intermediate steps even after their
+    results arrive. The normal CLI/server loop must continue until the model
+    emits a tool-free assistant response. A later ordinary user message
+    invalidates the request rather than letting its response be misclassified
+    as a checkpoint.
+    """
+    request_idx = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if messages[i].role == "user"
+            and (messages[i].metadata or {}).get("compaction_checkpoint_view") == view
+        ),
+        None,
+    )
+    if request_idx is None:
+        return None
+    if any(
+        (msg.metadata or {}).get("compaction_checkpoint_failed_view") == view
+        for msg in messages[request_idx + 1 :]
+    ):
+        return None
+    if any(msg.role == "user" for msg in messages[request_idx + 1 :]):
+        return None
+    last_assistant = next(
+        (
+            msg
+            for msg in reversed(messages[request_idx + 1 :])
+            if msg.role == "assistant"
+        ),
+        None,
+    )
+    if last_assistant is None:
+        return request_idx, None
+    if any(
+        tooluse.is_runnable or tooluse.call_id
+        for tooluse in ToolUse.iter_from_content(last_assistant.content)
+    ):
+        return request_idx, None
+    return request_idx, last_assistant
+
+
+def _owes_model_response(messages: list[Message]) -> bool:
+    """True if tool results follow the last assistant message unanswered.
+
+    Compaction triggered after tool results interrupts a task mid-flight:
+    the model has not yet responded to the latest results. After the
+    checkpoint turn completes, the CLI/server loop must resume that work
+    instead of stopping.
+    """
+    last_assistant_idx = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if messages[i].role == "assistant"
+        ),
+        None,
+    )
+    if last_assistant_idx is None:
+        return False
+    return any(
+        msg.role == "system" and not msg.ui_only
+        for msg in messages[last_assistant_idx + 1 :]
+    )
 
 
 def _effective_message_count(messages: list[Message]) -> int:
@@ -232,11 +303,29 @@ def autocompact_hook(
         else None
     )
 
-    action = should_auto_compact(messages, limit=budget, keep_head=_get_keep_head())
+    view = manager.current_view or ""
+    checkpoint_turn = (
+        None
+        if conv_key in _failed_summarize
+        else _pending_checkpoint_turn(messages, view)
+    )
+    checkpoint_response = checkpoint_turn[1] if checkpoint_turn is not None else None
+    checkpoint_source = (
+        messages[: checkpoint_turn[0]] if checkpoint_turn is not None else messages
+    )
+    if checkpoint_turn is not None and checkpoint_response is None:
+        # The persisted request is already flowing through the ordinary model /
+        # tool loop. Do not start a second checkpoint or trim away its context.
+        return
+
+    action = (
+        "summarize"
+        if checkpoint_turn is not None
+        else should_auto_compact(messages, limit=budget, keep_head=_get_keep_head())
+    )
     if action == "none":
         if model is not None and budget is not None:
             tokens = measure_context_tokens(messages, model.full)
-            view = manager.current_view or ""
             already_warned = any(
                 msg.metadata is not None
                 and msg.metadata.get("compaction_reminder_view") == view
@@ -297,7 +386,10 @@ def autocompact_hook(
             # the new count, otherwise n_messages - failed_at stays negative
             # forever and the latch can never release.
             _failed_summarize[conv_key] = failed_at = n_messages
-        if n_messages - failed_at < _FAILURE_RETRY_GROWTH_MESSAGES:
+        if (
+            checkpoint_turn is None
+            and n_messages - failed_at < _FAILURE_RETRY_GROWTH_MESSAGES
+        ):
             if action == "summarize":
                 # Trim-only: a summarize just failed, so fall back to the cheap
                 # rule-based trim instead of leaving the conversation over budget
@@ -442,19 +534,48 @@ def autocompact_hook(
             except Exception:
                 pass  # Config read is best-effort; use defaults if it fails
 
+            if checkpoint_turn is None:
+                # Put checkpointing through the normal turn loop so the model
+                # can use the same tools, confirmation policy, overflow recovery,
+                # and CLI/server continuation machinery as any other turn.
+                yield Message(
+                    "user",
+                    build_checkpoint_prompt(compact_instructions, tool_capable=True),
+                    metadata={
+                        "compaction_checkpoint_view": view,
+                        # Whether the interrupted task still owes a model
+                        # response (tool results pending an answer). The
+                        # CLI/server loop resumes that work after the
+                        # checkpoint turn completes instead of stopping.
+                        "compaction_checkpoint_needs_continuation": (
+                            _owes_model_response(messages)
+                        ),
+                    },
+                )
+                return
+
             applied = yield from _resume_via_llm(
                 manager,
-                messages,
+                checkpoint_source,
                 use_view_branch=True,
                 llm_unlocked=llm_unlocked,
                 compact_instructions=compact_instructions,
                 keep_recent_tokens=keep_recent_tokens,
                 keep_head=_get_keep_head(),
+                checkpoint_response=checkpoint_response,
             )
         except Exception as e:
             logger.error(f"Auto-summarize failed: {e}")
             _failed_summarize[conv_key] = n_messages
             _prune_attempts(current_time)
+            if checkpoint_turn is not None:
+                yield Message(
+                    "system",
+                    "Checkpoint generation failed; using trim-only fallback.",
+                    hide=True,
+                    ui_only=True,
+                    metadata={"compaction_checkpoint_failed_view": view},
+                )
             return
 
         if manager.current_view == view_before:
@@ -465,6 +586,14 @@ def autocompact_hook(
             )
             _failed_summarize[conv_key] = n_messages
             _prune_attempts(current_time)
+            if checkpoint_turn is not None:
+                yield Message(
+                    "system",
+                    "Checkpoint was rejected; using trim-only fallback.",
+                    hide=True,
+                    ui_only=True,
+                    metadata={"compaction_checkpoint_failed_view": view},
+                )
             return
 
         # Stale discard: a view was created but the resume did not apply, so

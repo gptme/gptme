@@ -236,6 +236,8 @@ def _compact_after_tool_results(
     session: ConversationSession,
     conversation_id: str,
     llm_unlocked: AbstractContextManager[object] | None = None,
+    *,
+    step_seq: int | None = None,
 ) -> None:
     """Run always-on compaction after tool results are on the log.
 
@@ -247,11 +249,31 @@ def _compact_after_tool_results(
     from ..hooks import StopPropagation
     from ..tools.autocompact.hook import autocompact_hook
 
+    with session.step_lock:
+        if session.interrupted or (
+            step_seq is not None and session.step_seq != step_seq
+        ):
+            return
     try:
         for hook_msg in autocompact_hook(manager, llm_unlocked=llm_unlocked):
             if isinstance(hook_msg, StopPropagation):
                 continue
-            _append_and_notify(manager, session, hook_msg)
+            # The hook may release the conversation lock for model work.
+            # Recheck ownership before publishing its request or resume flag.
+            with session.step_lock:
+                if session.interrupted or (
+                    step_seq is not None and session.step_seq != step_seq
+                ):
+                    return
+                _append_and_notify(manager, session, hook_msg)
+                if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                    hook_msg.metadata or {}
+                ):
+                    session.checkpoint_needs_continuation = bool(
+                        (hook_msg.metadata or {}).get(
+                            "compaction_checkpoint_needs_continuation"
+                        )
+                    )
     except Exception:
         logger.exception(
             "Post-tool compaction failed for conversation %s", conversation_id
@@ -923,6 +945,24 @@ def step(
         manager.write()
         logger.debug("Wrote step.pre hook messages to disk")
 
+    # A new server session has no in-memory continuation flag. Recover it
+    # from the live request before the checkpoint response removes that request
+    # from the active view. Failed/superseded requests are excluded by the helper.
+    from ..tools.autocompact.hook import _pending_checkpoint_turn
+
+    pending_checkpoint = _pending_checkpoint_turn(
+        manager.log.messages, manager.current_view or ""
+    )
+    if pending_checkpoint is not None and pending_checkpoint[1] is None:
+        with session.step_lock:
+            if session.step_seq != my_step_seq or session.interrupted:
+                return
+            session.checkpoint_needs_continuation = bool(
+                (manager.log.messages[pending_checkpoint[0]].metadata or {}).get(
+                    "compaction_checkpoint_needs_continuation"
+                )
+            )
+
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
     if not msgs:
@@ -1098,12 +1138,26 @@ def step(
             _append_and_notify(manager, session, msg)
 
         # Trigger TURN_POST hook (turn.post - after message processing completes)
+        checkpoint_requested = False
         if post_msgs := trigger_hook(
             HookType.TURN_POST,
             manager=manager,
         ):
             for hook_msg in post_msgs:
                 _append_and_notify(manager, session, hook_msg)
+                if hook_msg.role == "user" and "compaction_checkpoint_view" in (
+                    hook_msg.metadata or {}
+                ):
+                    checkpoint_requested = True
+                    # Remember whether the interrupted task still owed a
+                    # response. The request message is excluded from the
+                    # compacted view, so the step that completes the
+                    # checkpoint turn reads this flag to resume the task.
+                    session.checkpoint_needs_continuation = bool(
+                        (hook_msg.metadata or {}).get(
+                            "compaction_checkpoint_needs_continuation"
+                        )
+                    )
 
         # Streamed tokens/message_added are provisional. Completion acknowledges
         # the transcript, including hook output, only after its barrier succeeds.
@@ -1189,6 +1243,51 @@ def step(
                 temperature=temperature,
                 top_p=top_p,
             )
+        elif not session.pending_tools:
+            # A checkpoint request is a real follow-up turn, not a status
+            # message. Transfer this step's reservation to a continuation so
+            # the normal server model/tool loop handles it immediately. The
+            # same transfer resumes the interrupted task when this step just
+            # completed the checkpoint turn and the original task still owed
+            # a model response.
+            continuation_seq: int | None = None
+            with session.step_lock:
+                if (
+                    session.step_seq == my_step_seq
+                    and not session.interrupted
+                    and (checkpoint_requested or session.checkpoint_needs_continuation)
+                ):
+                    if not checkpoint_requested:
+                        session.checkpoint_needs_continuation = False
+                    session.step_seq += 1
+                    continuation_seq = session.step_seq
+                    session.generating = True
+                    session.generating_since = datetime.now(tz=timezone.utc)
+            if continuation_seq is not None:
+                try:
+                    _start_step_thread(
+                        conversation_id,
+                        session,
+                        model,
+                        chat_config.workspace,
+                        branch=branch,
+                        auto_confirm=auto_confirm,
+                        stream=stream,
+                        reserved=True,
+                        step_seq=continuation_seq,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                    )
+                except Exception:
+                    with session.step_lock:
+                        if session.step_seq == continuation_seq:
+                            # Dispatch never started, so hand ownership back to
+                            # this step. Its normal exception/finally path will
+                            # persist the error and emit step_complete.
+                            session.step_seq = my_step_seq
+                            session.generating = True
+                    raise
 
     except Exception as e:
         # A revoked step must not publish its failure into a replacement epoch.
@@ -1217,6 +1316,11 @@ def step(
         released = False
         with session.step_lock:
             if session.step_seq == my_step_seq:
+                if skill_outcome == "failed" or session.interrupted:
+                    # A failed/revoked checkpoint chain must not resume after
+                    # an unrelated user turn. Only its epoch owner can clear
+                    # this state; a stale worker must leave a replacement alone.
+                    session.checkpoint_needs_continuation = False
                 if session.interrupted or not session.generating:
                     session.finish_skill_turn("abandoned")
                 elif skill_outcome is not None:
@@ -1515,6 +1619,7 @@ def start_tool_execution(
                         session,
                         conversation_id,
                         llm_unlocked=_released(conv_lock),
+                        step_seq=my_seq,
                     )
             except Exception:
                 logger.exception(

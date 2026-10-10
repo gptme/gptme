@@ -546,6 +546,10 @@ def _process_message_conversation(
                 f"Invalid GPTME_MAX_STEPS value: {max_steps_str!r}, ignoring"
             )
     step_count = 0
+    # Set when a compaction checkpoint request is injected: records whether
+    # the interrupted task still owed a model response, so the turn that
+    # completes the checkpoint can resume it instead of stopping.
+    checkpoint_followup = False
 
     while True:
         try:
@@ -558,6 +562,21 @@ def _process_message_conversation(
             ):
                 for msg in pre_msgs:
                     manager.append(msg)
+
+            # Restore a saved checkpoint's follow-up before its response can
+            # replace the request with a compacted view (including restarts
+            # between the checkpoint's tool calls).
+            from .tools.autocompact.hook import _pending_checkpoint_turn
+
+            pending_checkpoint = _pending_checkpoint_turn(
+                manager.log.messages, manager.current_view or ""
+            )
+            if pending_checkpoint is not None and pending_checkpoint[1] is None:
+                checkpoint_followup = bool(
+                    (manager.log.messages[pending_checkpoint[0]].metadata or {}).get(
+                        "compaction_checkpoint_needs_continuation"
+                    )
+                )
 
             response_msgs = list(
                 step(
@@ -601,6 +620,12 @@ def _process_message_conversation(
 
         pending_continuation = _has_pending_tooluse(manager.log)
         mid_turn_compacted = _run_post_tool_compaction(manager)
+        checkpoint_requested = bool(
+            manager.log.messages
+            and manager.log.messages[-1].role == "user"
+            and "compaction_checkpoint_view"
+            in (manager.log.messages[-1].metadata or {})
+        )
         # Auto-generate display name in background thread to avoid blocking.
         # Shared logic with server in gptme/util/auto_naming.py::try_auto_name.
         # Pre-check assistant count to avoid spawning threads + doing disk I/O
@@ -640,8 +665,27 @@ def _process_message_conversation(
         # compaction the resumed view ends with the summary resume instead of
         # the assistant's tool call, so the content-based check would wrongly
         # end the turn — keep the pre-compaction continuation decision.
-        if mid_turn_compacted:
+        if mid_turn_compacted and checkpoint_followup:
+            # The checkpoint turn just completed: the resumed view ends with
+            # the checkpoint summary instead of the pre-compaction task
+            # state, so the content-based checks cannot see the pending
+            # work. Resume the task the original turn still owed a response
+            # to, then fall back to the normal continuation decision.
+            checkpoint_followup = False
+            has_runnable = True
+        elif mid_turn_compacted:
             has_runnable = pending_continuation
+        elif checkpoint_requested:
+            # Autocompaction injected a user request for a normal checkpoint
+            # turn. Re-enter step() immediately even when the completed task
+            # response had no tool call (especially important for -n runs,
+            # whose outer loop exits when the prompt queue is empty).
+            checkpoint_followup = bool(
+                (manager.log.messages[-1].metadata or {}).get(
+                    "compaction_checkpoint_needs_continuation"
+                )
+            )
+            has_runnable = True
         else:
             last_content = next(
                 (m.content for m in reversed(manager.log) if m.role == "assistant"),

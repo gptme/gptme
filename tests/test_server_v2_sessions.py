@@ -1002,6 +1002,286 @@ class TestInterruptEndpoint:
         )
         assert session.step_seq == 2
 
+    def test_post_tool_checkpoint_preserves_task_continuation(self, conv):
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import _compact_after_tool_results
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        manager = LogManager.load(conv["conversation_id"], lock=False)
+        request = Message(
+            "user",
+            "Create a checkpoint",
+            metadata={
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": True,
+            },
+        )
+        with patch(
+            "gptme.tools.autocompact.hook.autocompact_hook", return_value=[request]
+        ):
+            _compact_after_tool_results(manager, session, conv["conversation_id"])
+        assert manager.log.messages[-1] == request
+        assert session.checkpoint_needs_continuation is True
+
+    @pytest.mark.parametrize("revoke_during_hook", [False, True])
+    def test_revoked_tool_worker_cannot_set_checkpoint_continuation(
+        self, conv, revoke_during_hook
+    ):
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import _compact_after_tool_results
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        manager = LogManager.load(conv["conversation_id"], lock=False)
+        original_messages = list(manager.log.messages)
+        session.step_seq = 1
+        request = Message(
+            "user",
+            "Create a checkpoint",
+            metadata={
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": True,
+            },
+        )
+
+        def revoke():
+            session.step_seq = 2
+            # A replacement /step can already have cleared interrupted.
+            session.interrupted = False
+
+        def hook(*args, **kwargs):
+            if revoke_during_hook:
+                revoke()
+            yield request
+
+        if not revoke_during_hook:
+            revoke()
+        with patch("gptme.tools.autocompact.hook.autocompact_hook", side_effect=hook):
+            _compact_after_tool_results(
+                manager, session, conv["conversation_id"], step_seq=1
+            )
+        assert session.checkpoint_needs_continuation is False
+        assert manager.log.messages == original_messages
+
+    def test_interrupt_clears_checkpoint_continuation(self, conv, client):
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.generating = True
+        session.checkpoint_needs_continuation = True
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+        assert response.status_code == 200
+        assert session.checkpoint_needs_continuation is False
+
+    @pytest.mark.parametrize("pending_tool", [False, True])
+    @pytest.mark.parametrize("saved_request", [False, True])
+    @pytest.mark.parametrize("replaced_during_naming", [False, True])
+    def test_checkpoint_request_starts_normal_server_continuation(
+        self,
+        conv,
+        tmp_path,
+        monkeypatch,
+        pending_tool,
+        saved_request,
+        replaced_during_naming,
+    ):
+        """A TURN_POST checkpoint request must not wait for another API call."""
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.hooks import HookType
+        from gptme.llm.models import get_model
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+
+        session.checkpoint_needs_continuation = pending_tool
+        checkpoint_request = Message(
+            "user",
+            "Create a checkpoint with tools",
+            metadata={
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": True,
+            },
+        )
+
+        if saved_request:
+            from gptme.logmanager import LogManager
+
+            manager = LogManager.load(conv["conversation_id"], lock=False)
+            manager.append(checkpoint_request)
+            manager.write()
+
+        def hooks(hook_type, **kwargs):
+            if pending_tool or saved_request:
+                return []
+            return [checkpoint_request] if hook_type == HookType.TURN_POST else []
+
+        def auto_name(*args):
+            if replaced_during_naming:
+                with session.step_lock:
+                    session.step_seq += 1
+                    session.checkpoint_needs_continuation = True
+                    session.generating = True
+
+        with (
+            patch(
+                "gptme.server.session_step._stream",
+                return_value=iter(
+                    ["```shell\necho checkpoint\n```" if pending_tool else "done"]
+                ),
+            ),
+            patch("gptme.server.session_step.require_workspace_exists"),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", side_effect=hooks),
+            patch(
+                "gptme.server.session_step.prepare_messages",
+                return_value=[Message("user", "test")],
+            ),
+            patch(
+                "gptme.server.session_step._try_auto_name_and_notify",
+                side_effect=auto_name,
+            ),
+            patch("gptme.server.session_step.set_workspace_cwd"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.get_model", return_value=get_model("gpt-4")),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+            patch(
+                "gptme.server.session_step._start_step_thread", return_value=True
+            ) as start_step,
+        ):
+            step(
+                conversation_id=conv["conversation_id"],
+                session=session,
+                model="gpt-4",
+                workspace=tmp_path,
+                step_seq=1,
+            )
+
+        if replaced_during_naming:
+            start_step.assert_not_called()
+            assert session.step_seq == 2
+            assert session.checkpoint_needs_continuation is True
+            assert session.generating is True
+            return
+        if pending_tool:
+            start_step.assert_not_called()
+            assert session.pending_tools
+            assert session.checkpoint_needs_continuation is True
+            assert session.generating is False
+            return
+        start_step.assert_called_once()
+        kwargs = start_step.call_args.kwargs
+        assert kwargs["reserved"] is True
+        assert kwargs["step_seq"] == 2
+        assert session.step_seq == 2
+        assert session.generating is True
+        assert session.checkpoint_needs_continuation is (not saved_request)
+
+    def test_failed_checkpoint_does_not_continue_next_user_turn(
+        self, conv, tmp_path, monkeypatch
+    ):
+        """A model error must not carry checkpoint continuation into a new turn."""
+        monkeypatch.chdir(tmp_path)
+
+        from gptme.hooks import HookType
+        from gptme.llm.models import get_model
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server.session_step import step
+
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.step_seq = 1
+        session.generating = True
+        checkpoint_request = Message(
+            "user",
+            "Create a checkpoint with tools",
+            metadata={
+                "compaction_checkpoint_view": "",
+                "compaction_checkpoint_needs_continuation": True,
+            },
+        )
+        requested = False
+
+        def hooks(hook_type, **kwargs):
+            nonlocal requested
+            if hook_type == HookType.TURN_POST and not requested:
+                requested = True
+                return [checkpoint_request]
+            return []
+
+        with (
+            patch(
+                "gptme.server.session_step._stream",
+                side_effect=[
+                    iter(["task tool result received"]),
+                    RuntimeError("checkpoint model failed"),
+                    iter(["new user turn complete"]),
+                ],
+            ),
+            patch("gptme.server.session_step.prepare_execution_environment"),
+            patch("gptme.server.session_step.trigger_hook", side_effect=hooks),
+            patch("gptme.server.session_step._try_auto_name_and_notify"),
+            patch(
+                "gptme.server.session_step.ChatConfig.load_or_create",
+                return_value=MagicMock(
+                    tool_format="markdown",
+                    tools=None,
+                    workspace=tmp_path,
+                    max_tokens=None,
+                    temperature=None,
+                    top_p=None,
+                ),
+            ),
+            patch("gptme.llm.models.get_model", return_value=get_model("gpt-4")),
+            patch("gptme.llm.models.set_default_model"),
+            patch("gptme.model_attestation.record_runtime_selection"),
+            patch(
+                "gptme.server.session_step._start_step_thread", return_value=True
+            ) as start_step,
+        ):
+            step(conv["conversation_id"], session, "gpt-4", tmp_path, step_seq=1)
+            start_step.assert_called_once()
+            assert session.checkpoint_needs_continuation is True
+            assert session.step_seq == 2
+
+            # Run the dispatched checkpoint turn; its model call fails.
+            step(conv["conversation_id"], session, "gpt-4", tmp_path, step_seq=2)
+            assert session.last_error == "checkpoint model failed"
+            assert session.generating is False
+            start_step.reset_mock()
+
+            manager = LogManager.load(conv["conversation_id"], lock=False)
+            manager.append(Message("user", "A different task"))
+            manager.write()
+            session.step_seq = 3
+            session.generating = True
+            step(conv["conversation_id"], session, "gpt-4", tmp_path, step_seq=3)
+
+            start_step.assert_not_called()
+            assert session.checkpoint_needs_continuation is False
+            assert session.generating is False
+
     def test_step_seq_passed_by_caller_not_sampled_in_thread(
         self, conv, tmp_path, monkeypatch
     ):
@@ -1031,6 +1311,7 @@ class TestInterruptEndpoint:
         # generating=True is held by the replacement step.
         session.step_seq = 3
         session.generating = True
+        session.checkpoint_needs_continuation = True
 
         with (
             patch("gptme.server.session_step._stream", return_value=iter([])),
@@ -1076,6 +1357,7 @@ class TestInterruptEndpoint:
             "step's generating reservation when step_seq passed from caller != current"
         )
         assert session.step_seq == 3
+        assert session.checkpoint_needs_continuation is True
 
     def test_setup_exit_does_not_clear_newer_reservation(
         self, conv, tmp_path, monkeypatch
