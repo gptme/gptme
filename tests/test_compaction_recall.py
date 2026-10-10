@@ -479,3 +479,27 @@ def test_oversized_checkpoint_drops_catalog_before_truncating(tmp_path, monkeypa
     assert any("IMPORTANT SAVED WORK" in m.content for m in manager.log.messages)
     assert any("checkpoint truncated" in m.content for m in manager.log.messages)
     assert len_tokens(manager.log.messages, model="gpt-4") <= budget
+
+
+def test_manual_compaction_recall_survives_reload(tmp_path):
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    logdir = tmp_path / "conversation"
+    manager = LogManager(messages, logdir=logdir, lock=False)
+    manager.write()
+    list(
+        _resume_via_llm(
+            manager,
+            messages,
+            use_view_branch=False,
+            keep_recent_tokens=0,
+            checkpoint_response=Message("assistant", "## Objective\nManual compact."),
+        )
+    )
+    assert (logdir / "branches" / "lossless.jsonl").is_file()
+    reloaded = LogManager.load(logdir, lock=False)
+    assert reloaded.master_log.messages == messages
+    assert "0123456789" in recall_result(3)
+    assert "recent result" in recall_result(5)
