@@ -4705,3 +4705,202 @@ def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
     assert len(step_inputs) == 3
     assert step_inputs[-1][-1].content.startswith("## Objective")
     assert manager.current_view is not None
+
+
+def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
+    """On a compaction-capable Anthropic model, native compaction must be
+    attempted before queueing the generic checkpoint turn."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "implement the feature"),
+        Message("assistant", "I am working on it"),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-native-first"
+    manager.current_branch = "master"
+    manager.current_view = "main"
+    manager.log.messages = messages
+
+    anthropic_model = MagicMock()
+    anthropic_model.full = "anthropic/claude-test"
+    anthropic_model.model = "claude-test"
+    anthropic_model.context = 200_000
+    anthropic_model.max_output = 8192
+
+    def fake_native(_manager, msgs, **kwargs):
+        assert msgs[0].role == "system", "native path must receive the system head"
+        yield Message(
+            "system", "🔄 Compacting via provider-native compaction (Anthropic)..."
+        )
+        return True
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook.get_default_model",
+            return_value=anthropic_model,
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._apply_native_compaction",
+            side_effect=fake_native,
+        ) as mock_native,
+    ):
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+
+    assert mock_native.called, "native path must be attempted before the checkpoint"
+    assert not any(
+        m.metadata and m.metadata.get("compaction_checkpoint_view") for m in out
+    ), "checkpoint turn must not be queued when native compaction applied"
+
+
+def test_autocompact_hook_falls_back_to_checkpoint_when_native_fails(monkeypatch):
+    """When the native path declines, the generic checkpoint turn is queued
+    with continuation metadata preserved."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+
+    hook_module._last_autocompact_attempt.clear()
+    hook_module._failed_summarize.clear()
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "implement the feature"),
+        Message("assistant", "I am working on it"),
+    ]
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-native-fallback"
+    manager.current_branch = "master"
+    manager.current_view = None
+    manager.log.messages = messages
+
+    anthropic_model = MagicMock()
+    anthropic_model.full = "anthropic/claude-test"
+    anthropic_model.model = "claude-test"
+    anthropic_model.context = 200_000
+    anthropic_model.max_output = 8192
+
+    # Plain function (not a generator): yields nothing, reports not-applied.
+    def fake_native(_manager, msgs, **kwargs):
+        return iter(())
+
+    with (
+        patch(
+            "gptme.tools.autocompact.hook.should_auto_compact",
+            return_value="summarize",
+        ),
+        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch(
+            "gptme.tools.autocompact.hook.get_default_model",
+            return_value=anthropic_model,
+        ),
+        patch(
+            "gptme.tools.autocompact.hook._apply_native_compaction",
+            side_effect=fake_native,
+        ),
+    ):
+        out = _message_outputs(list(hook_module.autocompact_hook(manager)))
+
+    assert len(out) == 1
+    meta = out[0].metadata or {}
+    assert meta.get("compaction_checkpoint_view") == ""
+    # needs_continuation is False because the last message is an assistant turn
+    assert meta.get("compaction_checkpoint_needs_continuation") is False
+
+
+def test_autocompact_summarize_native_path_prepares_messages(monkeypatch):
+    """The automatic native-compaction path must prepare messages first.
+
+    Regression: hook.py passed the raw checkpoint source to
+    _apply_native_compaction, skipping prepare_messages. After /model or
+    /tools load appends a replacement prompt mid-history, that prompt would
+    stay buried in the history instead of moving to the front; compaction
+    would then replace it with a signed block while keeping the old startup
+    prompt, so later requests replay outdated model/tool instructions.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import gptme.tools.autocompact.hook as hook_module
+    from gptme.tools.autocompact.hook import autocompact_hook
+
+    # History where a replacement system prompt was appended after the start
+    # (as /model or /tools load does). prepare_messages must move it to the
+    # front before the native compaction helper sees it.
+    msgs = [
+        Message("system", "old startup prompt", pinned=True),
+        Message("user", "hello " * 100),
+        Message("assistant", "hi there " * 100),
+        Message(
+            "system",
+            "replacement prompt after /model",
+            metadata={"prompt_generation": "2"},
+        ),
+        Message("user", "more conversation " * 100),
+    ]
+
+    manager = MagicMock()
+    manager.logdir = "/tmp/conv-native-prepared"
+    manager.current_branch = "main"
+    manager.current_view = "test-view"
+    manager.log.messages = msgs
+
+    hook_module._last_autocompact_attempt.clear()
+
+    captured_msgs: dict = {}
+
+    def fake_native_compaction(mgr, prepared, **kwargs):
+        captured_msgs["prepared"] = list(prepared)
+        yield Message("system", "native", hide=True, ui_only=True)
+        return True
+
+    mock_model = MagicMock()
+    mock_model.model = "claude-sonnet-4-6"
+    mock_model.full = "anthropic/claude-sonnet-4-6"
+    mock_model.context = 200_000
+    mock_model.max_output = 8192
+    mock_model.context_budget = None
+
+    with (
+        patch.object(hook_module, "should_auto_compact", return_value="summarize"),
+        patch.object(
+            hook_module,
+            "_apply_native_compaction",
+            side_effect=fake_native_compaction,
+        ),
+        patch.object(hook_module, "get_default_model", return_value=mock_model),
+        patch(
+            "gptme.tools.autocompact.hook.get_project_config",
+            side_effect=RuntimeError("no config"),
+        ),
+        patch("gptme.config.get_config") as mock_get_config,
+        patch.object(hook_module, "trigger_hook", return_value=iter([])),
+    ):
+        mock_cfg = MagicMock()
+        mock_cfg.get_env.return_value = None
+        mock_get_config.return_value = mock_cfg
+
+        list(autocompact_hook(manager))
+
+    assert "prepared" in captured_msgs, (
+        "automatic summarize path must call _apply_native_compaction "
+        "on an Anthropic model"
+    )
+    prepared = captured_msgs["prepared"]
+    assert prepared[0].role == "system"
+    assert prepared[0].content == "replacement prompt after /model", (
+        "prepare_messages must move the appended replacement prompt to the "
+        "front before native compaction; otherwise compaction preserves the "
+        "stale startup prompt instead of the current instructions"
+    )
+    assert all(m.role != "system" for m in prepared[1:])

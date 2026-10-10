@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from ...config import get_project_config
 from ...hooks import HookType, StopPropagation, trigger_hook
 from ...llm.models import get_default_model
+from ...logmanager import prepare_messages
 from ...message import Message, len_tokens
 from ...util.context_budget import get_context_budget
 from ...util.context_measurement import measure_context_tokens
@@ -29,7 +30,11 @@ from .decision import (
 )
 from .events import append_compaction_event
 from .handlers import cmd_compact_handler
-from .resume import _resume_via_llm, build_checkpoint_prompt
+from .resume import (
+    _apply_native_compaction,
+    _resume_via_llm,
+    build_checkpoint_prompt,
+)
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager
@@ -535,35 +540,84 @@ def autocompact_hook(
                 pass  # Config read is best-effort; use defaults if it fails
 
             if checkpoint_turn is None:
-                # Put checkpointing through the normal turn loop so the model
-                # can use the same tools, confirmation policy, overflow recovery,
-                # and CLI/server continuation machinery as any other turn.
-                yield Message(
-                    "user",
-                    build_checkpoint_prompt(compact_instructions, tool_capable=True),
-                    metadata={
-                        "compaction_checkpoint_view": view,
-                        # Whether the interrupted task still owes a model
-                        # response (tool results pending an answer). The
-                        # CLI/server loop resumes that work after the
-                        # checkpoint turn completes instead of stopping.
-                        "compaction_checkpoint_needs_continuation": (
-                            _owes_model_response(messages)
+                # Provider-native compaction before queuing the generic
+                # checkpoint turn: _resume_via_llm's native branch only runs
+                # when no checkpoint response is supplied, so queueing the
+                # checkpoint first would mean automatic compaction never
+                # reaches the native path.
+                m = get_default_model()
+                if m is not None and m.full.startswith("anthropic/"):
+                    # _apply_native_compaction expects prepared messages: a
+                    # replacement prompt appended after /model or /tools load
+                    # must move to the front of the history before it can fall
+                    # outside the recent tail, or compaction would replace the
+                    # new prompt while keeping the old startup prompt.
+                    native_applied = yield from _apply_native_compaction(
+                        manager,
+                        prepare_messages(checkpoint_source),
+                        use_view_branch=True,
+                        compact_instructions=compact_instructions,
+                        keep_recent_tokens=keep_recent_tokens,
+                        keep_head=_get_keep_head(),
+                        model_meta=m,
+                        llm_unlocked=llm_unlocked,
+                    )
+                    if native_applied:
+                        applied = True
+                    else:
+                        # Put checkpointing through the normal turn loop so the
+                        # model can use the same tools, confirmation policy,
+                        # overflow recovery, and CLI/server continuation
+                        # machinery as any other turn.
+                        yield Message(
+                            "user",
+                            build_checkpoint_prompt(
+                                compact_instructions, tool_capable=True
+                            ),
+                            metadata={
+                                "compaction_checkpoint_view": view,
+                                # Whether the interrupted task still owes a
+                                # model response (tool results pending an
+                                # answer). The CLI/server loop resumes that
+                                # work after the checkpoint turn completes.
+                                "compaction_checkpoint_needs_continuation": (
+                                    _owes_model_response(messages)
+                                ),
+                            },
+                        )
+                        return
+                else:
+                    # Put checkpointing through the normal turn loop so the model
+                    # can use the same tools, confirmation policy, overflow recovery,
+                    # and CLI/server continuation machinery as any other turn.
+                    yield Message(
+                        "user",
+                        build_checkpoint_prompt(
+                            compact_instructions, tool_capable=True
                         ),
-                    },
+                        metadata={
+                            "compaction_checkpoint_view": view,
+                            # Whether the interrupted task still owes a model
+                            # response (tool results pending an answer). The
+                            # CLI/server loop resumes that work after the
+                            # checkpoint turn completes instead of stopping.
+                            "compaction_checkpoint_needs_continuation": (
+                                _owes_model_response(messages)
+                            ),
+                        },
+                    )
+                    return
+            else:
+                applied = yield from _resume_via_llm(
+                    manager,
+                    checkpoint_source,
+                    use_view_branch=True,
+                    llm_unlocked=llm_unlocked,
+                    compact_instructions=compact_instructions,
+                    keep_recent_tokens=keep_recent_tokens,
+                    keep_head=_get_keep_head(),
+                    checkpoint_response=checkpoint_response,
                 )
-                return
-
-            applied = yield from _resume_via_llm(
-                manager,
-                checkpoint_source,
-                use_view_branch=True,
-                llm_unlocked=llm_unlocked,
-                compact_instructions=compact_instructions,
-                keep_recent_tokens=keep_recent_tokens,
-                keep_head=_get_keep_head(),
-                checkpoint_response=checkpoint_response,
-            )
         except Exception as e:
             logger.error(f"Auto-summarize failed: {e}")
             _failed_summarize[conv_key] = n_messages

@@ -10,7 +10,7 @@ from collections import Counter
 from collections.abc import Generator
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ... import llm
 from ...llm.models import get_default_model
@@ -368,6 +368,15 @@ def _compaction_artifact_kind(msg: Message) -> str | None:
     return None
 
 
+def _is_result_stubs_message(msg: Message) -> bool:
+    """True for system messages that are LLM result stubs catalogs."""
+    if msg.role != "system":
+        return False
+    if msg.metadata and msg.metadata.get("result_stubs"):
+        return True
+    return msg.content.startswith(_RESULT_STUBS_PREFIX)
+
+
 def _is_compaction_artifact(msg: Message) -> bool:
     """True for system messages known to be emitted around a checkpoint."""
     return _compaction_artifact_kind(msg) is not None
@@ -597,10 +606,6 @@ def _split_recent_tail(
     one of several result messages while dropping the assistant tool call. The
     returned prefix is the exact input a provider-native compactor may summarize
     before the returned tail is appended unchanged.
-
-    The split is lossless: ``prefix + tail == msgs``. Cleanup of dangling
-    tool results and unmatched tool calls in the tail is the tail-consumer's
-    job (:func:`_get_recent_tail`); the pair itself never omits a message.
     """
     if keep_tokens <= 0 or not msgs:
         return list(msgs), []
@@ -644,30 +649,24 @@ def _split_recent_tail(
     return msgs[:cut], tail
 
 
-def _get_recent_tail(
-    msgs: list[Message],
-    keep_tokens: int,
-    *,
-    model: str | None = None,
-) -> list[Message]:
-    """Return the retained side of :func:`_split_recent_tail`.
+def _clean_tail(tail: list[Message]) -> list[Message]:
+    """Drop dangling tool results and unmatched tool calls from a tail.
 
-    This is the cleanup point for the tail: dangling tool results at the head
-    (no matching tool-call) and assistant tool-calls whose result never
-    follows (the conversation ends mid-turn, or the user interrupted before
-    the result) are dropped here — an unmatched tool call in the compacted
-    view breaks strict providers. Keeping the cleanup on the tail-only side
-    preserves the lossless ``prefix + tail == msgs`` property of
-    :func:`_split_recent_tail`.
+    Dangling tool results (no matching call in the tail) appear when the cut
+    lands inside a step.  Unmatched tool calls (call with no following result)
+    break strict providers.  This cleanup belongs on consumers that need clean
+    context, not on the lossless splitter itself.
     """
-    tail = _split_recent_tail(msgs, keep_tokens, model=model)[1]
-
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
     # (e.g. system/user role in some provider formats).
     while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
 
+    # Drop an assistant tool-call whose result never follows it: either the
+    # conversation ends mid-turn, or the user interrupted before the result
+    # (the call is followed directly by a user message). An unmatched tool
+    # call in the compacted view breaks strict providers.
     def _unmatched_call(i: int) -> bool:
         if tail[i].role != "assistant" or not any(
             tooluse.is_runnable
@@ -687,6 +686,18 @@ def _get_recent_tail(
     return tail
 
 
+def _get_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> list[Message]:
+    """Return the retained side of :func:`_split_recent_tail`, with dangling
+    tool results and unmatched tool calls stripped."""
+    _, tail = _split_recent_tail(msgs, keep_tokens, model=model)
+    return _clean_tail(tail)
+
+
 def _message_identity(message: Message) -> tuple[object, ...]:
     """Stable identity shared by master and deserialized view messages."""
     return (
@@ -696,11 +707,6 @@ def _message_identity(message: Message) -> tuple[object, ...]:
         message.content,
         tuple(str(path) for path in message.files),
     )
-
-
-def _is_result_stubs_message(message: Message) -> bool:
-    """Whether a message is the generated dropped-result catalog."""
-    return bool((message.metadata or {}).get("result_stubs"))
 
 
 def _build_dropped_result_stubs(
@@ -741,7 +747,7 @@ def _build_dropped_result_stubs(
         "/tools load recall before requesting saved output."
     )
     content = f"{_RESULT_STUBS_PREFIX} {instructions}\n" + "\n".join(lines)
-    return Message("system", content, metadata={"result_stubs": True})
+    return Message("system", content)
 
 
 _TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
@@ -803,6 +809,175 @@ def _truncate_to_tokens(text: str, max_tokens: int, *, model: str | None = None)
         return tail
     head = _fit_prefix(text, head_budget, model_str)
     return head + _TRUNCATION_MARK + tail
+
+
+def _apply_native_compaction(
+    manager: "LogManager",
+    prepared_msgs: list[Message],
+    *,
+    use_view_branch: bool,
+    compact_instructions: str | None,
+    keep_recent_tokens: int,
+    keep_head: int,
+    model_meta: Any,
+    llm_unlocked: AbstractContextManager[object] | None,
+) -> Generator[Message, None, bool]:
+    """Attempt provider-native (Anthropic) compaction.
+
+    Returns True iff the native view was applied; False means the caller must
+    fall back to the generic LLM checkpoint (unsupported model, capability
+    lookup failed, provider returned no signed block, or the conversation
+    changed while the request was in flight).
+    """
+    from .native_anthropic import (
+        anthropic_compaction_supported,
+        anthropic_native_compact,
+        compaction_block_of,
+    )
+
+    model_str = model_meta.model
+    if not anthropic_compaction_supported(model_str):
+        return False
+
+    # Preserve the leading system block verbatim, mirroring the generic path.
+    n_head = 0
+    for msg in prepared_msgs:
+        if msg.role != "system":
+            break
+        n_head += 1
+    head_end = max(n_head, min(keep_head, len(prepared_msgs)))
+    preserved_head = [
+        msg
+        for msg in prepared_msgs[:head_end]
+        if not compaction_block_of(msg) and not _is_result_stubs_message(msg)
+    ]
+    # A previous signed checkpoint must be summarized, never retained alongside
+    # its replacement. Include it even when keep_head would protect its position.
+    block_indices = [
+        i for i, msg in enumerate(prepared_msgs) if compaction_block_of(msg)
+    ]
+    body_start = min(head_end, min(block_indices)) if block_indices else head_end
+    body = [
+        msg for msg in prepared_msgs[body_start:] if not _is_result_stubs_message(msg)
+    ]
+    system_head = [
+        msg for msg in prepared_msgs[:n_head] if not _is_result_stubs_message(msg)
+    ]
+    budget = None
+    context = model_meta.context
+    if isinstance(context, int) and context > 0:
+        output_reserve = model_meta.max_output or 8192
+        budget = get_context_budget(context, max_output=output_reserve)
+        # Size the tail before the request: messages omitted from the final
+        # tail must be included in the provider's summary, not silently lost.
+        keep_recent_tokens = min(
+            keep_recent_tokens,
+            max(
+                0, budget - len_tokens(preserved_head, model=model_str) - output_reserve
+            ),
+        )
+
+    # One canonical whole-assistant-step cut shared with the view builder:
+    # the provider summarizes exactly the prefix and the tail is appended
+    # unchanged, so the retained steps are never summarized twice.
+    prefix, tail = _split_recent_tail(body, keep_recent_tokens, model=model_str)
+    if any(compaction_block_of(msg) for msg in tail):
+        # Very short views may put the old checkpoint in the recent window.
+        # Summarize through its last occurrence instead of replaying it twice.
+        cut = max(i for i, msg in enumerate(tail) if compaction_block_of(msg)) + 1
+        prefix += tail[:cut]
+        tail = tail[cut:]
+    tail = _clean_tail(tail)
+    if len(prefix) < 3:
+        return False
+
+    yield Message(
+        "system",
+        "🔄 Compacting via provider-native compaction (Anthropic)...",
+        hide=use_view_branch,
+        ui_only=True,
+    )
+
+    snapshot = None
+    file_snapshot = None
+    conv_snapshot = None
+    if llm_unlocked is not None:
+        snapshot = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        file_snapshot = _logfile_snapshot(manager.logfile)
+        if manager.current_branch != "main" and manager.logdir:
+            conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
+    with llm_unlocked or nullcontext():
+        block_msg = anthropic_native_compact(
+            system_head + prefix,
+            model_str,
+            instructions=compact_instructions,
+        )
+    if block_msg is None:
+        return False
+    if snapshot is not None:
+        current = (
+            manager.current_view,
+            len(manager.log.messages),
+            manager.log.messages[-1].content if manager.log.messages else None,
+        )
+        conv_changed = conv_snapshot is not None and (
+            _logfile_snapshot(manager.logdir / "conversation.jsonl") != conv_snapshot
+        )
+        if (
+            current != snapshot
+            or _logfile_snapshot(manager.logfile) != file_snapshot
+            or conv_changed
+        ):
+            logger.info(
+                "Discarding stale native compaction result; conversation "
+                "changed during the provider request"
+            )
+            yield Message(
+                "system",
+                "Skipped stale native compaction: the conversation changed "
+                "while the provider request was in flight.",
+                hide=use_view_branch,
+                ui_only=True,
+            )
+            return False
+
+    new_log = preserved_head + [block_msg] + tail
+    if budget is not None and len_tokens(new_log, model=model_str) > budget:
+        # Signed blocks cannot be truncated. Fall back without changing history
+        # rather than dropping a tail that the provider did not summarize.
+        logger.info(
+            "Native compacted view exceeds context budget; using generic checkpoint"
+        )
+        return False
+    if use_view_branch:
+        view_name = manager.get_next_view_name()
+        manager.create_view(view_name, new_log)
+        manager.switch_view(view_name)
+        preservation_note = "• Original conversation preserved losslessly on disk"
+    else:
+        # Save the full original log as a backup view before replacing it.
+        _idx = 1
+        while f"pre-compact-{_idx:03d}" in getattr(manager, "_views", {}):
+            _idx += 1
+        manager.preserve_lossless_log()
+        manager.create_view(f"pre-compact-{_idx:03d}", manager.log)
+        manager.log = Log(new_log)
+        manager.write()
+        preservation_note = "• Original conversation backed up to recovery view"
+
+    yield Message(
+        "system",
+        f"✅ Native compaction completed:\n"
+        f"• {len(prefix)} messages summarized by the provider into a signed block\n"
+        f"• {len(tail)} recent messages kept verbatim\n"
+        f"{preservation_note}",
+        hide=use_view_branch,
+    )
+    return True
 
 
 def _resume_via_llm(
@@ -873,6 +1048,24 @@ def _resume_via_llm(
             ui_only=True,
         )
         return False
+    # Provider-native compaction first: when the Anthropic model supports the
+    # compaction capability, the old prefix is summarized server-side and the
+    # signed block is replayed verbatim. Any failure here falls through to the
+    # generic checkpoint below.
+    if checkpoint_response is None and m.full.startswith("anthropic/"):
+        native_applied = yield from _apply_native_compaction(
+            manager,
+            prepared_msgs,
+            use_view_branch=use_view_branch,
+            compact_instructions=compact_instructions,
+            keep_recent_tokens=keep_recent_tokens,
+            keep_head=keep_head,
+            model_meta=m,
+            llm_unlocked=llm_unlocked,
+        )
+        if native_applied:
+            return True
+
     if checkpoint_response is None:
         # Legacy/manual path: ask the model directly without tools. Automatic
         # compaction supplies a checkpoint from the normal turn loop instead.
@@ -1112,6 +1305,16 @@ def _resume_via_llm(
         # block so the view is never over budget by construction.
         if len_tokens(preserved_head, model=model_str) > budget:
             preserved_head = original_system_msgs
+        fixed_parts = assemble_fixed_parts()
+        if (
+            result_stubs_msg is not None
+            and len_tokens(fixed_parts, model=model_str) > budget
+        ):
+            result_stubs_msg = None
+            fixed_parts = assemble_fixed_parts()
+            logger.warning(
+                "Result catalog exceeds remaining context budget; dropped the recall catalog."
+            )
 
         # If the fixed content alone exceeds the budget, shrink it: drop
         # loaded context files (least essential) newest-last first. The
@@ -1131,17 +1334,6 @@ def _resume_via_llm(
                 > budget
             ):
                 file_context_msgs.pop()
-            if essential_tokens > budget and result_stubs_msg is not None:
-                # The catalog counts toward the budget too: when it cannot fit
-                # alongside the essentials, drop it before truncating the
-                # checkpoint, so the view is never over budget by construction.
-                catalog_tokens = len_tokens([result_stubs_msg], model=model_str)
-                result_stubs_msg = None
-                essential_tokens -= catalog_tokens
-                logger.warning(
-                    "Result catalog exceeds remaining context budget; "
-                    "dropped the recall catalog."
-                )
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.
@@ -1149,8 +1341,6 @@ def _resume_via_llm(
                 overhead = len_tokens(
                     preserved_head + [resume_intro_msg], model=model_str
                 ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
-                if result_stubs_msg is not None:
-                    overhead += len_tokens([result_stubs_msg], model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
                     resume_content, room, model=model_str
@@ -1210,10 +1400,10 @@ def _resume_via_llm(
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
     else:
-        # Replace the log directly (user-invoked /compact resume). Recallable
-        # result IDs point into the lossless master log, so preserve it before
-        # the in-place replacement strands every stub ID.
+        # Preserve lossless snapshot first — must succeed before conversation.jsonl is touched.
+        # If this raises (e.g. ENOSPC), conversation.jsonl is left unchanged.
         manager.preserve_lossless_log()
+        # Replace the log directly (user-invoked /compact resume)
         manager.log = Log(new_log)
         manager.write()
 

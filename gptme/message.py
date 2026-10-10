@@ -256,6 +256,9 @@ class MessageMetadata(TypedDict, total=False):
     # profile) so repeated resumes replace the same message instead of
     # stacking duplicates or matching by content substring.
     resume_key: str
+    # Signed Anthropic native-compaction block (compact-2026-09-04 beta),
+    # round-tripped verbatim as the first content block of later requests.
+    anthropic_compaction_block: dict[str, Any]
 
 
 _TOKEN_KEYS = (
