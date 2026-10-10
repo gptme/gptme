@@ -16,7 +16,7 @@ from ... import llm
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, MessageMetadata, len_tokens
-from ...tools import ToolUse
+from ...tools import ToolUse, has_tool
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
 from ...util.master_context import is_tool_result_message
@@ -714,6 +714,7 @@ def _build_dropped_result_stubs(
     Those positions remain stable because compacted views are stored separately
     and later messages are dual-written to the append-only master transcript.
     """
+    recall_available = has_tool("recall")
     master_messages = manager.master_log.messages
     retained_counts = Counter(_message_identity(message) for message in retained)
     lines: list[str] = []
@@ -722,19 +723,24 @@ def _build_dropped_result_stubs(
         if retained_counts[identity] > 0:
             retained_counts[identity] -= 1
             continue
-        if message.hide or not is_tool_result_message(master_messages, index):
+        if not is_tool_result_message(master_messages, index):
             continue
         result_id = index + 1
         tokens = len_tokens(message.content, model=model)
-        lines.append(
-            f"[result #{result_id}, {tokens:,} tokens] — recall_result({result_id})"
-        )
+        line = f"[result #{result_id}, {tokens:,} tokens]"
+        if recall_available:
+            line += f" — recall_result({result_id})"
+        lines.append(line)
 
     if not lines:
         return None
-    content = f"{_RESULT_STUBS_PREFIX} Recall one by its stable ID:\n" + "\n".join(
-        lines
+    instructions = (
+        "Recall one by its stable ID:"
+        if recall_available
+        else "The recall tool is not loaded. Ask the user to enable it with "
+        "/tools load recall before requesting saved output."
     )
+    content = f"{_RESULT_STUBS_PREFIX} {instructions}\n" + "\n".join(lines)
     return Message("system", content, metadata={"result_stubs": True})
 
 

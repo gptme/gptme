@@ -3,7 +3,7 @@
 from ..logmanager import LogManager
 from ..message import Message
 from ..util.master_context import is_tool_result_message
-from .base import ToolFunction, ToolSpec
+from .base import Parameter, ToolFunction, ToolSpec
 
 _DEFAULT_MAX_CHARS = 20_000
 _MAX_CHARS = 100_000
@@ -39,11 +39,6 @@ def recall_result(
         return f"Error: result #{result_id} does not exist in the master log."
     if not is_tool_result_message(messages, index):
         return f"Error: master-log message #{result_id} is not a tool result."
-    if messages[index].hide:
-        return (
-            f"Error: result #{result_id} is hidden (e.g. a secret entered via "
-            "elicit) and cannot be recalled."
-        )
 
     content = messages[index].content
     if start_char > len(content):
@@ -112,6 +107,26 @@ tool = ToolSpec(
         "recall_result(result_id, start_char=0, max_chars=20000)."
     },
     functions=[ToolFunction.from_callable(recall_result)],
+    parameters=[
+        Parameter(
+            "result_id",
+            "integer",
+            "Stable result ID from a [result #N, ...] stub.",
+            required=True,
+        ),
+        Parameter(
+            "start_char",
+            "integer",
+            "Character offset to start reading (default 0).",
+            required=False,
+        ),
+        Parameter(
+            "max_chars",
+            "integer",
+            "Characters to return (default 20000; max 100000).",
+            required=False,
+        ),
+    ],
     execute=execute_recall,
     read_only=True,
 )

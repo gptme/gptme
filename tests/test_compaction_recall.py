@@ -218,7 +218,7 @@ def test_user_message_quoting_catalog_is_not_filtered(tmp_path):
     assert _is_result_stubs_message(real)
 
 
-def test_recall_result_refuses_hidden_results(tmp_path):
+def test_recall_result_allows_hidden_tool_results(tmp_path):
     from gptme.tools.recall import recall_result
 
     messages = _messages() + [
@@ -227,10 +227,10 @@ def test_recall_result_refuses_hidden_results(tmp_path):
     manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
     manager.write()
 
-    assert "hidden" in recall_result(6)
+    assert "hunter2" in recall_result(6)
 
 
-def test_dropped_result_stubs_skip_hidden_results(tmp_path):
+def test_dropped_result_stubs_include_hidden_tool_results(tmp_path):
     from gptme.tools.autocompact.resume import _build_dropped_result_stubs
 
     messages = _messages() + [
@@ -248,7 +248,7 @@ def test_dropped_result_stubs_skip_hidden_results(tmp_path):
     assert stub is not None
     assert "recall_result(3)" in stub.content
     assert "recall_result(5)" in stub.content
-    assert "recall_result(6)" not in stub.content
+    assert "recall_result(6)" in stub.content
     assert "hunter2" not in stub.content
 
 
@@ -525,3 +525,49 @@ def test_manual_compaction_recall_survives_reload(tmp_path):
     assert reloaded.master_log.messages == messages
     assert "0123456789" in recall_result(3)
     assert "recent result" in recall_result(5)
+
+
+def test_native_recall_schema_exposes_result_and_paging_arguments():
+    from gptme.llm.llm_anthropic import _spec2tool as anthropic_tool
+    from gptme.llm.llm_openai import _spec2tool as openai_tool
+    from gptme.llm.models import get_model
+    from gptme.tools.recall import tool
+
+    schemas = [
+        anthropic_tool(tool)["input_schema"],
+        openai_tool(tool, get_model("openai/gpt-4o-mini"))["function"]["parameters"],
+    ]
+    for schema in schemas:
+        assert set(schema["properties"]) == {"result_id", "start_char", "max_chars"}
+        assert schema["required"] == ["result_id"]
+        assert all(p["type"] == "integer" for p in schema["properties"].values())
+
+
+def test_result_catalog_explains_when_recall_is_not_loaded(tmp_path, monkeypatch):
+    from gptme.tools.autocompact.resume import _build_dropped_result_stubs
+
+    monkeypatch.setattr("gptme.tools._get_loaded_tools", lambda: [])
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    stub = _build_dropped_result_stubs(manager, [messages[0]], "gpt-4")
+
+    assert stub is not None
+    assert "[result #3," in stub.content
+    assert "recall_result(" not in stub.content
+    assert "not loaded" in stub.content
+    assert "/tools load recall" in stub.content
+
+
+def test_hidden_non_tool_message_is_not_recallable(tmp_path):
+    from gptme.tools.autocompact.resume import _build_dropped_result_stubs
+    from gptme.tools.recall import recall_result
+
+    messages = _messages() + [Message("system", "hidden notification", hide=True)]
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    stub = _build_dropped_result_stubs(manager, [messages[0]], "gpt-4")
+
+    assert stub is not None
+    assert "[result #6," not in stub.content
+    assert "not a tool result" in recall_result(6)
