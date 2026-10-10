@@ -1,5 +1,6 @@
 """Tests for MCP discovery and management functionality."""
 
+from typing import Protocol, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,12 @@ from gptme.mcp.registry import (
     format_server_list,
 )
 from gptme.tools.mcp import execute_mcp
+
+
+class _CallAssertingMock(Protocol):
+    """The mock assertion interface used by the search tests."""
+
+    def assert_called_once_with(self, *args: object, **kwargs: object) -> None: ...
 
 
 def test_mcp_server_info():
@@ -217,7 +224,7 @@ def test_execute_mcp_search(command: str, query: str) -> None:
     ) as mock_search:
         messages = list(execute_mcp(command, None, None))
 
-        mock_search.assert_called_once_with(query, "all", 10)
+        cast(_CallAssertingMock, mock_search).assert_called_once_with(query, "all", 10)
         assert len(messages) == 1
         assert messages[0].role == "system"
         assert "sqlite" in messages[0].content
@@ -284,7 +291,9 @@ def test_execute_mcp_search_with_json_args(query: str) -> None:
         code = f'search {query}\n{{"registry": "official", "limit": "5"}}'
         messages = list(execute_mcp(code, None, None))
 
-        mock_search.assert_called_once_with(query, "official", 5)
+        cast(_CallAssertingMock, mock_search).assert_called_once_with(
+            query, "official", 5
+        )
         assert len(messages) == 1
         assert messages[0].role == "system"
         assert "sqlite" in messages[0].content
@@ -293,17 +302,20 @@ def test_execute_mcp_search_with_json_args(query: str) -> None:
 def test_execute_mcp_search_passes_full_query_to_registry() -> None:
     """Preserve the query through command parsing and the registry request."""
     response = MagicMock()
-    response.json.return_value = {
+    registry_data = {
         "servers": [
             {"server": {"name": "browser-server", "description": "Browser automation"}}
         ]
     }
 
-    with patch("gptme.mcp.registry.requests.get", return_value=response) as mock_get:
+    with (
+        patch.object(response, "json", return_value=registry_data),
+        patch("gptme.mcp.registry.requests.get", return_value=response) as mock_get,
+    ):
         code = 'search browser automation\n{"registry": "official", "limit": 5}'
         messages = list(execute_mcp(code, None, None))
 
-    mock_get.assert_called_once_with(
+    cast(_CallAssertingMock, mock_get).assert_called_once_with(
         "https://registry.modelcontextprotocol.io/v0/servers",
         params={"search": "browser automation", "limit": 5},
         timeout=10,
