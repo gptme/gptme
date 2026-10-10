@@ -4958,6 +4958,10 @@ class TestDegenerationStreamBehaviour:
             _degen_chunk(content="REPEAT " * 60, provider="Together"),
         ]
         self._setup(monkeypatch, [_openrouter_stream(chunks)])
+        # reply() initializes the provider client first; skip it so the test
+        # does not depend on an earlier test (or OPENROUTER_API_KEY) having
+        # registered an openrouter client on this xdist worker.
+        monkeypatch.setattr("gptme.llm.init_llm", lambda provider: None)
 
         with pytest.raises(llm_openai.DegenerationDetected) as exc_info:
             reply(
