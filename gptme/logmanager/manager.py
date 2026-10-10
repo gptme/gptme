@@ -937,8 +937,9 @@ class LogManager:
             return
         lossless_path = self.logdir / "lossless.jsonl"
         lossless_path.parent.mkdir(parents=True, exist_ok=True)
-        main_log = self._branches.get("main", self.log)
-        written = main_log.write_jsonl(lossless_path, append=True)
+        # Re-compaction must not overwrite the existing full transcript with
+        # the already compacted active branch. Recall IDs address this archive.
+        written = self.master_log.write_jsonl(lossless_path, append=True)
         self._lossless_log = written
 
     def branch(self, name: str) -> None:

@@ -197,3 +197,19 @@ def test_generic_retains_user_quoting_catalog_in_tail(tmp_path: Path) -> None:
         )
     )
     assert quoted in manager.log.messages
+
+
+def test_repeated_manual_compaction_preserves_original_recall_ids(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    messages = _history()
+    messages.insert(3, Message("system", "original result", call_id="old-call"))
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    assert _native_run(manager, monkeypatch)[0]
+    for message in _history()[1:]:
+        manager.append(message)
+    assert _native_run(manager, monkeypatch)[0]
+    reloaded = LogManager.load(manager.logdir, lock=False)
+    assert reloaded.master_log.messages[3].content == "original result"
+    assert reloaded.master_log.messages[3].call_id == "old-call"
