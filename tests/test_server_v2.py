@@ -28,6 +28,17 @@ from flask.testing import FlaskClient  # fmt: skip
 pytestmark = [pytest.mark.timeout(10)]  # 10 second timeout for all tests
 
 
+@pytest.fixture(autouse=True)
+def _isolated_logs_home(tmp_path, monkeypatch):
+    """Keep conversations created here out of the user's real logs dir.
+
+    Without this, every ``create_conversation`` call left a
+    ``test-server-v2-<randint>`` dir behind; once enough piled up, new random
+    names collided and PUT returned 409 "Conversation already exists".
+    """
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+
+
 def create_conversation(client: FlaskClient, config: ChatConfig | None = None):
     """Create a V2 conversation with a session and optional config."""
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
