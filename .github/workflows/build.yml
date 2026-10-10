@@ -4,7 +4,8 @@ on:
   push:
     branches: [ master ]
   pull_request:
-    branches: [ master ]
+    # Stacked PRs target feature branches before their base lands on master.
+    branches: [ master, 'feat/*' ]
     # Docker images and PyInstaller binaries (which bundle the web UI) only
     # depend on these; workflow-, docs- and test-only PRs skip the build.
     paths:

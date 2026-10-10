@@ -1407,3 +1407,38 @@ def test_dropout_kept_validated_core_records_override_epsilon(monkeypatch, tmp_p
         "kept validated_core must record the class-specific epsilon "
         f"(got {entry.get('effective_epsilon')!r}, global was 0.25)"
     )
+
+
+def test_dropout_loads_one_policy_snapshot_per_batch(monkeypatch, tmp_path):
+    _reset_manifest_cache(monkeypatch)
+    manifest_file = _make_manifest_file(tmp_path, exempt=["code/lesson-0"])
+    monkeypatch.setenv("LESSON_POLICY_MANIFEST_PATH", str(manifest_file))
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "1")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("GPTME_SESSION_ID", "batch-snapshot")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    matches = [
+        _MockMatch(_make_lesson(f"Lesson {i}", "body", f"lessons/code/lesson-{i}.md"))
+        for i in range(3)
+    ]
+    original = _auto_include_mod._load_policy_manifest
+    calls = []
+
+    def load_snapshot():
+        calls.append(True)
+        return original()
+
+    monkeypatch.setattr(_auto_include_mod, "_load_policy_manifest", load_snapshot)
+    _apply_lesson_dropout(matches)
+    assert len(calls) == 1
+    # A new batch must still check for content changes, even at the same path.
+    manifest_file.write_text("version: 2\nexempt: []\n")
+    _apply_lesson_dropout(matches)
+    assert len(calls) == 2
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "logs" / "batch-snapshot.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    assert all(entry["policy_version"] == 2 for entry in records[-1]["withheld"])

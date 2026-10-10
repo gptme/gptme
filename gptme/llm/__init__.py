@@ -282,7 +282,9 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
 # (browser, embeddings, context fetchers). Interactive recovery only kicks in
 # when the exception was tagged at the actual provider call inside `reply()`,
 # after those hooks have already run. See https://github.com/gptme/gptme/issues/3668
-_PROVIDER_ERROR_MODULES = frozenset({"openai", "anthropic", "httpx", "requests"})
+_PROVIDER_ERROR_MODULES = frozenset(
+    {"openai", "anthropic", "httpx", "httpx2", "requests"}
+)
 _LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
 _LLM_REPLY_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_output_emitted"
 _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_visible_output_emitted"

@@ -6,6 +6,7 @@ context files, and manages conversation resumption.
 
 import logging
 import re
+from collections import Counter
 from collections.abc import Generator
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
@@ -15,15 +16,19 @@ from ... import llm
 from ...llm.models import get_default_model
 from ...logmanager import Log, prepare_messages
 from ...message import Message, MessageMetadata, len_tokens
-from ...tools import ToolUse
+from ...tools import ToolUse, has_tool
 from ...util.context import md_codeblock
 from ...util.context_budget import get_context_budget
+from ...util.master_context import is_tool_result_message
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager
 
 # Default keep_recent window — last N tokens of history kept verbatim after checkpoint
 _DEFAULT_KEEP_RECENT_TOKENS = 20_000
+_RESULT_STUBS_PREFIX = (
+    "Tool results dropped from the active context remain in the lossless master log."
+)
 
 # Intro line of a compacted view. It precedes the checkpoint message, so a
 # later re-compaction can recognise the earlier checkpoint in the log.
@@ -578,34 +583,91 @@ def _bound_summarize_input(
     return head + kept
 
 
+def _split_recent_tail(
+    msgs: list[Message],
+    keep_tokens: int,
+    *,
+    model: str | None = None,
+) -> tuple[list[Message], list[Message]]:
+    """Split messages before recent whole assistant steps bounded by ``keep_tokens``.
+
+    A step contains the input preceding an assistant message, that assistant
+    message, and every following system/tool result up to the next user or
+    assistant message. Selecting whole steps prevents a boundary from keeping
+    one of several result messages while dropping the assistant tool call. The
+    returned prefix is the exact input a provider-native compactor may summarize
+    before the returned tail is appended unchanged.
+
+    The split is lossless: ``prefix + tail == msgs``. Cleanup of dangling
+    tool results and unmatched tool calls in the tail is the tail-consumer's
+    job (:func:`_get_recent_tail`); the pair itself never omits a message.
+    """
+    if keep_tokens <= 0 or not msgs:
+        return list(msgs), []
+
+    steps: list[tuple[int, list[Message]]] = []
+    pending: list[Message] = []
+    pending_start = 0
+    idx = 0
+    while idx < len(msgs):
+        msg = msgs[idx]
+        if msg.role != "assistant":
+            pending.append(msg)
+            idx += 1
+            continue
+
+        step_start = pending_start if pending else idx
+        step = pending + [msg]
+        pending = []
+        idx += 1
+        while idx < len(msgs) and msgs[idx].role not in ("assistant", "user"):
+            step.append(msgs[idx])
+            idx += 1
+        steps.append((step_start, step))
+        pending_start = idx
+    if pending:
+        # A conversation can end on a user message during interruption. Keep
+        # that pending input as its own newest boundary when it fits.
+        steps.append((pending_start, pending))
+
+    tail: list[Message] = []
+    cut = len(msgs)
+    total = 0
+    model_str: str = model or "gpt-4"
+    for step_start, step in reversed(steps):
+        step_tokens = len_tokens(step, model=model_str)
+        if total + step_tokens > keep_tokens:
+            break
+        tail[:0] = step
+        cut = step_start
+        total += step_tokens
+    return msgs[:cut], tail
+
+
 def _get_recent_tail(
     msgs: list[Message],
     keep_tokens: int,
     *,
     model: str | None = None,
 ) -> list[Message]:
-    """Return the last messages that fit within keep_tokens, preserving tool-call pairs."""
-    if keep_tokens <= 0 or not msgs:
-        return []
-    tail: list[Message] = []
-    total = 0
-    model_str: str = model or "gpt-4"
-    for msg in reversed(msgs):
-        t = len_tokens([msg], model=model_str)
-        if total + t > keep_tokens:
-            break
-        tail.insert(0, msg)
-        total += t
+    """Return the retained side of :func:`_split_recent_tail`.
+
+    This is the cleanup point for the tail: dangling tool results at the head
+    (no matching tool-call) and assistant tool-calls whose result never
+    follows (the conversation ends mid-turn, or the user interrupted before
+    the result) are dropped here — an unmatched tool call in the compacted
+    view breaks strict providers. Keeping the cleanup on the tail-only side
+    preserves the lossless ``prefix + tail == msgs`` property of
+    :func:`_split_recent_tail`.
+    """
+    tail = _split_recent_tail(msgs, keep_tokens, model=model)[1]
+
     # Drop dangling tool-result at head (no matching tool-call).
     # Tool results can have role="tool" OR a non-tool role with call_id set
     # (e.g. system/user role in some provider formats).
     while tail and (tail[0].role == "tool" or tail[0].call_id):
         tail = tail[1:]
 
-    # Drop an assistant tool-call whose result never follows it: either the
-    # conversation ends mid-turn, or the user interrupted before the result
-    # (the call is followed directly by a user message). An unmatched tool
-    # call in the compacted view breaks strict providers.
     def _unmatched_call(i: int) -> bool:
         if tail[i].role != "assistant" or not any(
             tooluse.is_runnable
@@ -623,6 +685,63 @@ def _get_recent_tail(
                 changed = True
                 break
     return tail
+
+
+def _message_identity(message: Message) -> tuple[object, ...]:
+    """Stable identity shared by master and deserialized view messages."""
+    return (
+        message.timestamp,
+        message.role,
+        message.call_id,
+        message.content,
+        tuple(str(path) for path in message.files),
+    )
+
+
+def _is_result_stubs_message(message: Message) -> bool:
+    """Whether a message is the generated dropped-result catalog."""
+    return bool((message.metadata or {}).get("result_stubs"))
+
+
+def _build_dropped_result_stubs(
+    manager: "LogManager",
+    retained: list[Message],
+    model: str,
+) -> Message | None:
+    """Build compact references for master-log tool results absent from a view.
+
+    Result IDs are the 1-based message positions in ``conversation.jsonl``.
+    Those positions remain stable because compacted views are stored separately
+    and later messages are dual-written to the append-only master transcript.
+    """
+    recall_available = has_tool("recall")
+    master_messages = manager.master_log.messages
+    retained_counts = Counter(_message_identity(message) for message in retained)
+    lines: list[str] = []
+    for index, message in enumerate(master_messages):
+        identity = _message_identity(message)
+        if retained_counts[identity] > 0:
+            retained_counts[identity] -= 1
+            continue
+        if not is_tool_result_message(master_messages, index):
+            continue
+        result_id = index + 1
+        tokens = len_tokens(message.content, model=model)
+        line = f"[result #{result_id}, {tokens:,} tokens]"
+        if recall_available:
+            line += f" — recall_result({result_id})"
+        lines.append(line)
+
+    if not lines:
+        return None
+    instructions = (
+        "Recall one by its stable ID:"
+        if recall_available
+        else "The recall tool is not loaded. Ask the user to enable it with "
+        "/tools load recall before requesting saved output."
+    )
+    content = f"{_RESULT_STUBS_PREFIX} {instructions}\n" + "\n".join(lines)
+    return Message("system", content, metadata={"result_stubs": True})
 
 
 _TRUNCATION_MARK = "\n\n[... middle truncated to fit context budget ...]\n\n"
@@ -871,9 +990,12 @@ def _resume_via_llm(
     # Extract original system messages (before any user/assistant messages)
     # These contain essential context: core prompt, tool instructions, workspace info
     original_system_msgs = []
+    leading_system_end = 0
     for msg in msgs:
         if msg.role == "system":
-            original_system_msgs.append(msg)
+            leading_system_end += 1
+            if not _is_result_stubs_message(msg):
+                original_system_msgs.append(msg)
         elif msg.role in ("user", "assistant"):
             # Stop when we hit the first non-system message
             break
@@ -901,9 +1023,10 @@ def _resume_via_llm(
             for i, m in enumerate(msgs[:head_end])
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
+            and not _is_result_stubs_message(m)
         ]
     else:
-        preserved_head = msgs[:head_end]
+        preserved_head = [m for m in msgs[:head_end] if not _is_result_stubs_message(m)]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
@@ -946,21 +1069,43 @@ def _resume_via_llm(
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
+    tail_source = [m for m in tail_source if not _is_result_stubs_message(m)]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,
         model=model_meta.model if model_meta else None,
     )
 
+    # Reserve for the worst-case result catalog before sizing the recent tail.
+    # The catalog is rebuilt after tail selection so results that remain
+    # verbatim are not redundantly stubbed. Using the larger catalog for the
+    # budget pass guarantees the final, smaller fixed prefix still fits.
+    model_str = model_meta.model if model_meta else "gpt-4"
+    result_stubs_msg = _build_dropped_result_stubs(
+        manager,
+        retained=preserved_head,
+        model=model_str,
+    )
+
+    def assemble_fixed_parts() -> list[Message]:
+        # The result catalog goes AFTER the checkpoint, not between the
+        # compaction intro and the checkpoint: _find_previous_checkpoint_index()
+        # requires those two messages to be adjacent, and splitting them would
+        # make the next re-compaction fail to recognize the saved checkpoint.
+        result_parts = preserved_head + file_context_msgs + [resume_intro_msg]
+        result_parts.append(resume_msg)
+        if result_stubs_msg is not None:
+            result_parts.append(result_stubs_msg)
+        return result_parts
+
     # Budget guard: if fixed parts + recent_tail exceeds the model's context
     # budget, re-derive the tail within the remaining room so the compacted
     # view actually fits.
-    fixed_parts = preserved_head + file_context_msgs + [resume_intro_msg, resume_msg]
+    fixed_parts = assemble_fixed_parts()
     if model_meta and isinstance(model_meta.context, int) and model_meta.context > 0:
         budget = get_context_budget(
             model_meta.context, max_output=model_meta.max_output or 8192
         )
-        model_str = model_meta.model
 
         # keep_head is positional, not budget-aware; if the extended prefix
         # alone would exceed the budget, fall back to the essential system
@@ -973,7 +1118,10 @@ def _resume_via_llm(
         # system messages and the checkpoint are kept.
         fixed_tokens = len_tokens(fixed_parts, model=model_str)
         if fixed_tokens > budget:
-            essential = preserved_head + [resume_intro_msg, resume_msg]
+            essential = preserved_head + [resume_intro_msg]
+            if result_stubs_msg is not None:
+                essential.append(result_stubs_msg)
+            essential.append(resume_msg)
             essential_tokens = len_tokens(essential, model=model_str)
             # Drop file context messages (least essential) until the whole
             # fixed set fits within the budget.
@@ -983,6 +1131,17 @@ def _resume_via_llm(
                 > budget
             ):
                 file_context_msgs.pop()
+            if essential_tokens > budget and result_stubs_msg is not None:
+                # The catalog counts toward the budget too: when it cannot fit
+                # alongside the essentials, drop it before truncating the
+                # checkpoint, so the view is never over budget by construction.
+                catalog_tokens = len_tokens([result_stubs_msg], model=model_str)
+                result_stubs_msg = None
+                essential_tokens -= catalog_tokens
+                logger.warning(
+                    "Result catalog exceeds remaining context budget; "
+                    "dropped the recall catalog."
+                )
             if essential_tokens > budget:
                 # Even system messages + checkpoint alone are too large:
                 # truncate the checkpoint content to fit, keeping a notice.
@@ -990,6 +1149,8 @@ def _resume_via_llm(
                 overhead = len_tokens(
                     preserved_head + [resume_intro_msg], model=model_str
                 ) + len_tokens(TRUNCATION_NOTICE, model=model_str)
+                if result_stubs_msg is not None:
+                    overhead += len_tokens([result_stubs_msg], model=model_str)
                 room = max(0, budget - overhead)
                 resume_content_trunc = _truncate_to_tokens(
                     resume_content, room, model=model_str
@@ -1008,9 +1169,7 @@ def _resume_via_llm(
                     "Context files exceed remaining budget; dropped "
                     f"{dropped_count} of the loaded context files to fit."
                 )
-            fixed_parts = (
-                preserved_head + file_context_msgs + [resume_intro_msg, resume_msg]
-            )
+            fixed_parts = assemble_fixed_parts()
             fixed_tokens = len_tokens(fixed_parts, model=model_str)
 
         available = budget - fixed_tokens
@@ -1019,6 +1178,31 @@ def _resume_via_llm(
                 tail_source, max(0, available), model=model_str
             )
 
+    # Only results absent from the final view get stubs. This also carries
+    # older stubs forward across re-compaction by rebuilding from master.
+    result_stubs_msg = _build_dropped_result_stubs(
+        manager,
+        retained=preserved_head + recent_tail,
+        model=model_str,
+    )
+    if (
+        model_meta
+        and isinstance(model_meta.context, int)
+        and model_meta.context > 0
+        and result_stubs_msg is not None
+    ):
+        # The rebuild can re-introduce a catalog the budget guard dropped
+        # (or one that no longer fits after checkpoint truncation). Drop it
+        # rather than violate the budget-by-construction guarantee.
+        candidate = assemble_fixed_parts()
+        if len_tokens(candidate + recent_tail, model=model_str) > budget:
+            result_stubs_msg = None
+            logger.warning(
+                "Result catalog exceeds remaining context budget; "
+                "dropped the recall catalog."
+            )
+    fixed_parts = assemble_fixed_parts()
+
     new_log = fixed_parts + recent_tail
 
     if use_view_branch:
@@ -1026,7 +1210,10 @@ def _resume_via_llm(
         manager.create_view(view_name, new_log)
         manager.switch_view(view_name)
     else:
-        # Replace the log directly (user-invoked /compact resume)
+        # Replace the log directly (user-invoked /compact resume). Recallable
+        # result IDs point into the lossless master log, so preserve it before
+        # the in-place replacement strands every stub ID.
+        manager.preserve_lossless_log()
         manager.log = Log(new_log)
         manager.write()
 

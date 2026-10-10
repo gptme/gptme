@@ -4,7 +4,8 @@ on:
   push:
     branches: [ master ]
   pull_request:
-    branches: [ master ]
+    # Stacked PRs target feature branches before their base lands on master.
+    branches: [ master, 'feat/*' ]
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
 # Every other run (master push, release, dispatch, schedule) gets its own
