@@ -29,6 +29,15 @@ def recall_result(
     if max_chars <= 0 or max_chars > _MAX_CHARS:
         return f"Error: max_chars must be between 1 and {_MAX_CHARS:,}."
 
+    looked = _lookup_master_result(result_id)
+    if isinstance(looked, str):
+        return looked
+
+    return _format_chunk(looked, result_id, start_char, max_chars)
+
+
+def _lookup_master_result(result_id: int) -> Message | str:
+    """Return the master-log message for ``result_id`` or an error string."""
     manager = LogManager.get_current_log()
     if manager is None:
         return "Error: no current conversation is available for result recall."
@@ -39,8 +48,14 @@ def recall_result(
         return f"Error: result #{result_id} does not exist in the master log."
     if not is_tool_result_message(messages, index):
         return f"Error: master-log message #{result_id} is not a tool result."
+    return messages[index]
 
-    content = messages[index].content
+
+def _format_chunk(
+    message: Message, result_id: int, start_char: int, max_chars: int
+) -> str:
+    """Format a paged chunk of a master-log result with header and continuation."""
+    content = message.content
     if start_char > len(content):
         return (
             f"Error: start_char {start_char:,} is past the end of result "
@@ -87,7 +102,26 @@ def execute_recall(
             "system",
             "Error: recall_result requires a result_id from a [result #N, ...] stub.",
         )
-    return Message("system", recall_result(result_id, start_char, max_chars))
+    if start_char < 0:
+        return Message("system", "Error: start_char must be zero or greater.")
+    if max_chars <= 0 or max_chars > _MAX_CHARS:
+        return Message(
+            "system",
+            f"Error: max_chars must be between 1 and {_MAX_CHARS:,}.",
+        )
+
+    looked = _lookup_master_result(result_id)
+    if isinstance(looked, str):
+        return Message("system", looked)
+
+    # Preserve the source message's display flag: a hidden result (e.g. a
+    # redacted elicit secret) stays available to the assistant but must not
+    # surface in ordinary chat output through the recalled message.
+    return Message(
+        "system",
+        _format_chunk(looked, result_id, start_char, max_chars),
+        hide=looked.hide,
+    )
 
 
 instructions = """

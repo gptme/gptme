@@ -230,6 +230,24 @@ def test_recall_result_allows_hidden_tool_results(tmp_path):
     assert "hunter2" in recall_result(6)
 
 
+def test_execute_recall_preserves_source_hide_flag(tmp_path):
+    """A recalled hidden result stays assistant-visible but display-hidden."""
+    from gptme.tools.recall import execute_recall
+
+    messages = _messages() + [
+        Message("system", "hunter2", call_id="call-secret", hide=True)
+    ]
+    LogManager(messages, logdir=tmp_path / "conversation", lock=False).write()
+
+    recalled = execute_recall(None, None, {"result_id": "6"})
+    assert "hunter2" in recalled.content
+    assert recalled.hide is True
+
+    # Visible results keep the default display behavior.
+    visible = execute_recall(None, None, {"result_id": "3"})
+    assert visible.hide is False
+
+
 def test_dropped_result_stubs_include_hidden_tool_results(tmp_path):
     from gptme.tools.autocompact.resume import _build_dropped_result_stubs
 
