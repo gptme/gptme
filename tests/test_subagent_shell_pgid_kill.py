@@ -176,7 +176,8 @@ def test_shell_session_records_its_pgid(tmp_path: Path, monkeypatch):
 
     monkeypatch.delenv("GPTME_SHELL_PGID_FILE")
     _record_shell_pgid(5555)  # no-op without the variable
-    assert "5555" not in pgid_file.read_text()
+    pids_recorded = [line.split()[0] for line in pgid_file.read_text().splitlines()]
+    assert "5555" not in pids_recorded
 
 
 def test_kill_recorded_groups_skips_a_reused_pid(tmp_path: Path):
