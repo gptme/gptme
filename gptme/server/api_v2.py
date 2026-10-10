@@ -1932,6 +1932,13 @@ def api_conversation_put(conversation_id: str):
             chat_config.tool_format = cast("ToolFormat", env_tool_format)
         elif env_tool_format:
             logger.warning("Ignoring invalid TOOL_FORMAT=%r", env_tool_format)
+        elif chat_config.model:
+            try:
+                model_default = get_model(chat_config.model).default_tool_format
+                if model_default:
+                    chat_config.tool_format = cast("ToolFormat", model_default)
+            except (KeyError, ValueError, AttributeError):
+                pass
 
     # Default tools before building the prompt so it only advertises tools the
     # conversation will actually have.
