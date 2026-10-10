@@ -15392,9 +15392,12 @@ summary request, switch views, or promise that notes have been saved. Pending
 tool calls defer the reminder until their results arrive. The marker persists
 across reloads, and a new compaction view can receive a fresh reminder.
 
-This warning is the first part of model-participating compaction. Automatic
-compaction at the budget still uses the trim/summary pipeline below; a full
-tool-executing checkpoint turn is not yet implemented.
+At the budget, when deterministic trimming cannot save enough, gptme starts a
+marked checkpoint request through the normal CLI/server turn loop. The model
+can use its ordinary tools and confirmation policy to persist state, then its
+first tool-free response becomes the structured checkpoint. Only then does
+gptme switch to the compacted view. The request marker survives reloads, and a
+failed or empty checkpoint falls back to the trim-only latch described below.
 
 Configuring the Context Budget
 ===============================
@@ -15423,8 +15426,9 @@ rewritten. Compaction waits until pending tool calls have their results.
 
 Budget-triggered trims target 70% of the budget and reject views saving less
 than 10% of the estimated stored text. If estimated trim savings are too small,
-the automatic path requests an LLM summary instead. A failed summary latches
-the conversation to trim-only until sufficient message growth permits a retry.
+the automatic path requests a structured checkpoint through the normal
+tool-capable turn loop. A failed checkpoint latches the conversation to
+trim-only until sufficient message growth permits a retry.
 
 CLI and server overflow recovery try a trim first, then remove old whole
 assistant/user steps with their tool results toward 70% of the previous context
