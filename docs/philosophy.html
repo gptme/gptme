@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Changelog &#8212; gptme</title>
+    <title>Philosophy &#8212; gptme</title>
   
   
   
@@ -46,14 +46,14 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.12.1.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'changelog';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'philosophy';</script>
     <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
-    <link rel="canonical" href="https://gptme.org/docs/changelog.html" />
+    <link rel="canonical" href="https://gptme.org/docs/philosophy.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="v0.34.0" href="releases/v0.34.0.html" />
-    <link rel="prev" title="Timeline" href="timeline.html" />
+    <link rel="next" title="Alternatives" href="alternatives.html" />
+    <link rel="prev" title="Transcript Persistence" href="design/transcript-persistence.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -140,6 +140,10 @@
     </div>
   
 
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
   
 </div>
 
@@ -356,13 +360,13 @@
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
 <ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="philosophy.html">Philosophy</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Philosophy</a></li>
 <li class="toctree-l1"><a class="reference internal" href="alternatives.html">Alternatives</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Projects</a></li>
 <li class="toctree-l1"><a class="reference internal" href="arewetiny.html">Are we tiny?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
-<li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Changelog</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.34.0.html">v0.34.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.33.0.html">v0.33.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
@@ -503,7 +507,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/changelog.rst" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/philosophy.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -533,7 +537,7 @@
       
       
       
-      <li><a href="_sources/changelog.rst" target="_blank"
+      <li><a href="_sources/philosophy.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -543,7 +547,7 @@
 <span class="btn__icon-container">
   <i class="fas fa-file"></i>
   </span>
-<span class="btn__text-container">.rst</span>
+<span class="btn__text-container">.md</span>
 </a>
 </li>
       
@@ -603,7 +607,9 @@
 <button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
     <i class="fa-solid fa-magnifying-glass fa-lg"></i>
 </button>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm pst-navbar-icon" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -614,11 +620,33 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Changelog</h1>
+    <h1>Philosophy</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mission">Mission</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#principles">Principles</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-terminal-is-home">The terminal is home</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-first-you-own-the-compute">Local-first, you own the compute</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#composable-unix-style">Composable, Unix-style</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#interactive-and-autonomous-are-the-same-loop">Interactive and autonomous are the same loop</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-agnostic">Model-agnostic</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#explicit-and-inspectable">Explicit and inspectable</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agents-that-compound">Agents that compound</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gptme-is-not">What gptme is not</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#on-autonomous-operation">On autonomous operation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-this-is-heading-guardian-angels">Where this is heading: guardian angels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributing-with-this-in-mind">Contributing with this in mind</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -628,69 +656,124 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="changelog">
-<h1>Changelog<a class="headerlink" href="#changelog" title="Link to this heading">#</a></h1>
-<p>The changelog is also available in the repository releases &lt;<a class="github reference external" href="https://github.com/gptme/gptme/releases">gptme/gptme</a>&gt;</p>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.34.0.html">v0.34.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.33.0.html">v0.33.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.32.0.html">v0.32.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.31.0.html">v0.31.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.30.0.html">v0.30.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.29.0.html">v0.29.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.28.3.html">v0.28.3</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.28.2.html">v0.28.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.28.1.html">v0.28.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.28.0.html">v0.28.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.27.0.html">v0.27.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.26.0.html">v0.26.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.25.0.html">v0.25.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.24.1.html">v0.24.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.24.0.html">v0.24.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.23.0.html">v0.23.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.22.0.html">v0.22.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.21.0.html">v0.21.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.20.0.html">v0.20.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.19.0.html">v0.19.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.18.0.html">v0.18.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.17.0.html">v0.17.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.16.0.html">v0.16.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.15.0.html">v0.15.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.14.0.html">v0.14.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.13.0.html">v0.13.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.12.0.html">v0.12.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.11.0.html">v0.11.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.10.5.html">v0.10.5</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.10.4.html">v0.10.4</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.10.3.html">v0.10.3</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.10.2.html">v0.10.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.10.1.html">v0.10.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.10.0.html">v0.10.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.9.4.html">v0.9.4</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.9.3.html">v0.9.3</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.9.2.html">v0.9.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.9.1.html">v0.9.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.9.0.html">v0.9.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.8.1.html">v0.8.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.8.0.html">v0.8.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.7.0.html">v0.7.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.6.1.html">v0.6.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.6.0.html">v0.6.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.5.0.html">v0.5.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.4.2.html">v0.4.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.4.1.html">v0.4.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.4.0.html">v0.4.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.3.3.html">v0.3.3</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.3.2.html">v0.3.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.3.1.html">v0.3.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.3.0.html">v0.3.0</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.2.2.html">v0.2.2</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.2.1.html">v0.2.1</a></li>
-<li class="toctree-l1"><a class="reference internal" href="releases/v0.1.1.html">v0.1.1</a></li>
+  <section id="philosophy">
+<h1>Philosophy<a class="headerlink" href="#philosophy" title="Link to this heading">#</a></h1>
+<p>What gptme is for, the principles behind its design, and what it deliberately
+is not. This page is a starting point for discussion
+(<a class="reference external" href="https://github.com/gptme/gptme/discussions/1294">#1294</a>), not a contract —
+if it disagrees with how gptme actually behaves, the behavior is the bug report.</p>
+<section id="mission">
+<h2>Mission<a class="headerlink" href="#mission" title="Link to this heading">#</a></h2>
+<p>gptme is an open-source, model-agnostic AI agent that lives in your terminal and
+runs on your machine. The same runtime serves two uses: an interactive coding
+assistant you talk to, and a <strong>persistent autonomous agent</strong> that runs unattended
+and keeps its memory in a git repository you own.</p>
+</section>
+<section id="principles">
+<h2>Principles<a class="headerlink" href="#principles" title="Link to this heading">#</a></h2>
+<section id="the-terminal-is-home">
+<h3>The terminal is home<a class="headerlink" href="#the-terminal-is-home" title="Link to this heading">#</a></h3>
+<p>The terminal composes, scripts, pipes, records and versions. gptme lives there by
+choice. Other interfaces (web UI, desktop app, voice, chat channels) are the same
+runtime projected into a different medium, not separate products.</p>
+</section>
+<section id="local-first-you-own-the-compute">
+<h3>Local-first, you own the compute<a class="headerlink" href="#local-first-you-own-the-compute" title="Link to this heading">#</a></h3>
+<p>By default gptme runs on your machine against your own API keys or local models.
+Conversation logs and files are stored locally unless you choose a hosted setup,
+but cloud models receive the conversations and context you supply, including
+file contents read into the conversation. For data that must stay on your
+machine, use a local model; see <a class="reference internal" href="security.html"><span class="std std-doc">security</span></a>.
+A tool that can run offline against open-weight models remains yours regardless
+of what happens to any one vendor or endpoint.</p>
+</section>
+<section id="composable-unix-style">
+<h3>Composable, Unix-style<a class="headerlink" href="#composable-unix-style" title="Link to this heading">#</a></h3>
+<p>gptme gives an LLM a small set of primitives (<code class="docutils literal notranslate"><span class="pre">shell</span></code>, <code class="docutils literal notranslate"><span class="pre">python</span></code>, file read/save/patch,
+browsing, and others) and lets it use the rest of your environment through them,
+the way grep composes with sed. New capability should arrive as a tool, a plugin,
+an MCP server, a skill, or a script, not as another special case in the core.</p>
+</section>
+<section id="interactive-and-autonomous-are-the-same-loop">
+<h3>Interactive and autonomous are the same loop<a class="headerlink" href="#interactive-and-autonomous-are-the-same-loop" title="Link to this heading">#</a></h3>
+<p>There is no separate “agent API”. A workflow built interactively can be automated
+without rewriting it, and an unattended run can be opened and debugged
+interactively. The same tools, the same conversation log.</p>
+</section>
+<section id="model-agnostic">
+<h3>Model-agnostic<a class="headerlink" href="#model-agnostic" title="Link to this heading">#</a></h3>
+<p>Anthropic, OpenAI, Gemini, OpenRouter, local models, any OpenAI-compatible
+endpoint. The model is configuration, not an architectural assumption. Use
+whichever fits the task on cost, latency, privacy and capability.</p>
+</section>
+<section id="explicit-and-inspectable">
+<h3>Explicit and inspectable<a class="headerlink" href="#explicit-and-inspectable" title="Link to this heading">#</a></h3>
+<p>Context is files, lessons, skills and memory entries you can read, edit and
+version. What the agent did is in the conversation log. Convenience features
+should never make the agent’s behavior harder to audit.</p>
+</section>
+<section id="agents-that-compound">
+<h3>Agents that compound<a class="headerlink" href="#agents-that-compound" title="Link to this heading">#</a></h3>
+<p>An agent’s identity, memory, lessons and tasks live in a git repository
+(see <a class="reference internal" href="agents.html"><span class="std std-doc">agents</span></a> and <a class="reference internal" href="memory.html"><span class="std std-doc">memory</span></a>). Each session can leave the next
+one better equipped: a lesson written today is matched automatically tomorrow.
+Long-lived, improving agents are the design constraint behind most of gptme’s
+architecture.</p>
+</section>
+</section>
+<section id="what-gptme-is-not">
+<h2>What gptme is not<a class="headerlink" href="#what-gptme-is-not" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Not just a chat client.</strong> The goal is a capable runtime where the model can
+act, not only converse.</p></li>
+<li><p><strong>Not tied to a hosted service.</strong> <a class="reference internal" href="cloud.html"><span class="std std-doc">gptme.ai</span></a> is a managed convenience
+for people who don’t want to run gptme themselves. The open-source tool is the
+product and runs anywhere.</p></li>
+<li><p><strong>Not an editor plugin.</strong> IDE assistants optimize for inline completion; gptme
+optimizes for carrying out whole tasks, in the terminal or unattended.
+See <a class="reference internal" href="alternatives.html"><span class="std std-doc">alternatives</span></a> for a fuller comparison.</p></li>
+<li><p><strong>Not a walled garden.</strong> Open formats (Markdown, git, MCP), no proprietary
+protocols, no data routed through gptme-operated servers by default.</p></li>
+<li><p><strong>Not opaque.</strong> Agents may run lights-out, with nobody watching, but they remain
+transparent to the person who owns them: everything is logged and inspectable,
+and workspace changes can be reviewed and reverted once committed to version
+control. Actions outside the repository need separate safeguards; see
+<a class="reference internal" href="agents/autonomous.html"><span class="std std-doc">autonomous-operation guardrails</span></a>.</p></li>
 </ul>
-</div>
+</section>
+<section id="on-autonomous-operation">
+<h2>On autonomous operation<a class="headerlink" href="#on-autonomous-operation" title="Link to this heading">#</a></h2>
+<p>Discussion #1294 frames gptme as a driver for “dark factory” style headless
+agents. That is a use gptme is designed to support: it is how gptme-based agents
+such as <a class="reference internal" href="agents.html"><span class="std std-doc">Bob</span></a> operate day to day, without a human in the loop for
+each step. The principle behind it is oversight by inspection, not by constant
+attendance: you set the goals and guardrails, the agent does the work, and the
+record of what it did is always there to read.</p>
+</section>
+<section id="where-this-is-heading-guardian-angels">
+<h2>Where this is heading: guardian angels<a class="headerlink" href="#where-this-is-heading-guardian-angels" title="Link to this heading">#</a></h2>
+<p>The long-term direction is close to what Gwern calls a
+<a class="reference external" href="https://gwern.net/guardian-angel">guardian angel</a>: a personal agent that works
+for one person, knows their values and preferences, and <strong>amplifies them rather
+than replacing them</strong>. A generic chatbot has no principal; it answers everyone the
+same way and forgets every correction. A guardian angel is loyal to its owner,
+learns from them over time, and keeps that learning when the underlying model is
+swapped out.</p>
+<p>gptme already has the substrate for this: an agent’s identity, memory, lessons and
+history live in a git repository the owner controls, so what the agent learns
+outlives any single model or provider. What it does not do is learn at the
+weight level: personalization today is context (lessons, memory, identity files)
+rather than continuous fine-tuning on the owner’s own data. Closing that gap, while keeping the agent local-first and
+inspectable, is the open problem.</p>
+</section>
+<section id="contributing-with-this-in-mind">
+<h2>Contributing with this in mind<a class="headerlink" href="#contributing-with-this-in-mind" title="Link to this heading">#</a></h2>
+<p>When proposing a change, it helps to say which principle it serves. Changes that
+strengthen composability, inspectability, or the autonomous-agent workflow are the
+easiest to accept; new mechanisms that duplicate an existing one, or that tie
+gptme to a single provider or service, are the hardest. See
+<a class="reference internal" href="contributing.html"><span class="std std-doc">contributing</span></a>.</p>
+</section>
 </section>
 
 
@@ -705,20 +788,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="timeline.html"
+       href="design/transcript-persistence.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Timeline</p>
+        <p class="prev-next-title">Transcript Persistence</p>
       </div>
     </a>
     <a class="right-next"
-       href="releases/v0.34.0.html"
+       href="alternatives.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">v0.34.0</p>
+        <p class="prev-next-title">Alternatives</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -728,6 +811,37 @@
             </div>
             
             
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item"><div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mission">Mission</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#principles">Principles</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-terminal-is-home">The terminal is home</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-first-you-own-the-compute">Local-first, you own the compute</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#composable-unix-style">Composable, Unix-style</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#interactive-and-autonomous-are-the-same-loop">Interactive and autonomous are the same loop</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#model-agnostic">Model-agnostic</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#explicit-and-inspectable">Explicit and inspectable</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#agents-that-compound">Agents that compound</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gptme-is-not">What gptme is not</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#on-autonomous-operation">On autonomous operation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-this-is-heading-guardian-angels">Where this is heading: guardian angels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributing-with-this-in-mind">Contributing with this in mind</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>
