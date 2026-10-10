@@ -102,7 +102,8 @@ pyyaml = "^6.0.3"
 
 # providers
 openai = "^2.48"
-anthropic = "^0.120"
+anthropic = "^1.8"
+httpx2 = ">=2.0.0,<3"  # Anthropic transport exceptions are imported directly.
 
 # tools
 ipython = "^8.39.0"
