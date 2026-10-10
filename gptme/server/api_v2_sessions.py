@@ -986,7 +986,14 @@ def api_conversation_rerun(conversation_id: str):
             return flask.jsonify({"error": "No assistant message found"}), 400
 
         # Parse tool uses from the message content
-        tooluses = list(ToolUse.iter_from_content(last_assistant.content))
+        # Parse with the conversation's tool format, not the process default,
+        # so native ("tool") and xml calls are recognized.
+        chat_config = ChatConfig.from_logdir(manager.logdir)
+        tooluses = list(
+            ToolUse.iter_from_content(
+                last_assistant.content, tool_format_override=chat_config.tool_format
+            )
+        )
         if not tooluses:
             return flask.jsonify(
                 {"error": "No tool uses found in the last assistant message"}

@@ -2964,3 +2964,71 @@ class TestSessionEviction:
             assert all(b'"type": "ping"' in chunk for chunk in remaining)
         finally:
             stream.close()
+
+
+@pytest.mark.parametrize(
+    ("tool_format", "expect_pending"), [("tool", True), ("markdown", False)]
+)
+def test_step_parses_native_tool_calls_with_conversation_tool_format(
+    conv, tmp_path, monkeypatch, tool_format, expect_pending
+):
+    """A step parses replies with the conversation's tool_format.
+
+    Regression: steps parsed with the process default (markdown), so a
+    conversation configured for native "tool" calls never got pending tools.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    from gptme.llm.models import get_model
+    from gptme.message import Message
+    from gptme.server.session_step import step
+    from gptme.tools.base import set_tool_format
+
+    set_tool_format("markdown")  # the server process default
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session.step_seq = 1
+    session.generating = True
+
+    with (
+        patch(
+            "gptme.server.session_step._stream",
+            return_value=iter(['@shell(call_1): {"command": "echo hi"}']),
+        ),
+        patch("gptme.server.session_step.require_workspace_exists"),
+        patch("gptme.server.session_step.prepare_execution_environment"),
+        patch("gptme.server.session_step.trigger_hook", return_value=[]),
+        patch(
+            "gptme.server.session_step.prepare_messages",
+            return_value=[Message("user", "test")],
+        ),
+        patch("gptme.server.session_step._try_auto_name_and_notify"),
+        patch("gptme.server.session_step.set_workspace_cwd"),
+        patch(
+            "gptme.server.session_step.ChatConfig.load_or_create",
+            return_value=MagicMock(
+                tool_format=tool_format,
+                tools=None,
+                workspace=tmp_path,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+            ),
+        ),
+        patch("gptme.llm.models.get_model", return_value=get_model("gpt-4")),
+        patch("gptme.llm.models.set_default_model"),
+        patch("gptme.model_attestation.record_runtime_selection"),
+        patch("gptme.server.session_step._start_step_thread", return_value=True),
+    ):
+        step(
+            conversation_id=conv["conversation_id"],
+            session=session,
+            model="gpt-4",
+            workspace=tmp_path,
+            step_seq=1,
+        )
+
+    assert bool(session.pending_tools) is expect_pending
+    if expect_pending:
+        (pending,) = session.pending_tools.values()
+        assert pending.tooluse.tool == "shell"

@@ -1087,11 +1087,19 @@ def step(
 
                     # Check for complete tool uses on \n
                     if "\n" in token:
-                        if tooluses := list(ToolUse.iter_from_content(output)):
+                        if tooluses := list(
+                            ToolUse.iter_from_content(
+                                output, tool_format_override=tool_format
+                            )
+                        ):
                             _flush_sse_batch()  # flush remaining before break
                             break
                 else:
-                    tooluses = list(ToolUse.iter_from_content(output))
+                    tooluses = list(
+                        ToolUse.iter_from_content(
+                            output, tool_format_override=tool_format
+                        )
+                    )
 
             except Exception as error:
                 mark_llm_reply_origin(error, output_emitted=bool(output))
