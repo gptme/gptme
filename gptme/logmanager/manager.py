@@ -903,6 +903,19 @@ class LogManager:
             )
         return manager
 
+    def preserve_lossless_log(self) -> None:
+        """Explicitly write the main (lossless) log to disk.
+
+        Call before creating non-main branches to ensure conversation.jsonl
+        captures the full history up to this point.
+        """
+        if not self.logdir:
+            return
+        main_path = self.logdir / "conversation.jsonl"
+        main_path.parent.mkdir(parents=True, exist_ok=True)
+        main_log = self._branches.get("main", self.log)
+        self._branches["main"] = main_log.write_jsonl(main_path, append=True)
+
     def branch(self, name: str) -> None:
         """Switches to a branch."""
         self.write()

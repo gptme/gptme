@@ -134,7 +134,9 @@ def test_replay_block_is_first_message_and_dropped_from_rest():
     ]
     messages_dicts, _, _ = _prepare_messages_for_api(messages, None)
     assert messages_dicts[0]["role"] == "user"
-    assert messages_dicts[0]["content"][0] == BLOCK
+    content = messages_dicts[0]["content"]
+    assert isinstance(content, list)
+    assert content[0] == BLOCK
     # The block placeholder message must not be duplicated in the replay
     flat = str(messages_dicts)
     assert flat.count("sig-abc") == 1

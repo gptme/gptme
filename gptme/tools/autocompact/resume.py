@@ -368,6 +368,15 @@ def _compaction_artifact_kind(msg: Message) -> str | None:
     return None
 
 
+def _is_result_stubs_message(msg: Message) -> bool:
+    """True for system messages that are LLM result stubs catalogs."""
+    if msg.role != "system":
+        return False
+    if msg.metadata and msg.metadata.get("result_stubs"):
+        return True
+    return msg.content.startswith(_RESULT_STUBS_PREFIX)
+
+
 def _is_compaction_artifact(msg: Message) -> bool:
     """True for system messages known to be emitted around a checkpoint."""
     return _compaction_artifact_kind(msg) is not None
