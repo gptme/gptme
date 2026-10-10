@@ -682,3 +682,22 @@ def test_failed_lossless_write_keeps_original_transcript(tmp_path, monkeypatch):
     reloaded = LogManager.load(logdir, lock=False)
     assert reloaded.master_log.messages == messages
     assert "0123456789" in recall_result(3)
+
+
+def test_quiet_markdown_tool_result_remains_recallable(tmp_path):
+    """Suppressing terminal printing does not remove an output from recall."""
+    from gptme.tools.autocompact.resume import _build_dropped_result_stubs
+    from gptme.tools.recall import recall_result
+
+    messages = [
+        Message("system", "system prompt"),
+        Message("assistant", "```shell\necho saved\n```"),
+        Message("system", "quiet saved output", quiet=True),
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    stub = _build_dropped_result_stubs(manager, [messages[0]], "gpt-4")
+
+    assert stub is not None
+    assert "[result #3," in stub.content
+    assert "quiet saved output" in recall_result(3)

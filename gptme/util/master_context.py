@@ -36,8 +36,9 @@ def is_tool_result_message(messages: Sequence[Message], index: int) -> bool:
     # hide=True (e.g. elicit secrets) or quiet=True outputs are still recallable.
     if message.call_id:
         return True
-    # Non-native (markdown/XML) status/notification messages are not tool results.
-    if message.hide or message.quiet:
+    # Hidden non-native messages may be injected context/notifications without
+    # result provenance. Quiet only suppresses printing, not result identity.
+    if message.hide:
         return False
     if index == 0:
         return False
