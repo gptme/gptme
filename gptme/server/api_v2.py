@@ -380,6 +380,34 @@ def _resolve_conversation_system_prompt(chat_config: ChatConfig) -> str | None:
     return None
 
 
+def _resolve_prompt_tool_format(chat_config: ChatConfig) -> ToolFormat:
+    """Resolve the tool format used to build the system prompt.
+
+    Precedence: explicit config > model default > markdown. The model default is
+    deliberately *not* persisted into ``chat_config.tool_format`` — step
+    execution resolves the same way in ``session_step.py`` via
+    ``chat_config.tool_format or model_meta.default_tool_format``. Every prompt
+    rebuild (conversation creation and config PATCH) must use this so the system
+    prompt and the step parser agree on how tool calls are represented.
+    """
+    if chat_config.tool_format:
+        return chat_config.tool_format
+
+    model = chat_config.model
+    if not model:
+        default_model = get_default_model()
+        if default_model:
+            model = default_model.full
+    if model:
+        try:
+            model_default = get_model(model).default_tool_format
+            if model_default:
+                return model_default
+        except (KeyError, ValueError, AttributeError):
+            pass
+    return "markdown"
+
+
 def _generate_fork_conversation_id() -> str:
     """Generate a reasonably unique conversation id for forked copies."""
     timestamp = datetime.now(tz=timezone.utc).isoformat().replace(":", "-")
@@ -1933,6 +1961,13 @@ def api_conversation_put(conversation_id: str):
         elif env_tool_format:
             logger.warning("Ignoring invalid TOOL_FORMAT=%r", env_tool_format)
 
+    # Effective tool format for prompt generation: explicit config > model default >
+    # markdown. Model default is NOT persisted — session_step.py resolves it at
+    # step time via `chat_config.tool_format or model_meta.default_tool_format`.
+    # The config PATCH rebuild below must use the same resolution, so keep this
+    # in the shared helper rather than inlining it here.
+    _prompt_tool_format = _resolve_prompt_tool_format(chat_config)
+
     # Default tools before building the prompt so it only advertises tools the
     # conversation will actually have.
     if _tools_unset(chat_config.tools):
@@ -1942,7 +1977,7 @@ def api_conversation_put(conversation_id: str):
         get_prompt(
             tools=list(get_toolchain(chat_config.tools, strict=False)),
             interactive=chat_config.interactive,
-            tool_format=chat_config.tool_format or "markdown",
+            tool_format=_prompt_tool_format,
             model=chat_config.model,
             prompt=prompt,
             workspace=chat_config.workspace,
@@ -3199,7 +3234,7 @@ def api_conversation_config_patch(conversation_id: str):
             new_system_msgs = list(
                 get_prompt(
                     tools=tools,
-                    tool_format=chat_config.tool_format or "markdown",
+                    tool_format=_resolve_prompt_tool_format(chat_config),
                     interactive=chat_config.interactive,
                     model=chat_config.model,
                     workspace=chat_config.workspace,

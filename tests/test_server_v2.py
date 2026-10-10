@@ -2584,6 +2584,9 @@ def test_v2_create_conversation_default_system_prompt(
         "gptme.prompts.workspace.config_path",
         str(tmp_path / "config.toml"),
     )
+    # Isolate from any configured default model: its default_tool_format would
+    # change the prompt content and break the hardcoded "markdown" comparison below.
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
     # Explicit external workspace: creation accepts client-supplied workspace
@@ -5832,6 +5835,8 @@ def test_v2_create_conversation_honors_tool_format_env(
         return original_get_env(self, key, default)
 
     monkeypatch.setattr(Config, "get_env", get_env)
+    # This test isolates environment precedence from model-default resolution.
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
     monkeypatch.delenv("GPTME_TOOL_FORMAT", raising=False)
     if env_value is None:
         monkeypatch.delenv("TOOL_FORMAT", raising=False)
@@ -5844,3 +5849,157 @@ def test_v2_create_conversation_honors_tool_format_env(
     response = client.get(f"/api/v2/conversations/{conv['conversation_id']}/config")
     assert response.status_code == 200
     assert response.get_json()["chat"].get("tool_format") == expected
+
+
+@pytest.mark.parametrize(
+    ("model", "model_default", "env_format", "request_format", "expected"),
+    [
+        ("openai/gpt-4o", "tool", None, None, "tool"),
+        (None, "tool", None, None, "tool"),
+        (None, "tool", "bogus", None, "tool"),
+        (None, "tool", "markdown", None, "markdown"),
+        (None, "tool", "tool", "markdown", "markdown"),
+        (None, None, None, None, None),
+    ],
+)
+def test_v2_create_conversation_model_tool_format(
+    client: FlaskClient,
+    monkeypatch,
+    model,
+    model_default,
+    env_format,
+    request_format,
+    expected,
+):
+    """Use model defaults for the prompt without turning them into overrides."""
+    from gptme.config import Config
+
+    meta = ModelMeta(
+        provider="openai",
+        model="gpt-4o",
+        context=128_000,
+        default_tool_format=model_default,
+    )
+    original_get_env = Config.get_env
+
+    def get_env(self, key, default=None):
+        if key == "TOOL_FORMAT":
+            return env_format
+        return original_get_env(self, key, default)
+
+    monkeypatch.setattr(Config, "get_env", get_env)
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: meta)
+    with (
+        unittest.mock.patch("gptme.server.api_v2.get_model", return_value=meta),
+        unittest.mock.patch(
+            "gptme.server.api_v2.get_prompt", wraps=get_prompt
+        ) as prompt,
+    ):
+        conv = create_conversation(
+            client, ChatConfig(model=model, tool_format=request_format)
+        )
+    assert prompt.call_args.kwargs["tool_format"] == (expected or "markdown")
+    config = client.get(
+        f"/api/v2/conversations/{conv['conversation_id']}/config"
+    ).get_json()
+    persisted_format = request_format or (
+        env_format if env_format in ("tool", "markdown", "xml") else None
+    )
+    assert config["chat"].get("tool_format") == persisted_format
+    data = client.get(f"/api/v2/conversations/{conv['conversation_id']}").get_json()
+    saved = ChatConfig.from_logdir(Path(data["logfile"]).parent)
+    assert saved.tool_format == persisted_format
+
+    # Run a real step against the saved config, with only the LLM/environment
+    # boundaries stubbed. Native calls must agree with the initial prompt.
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import step
+
+    monkeypatch.chdir(saved.workspace)
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session.step_seq = 1
+    session.generating = True
+    with (
+        unittest.mock.patch("gptme.llm.models.get_model", return_value=meta),
+        unittest.mock.patch("gptme.llm.models.set_default_model"),
+        unittest.mock.patch("gptme.model_attestation.record_runtime_selection"),
+        unittest.mock.patch("gptme.server.session_step.prepare_execution_environment"),
+        unittest.mock.patch("gptme.server.session_step.trigger_hook", return_value=[]),
+        unittest.mock.patch(
+            "gptme.server.session_step.prepare_messages",
+            return_value=[Message("user", "test")],
+        ),
+        unittest.mock.patch("gptme.server.session_step._try_auto_name_and_notify"),
+        unittest.mock.patch("gptme.server.session_step._start_step_thread"),
+        unittest.mock.patch(
+            "gptme.server.session_step._stream",
+            return_value=iter(['@shell(call_1): {"command": "echo hi"}']),
+        ) as stream,
+    ):
+        step(
+            conversation_id=conv["conversation_id"],
+            session=session,
+            model=meta.full,
+            workspace=saved.workspace,
+            step_seq=1,
+        )
+    assert stream.called
+    assert bool(stream.call_args.args[2]) is (expected == "tool")
+    assert bool(session.pending_tools) is (expected == "tool")
+
+
+def test_v2_config_patch_rebuild_uses_model_default_tool_format(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Config PATCH must rebuild the prompt with the model's default tool format.
+
+    Regression: the model default is intentionally not persisted into
+    ``chat_config.tool_format``, so the PATCH rebuild has to resolve it the same
+    way ``session_step`` does — otherwise the system prompt advertises markdown
+    while the step parser expects native tool calls.
+    """
+    meta = ModelMeta(
+        provider="openai",
+        model="gpt-4o",
+        context=128_000,
+        default_tool_format="tool",
+    )
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: meta)
+    with (
+        unittest.mock.patch("gptme.server.api_v2.get_model", return_value=meta),
+        unittest.mock.patch(
+            "gptme.server.api_v2.get_prompt", wraps=get_prompt
+        ) as prompt,
+    ):
+        convname = f"test-server-v2-patch-format-{random.randint(0, 1000000)}"
+        create_response = client.put(
+            f"/api/v2/conversations/{convname}",
+            json={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "tool format patch sweep",
+                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    }
+                ],
+                "config": {"chat": {"model": "openai/gpt-4o"}},
+            },
+        )
+        assert create_response.status_code == 200
+        conversation_id = create_response.get_json()["conversation_id"]
+        assert prompt.call_args.kwargs["tool_format"] == "tool"
+
+        config_payload = client.get(
+            f"/api/v2/conversations/{conversation_id}/config"
+        ).get_json()
+        config_payload["chat"]["name"] = "after format rename"
+        patch_response = client.patch(
+            f"/api/v2/conversations/{conversation_id}/config",
+            json=config_payload,
+        )
+
+    assert patch_response.status_code == 200
+    # The patch rebuild must consult the model default, not fall back to markdown.
+    assert prompt.call_args.kwargs["tool_format"] == "tool"
