@@ -722,7 +722,7 @@ def _build_dropped_result_stubs(
         if retained_counts[identity] > 0:
             retained_counts[identity] -= 1
             continue
-        if not is_tool_result_message(master_messages, index):
+        if message.hide or not is_tool_result_message(master_messages, index):
             continue
         result_id = index + 1
         tokens = len_tokens(message.content, model=model)

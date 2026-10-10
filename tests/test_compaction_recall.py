@@ -230,6 +230,28 @@ def test_recall_result_refuses_hidden_results(tmp_path):
     assert "hidden" in recall_result(6)
 
 
+def test_dropped_result_stubs_skip_hidden_results(tmp_path):
+    from gptme.tools.autocompact.resume import _build_dropped_result_stubs
+
+    messages = _messages() + [
+        Message("system", "hunter2", call_id="call-secret", hide=True)
+    ]
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+
+    stub = _build_dropped_result_stubs(
+        manager,
+        retained=[messages[0]],
+        model="gpt-4",
+    )
+
+    assert stub is not None
+    assert "recall_result(3)" in stub.content
+    assert "recall_result(5)" in stub.content
+    assert "recall_result(6)" not in stub.content
+    assert "hunter2" not in stub.content
+
+
 def test_resume_keeps_intro_and_checkpoint_adjacent(tmp_path):
     from gptme.tools.autocompact.resume import (
         _find_previous_checkpoint_index,
