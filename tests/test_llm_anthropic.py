@@ -1131,14 +1131,15 @@ class TestReasoningEffortStamp:
         assert "reasoning_effort" not in stamped
 
 
-def test_chat_uses_not_given_timeout():
-    """chat() must not hardcode a timeout — it should pass NOT_GIVEN so the
-    client-level timeout (set from LLM_API_TIMEOUT or the SDK default of 600s)
-    takes effect instead of a 60s cap that breaks long Opus/thinking responses.
+def test_chat_uses_explicit_timeout():
+    """chat() must pass an explicit float timeout, not NOT_GIVEN.
+
+    With NOT_GIVEN and the SDK default client timeout, the Anthropic SDK runs
+    its streaming-required check and raises ValueError for max_tokens > ~21k,
+    which breaks non-streaming chat() for every 64k+ max_output model.
+    Defaults to 600s (SDK default) when LLM_API_TIMEOUT is not set.
     """
     from unittest.mock import MagicMock, patch
-
-    from anthropic import NOT_GIVEN
 
     import gptme.llm.llm_anthropic as llm_anthropic
 
@@ -1158,10 +1159,102 @@ def test_chat_uses_not_given_timeout():
         Message(role="system", content="sys"),
         Message(role="user", content="hello"),
     ]
-    with patch.object(llm_anthropic, "_anthropic", mock_client):
+    with (
+        patch.object(llm_anthropic, "_anthropic", mock_client),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        mock_get_config.return_value.get_env.return_value = None
         llm_anthropic.chat(msgs, model="claude-sonnet-4-6", tools=None)
 
-    call_kwargs = mock_client.messages.create.call_args[1]
-    assert call_kwargs.get("timeout") is NOT_GIVEN, (
-        f"chat() passed timeout={call_kwargs.get('timeout')!r}; expected NOT_GIVEN"
+    timeout = mock_client.messages.create.call_args.kwargs.get("timeout")
+    assert timeout == 600.0, (
+        f"chat() passed timeout={timeout!r}; expected explicit 600.0 (SDK default)"
     )
+
+
+def test_chat_uses_configured_timeout():
+    """chat() passes an explicitly configured LLM_API_TIMEOUT through."""
+    from unittest.mock import MagicMock, patch
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = []
+    mock_response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    mock_response.model = "claude-sonnet-4-6"
+    mock_client.messages.create.return_value = mock_response
+
+    with (
+        patch.object(llm_anthropic, "_anthropic", mock_client),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        mock_get_config.return_value.get_env.side_effect = lambda key, *args: (
+            "300" if key == "LLM_API_TIMEOUT" else None
+        )
+        llm_anthropic.chat(
+            [
+                Message(role="system", content="sys"),
+                Message(role="user", content="hello"),
+            ],
+            model="claude-sonnet-4-6",
+            tools=None,
+        )
+
+    assert mock_client.messages.create.call_args.kwargs["timeout"] == 300.0
+
+
+def test_chat_large_max_tokens_bypasses_sdk_streaming_check():
+    """Regression: a real SDK client with the default timeout must accept a
+    non-streaming chat() call with a 64k max_tokens budget.
+
+    Before the explicit timeout, the SDK raised ValueError("Streaming is
+    required for operations that may take longer than 10 minutes") before
+    any HTTP request. The request is intercepted at the transport layer so
+    no network access is needed.
+    """
+    from unittest.mock import patch
+
+    import anthropic
+    import httpx
+
+    import gptme.llm.llm_anthropic as llm_anthropic
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-sonnet-4-6",
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 1},
+            },
+        )
+
+    client = anthropic.Anthropic(
+        api_key="sk-ant-test",
+        max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    msgs = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello"),
+    ]
+    with (
+        patch.object(llm_anthropic, "_anthropic", client),
+        patch("gptme.config.get_config") as mock_get_config,
+    ):
+        mock_get_config.return_value.get_env.return_value = None
+        content, _meta = llm_anthropic.chat(
+            msgs, model="claude-sonnet-4-6", tools=None, max_tokens=64_000
+        )
+    assert "ok" in content

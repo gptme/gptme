@@ -461,6 +461,19 @@ def test_kimi_k3_metadata():
     assert model.price_output == 15.0
 
 
+def test_mistral_large_4_openrouter_metadata():
+    """Mistral Large 4 must expose reasoning so callers can disable its high default."""
+    model = get_model("openrouter/mistralai/mistral-large-4-0")
+
+    assert model.context == 524_288
+    assert model.max_output == 262_144
+    assert model.supports_reasoning is True
+    assert model.supports_vision is True
+    assert model.price_input == 0.68
+    assert model.price_output == 2.09
+    assert model.price_cache_read == 0.07
+
+
 class TestClosestModelMatch:
     """Tests for _find_closest_model_properties and its integration in get_model."""
 

@@ -105,6 +105,7 @@ Where to start
    :maxdepth: 1
    :caption: About
 
+   philosophy
    alternatives
    projects
    arewetiny

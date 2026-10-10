@@ -8,6 +8,7 @@ from gptme.llm.openai_responses import (
     MessageDict,
     _messages_dicts_to_responses_input,
     _messages_to_responses_input,
+    _pair_missing_tool_results,
 )
 from gptme.message import Message
 from gptme.tools import ToolUse
@@ -130,3 +131,52 @@ def test_markdown_execution_can_miss_a_call_that_responses_replay_recognizes() -
     assert items[1]["type"] == "function_call_output"
     assert items[1]["call_id"] == "call_missing"
     assert items[2]["role"] == "user"
+
+
+def test_output_before_its_call_is_dropped() -> None:
+    """Output whose call_id appears later (not preceding) must be dropped.
+
+    Sequence: output("x"), call("x"), output("x")
+    The first output has no preceding call, so it is an orphan and must be
+    dropped. The second output is properly paired and must be kept.
+    Using seen_call_ids instead of matched_output_indices incorrectly retains
+    the first output because "x" exists somewhere in the call list.
+    """
+    items = _pair_missing_tool_results(
+        [
+            {"type": "function_call_output", "call_id": "x", "output": "orphan"},
+            {
+                "type": "function_call",
+                "call_id": "x",
+                "name": "shell",
+                "arguments": "{}",
+            },
+            {"type": "function_call_output", "call_id": "x", "output": "proper"},
+        ]
+    )
+    types = [i["type"] for i in items]
+    assert types == ["function_call", "function_call_output"], (
+        "orphaned output before its call must be dropped"
+    )
+    assert items[1]["output"] == "proper"
+
+
+def test_extra_output_after_earlier_call_already_paired_is_dropped() -> None:
+    """Duplicate output for a call that was already matched must be dropped."""
+    items = _pair_missing_tool_results(
+        [
+            {
+                "type": "function_call",
+                "call_id": "x",
+                "name": "shell",
+                "arguments": "{}",
+            },
+            {"type": "function_call_output", "call_id": "x", "output": "first"},
+            {"type": "function_call_output", "call_id": "x", "output": "second"},
+        ]
+    )
+    types = [i["type"] for i in items]
+    assert types == ["function_call", "function_call_output"], (
+        "extra output after an already-paired call must be dropped"
+    )
+    assert items[1]["output"] == "first"
