@@ -303,7 +303,7 @@ def test_append_non_main_branch_does_not_mirror_to_lossless(tmp_path):
     manager.branch("experiment")
     manager.append(Message("system", "experiment result", call_id="call-exp"))
 
-    lossless_contents = [m.content for m in manager._branches["lossless"].messages]
+    lossless_contents = [m.content for m in manager.master_log.messages]
     assert "experiment result" not in lossless_contents
 
 
@@ -538,7 +538,7 @@ def test_manual_compaction_recall_survives_reload(tmp_path):
             checkpoint_response=Message("assistant", "## Objective\nManual compact."),
         )
     )
-    assert (logdir / "branches" / "lossless.jsonl").is_file()
+    assert (logdir / "lossless.jsonl").is_file()
     reloaded = LogManager.load(logdir, lock=False)
     assert reloaded.master_log.messages == messages
     assert "0123456789" in recall_result(3)
@@ -591,3 +591,53 @@ def test_hidden_non_tool_message_is_not_recallable(tmp_path):
     assert stub is not None
     assert "[result #6," not in stub.content
     assert "not a tool result" in recall_result(6)
+
+
+def test_user_lossless_branch_does_not_replace_saved_history(tmp_path):
+    """A user branch named lossless must survive compaction without owning recall."""
+    from gptme.tools.autocompact.resume import _resume_via_llm
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    logdir = tmp_path / "conversation"
+    manager = LogManager(messages, logdir=logdir, lock=False)
+    manager.write()
+    manager.branch("lossless")
+    experiment = [
+        messages[0],
+        Message("assistant", "experiment call"),
+        Message("system", "experiment output", call_id="call-exp"),
+    ]
+    manager.log = type(manager.log)(experiment)
+    manager.write()
+
+    # Include branches already present on disk, not only freshly created ones.
+    manager = LogManager.load(logdir, lock=False)
+    assert manager.master_log.messages == messages
+    list(
+        _resume_via_llm(
+            manager,
+            list(manager.log.messages),
+            use_view_branch=False,
+            keep_recent_tokens=0,
+            checkpoint_response=Message("assistant", "## Objective\nManual compact."),
+        )
+    )
+    assert "0123456789" in recall_result(3)
+    manager.append(Message("assistant", "later call"))
+    manager.append(Message("system", "later main result", call_id="call-later"))
+    result_id = len(manager.master_log.messages)
+    manager.write()
+
+    reloaded = LogManager.load(logdir, lock=False)
+    assert "0123456789" in recall_result(3)
+    assert "later main result" in recall_result(result_id)
+    reloaded.branch("lossless")
+    assert reloaded.log.messages == experiment
+    reloaded.append(Message("system", "branch-only result", call_id="call-branch"))
+    assert "branch-only result" not in [m.content for m in reloaded.master_log.messages]
+    reloaded.switch_to_master()
+    reloaded.write()
+    assert "branch-only result" not in [
+        m.content for m in LogManager.load(logdir, lock=False).master_log.messages
+    ]

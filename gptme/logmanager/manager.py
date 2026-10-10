@@ -317,6 +317,16 @@ class LogManager:
                     messages=self.snapshot_message_files(branch_log.messages)
                 )
 
+        # Saved main history has its own store, outside the user-branch namespace.
+        # In particular, branches/lossless.jsonl may be an ordinary experiment.
+        self._lossless_log: Log | None = None
+        lossless_path = self.logdir / "lossless.jsonl"
+        if lossless_path.exists():
+            lossless_log = Log.read_jsonl(lossless_path)
+            self._lossless_log = lossless_log.replace(
+                messages=self.snapshot_message_files(lossless_log.messages)
+            )
+
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
         views_dir = self.logdir / "views"
@@ -622,23 +632,23 @@ class LogManager:
             # Append to master (main branch) for full history preservation
             if "main" in self._branches:
                 self._branches["main"] = self._branches["main"].append(msg)
-            if "lossless" in self._branches:
+            if self._lossless_log is not None:
                 # Keep the preserved lossless transcript current under views
                 # too, so results appended after an in-place compaction stay
                 # recallable.
-                self._branches["lossless"] = self._branches["lossless"].append(msg)
+                self._lossless_log = self._lossless_log.append(msg)
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
-            if "lossless" in self._branches and self.current_branch == "main":
+            if self._lossless_log is not None and self.current_branch == "main":
                 # Keep the preserved lossless transcript current so results
                 # appended after an in-place compaction stay recallable. Only
                 # mirror main: messages from other (experiment) branches must
                 # not leak into the main conversation's recallable results.
-                self._branches["lossless"] = self._branches["lossless"].append(msg)
+                self._lossless_log = self._lossless_log.append(msg)
 
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
@@ -710,6 +720,14 @@ class LogManager:
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
             paths.add(self.logfile)
+
+        # Persist saved history even when the caller skips ordinary branches.
+        if self._lossless_log is not None:
+            lossless_path = self.logdir / "lossless.jsonl"
+            self._lossless_log = self._lossless_log.write_jsonl(
+                lossless_path, append=True
+            )
+            paths.add(lossless_path)
 
         # write other branches
         if branches:
@@ -1046,23 +1064,24 @@ class LogManager:
     def master_log(self) -> Log:
         """Get the master log (always the main branch, never compacted).
 
-        Prefers the preserved ``lossless`` snapshot when an in-place (manual)
-        compaction replaced the active branch, so result-recall IDs keep
-        pointing at the full transcript.
+        Prefers the preserved snapshot in ``lossless.jsonl`` when an in-place
+        (manual) compaction replaced the active branch, so result-recall IDs
+        keep pointing at the full transcript. User branches never own this store.
         """
-        if "lossless" in self._branches:
-            return self._branches["lossless"]
+        if self._lossless_log is not None:
+            return self._lossless_log
         return self._branches.get("main", self._branches[self.current_branch])
 
     def preserve_lossless_log(self) -> None:
-        """Snapshot the catalog's master transcript under the ``lossless`` branch.
+        """Snapshot the catalog's master transcript separately from user branches.
 
         Used before an in-place compaction replaces the active log: the
         snapshot keeps the full transcript available to ``master_log`` so
         recallable result IDs remain valid.
         """
-        if "lossless" not in self._branches:
-            self._branches["lossless"] = self.master_log
+        if self._lossless_log is None:
+            # This is a new destination: do not reuse main's persisted prefix.
+            self._lossless_log = self.master_log.replace(persisted=())
 
     def fork(self, name: str) -> None:
         """
