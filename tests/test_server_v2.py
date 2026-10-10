@@ -5832,6 +5832,8 @@ def test_v2_create_conversation_honors_tool_format_env(
         return original_get_env(self, key, default)
 
     monkeypatch.setattr(Config, "get_env", get_env)
+    # This test isolates environment precedence from model-default resolution.
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
     monkeypatch.delenv("GPTME_TOOL_FORMAT", raising=False)
     if env_value is None:
         monkeypatch.delenv("TOOL_FORMAT", raising=False)
@@ -5844,3 +5846,102 @@ def test_v2_create_conversation_honors_tool_format_env(
     response = client.get(f"/api/v2/conversations/{conv['conversation_id']}/config")
     assert response.status_code == 200
     assert response.get_json()["chat"].get("tool_format") == expected
+
+
+@pytest.mark.parametrize(
+    ("model", "model_default", "env_format", "request_format", "expected"),
+    [
+        ("openai/gpt-4o", "tool", None, None, "tool"),
+        (None, "tool", None, None, "tool"),
+        (None, "tool", "bogus", None, "tool"),
+        (None, "tool", "markdown", None, "markdown"),
+        (None, "tool", "tool", "markdown", "markdown"),
+        (None, None, None, None, None),
+    ],
+)
+def test_v2_create_conversation_model_tool_format(
+    client: FlaskClient,
+    monkeypatch,
+    model,
+    model_default,
+    env_format,
+    request_format,
+    expected,
+):
+    """Use model defaults for the prompt without turning them into overrides."""
+    from gptme.config import Config
+
+    meta = ModelMeta(
+        provider="openai",
+        model="gpt-4o",
+        context=128_000,
+        default_tool_format=model_default,
+    )
+    original_get_env = Config.get_env
+
+    def get_env(self, key, default=None):
+        if key == "TOOL_FORMAT":
+            return env_format
+        return original_get_env(self, key, default)
+
+    monkeypatch.setattr(Config, "get_env", get_env)
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: meta)
+    with (
+        unittest.mock.patch("gptme.server.api_v2.get_model", return_value=meta),
+        unittest.mock.patch(
+            "gptme.server.api_v2.get_prompt", wraps=get_prompt
+        ) as prompt,
+    ):
+        conv = create_conversation(
+            client, ChatConfig(model=model, tool_format=request_format)
+        )
+    assert prompt.call_args.kwargs["tool_format"] == (expected or "markdown")
+    config = client.get(
+        f"/api/v2/conversations/{conv['conversation_id']}/config"
+    ).get_json()
+    persisted_format = request_format or (
+        env_format if env_format in ("tool", "markdown", "xml") else None
+    )
+    assert config["chat"].get("tool_format") == persisted_format
+    data = client.get(f"/api/v2/conversations/{conv['conversation_id']}").get_json()
+    saved = ChatConfig.from_logdir(Path(data["logfile"]).parent)
+    assert saved.tool_format == persisted_format
+
+    # Run a real step against the saved config, with only the LLM/environment
+    # boundaries stubbed. Native calls must agree with the initial prompt.
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager
+    from gptme.server.session_step import step
+
+    monkeypatch.chdir(saved.workspace)
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session.step_seq = 1
+    session.generating = True
+    with (
+        unittest.mock.patch("gptme.llm.models.get_model", return_value=meta),
+        unittest.mock.patch("gptme.llm.models.set_default_model"),
+        unittest.mock.patch("gptme.model_attestation.record_runtime_selection"),
+        unittest.mock.patch("gptme.server.session_step.prepare_execution_environment"),
+        unittest.mock.patch("gptme.server.session_step.trigger_hook", return_value=[]),
+        unittest.mock.patch(
+            "gptme.server.session_step.prepare_messages",
+            return_value=[Message("user", "test")],
+        ),
+        unittest.mock.patch("gptme.server.session_step._try_auto_name_and_notify"),
+        unittest.mock.patch("gptme.server.session_step._start_step_thread"),
+        unittest.mock.patch(
+            "gptme.server.session_step._stream",
+            return_value=iter(['@shell(call_1): {"command": "echo hi"}']),
+        ) as stream,
+    ):
+        step(
+            conversation_id=conv["conversation_id"],
+            session=session,
+            model=meta.full,
+            workspace=saved.workspace,
+            step_seq=1,
+        )
+    assert stream.called
+    assert bool(stream.call_args.args[2]) is (expected == "tool")
+    assert bool(session.pending_tools) is (expected == "tool")
