@@ -363,6 +363,8 @@ def _create_subagent_thread(
     fork_messages: list[Message] | None = None,
     reasoning_effort: str | None = None,
     prompt_queue_closed: threading.Event | None = None,
+    max_time: float | None = None,
+    started_at: float | None = None,
     *,
     resume: bool = False,
 ) -> None:
@@ -691,6 +693,13 @@ def _create_subagent_thread(
             )
         )
 
+    # Store an absolute deadline so every Anthropic request and retry can
+    # recompute its shrinking budget. Clear it below to avoid thread-local leaks.
+    if max_time is not None and started_at is not None:
+        from ...llm.llm_anthropic import set_subagent_request_deadline  # fmt: skip
+
+        set_subagent_request_deadline(started_at + max_time)
+
     try:
         chat(
             prompt_msgs,
@@ -706,6 +715,11 @@ def _create_subagent_thread(
             output_format="quiet",
         )
     finally:
+        # Clear the deadline so it does not leak to a later call on this thread.
+        if max_time is not None and started_at is not None:
+            from ...llm.llm_anthropic import set_subagent_request_deadline  # fmt: skip
+
+            set_subagent_request_deadline(None)
         # Signal immediately when chat() returns — before any caller cleanup.
         # This closes the window between "chat() last drain" and the caller
         # acquiring _subagents_lock to find `sa`. Any concurrent subagent_steer()

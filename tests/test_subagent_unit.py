@@ -2008,6 +2008,56 @@ class TestSubagentContinue:
         continued.thread.join(timeout=1)
         assert not continued.thread.is_alive()
 
+    def test_continuation_uses_fresh_deadline_clock(self, tmp_path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_continue
+
+        logdir = tmp_path / "continuation-deadline-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            '{"role":"assistant","content":"done"}\n'
+        )
+        old_started_at = 100.0
+        sa = Subagent(
+            agent_id="continuation-deadline-agent",
+            prompt="task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            started_at=old_started_at,
+            max_time=60.0,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        captured: dict = {}
+
+        def capture_continuation(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr(
+            subagent_execution, "_create_subagent_thread", capture_continuation
+        )
+
+        class NonStartingTimer:
+            def __init__(self, *args, **kwargs):
+                self.daemon = True
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(threading, "Timer", NonStartingTimer)
+        before = time.time()
+        subagent_continue(sa.agent_id, "follow up")
+        with _subagents_lock:
+            continued = next(s for s in _subagents if s.agent_id == sa.agent_id)
+        assert continued.thread is not None
+        continued.thread.join(timeout=1)
+        assert not continued.thread.is_alive()
+
+        assert captured["started_at"] >= before
+        assert captured["started_at"] != old_started_at
+        assert continued.started_at == captured["started_at"]
+
     def test_reuses_existing_conversation_log(self, tmp_path, monkeypatch):
         from gptme.logmanager import Log
         from gptme.message import Message

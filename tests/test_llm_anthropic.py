@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 
 import httpx
 import pytest
@@ -1258,3 +1259,159 @@ def test_chat_large_max_tokens_bypasses_sdk_streaming_check():
             msgs, model="claude-sonnet-4-6", tools=None, max_tokens=64_000
         )
     assert "ok" in content
+
+
+def _mock_anthropic_chat_client():
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    client.timeout = httpx.Timeout(600.0)
+    response = MagicMock()
+    response.content = []
+    response.usage = MagicMock(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    response.model = "claude-sonnet-4-6"
+    client.messages.create.return_value = response
+    return client
+
+
+def _deadline_test_messages():
+    return [
+        Message(role="system", content="sys"),
+        Message(role="user", content="hello"),
+    ]
+
+
+def test_chat_uses_subagent_deadline_timeout():
+    """Thread-mode subagent requests use their remaining deadline budget."""
+    from unittest.mock import patch
+
+    from gptme.llm.llm_anthropic import set_subagent_request_deadline
+
+    mock_client = _mock_anthropic_chat_client()
+    set_subagent_request_deadline(time.time() + 30.0)
+    try:
+        with patch.object(llm_anthropic, "_anthropic", mock_client):
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+    finally:
+        set_subagent_request_deadline(None)
+
+    actual_timeout = mock_client.messages.create.call_args.kwargs["timeout"]
+    assert isinstance(actual_timeout, float)
+    assert actual_timeout == pytest.approx(30.0, abs=0.1)
+
+
+def test_chat_subagent_deadline_shrinks_between_requests(monkeypatch):
+    """Each request recomputes the remaining absolute deadline."""
+    from unittest.mock import patch
+
+    from gptme.llm.llm_anthropic import set_subagent_request_deadline
+
+    now = 1000.0
+    monkeypatch.setattr(llm_anthropic.time, "time", lambda: now)
+    mock_client = _mock_anthropic_chat_client()
+    set_subagent_request_deadline(now + 30.0)
+    try:
+        with patch.object(llm_anthropic, "_anthropic", mock_client):
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+            now += 20.0
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+    finally:
+        set_subagent_request_deadline(None)
+
+    timeouts = [
+        call.kwargs["timeout"] for call in mock_client.messages.create.call_args_list
+    ]
+    assert timeouts == [pytest.approx(30.0), pytest.approx(10.0)]
+
+
+def test_chat_subagent_expired_deadline_stops_retry(monkeypatch):
+    """A retry does not start after the subagent deadline expires."""
+    from unittest.mock import patch
+
+    from anthropic import APIConnectionError
+
+    from gptme.llm.llm_anthropic import set_subagent_request_deadline
+
+    now = 1000.0
+    monkeypatch.setattr(llm_anthropic.time, "time", lambda: now)
+
+    def expire_during_backoff(*args, **kwargs):
+        nonlocal now
+        now = 1002.0
+        return False
+
+    monkeypatch.setattr(llm_anthropic, "backoff_wait", expire_during_backoff)
+    mock_client = _mock_anthropic_chat_client()
+    mock_client.messages.create.side_effect = APIConnectionError(
+        request=httpx.Request("POST", "https://example.test")
+    )
+    set_subagent_request_deadline(now + 1.0)
+    try:
+        with (
+            patch.object(llm_anthropic, "_anthropic", mock_client),
+            pytest.raises(TimeoutError, match="deadline expired"),
+        ):
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+    finally:
+        set_subagent_request_deadline(None)
+
+    assert mock_client.messages.create.call_count == 1
+
+
+def test_chat_subagent_deadline_capped_by_client_timeout():
+    """A reused client's shorter timeout wins over the subagent budget."""
+    from unittest.mock import patch
+
+    from gptme.llm.llm_anthropic import set_subagent_request_deadline
+
+    mock_client = _mock_anthropic_chat_client()
+    mock_client.timeout = httpx.Timeout(60.0)
+    set_subagent_request_deadline(time.time() + 300.0)
+    try:
+        with patch.object(llm_anthropic, "_anthropic", mock_client):
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+    finally:
+        set_subagent_request_deadline(None)
+
+    actual_timeout = mock_client.messages.create.call_args.kwargs["timeout"]
+    assert actual_timeout == pytest.approx(60.0)
+
+
+def test_chat_subagent_deadline_cleared_between_calls():
+    """Clearing after a bounded request restores the explicit ordinary timeout."""
+    from unittest.mock import patch
+
+    from gptme.llm.llm_anthropic import set_subagent_request_deadline
+
+    mock_client = _mock_anthropic_chat_client()
+    set_subagent_request_deadline(time.time() + 30.0)
+    try:
+        with patch.object(llm_anthropic, "_anthropic", mock_client):
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+            set_subagent_request_deadline(None)
+            llm_anthropic.chat(
+                _deadline_test_messages(), model="claude-sonnet-4-6", tools=None
+            )
+    finally:
+        set_subagent_request_deadline(None)
+
+    calls = mock_client.messages.create.call_args_list
+    assert calls[0].kwargs["timeout"] == pytest.approx(30.0, abs=0.1)
+    assert calls[1].kwargs["timeout"] == 600.0

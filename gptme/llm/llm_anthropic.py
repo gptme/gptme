@@ -1,5 +1,7 @@
 import logging
 import os
+import threading
+import time
 from collections.abc import Generator, Iterable
 from functools import wraps
 from typing import (
@@ -11,7 +13,7 @@ from typing import (
     cast,
 )
 
-from httpx import NetworkError, RemoteProtocolError, TimeoutException
+from httpx import NetworkError, RemoteProtocolError, Timeout, TimeoutException
 from pydantic import BaseModel  # fmt: skip
 
 from ..constants import TEMPERATURE, TOP_P
@@ -86,6 +88,26 @@ logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
+
+# Thread-local absolute deadline for thread-mode subagent requests. The absolute
+# value lets each request and retry recompute its shrinking remaining budget.
+_subagent_deadline = threading.local()
+
+
+def set_subagent_request_deadline(deadline: float | None) -> None:
+    """Set an absolute wall-clock deadline for the current thread."""
+    _subagent_deadline.value = deadline
+
+
+def _remaining_subagent_timeout() -> float | None:
+    """Return the current deadline budget, raising once it has expired."""
+    deadline = getattr(_subagent_deadline, "value", None)
+    if deadline is None:
+        return None
+    remaining = deadline - time.time()
+    if remaining <= 0:
+        raise TimeoutError("Subagent deadline expired before LLM request")
+    return remaining
 
 
 def _inject_schema_instruction(messages, schema_name):
@@ -606,10 +628,25 @@ def retry_on_overloaded(
             # for this call aborts immediately (even attempts started later).
             generation = current_generation()
             attempts = max_retries if max_retries is not None else get_max_retries()
+            last_error: Exception | None = None
             for attempt in range(attempts):
+                # Do not start or retry a request after a thread-mode subagent's
+                # deadline. The wrapped function performs the same check when it
+                # computes the per-request timeout. If the deadline expires
+                # during a backoff wait, chain the wait's original error so the
+                # caller sees the underlying API failure, not a bare timeout.
+                try:
+                    _remaining_subagent_timeout()
+                except TimeoutError:
+                    if last_error is not None:
+                        raise TimeoutError(
+                            "Subagent deadline expired during retry backoff"
+                        ) from last_error
+                    raise
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
+                    last_error = e
                     _handle_anthropic_transient_error(
                         e, attempt, attempts, base_delay, generation=generation
                     )
@@ -906,6 +943,24 @@ def chat(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
+
+    # Recompute the remaining absolute deadline for every request and retry.
+    # Cap against the selected client's actual timeout rather than current
+    # thread config: subagents can change workspace config while reusing a
+    # client created by the parent.
+    _deadline_timeout = _remaining_subagent_timeout()
+    if _deadline_timeout is not None:
+        _client_timeout = client.timeout
+        if isinstance(_client_timeout, Timeout):
+            _client_timeout = _client_timeout.read
+        _call_timeout: float = (
+            min(_deadline_timeout, _client_timeout)
+            if _client_timeout is not None
+            else _deadline_timeout
+        )
+    else:
+        _call_timeout = _chat_timeout()
+
     response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,
         messages=messages_dicts,
@@ -917,15 +972,9 @@ def chat(
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
         **_fast_mode_kwargs(),
-        # Pass an explicit timeout. With NOT_GIVEN and the SDK default client
-        # timeout, anthropic>=0.5x runs _calculate_nonstreaming_timeout(), which
-        # raises "Streaming is required for operations that may take longer
-        # than 10 minutes" whenever max_tokens > ~21k — i.e. for every model
-        # whose max_output is 64k+ when chat() is called non-streaming (subagent
-        # thread mode, evals). An explicit float bypasses that check; the value
-        # is LLM_API_TIMEOUT when configured, else the SDK default of 600s. The
-        # old hardcoded 60s cap is still avoided (long thinking responses).
-        timeout=_chat_timeout(),
+        # Apply the subagent budget when present; ordinary calls still need
+        # an explicit timeout to bypass the SDK's streaming-required check.
+        timeout=_call_timeout,
     )
     content = response.content
     metadata = _stamp_served_model(

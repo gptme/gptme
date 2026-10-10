@@ -1033,6 +1033,9 @@ def subagent(
         # Pre-create the event so run_subagent captures it directly (no lock+lookup
         # window between _create_subagent_thread returning and finding sa to set it).
         _pqc = threading.Event()
+        # Capture launch time for deadline-aware LLM timeout (≈ sa.started_at,
+        # set within the same millisecond just before sa = Subagent() is created).
+        _subagent_launch_time = time.time()
 
         def run_subagent():
             # Bind retry generation at thread birth so test-teardown interrupts
@@ -1071,6 +1074,8 @@ def subagent(
                         fork_messages=fork_messages,
                         reasoning_effort=reasoning_effort,
                         prompt_queue_closed=_pqc,
+                        max_time=max_time,
+                        started_at=_subagent_launch_time,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -1540,6 +1545,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
 
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
+    continuation_started_at = time.time()
 
     def run_continuation() -> None:
         bind_thread_generation()
@@ -1568,6 +1574,8 @@ def subagent_continue(agent_id: str, message: str) -> None:
                         context_window=sa.context_window,
                         reasoning_effort=sa.reasoning_effort,
                         prompt_queue_closed=prompt_queue_closed,
+                        max_time=sa.max_time,
+                        started_at=continuation_started_at,
                         resume=True,
                     )
                 elif sa.execution_mode == "subprocess":
@@ -1685,6 +1693,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
         redact_secrets=sa.redact_secrets,
         context_window=sa.context_window,
         max_time=sa.max_time,
+        started_at=continuation_started_at,
         context_turns=sa.context_turns,
         reasoning_effort=sa.reasoning_effort,
         fork_message_count=sa.fork_message_count,
