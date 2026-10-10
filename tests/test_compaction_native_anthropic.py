@@ -135,7 +135,9 @@ def test_native_compact_round_trips_complete_sdk_block(monkeypatch, tmp_path):
         [Message("system", "System prompt"), restored, Message("user", "continue")],
         None,
     )
-    assert replay[0]["content"][0] == payload
+    replay_content = replay[0]["content"]
+    assert isinstance(replay_content, list)
+    assert replay_content[0] == payload
 
 
 def test_native_compact_no_signed_block_returns_none(monkeypatch):
