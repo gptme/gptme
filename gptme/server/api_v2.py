@@ -23,7 +23,7 @@ from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, cast, get_args
 
 import flask
 import tomlkit
@@ -82,6 +82,7 @@ from ..logmanager import conversations as conversations_module
 from ..message import Message
 from ..prompt_queue import drain_prompt_queue
 from ..tools import get_toolchain, get_tools, init_tools
+from ..tools.base import ToolFormat
 from ..util.content import is_message_command
 from ..util.file_storage import get_stored_path
 from ..util.uri import URI, FilePath, is_uri, parse_file_reference
@@ -1922,6 +1923,15 @@ def api_conversation_put(conversation_id: str):
     request_config.tools = normalized_tools
 
     chat_config = ChatConfig.load_or_create(logdir, request_config)
+
+    # Honor the TOOL_FORMAT env/config setting like the CLI does when the
+    # request leaves it unset; persisted below so steps use the same format.
+    if not chat_config.tool_format:
+        env_tool_format = get_config().get_env("TOOL_FORMAT")
+        if env_tool_format in get_args(ToolFormat):
+            chat_config.tool_format = cast("ToolFormat", env_tool_format)
+        elif env_tool_format:
+            logger.warning("Ignoring invalid TOOL_FORMAT=%r", env_tool_format)
 
     # Default tools before building the prompt so it only advertises tools the
     # conversation will actually have.

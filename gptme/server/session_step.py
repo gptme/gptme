@@ -1085,13 +1085,24 @@ def step(
                     if token == "\n" or len(sse_token_batch) >= _SSE_BATCH_SIZE:
                         _flush_sse_batch()
 
-                    # Check for complete tool uses on \n
-                    if "\n" in token:
-                        if tooluses := list(ToolUse.iter_from_content(output)):
+                    # Check for complete tool uses on \n.
+                    # For native "tool" format, multiple calls arrive as separate
+                    # lines in the same turn — skip the early break and let the
+                    # stream finish so iter_from_content sees all of them.
+                    if "\n" in token and tool_format != "tool":
+                        if tooluses := list(
+                            ToolUse.iter_from_content(
+                                output, tool_format_override=tool_format
+                            )
+                        ):
                             _flush_sse_batch()  # flush remaining before break
                             break
                 else:
-                    tooluses = list(ToolUse.iter_from_content(output))
+                    tooluses = list(
+                        ToolUse.iter_from_content(
+                            output, tool_format_override=tool_format
+                        )
+                    )
 
             except Exception as error:
                 mark_llm_reply_origin(error, output_emitted=bool(output))

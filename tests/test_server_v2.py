@@ -5803,3 +5803,44 @@ def test_v2_user_mcp_config_put_rejects_invalid(
     assert response.status_code == 400
     assert error in response.get_json()["error"]
     assert mcp_config_file.read_text() == _MCP_CONFIG_TOML
+
+
+@pytest.mark.parametrize(
+    ("env_value", "request_format", "expected"),
+    [
+        ("tool", None, "tool"),
+        ("tool", "markdown", "markdown"),
+        ("bogus", None, None),
+        (None, None, None),
+    ],
+)
+def test_v2_create_conversation_honors_tool_format_env(
+    client: FlaskClient, monkeypatch, env_value, request_format, expected
+):
+    """TOOL_FORMAT env applies to new conversations unless the request sets one."""
+    import os
+
+    from gptme.config import Config
+
+    # Read TOOL_FORMAT from the process env only, so a developer's
+    # [env].TOOL_FORMAT in their user config can't leak into the test.
+    original_get_env = Config.get_env
+
+    def get_env(self, key, default=None):
+        if key == "TOOL_FORMAT":
+            return os.environ.get("TOOL_FORMAT", default)
+        return original_get_env(self, key, default)
+
+    monkeypatch.setattr(Config, "get_env", get_env)
+    monkeypatch.delenv("GPTME_TOOL_FORMAT", raising=False)
+    if env_value is None:
+        monkeypatch.delenv("TOOL_FORMAT", raising=False)
+    else:
+        monkeypatch.setenv("TOOL_FORMAT", env_value)
+
+    config = ChatConfig(tool_format=request_format) if request_format else None
+    conv = create_conversation(client, config)
+
+    response = client.get(f"/api/v2/conversations/{conv['conversation_id']}/config")
+    assert response.status_code == 200
+    assert response.get_json()["chat"].get("tool_format") == expected
