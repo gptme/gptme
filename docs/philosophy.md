@@ -94,6 +94,23 @@ each step. The principle behind it is oversight by inspection, not by constant
 attendance: you set the goals and guardrails, the agent does the work, and the
 record of what it did is always there to read.
 
+## Where this is heading: guardian angels
+
+The long-term direction is close to what Gwern calls a
+[guardian angel](https://gwern.net/guardian-angel): a personal agent that works
+for one person, knows their values and preferences, and **amplifies them rather
+than replacing them**. A generic chatbot has no principal; it answers everyone the
+same way and forgets every correction. A guardian angel is loyal to its owner,
+learns from them over time, and keeps that learning when the underlying model is
+swapped out.
+
+gptme already has the substrate for this: an agent's identity, memory, lessons and
+history live in a git repository the owner controls, so what the agent learns
+outlives any single model or provider. What it does not do is learn at the
+weight level: personalization today is context (lessons, memory, identity files)
+rather than continuous fine-tuning on the owner's own data. Closing that gap, while keeping the agent local-first and
+inspectable, is the open problem.
+
 ## Contributing with this in mind
 
 When proposing a change, it helps to say which principle it serves. Changes that
