@@ -538,9 +538,11 @@ def test_native_recall_schema_exposes_result_and_paging_arguments():
         openai_tool(tool, get_model("openai/gpt-4o-mini"))["function"]["parameters"],
     ]
     for schema in schemas:
-        assert set(schema["properties"]) == {"result_id", "start_char", "max_chars"}
+        properties = schema["properties"]
+        assert isinstance(properties, dict)
+        assert set(properties) == {"result_id", "start_char", "max_chars"}
         assert schema["required"] == ["result_id"]
-        assert all(p["type"] == "integer" for p in schema["properties"].values())
+        assert all(p["type"] == "integer" for p in properties.values())
 
 
 def test_result_catalog_explains_when_recall_is_not_loaded(tmp_path, monkeypatch):
