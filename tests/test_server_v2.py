@@ -5948,3 +5948,58 @@ def test_v2_create_conversation_model_tool_format(
     assert stream.called
     assert bool(stream.call_args.args[2]) is (expected == "tool")
     assert bool(session.pending_tools) is (expected == "tool")
+
+
+def test_v2_config_patch_rebuild_uses_model_default_tool_format(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Config PATCH must rebuild the prompt with the model's default tool format.
+
+    Regression: the model default is intentionally not persisted into
+    ``chat_config.tool_format``, so the PATCH rebuild has to resolve it the same
+    way ``session_step`` does — otherwise the system prompt advertises markdown
+    while the step parser expects native tool calls.
+    """
+    meta = ModelMeta(
+        provider="openai",
+        model="gpt-4o",
+        context=128_000,
+        default_tool_format="tool",
+    )
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: meta)
+    with (
+        unittest.mock.patch("gptme.server.api_v2.get_model", return_value=meta),
+        unittest.mock.patch(
+            "gptme.server.api_v2.get_prompt", wraps=get_prompt
+        ) as prompt,
+    ):
+        convname = f"test-server-v2-patch-format-{random.randint(0, 1000000)}"
+        create_response = client.put(
+            f"/api/v2/conversations/{convname}",
+            json={
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "tool format patch sweep",
+                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    }
+                ],
+                "config": {"chat": {"model": "openai/gpt-4o"}},
+            },
+        )
+        assert create_response.status_code == 200
+        conversation_id = create_response.get_json()["conversation_id"]
+        assert prompt.call_args.kwargs["tool_format"] == "tool"
+
+        config_payload = client.get(
+            f"/api/v2/conversations/{conversation_id}/config"
+        ).get_json()
+        config_payload["chat"]["name"] = "after format rename"
+        patch_response = client.patch(
+            f"/api/v2/conversations/{conversation_id}/config",
+            json=config_payload,
+        )
+
+    assert patch_response.status_code == 200
+    # The patch rebuild must consult the model default, not fall back to markdown.
+    assert prompt.call_args.kwargs["tool_format"] == "tool"
