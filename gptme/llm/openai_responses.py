@@ -229,6 +229,7 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
     call's result.
     """
     pending: dict[str, list[int]] = {}
+    matched_output_indices: set[int] = set()
     for idx, item in enumerate(items):
         if item.get("type") == "function_call":
             pending.setdefault(item["call_id"], []).append(idx)
@@ -236,12 +237,24 @@ def _pair_missing_tool_results(items: list[dict[str, Any]]) -> list[dict[str, An
             calls = pending.get(item["call_id"])
             if calls:
                 calls.pop()
-    orphans = {idx for calls in pending.values() for idx in calls}
+                matched_output_indices.add(idx)
+    orphan_calls = {idx for calls in pending.values() for idx in calls}
 
     paired_items: list[dict[str, Any]] = []
     for idx, item in enumerate(items):
+        if (
+            item.get("type") == "function_call_output"
+            and idx not in matched_output_indices
+        ):
+            # Drop orphaned results — no preceding unpaired call was recorded.
+            # Sending an unmatched result to the Responses API causes a 400 error.
+            logger.warning(
+                "Dropping orphaned tool result for call_id %s (no preceding call recorded)",
+                item["call_id"],
+            )
+            continue
         paired_items.append(item)
-        if idx in orphans:
+        if idx in orphan_calls:
             logger.warning("No tool result recorded for call_id %s", item["call_id"])
             paired_items.append(
                 {

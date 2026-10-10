@@ -1037,11 +1037,6 @@ def test_messages_dicts_to_responses_input_collects_instructions_and_tool_events
             "call_id": "call_123",
             "output": "Saved to note.txt",
         },
-        {
-            "type": "function_call_output",
-            "call_id": "call_123",
-            "output": "User edited file",
-        },
         {"role": "user", "content": "What next?"},
     ]
 
