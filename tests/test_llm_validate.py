@@ -58,6 +58,14 @@ class TestValidateApiKey:
         )
 
     @patch("gptme.llm.validate._validate_openai_compatible")
+    def test_atlascloud_provider_calls_compatible_validator(self, mock_validate):
+        mock_validate.return_value = (True, "")
+        validate_api_key("apikey-test", "atlascloud")
+        mock_validate.assert_called_once_with(
+            "apikey-test", 10, "https://api.atlascloud.ai/v1"
+        )
+
+    @patch("gptme.llm.validate._validate_openai_compatible")
     def test_moonshot_provider_calls_compatible_validator(self, mock_validate):
         mock_validate.return_value = (True, "")
         validate_api_key("moonshot-test", "moonshot")

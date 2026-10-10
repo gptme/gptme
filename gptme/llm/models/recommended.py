@@ -41,6 +41,7 @@ RECOMMENDED_MODELS: dict[str, str] = {
     "gptme": "claude-sonnet-4-6",
     "deepseek": "deepseek-v4-flash",
     "groq": "llama-3.3-70b-versatile",
+    "atlascloud": "deepseek-ai/deepseek-v4-flash",
 }
 
 # Cheaper/faster model per provider used for summaries, titles, and other

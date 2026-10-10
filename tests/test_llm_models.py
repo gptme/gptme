@@ -59,6 +59,29 @@ def test_get_model_provider_only():
     assert model.model == "gpt-5.6-sol"  # current recommended model
 
 
+def test_get_model_provider_only_atlascloud():
+    """`-m atlascloud` resolves through RECOMMENDED_MODELS to a catalogued model."""
+    model = get_model("atlascloud")
+    assert model.provider == "atlascloud"
+    assert model.model == "deepseek-ai/deepseek-v4-flash"
+    assert model.context == 1_048_576
+
+
+@pytest.mark.parametrize("model_name", sorted(MODELS["atlascloud"]))
+def test_atlascloud_models_leave_room_for_compaction(model_name):
+    """No Atlas Cloud entry may reserve the whole window for output.
+
+    get_context_budget() subtracts max_output from the window; an entry with
+    max_output >= window clamps every chat to the 1,000-token floor.
+    """
+    from gptme.util.context_budget import get_context_budget
+
+    meta = MODELS["atlascloud"][model_name]
+    assert meta["max_output"] < meta["context"] // 2
+    budget = get_context_budget(meta["context"], max_output=meta["max_output"])
+    assert budget > 100_000
+
+
 @pytest.mark.parametrize(
     ("provider", "full_model"),
     sorted(PROVIDER_DEFAULT_MODELS.items()),
@@ -273,6 +296,7 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
         ("groq", "llama-3.3-70b-versatile"),
         ("openai-subscription", "gpt-6-astra"),
         ("grok-subscription", "grok-4.6"),
+        ("atlascloud", "deepseek-ai/deepseek-v4-flash"),
     ],
 )
 def test_get_recommended_model(provider, expected_model):
