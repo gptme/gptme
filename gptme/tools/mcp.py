@@ -105,7 +105,7 @@ def execute_mcp(
 
         if command.startswith("search"):
             # search [query] [--registry=all] [--limit=10]
-            parts = command.split()
+            parts = command.split(maxsplit=1)
             query = parts[1] if len(parts) > 1 else ""
             registry = command_args.get("registry", "all")
             limit = int(command_args.get("limit", "10"))
