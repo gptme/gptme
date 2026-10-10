@@ -2276,3 +2276,68 @@ def test_noninteractive_does_not_seed_prompt_history(monkeypatch, tmp_path: Path
     )
     assert result.exit_code == 0, result.output
     assert calls == [], result.output
+
+
+# ── resume profile resolution ───────────────────────────────────────────
+
+
+def test_resolve_resume_profile_returns_none_without_persisted_name():
+    assert cli._resolve_resume_profile(None) is None
+    assert cli._resolve_resume_profile("") is None
+
+
+def test_resolve_resume_profile_resolves_known_profile():
+    profile = cli._resolve_resume_profile("explorer")
+    assert profile is not None
+    assert profile.name == "explorer"
+
+
+def test_resolve_resume_profile_unknown_name_resumes_without_profile(caplog):
+    """A removed/renamed profile must not block the resume."""
+    with caplog.at_level("WARNING"):
+        assert cli._resolve_resume_profile("definitely-missing-profile") is None
+    assert "no longer available" in caplog.text
+
+
+def test_resume_reapplies_agent_profile(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Resuming with an explicit profile must re-apply it, not just persist the name.
+
+    ``initial_msgs`` is discarded for a non-empty log, so the profile message has
+    to reach chat() through the resume-only channel to change the effective prompt.
+    """
+    workspace = tmp_path / "workspace"
+    conv = _write_conversation("resume-profile-target", workspace=workspace)
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr("gptme.telemetry.init_telemetry", lambda **kwargs: None)
+
+    def fake_chat(
+        prompt_msgs: list[Message],
+        initial_msgs: list[Message],
+        logdir: Path,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        seen["initial_msgs"] = list(initial_msgs)
+        seen["resume_msgs"] = kwargs.get("resume_msgs")
+
+    monkeypatch.setattr(importlib.import_module("gptme.chat"), "chat", fake_chat)
+    result = runner.invoke(
+        cli.main,
+        [
+            "--resume",
+            "--name",
+            conv.name,
+            "--workspace",
+            str(workspace),
+            "--agent-profile",
+            "explorer",
+            "--non-interactive",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["initial_msgs"] == []
+    assert seen["resume_msgs"] is not None
+    assert seen["resume_msgs"][0].content.startswith("# Agent Profile: explorer")

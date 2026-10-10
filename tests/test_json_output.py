@@ -148,6 +148,7 @@ class TestOutputFormatValidation:
             tool_format=None,
             output_schema=None,
             output_format="text",
+            resume_msgs=None,
         ):
             received.append((interactive, output_format))
 
@@ -663,6 +664,7 @@ class TestJSONOutputIntegration:
             tool_format=None,
             output_schema=None,
             output_format="text",
+            resume_msgs=None,
         ):
             prev_fmt = get_output_format()
             # Redirect sys.stdout so print_msg writes to our isolated buffer,
@@ -776,6 +778,7 @@ class TestJSONOutputIntegration:
             tool_format=None,
             output_schema=None,
             output_format="text",
+            resume_msgs=None,
         ):
             received_format.append(output_format)
 

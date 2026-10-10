@@ -309,6 +309,32 @@ def test_setup_config_from_cli_persists_context_budget(tmp_path):
     assert ChatConfig.from_logdir(tmp_path / "log").context_budget == 300_000
 
 
+def test_setup_config_from_cli_persists_agent_profile(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=tmp_path / "log",
+        agent_profile="explorer",
+    )
+
+    assert config.chat is not None
+    assert config.chat.agent_profile == "explorer"
+    assert ChatConfig.from_logdir(tmp_path / "log").agent_profile == "explorer"
+
+
+def test_setup_config_from_cli_resume_keeps_persisted_agent_profile(tmp_path):
+    """Resuming without --agent-profile must not clear the stored profile."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "log"
+    setup_config_from_cli(workspace=workspace, logdir=logdir, agent_profile="explorer")
+
+    resumed = setup_config_from_cli(workspace=workspace, logdir=logdir)
+    assert resumed.chat is not None
+    assert resumed.chat.agent_profile == "explorer"
+
+
 def test_project_config_exclude_field():
     """Test that [prompt] exclude list is parsed correctly from gptme.toml."""
     import tomlkit

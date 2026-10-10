@@ -2122,3 +2122,397 @@ def test_auto_naming_thread_registry_cleans_up_and_deduplicates(tmp_path, monkey
     first.join(timeout=2)
     assert not first.is_alive()
     assert tmp_path not in chat_module._naming_threads
+
+
+# ── resume-only message injection ───────────────────────────────────────
+
+
+def _profile_resume_msg(content: str = "# Agent Profile: explorer\n\nRead-only."):
+    from gptme.message import Message
+
+    return Message(
+        "system",
+        content,
+        hide=True,
+        pinned=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+
+
+def test_apply_resume_msgs_appends_when_absent(tmp_path):
+    """A resume message is appended to the log (chronology preserved)."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "startup prompt"), Message("user", "hello")],
+        logdir=tmp_path / "conversation",
+    )
+
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
+
+    msgs = manager.log.messages
+    assert msgs[-1].content.startswith("# Agent Profile: explorer")
+    assert msgs[-1].pinned
+    assert (msgs[-1].metadata or {}).get("resume_key") == "agent_profile"
+
+
+def test_apply_resume_msgs_skips_when_exact_startup_match(tmp_path):
+    """A startup prompt that IS the profile exactly must not be re-applied.
+
+    The resume skip uses exact content match: a profile embedded in a larger
+    startup prompt is appended (the newest standalone copy wins in
+    prepare_messages, and the embedded copy is stripped there), but an
+    unchanged profile captured verbatim at conversation creation is a true
+    duplicate and is skipped.
+    """
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    profile = "# Agent Profile: explorer\n\nRead-only."
+    manager = LogManager(
+        [
+            Message("system", profile, hide=True, pinned=True),
+            Message("user", "hello"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    before = len(manager.log.messages)
+
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg(profile)])
+
+    assert len(manager.log.messages) == before
+
+
+def test_apply_resume_msgs_appends_embedded_in_startup_prompt(tmp_path):
+    """A profile embedded in a larger startup prompt is appended, not skipped.
+
+    Exact-match deliberately does not suppress the embedded case: a later
+    edit that shortens the profile to text contained in the old startup block
+    must still be re-applied. prepare_messages/_hoist_resume_msgs strips the
+    embedded copy so the provider sees only the newest standalone profile.
+    """
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message(
+                "system",
+                "startup prompt\n\n# Agent Profile: explorer\n\nRead-only.",
+                hide=True,
+                pinned=True,
+            ),
+            Message("user", "hello"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    before = len(manager.log.messages)
+
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
+
+    assert len(manager.log.messages) == before + 1
+    assert manager.log.messages[-1].content.startswith("# Agent Profile: explorer")
+    assert (manager.log.messages[-1].metadata or {}).get(
+        "resume_key"
+    ) == "agent_profile"
+
+
+def test_apply_resume_msgs_user_text_does_not_suppress(tmp_path):
+    """A user message quoting the profile header must not suppress the profile."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "earlier I saw '# Agent Profile: explorer'"),
+            Message("assistant", "noted"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+
+    chat_module._apply_resume_msgs(manager, [_profile_resume_msg()])
+
+    assert manager.log.messages[-1].content.startswith("# Agent Profile: explorer")
+
+
+def test_apply_resume_msgs_appends_changed_content(tmp_path):
+    """An edited profile appends a fresh copy; the newest is provider-visible."""
+    import importlib
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat_module = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [
+            Message("system", "startup prompt"),
+            _profile_resume_msg("# Agent Profile: explorer\n\nOld instructions."),
+            Message("user", "hello"),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+
+    chat_module._apply_resume_msgs(
+        manager, [_profile_resume_msg("# Agent Profile: explorer\n\nNew instructions.")]
+    )
+
+    assert "New instructions." in manager.log.messages[-1].content
+
+    # Provider context keeps only the newest copy per resume_key.
+    from gptme.logmanager.manager import _hoist_resume_msgs
+
+    prepared = _hoist_resume_msgs(list(manager.log))
+    profiles = [
+        m
+        for m in prepared
+        if m.metadata and m.metadata.get("resume_key") == "agent_profile"
+    ]
+    assert len(profiles) == 1
+    assert "New instructions." in profiles[0].content
+
+
+def test_hoist_resume_msgs_moves_into_leading_system_block():
+    """A resume message is provider-visible before history, keeping system authority."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    prepared = _hoist_resume_msgs(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "hello"),
+            Message("assistant", "hi"),
+            _profile_resume_msg(),
+        ]
+    )
+
+    assert prepared[1].content.startswith("# Agent Profile: explorer")
+    assert prepared[2].content == "hello"
+
+
+def test_hoist_resume_msgs_drops_copy_embedded_in_replacement_generation():
+    """A /model switch carrying the profile into the replacement prompt means the
+    separately appended resume copy must not also reach the model (no duplicates)."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    profile = _profile_resume_msg()
+    msgs = [
+        Message(
+            "system",
+            "replacement prompt\n\n" + profile.content,
+            pinned=True,
+            hide=True,
+            metadata={"prompt_generation": "one"},
+        ),
+        Message("user", "hello"),
+        profile,
+    ]
+
+    prepared = _hoist_resume_msgs(msgs)
+    assert prepared == msgs[:2]
+
+
+def test_should_prompt_for_input_ignores_resume_prompt_after_unanswered_user():
+    """A re-applied profile appended after an unanswered user turn must not
+    make the chat loop ask for input instead of answering (crash recovery)."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "fix the bug"),
+            _profile_resume_msg(),
+        ]
+    )
+    assert _should_prompt_for_input(log) is False
+
+
+def test_should_prompt_for_input_prompts_after_completed_assistant_turn():
+    """A resume prompt appended after a completed assistant turn must not make
+    the chat loop auto-generate an unsolicited response; it asks for input."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "hello"),
+            Message("assistant", "done"),
+            _profile_resume_msg(),
+        ]
+    )
+    assert _should_prompt_for_input(log) is True
+    # Two stacked resume prompts (profile changed twice since the turn) behave
+    # the same way.
+    stacked = Log(list(log)[:-1] + [_profile_resume_msg()])
+    assert _should_prompt_for_input(stacked) is True
+    # ...but an unanswered user turn under stacked resume prompts still
+    # auto-generates (crash recovery).
+    stacked_unanswered = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "fix the bug"),
+            _profile_resume_msg(),
+            _profile_resume_msg(),
+        ]
+    )
+    assert _should_prompt_for_input(stacked_unanswered) is False
+
+
+def test_should_prompt_for_input_autocontinues_tool_result_under_resume_prompt():
+    """A resume prompt appended after an interrupted tool turn (assistant tool
+    call, then its system tool result) must auto-continue the turn, matching
+    the no-resume-prompt decision path for the same saved log."""
+    from gptme.chat import _should_prompt_for_input
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    saved = Log(
+        [
+            Message("system", "startup prompt"),
+            Message("user", "run the tests"),
+            Message("assistant", "calling tool", call_id="call_1"),
+            Message("system", "tool output", call_id="call_1"),
+        ]
+    )
+    # Without the resume prompt the existing path auto-continues...
+    assert _should_prompt_for_input(saved) is False
+    # ...and appending the re-applied profile must not change that.
+    assert _should_prompt_for_input(Log(list(saved) + [_profile_resume_msg()])) is False
+
+
+def test_hoist_resume_msgs_drops_old_copies_when_newest_is_embedded():
+    """When the newest resume copy is embedded in a replacement prompt, older
+    saved copies of the same key must not stay provider-visible either."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    old = Message(
+        "system",
+        "# Agent Profile: explorer\nOld instructions.",
+        pinned=True,
+        hide=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+    new = Message(
+        "system",
+        "# Agent Profile: explorer\nNew instructions.",
+        pinned=True,
+        hide=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+    msgs = [
+        Message("system", "startup prompt"),
+        Message("user", "hello"),
+        old,
+        new,
+        Message(
+            "system",
+            "replacement prompt\n\n" + new.content,
+            pinned=True,
+            hide=True,
+            metadata={"prompt_generation": "one"},
+        ),
+    ]
+
+    prepared = _hoist_resume_msgs(msgs)
+    assert all("Old instructions." not in m.content for m in prepared)
+    assert all(not (m.metadata and m.metadata.get("resume_key")) for m in prepared)
+    assert any("New instructions." in m.content for m in prepared)
+
+
+def test_hoist_resume_msgs_strips_old_copy_embedded_in_startup_prompt():
+    """A legacy startup prompt that captured an older profile copy must not
+    keep showing it next to the hoisted newest copy after a profile edit."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    startup = Message("system", "startup prompt", pinned=True)
+    legacy_profile = Message(
+        "system",
+        "# Agent Profile: explorer\nOld instructions.",
+        pinned=True,
+    )
+    new = Message(
+        "system",
+        "# Agent Profile: explorer\nNew instructions.",
+        pinned=True,
+        hide=True,
+        metadata={"resume_key": "agent_profile"},
+    )
+    msgs = [
+        startup,
+        legacy_profile,
+        Message("user", "hello"),
+        Message("assistant", "done"),
+        new,
+    ]
+
+    prepared = _hoist_resume_msgs(msgs)
+    assert all("Old instructions." not in m.content for m in prepared)
+    assert any("New instructions." in m.content for m in prepared)
+    # The hoisted newest copy sits right after the (stripped) startup block.
+    assert prepared[1].content == new.content
+
+
+def test_prepare_messages_survives_replacement_prompt_generation():
+    """A resume message hoisted after prompt-generation filtering stays provider-visible.
+
+    prepare_messages runs _active_prompt_generation BEFORE _hoist_resume_msgs, so a
+    /model or /tools replacement prompt must not cause the re-applied profile to be
+    dropped (the legacy block it would have been inserted into is retired).
+    """
+    from gptme.logmanager.manager import (
+        _active_prompt_generation,
+        _hoist_resume_msgs,
+    )
+    from gptme.message import Message
+
+    log = [
+        Message("system", "startup prompt", pinned=True, hide=True),
+        Message("user", "hello"),
+        Message("assistant", "hi"),
+        Message(
+            "system",
+            "replacement prompt",
+            pinned=True,
+            hide=True,
+            metadata={"prompt_generation": "one"},
+        ),
+        _profile_resume_msg(),
+    ]
+
+    # Same order as prepare_messages: generation filter first, then hoist.
+    prepared = _hoist_resume_msgs(_active_prompt_generation(log))
+
+    assert [m.content for m in prepared[:2]] == [
+        "replacement prompt",
+        "# Agent Profile: explorer\n\nRead-only.",
+    ]
+    assert prepared[0].role == "system" and prepared[1].role == "system"
+
+
+def test_hoist_resume_msgs_noop_without_context():
+    """A log without resume messages is returned unchanged."""
+    from gptme.logmanager.manager import _hoist_resume_msgs
+    from gptme.message import Message
+
+    msgs = [Message("system", "startup prompt"), Message("user", "hello")]
+    assert _hoist_resume_msgs(msgs) == msgs

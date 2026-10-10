@@ -1212,6 +1212,152 @@ def _active_prompt_generation(msgs: list[Message]) -> list[Message]:
     return active + history
 
 
+def _hoist_resume_msgs(msgs: list[Message]) -> list[Message]:
+    """Move resume-only prompt messages into the leading system block.
+
+    Resume messages (e.g. a re-applied agent profile) are ``append``-ed to the
+    log for a truthful chronology, but a trailing system message is
+    down-converted to user content by providers without native
+    mid-conversation system messages, and it is dropped when a newer
+    replacement prompt generation supersedes the legacy prompt block. Provider
+    context therefore hoists the newest message per ``resume_key`` to just
+    after the leading system block.
+
+    Only the newest message per key survives: a changed profile appends a new
+    copy and the superseded copy must not stay provider-visible. A resume
+    message already embedded in the active prompt generation (e.g. a /model or
+    /tools switch carried the profile into the replacement prompt) is dropped —
+    sending both copies would duplicate the instructions in model context.
+    """
+    latest: dict[str, Message] = {}
+    for msg in msgs:
+        key = msg.metadata.get("resume_key") if msg.metadata else None
+        if key:
+            latest[key] = msg
+    if not latest:
+        return msgs
+
+    # The persisted startup prompt (the leading system block) can also carry a
+    # profile captured at conversation creation — it is not a prompt_generation,
+    # so it needs its own embedding check.
+    leading_len = 0
+    for m in msgs:
+        if m.role != "system":
+            break
+        leading_len += 1
+    embed_bases = [
+        m for m in msgs if m.metadata and "prompt_generation" in m.metadata
+    ] + list(msgs[:leading_len])
+
+    # Drop resume messages whose content is already embedded in a replacement
+    # prompt generation that survived the generation filter (it is in `msgs`),
+    # or in the persisted startup prompt.
+    embedded: set[str] = set()
+    embedded_ids: set[int] = set()
+    for key, msg in latest.items():
+        content = msg.content if isinstance(msg.content, str) else ""
+        if content and any(
+            m is not msg and isinstance(m.content, str) and content in m.content
+            for m in embed_bases
+        ):
+            embedded.add(key)
+            embedded_ids.add(id(msg))
+    for key in embedded:
+        del latest[key]
+
+    # Keys whose newest copy is embedded are fully superseded: drop every saved
+    # copy of that key, not just the newest, or an older profile would stay
+    # provider-visible alongside the current instructions in the replacement.
+    keys = set(latest) | embedded
+    remaining = [
+        m
+        for m in msgs
+        if id(m) not in embedded_ids
+        and not (m.metadata and m.metadata.get("resume_key") in keys)
+    ]
+    if not latest:
+        # Every resume message was embedded in a prompt generation; drop them all.
+        return remaining
+
+    # Older copies of a key may be embedded verbatim in the persisted startup
+    # prompt (legacy conversations captured the profile there at creation).
+    # Strip those embedded copies from the provider-visible leading block so
+    # the hoisted newest copy is the only version the model sees.
+    older_copies = [
+        m.content
+        for m in msgs
+        if m.metadata
+        and m.metadata.get("resume_key") in latest
+        and id(m) != id(latest[m.metadata["resume_key"]])
+        and isinstance(m.content, str)
+        and m.content
+    ]
+    if older_copies:
+        stripped: list[Message] = []
+        for i, m in enumerate(remaining):
+            if i >= leading_len or not isinstance(m.content, str):
+                stripped.append(m)
+                continue
+            content = m.content
+            for old in older_copies:
+                if old in content:
+                    content = content.replace(old, "", 1)
+            stripped.append(m if content == m.content else replace(m, content=content))
+        remaining = stripped
+
+    # A prompt section captured at conversation creation (e.g. an agent
+    # profile) is a standalone message in the startup block with the same
+    # "# <Section>:" header as the re-applied copy, but no resume_key
+    # metadata. When a newer copy of the same section is hoisted, replace the
+    # legacy section instead of sending both versions to the model.
+    # Scoped to known section kinds: a generic first-line prefix match could
+    # drop an unrelated user-authored section that happens to share the header.
+    SECTION_HEADER_BY_KEY = {"agent_profile": "# Agent Profile:"}
+    drop_prefixes = {
+        SECTION_HEADER_BY_KEY[key] for key in latest if key in SECTION_HEADER_BY_KEY
+    }
+    if drop_prefixes:
+
+        def _is_standalone_profile_section(content: str, prefix: str) -> bool:
+            """Return True only if content is a pure profile section.
+
+            A pure section starts with the known prefix and contains no other
+            top-level section headers (lines starting with ``# `` and ending
+            with ``:``).  This guards against dropping a user-authored startup
+            message that happens to begin with ``# Agent Profile:`` but also
+            carries other content beyond the profile block.
+            """
+            if not content.startswith(prefix):
+                return False
+            for line in content.split("\n")[1:]:
+                if line.startswith("# ") and line.rstrip().endswith(":"):
+                    return False
+            return True
+
+        remaining = [
+            m
+            for i, m in enumerate(remaining)
+            if not (
+                i < leading_len
+                and isinstance(m.content, str)
+                and any(
+                    _is_standalone_profile_section(m.content, p) for p in drop_prefixes
+                )
+            )
+        ]
+
+    insert_at = 0
+    for msg in remaining:
+        if msg.role != "system" or (
+            msg.metadata and msg.metadata.get("resume_key") in keys
+        ):
+            break
+        insert_at += 1
+
+    hoisted = [latest[key] for key in latest]
+    return remaining[:insert_at] + hoisted + remaining[insert_at:]
+
+
 def prepare_messages(
     msgs: list[Message],
     workspace: Path | None = None,
@@ -1240,6 +1386,10 @@ def prepare_messages(
     # the earlier generation marker) and the provider would see stale + current
     # instructions as one prompt.
     msgs = _active_prompt_generation(filtered)
+
+    # Resume-only prompt messages (e.g. a re-applied agent profile) live at the
+    # end of the log but belong in the leading system block for the provider.
+    msgs = _hoist_resume_msgs(msgs)
 
     # Always merge after the filter/reorder. A length-change guard misses the
     # same-count case: a single tagged prompt sitting between two same-role
