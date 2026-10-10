@@ -959,7 +959,7 @@ def chat(
             else _deadline_timeout
         )
     else:
-        _call_timeout = NOT_GIVEN  # type: ignore[assignment]
+        _call_timeout = _chat_timeout()
 
     response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,

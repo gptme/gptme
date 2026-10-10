@@ -1393,10 +1393,8 @@ def test_chat_subagent_deadline_capped_by_client_timeout():
 
 
 def test_chat_subagent_deadline_cleared_between_calls():
-    """Clearing after a bounded request restores the client's inherited timeout."""
+    """Clearing after a bounded request restores the explicit ordinary timeout."""
     from unittest.mock import patch
-
-    from anthropic import NOT_GIVEN
 
     from gptme.llm.llm_anthropic import set_subagent_request_deadline
 
@@ -1416,4 +1414,4 @@ def test_chat_subagent_deadline_cleared_between_calls():
 
     calls = mock_client.messages.create.call_args_list
     assert calls[0].kwargs["timeout"] == pytest.approx(30.0, abs=0.1)
-    assert calls[1].kwargs["timeout"] is NOT_GIVEN
+    assert calls[1].kwargs["timeout"] == 600.0
