@@ -1221,12 +1221,11 @@ def test_chat_large_max_tokens_bypasses_sdk_streaming_check():
     from unittest.mock import patch
 
     import anthropic
-    import httpx
 
     import gptme.llm.llm_anthropic as llm_anthropic
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             200,
             json={
                 "id": "msg_test",
@@ -1243,7 +1242,7 @@ def test_chat_large_max_tokens_bypasses_sdk_streaming_check():
     client = anthropic.Anthropic(
         api_key="sk-ant-test",
         max_retries=0,
-        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
     )
     msgs = [
         Message(role="system", content="sys"),
