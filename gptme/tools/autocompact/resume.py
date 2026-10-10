@@ -832,6 +832,7 @@ def _apply_native_compaction(
     from .native_anthropic import (
         anthropic_compaction_supported,
         anthropic_native_compact,
+        compaction_block_of,
     )
 
     model_str = model_meta.model
@@ -845,14 +846,47 @@ def _apply_native_compaction(
             break
         n_head += 1
     head_end = max(n_head, min(keep_head, len(prepared_msgs)))
-    preserved_head = prepared_msgs[:head_end]
-    body = prepared_msgs[head_end:]
-    system_head = prepared_msgs[:n_head]
+    preserved_head = [
+        msg
+        for msg in prepared_msgs[:head_end]
+        if not compaction_block_of(msg) and not _is_result_stubs_message(msg)
+    ]
+    # A previous signed checkpoint must be summarized, never retained alongside
+    # its replacement. Include it even when keep_head would protect its position.
+    block_indices = [
+        i for i, msg in enumerate(prepared_msgs) if compaction_block_of(msg)
+    ]
+    body_start = min(head_end, min(block_indices)) if block_indices else head_end
+    body = [
+        msg for msg in prepared_msgs[body_start:] if not _is_result_stubs_message(msg)
+    ]
+    system_head = [
+        msg for msg in prepared_msgs[:n_head] if not _is_result_stubs_message(msg)
+    ]
+    budget = None
+    context = model_meta.context
+    if isinstance(context, int) and context > 0:
+        output_reserve = model_meta.max_output or 8192
+        budget = get_context_budget(context, max_output=output_reserve)
+        # Size the tail before the request: messages omitted from the final
+        # tail must be included in the provider's summary, not silently lost.
+        keep_recent_tokens = min(
+            keep_recent_tokens,
+            max(
+                0, budget - len_tokens(preserved_head, model=model_str) - output_reserve
+            ),
+        )
 
     # One canonical whole-assistant-step cut shared with the view builder:
     # the provider summarizes exactly the prefix and the tail is appended
     # unchanged, so the retained steps are never summarized twice.
     prefix, tail = _split_recent_tail(body, keep_recent_tokens, model=model_str)
+    if any(compaction_block_of(msg) for msg in tail):
+        # Very short views may put the old checkpoint in the recent window.
+        # Summarize through its last occurrence instead of replaying it twice.
+        cut = max(i for i, msg in enumerate(tail) if compaction_block_of(msg)) + 1
+        prefix += tail[:cut]
+        tail = tail[cut:]
     tail = _clean_tail(tail)
     if len(prefix) < 3:
         return False
@@ -912,6 +946,13 @@ def _apply_native_compaction(
             return False
 
     new_log = preserved_head + [block_msg] + tail
+    if budget is not None and len_tokens(new_log, model=model_str) > budget:
+        # Signed blocks cannot be truncated. Fall back without changing history
+        # rather than dropping a tail that the provider did not summarize.
+        logger.info(
+            "Native compacted view exceeds context budget; using generic checkpoint"
+        )
+        return False
     if use_view_branch:
         view_name = manager.get_next_view_name()
         manager.create_view(view_name, new_log)
@@ -922,6 +963,7 @@ def _apply_native_compaction(
         _idx = 1
         while f"pre-compact-{_idx:03d}" in getattr(manager, "_views", {}):
             _idx += 1
+        manager.preserve_lossless_log()
         manager.create_view(f"pre-compact-{_idx:03d}", manager.log)
         manager.log = Log(new_log)
         manager.write()
@@ -1145,7 +1187,7 @@ def _resume_via_llm(
     for msg in msgs:
         if msg.role == "system":
             leading_system_end += 1
-            if not msg.content.startswith(_RESULT_STUBS_PREFIX):
+            if not _is_result_stubs_message(msg):
                 original_system_msgs.append(msg)
         elif msg.role in ("user", "assistant"):
             # Stop when we hit the first non-system message
@@ -1174,12 +1216,10 @@ def _resume_via_llm(
             for i, m in enumerate(msgs[:head_end])
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
-            and not m.content.startswith(_RESULT_STUBS_PREFIX)
+            and not _is_result_stubs_message(m)
         ]
     else:
-        preserved_head = [
-            m for m in msgs[:head_end] if not m.content.startswith(_RESULT_STUBS_PREFIX)
-        ]
+        preserved_head = [m for m in msgs[:head_end] if not _is_result_stubs_message(m)]
 
     # Create file context messages for each loaded file
     file_context_msgs = []
@@ -1222,9 +1262,7 @@ def _resume_via_llm(
             if i not in (previous_intro_idx, previous_checkpoint_idx)
             and _compaction_artifact_kind(m) != _COMPACTION_CONTEXT_FILE
         ]
-    tail_source = [
-        m for m in tail_source if not m.content.startswith(_RESULT_STUBS_PREFIX)
-    ]
+    tail_source = [m for m in tail_source if not _is_result_stubs_message(m)]
     recent_tail = _get_recent_tail(
         tail_source,
         keep_recent_tokens,
@@ -1267,6 +1305,16 @@ def _resume_via_llm(
         # block so the view is never over budget by construction.
         if len_tokens(preserved_head, model=model_str) > budget:
             preserved_head = original_system_msgs
+        fixed_parts = assemble_fixed_parts()
+        if (
+            result_stubs_msg is not None
+            and len_tokens(fixed_parts, model=model_str) > budget
+        ):
+            result_stubs_msg = None
+            fixed_parts = assemble_fixed_parts()
+            logger.warning(
+                "Result catalog exceeds remaining context budget; dropped the recall catalog."
+            )
 
         # If the fixed content alone exceeds the budget, shrink it: drop
         # loaded context files (least essential) newest-last first. The
