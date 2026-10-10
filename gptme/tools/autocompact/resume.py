@@ -830,6 +830,7 @@ def _apply_native_compaction(
     changed while the request was in flight).
     """
     from .native_anthropic import (
+        COMPACT_MAX_TOKENS,
         anthropic_compaction_supported,
         anthropic_native_compact,
         compaction_block_of,
@@ -870,12 +871,17 @@ def _apply_native_compaction(
     if isinstance(context, int) and context > 0:
         output_reserve = model_meta.max_output or 8192
         budget = get_context_budget(context, max_output=output_reserve)
-        # Size the tail before the request: messages omitted from the final
-        # tail must be included in the provider's summary, not silently lost.
+        # The context budget already reserves normal model output. Reserve only
+        # the compact request's summary allowance here; the final block is still
+        # budget-checked. Size the tail before the request so omitted messages
+        # are summarized, never silently dropped after the response.
         keep_recent_tokens = min(
             keep_recent_tokens,
             max(
-                0, budget - len_tokens(preserved_head, model=model_str) - output_reserve
+                0,
+                budget
+                - len_tokens(preserved_head, model=model_str)
+                - COMPACT_MAX_TOKENS,
             ),
         )
 

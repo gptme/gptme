@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 COMPACT_BETA = "compact-2026-09-04"
+COMPACT_MAX_TOKENS = 1024
 
 # Metadata key carrying the signed compaction block (round-tripped verbatim).
 COMPACTION_BLOCK_KEY = "anthropic_compaction_block"
@@ -122,7 +123,7 @@ def anthropic_native_compact(
             model=model,
             messages=cast("list[BetaMessageParam]", messages_dicts),
             system=system_messages or omit,
-            max_tokens=1024,
+            max_tokens=COMPACT_MAX_TOKENS,
             betas=[COMPACT_BETA],
             compaction=compaction_param,
         )
@@ -139,12 +140,9 @@ def anthropic_native_compact(
         logger.warning("Anthropic native compaction returned no signed block")
         return None
 
-    block_dict = {
-        "type": "compaction",
-        "content": getattr(block, "content", None),
-        "encrypted_content": getattr(block, "encrypted_content", None),
-        "signature": signature,
-    }
+    # Signed blocks must be replayed unchanged, including tool_changes and
+    # provider fields unknown to this SDK version. Keep absent fields absent.
+    block_dict = block.model_dump(mode="json", exclude_unset=True)
     summarized = len(messages_dicts)
     summary_text = getattr(block, "content", None) or ""
     body = (

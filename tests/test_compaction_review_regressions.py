@@ -134,6 +134,44 @@ def test_native_recompaction_does_not_duplicate_preserved_head(
         )
 
 
+def test_native_keeps_recent_tail_with_large_model_output_limit(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """The context budget already reserves the model's generation allowance."""
+    messages = _history()
+    manager = LogManager(messages, logdir=tmp_path / "conversation", lock=False)
+    manager.write()
+    captured: list[Message] = []
+    monkeypatch.setattr(native, "anthropic_compaction_supported", lambda _: True)
+
+    def compact(prefix: list[Message], *args: object, **kwargs: object) -> Message:
+        captured.extend(prefix)
+        return _block("new summary")
+
+    monkeypatch.setattr(native, "anthropic_native_compact", compact)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_context_budget",
+        lambda *args, **kwargs: 32000,
+    )
+    results = list(
+        _apply_native_compaction(
+            manager,
+            prepare_messages(messages),
+            use_view_branch=False,
+            compact_instructions=None,
+            keep_recent_tokens=200,
+            keep_head=0,
+            model_meta=SimpleNamespace(model="gpt-4", context=200000, max_output=64000),
+            llm_unlocked=None,
+        )
+    )
+    assert any("Native compaction completed" in msg.content for msg in results)
+    assert messages[-1] in manager.log.messages
+    assert messages[-1] not in captured
+    for msg in messages[1:]:
+        assert msg in captured or msg in manager.log.messages
+
+
 def test_native_over_budget_falls_back_without_changing_history(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:

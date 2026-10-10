@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+from anthropic.types.beta import BetaCompactionBlock
+
 from gptme.llm.llm_anthropic import _prepare_messages_for_api
 from gptme.message import Message
 from gptme.tools.autocompact import _resume_via_llm
@@ -61,7 +63,7 @@ def test_capability_lookup_cached(monkeypatch):
 
 def test_native_compact_returns_block_message(monkeypatch):
     response = MagicMock()
-    block = MagicMock(
+    block = BetaCompactionBlock(
         type="compaction", content="summary", encrypted_content="enc", signature="sig"
     )
     response.content = [block]
@@ -91,6 +93,49 @@ def test_native_compact_returns_block_message(monkeypatch):
     _, kwargs = client.beta.messages.create.call_args
     assert kwargs["betas"] == [native.COMPACT_BETA]
     assert kwargs["compaction"] == {"type": "summarize"}
+
+
+def test_native_compact_round_trips_complete_sdk_block(monkeypatch, tmp_path):
+    """Signed blocks retain tool changes and extra fields through JSONL/replay."""
+    import json
+
+    from gptme.logmanager import Log
+
+    payload = {
+        **BLOCK,
+        "tool_changes": [
+            {
+                "type": "tool_removal",
+                "tool": {"type": "tool_reference", "name": "old_tool"},
+            }
+        ],
+        "future_provider_field": {"opaque": ["preserve", "verbatim"]},
+    }
+    block = BetaCompactionBlock.model_validate(payload)
+    client = MagicMock()
+    client.beta.messages.create.return_value.content = [block]
+    monkeypatch.setattr(native, "_client", lambda: client)
+
+    result = native.anthropic_native_compact(
+        [
+            Message("system", "System prompt"),
+            Message("user", "old question"),
+            Message("assistant", "old answer"),
+        ],
+        "claude-test",
+    )
+    assert result is not None
+    assert BLOCK["content"] in result.content
+    serialized = json.loads(json.dumps(result.to_dict()))
+    assert serialized["metadata"]["anthropic_compaction_block"] == payload
+    logfile = tmp_path / "conversation.jsonl"
+    logfile.write_text(json.dumps(serialized) + "\n")
+    restored = Log.read_jsonl(logfile).messages[0]
+    replay, _, _ = _prepare_messages_for_api(
+        [Message("system", "System prompt"), restored, Message("user", "continue")],
+        None,
+    )
+    assert replay[0]["content"][0] == payload
 
 
 def test_native_compact_no_signed_block_returns_none(monkeypatch):
@@ -350,7 +395,7 @@ def test_apply_native_compaction_supplies_system_head(monkeypatch):
     manager.current_branch = "main"
 
     response = MagicMock()
-    block = MagicMock(
+    block = BetaCompactionBlock(
         type="compaction", content="summary", encrypted_content="enc", signature="sig"
     )
     response.content = [block]
@@ -424,7 +469,7 @@ def test_native_compact_includes_summary_text_in_body(monkeypatch):
     text from the compaction block so non-Anthropic providers still see it."""
     response = MagicMock()
     summary = "This is the readable summary of the compacted conversation."
-    block = MagicMock(
+    block = BetaCompactionBlock(
         type="compaction", content=summary, encrypted_content="enc", signature="sig"
     )
     response.content = [block]
