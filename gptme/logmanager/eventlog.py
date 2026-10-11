@@ -116,8 +116,16 @@ def _event_log_lock(logdir: Path) -> Iterator[None]:
 
 def _append_event_unlocked(logdir: Path, event: dict[str, Any]) -> None:
     path = _event_log_path(logdir)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(event, default=str) + "\n")
+    record = (json.dumps(event, default=str) + "\n").encode("utf-8")
+    with open(path, "a+b") as f:
+        separator = b""
+        # A torn tail must not absorb the next event. Keep it for diagnosis;
+        # readers skip malformed records, and valid unterminated JSON survives.
+        if f.seek(0, os.SEEK_END):
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                separator = b"\n"
+        f.write(separator + record)
 
 
 def append_event(logdir: Path, event: dict[str, Any]) -> None:
@@ -200,14 +208,14 @@ def read_events(logdir: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     events: list[dict[str, Any]] = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, "rb") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
+                events.append(json.loads(line.decode("utf-8")))
+            except (json.JSONDecodeError, UnicodeDecodeError):
                 logger.warning("Skipping malformed event line in %s", path)
     return events
 
@@ -218,8 +226,8 @@ def sequence_number(logdir: Path) -> int:
     if not path.exists():
         return 1
     # Read only the last non-empty line to avoid O(n) full-file parse
-    last_line = ""
-    with open(path, encoding="utf-8") as f:
+    last_line = b""
+    with open(path, "rb") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -227,9 +235,24 @@ def sequence_number(logdir: Path) -> int:
     if not last_line:
         return 1
     try:
-        return json.loads(last_line)["seq"] + 1
-    except (json.JSONDecodeError, KeyError):
-        return len(read_events(logdir)) + 1
+        event = json.loads(last_line.decode("utf-8"))
+        seq = event.get("seq") if isinstance(event, dict) else None
+        if type(seq) is int and seq > 0:
+            return seq + 1
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    # Compaction retains the original sequence numbers, not a contiguous list
+    # starting at one. Falling back to the record count can precede a checkpoint.
+    return 1 + max(
+        (
+            event["seq"]
+            for event in read_events(logdir)
+            if isinstance(event, dict)
+            and type(event.get("seq")) is int
+            and event["seq"] > 0
+        ),
+        default=0,
+    )
 
 
 def write_checkpoint(
