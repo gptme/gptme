@@ -639,3 +639,100 @@ def test_compact_events_write_failure_does_not_close_reused_fd(logdir: Path):
     # The temp file is still cleaned up and the log is left intact.
     assert not list(logdir.glob(f".{EVENT_LOG_NAME}.*.tmp"))
     assert [event["seq"] for event in read_events(logdir)] == [1]
+
+
+def test_sequence_number_after_compaction_with_damaged_tail(logdir: Path):
+    """sequence_number() must return max_seq+1, not len(events)+1.
+
+    After compaction the log may contain only the checkpoint.  A damaged
+    trailing record must not cause the fallback to assign a sequence below the
+    checkpoint, which would make recover_messages() discard the new event.
+    Regression for gptme/gptme#4246.
+    """
+    # Checkpoint at seq 100; compact to a single-event log.
+    append_event(
+        logdir,
+        {
+            "seq": 100,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "checkpoint"}]},
+        },
+    )
+    compact_events(logdir)
+
+    # Inject a malformed tail — simulates a crash mid-write.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b'{"seq":101\n')
+
+    # Next sequence must be 101 (resuming after the damaged record),
+    # not 2 (len-based fallback).
+    event = append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "new reply"}},
+        },
+    )
+    assert event["seq"] == 101
+
+    # Recovery must include both the checkpoint message and the new append.
+    msgs = recover_messages(logdir)
+    assert msgs is not None
+    assert [m["content"] for m in msgs] == ["checkpoint", "new reply"]
+
+
+def test_append_inserts_separator_for_unterminated_tail(logdir: Path):
+    """A tail without a terminating newline must not be concatenated with the
+    next append, producing two unparseable records."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+        },
+    )
+    # Write a partial record with no trailing newline.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b'{"seq":2, "type":"partial"')
+
+    append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "after"}},
+        },
+    )
+    msgs = recover_messages(logdir)
+    assert msgs is not None
+    assert [m["content"] for m in msgs] == ["hi", "after"]
+
+
+def test_read_events_skips_truncated_utf8(logdir: Path):
+    """A record truncated inside a multi-byte UTF-8 sequence must be skipped
+    rather than raising UnicodeDecodeError."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+        },
+    )
+    # 0xc3 is the first byte of a two-byte UTF-8 sequence — incomplete here.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b'{"seq":2\xc3\n')
+
+    append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "after utf8"}},
+        },
+    )
+    msgs = recover_messages(logdir)
+    assert msgs is not None
+    assert [m["content"] for m in msgs] == ["hi", "after utf8"]

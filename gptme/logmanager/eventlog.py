@@ -116,6 +116,17 @@ def _event_log_lock(logdir: Path) -> Iterator[None]:
 
 def _append_event_unlocked(logdir: Path, event: dict[str, Any]) -> None:
     path = _event_log_path(logdir)
+    # Guard against a damaged tail with no terminating newline: a missing
+    # newline would concatenate the next event with the malformed record,
+    # making both unparseable.
+    if path.exists():
+        size = path.stat().st_size
+        if size > 0:
+            with open(path, "rb") as fb:
+                fb.seek(size - 1)
+                if fb.read(1) != b"\n":
+                    with open(path, "ab") as fa:
+                        fa.write(b"\n")
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(event, default=str) + "\n")
 
@@ -200,7 +211,7 @@ def read_events(logdir: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     events: list[dict[str, Any]] = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -219,7 +230,7 @@ def sequence_number(logdir: Path) -> int:
         return 1
     # Read only the last non-empty line to avoid O(n) full-file parse
     last_line = ""
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -229,7 +240,13 @@ def sequence_number(logdir: Path) -> int:
     try:
         return json.loads(last_line)["seq"] + 1
     except (json.JSONDecodeError, KeyError):
-        return len(read_events(logdir)) + 1
+        # Last line is damaged — scan all valid events for the maximum seq so
+        # the next sequence is never below the checkpoint's seq (which would
+        # cause recover_messages() to discard the new event as pre-checkpoint).
+        events = read_events(logdir)
+        if events:
+            return max(e["seq"] for e in events) + 1
+        return 1
 
 
 def write_checkpoint(
