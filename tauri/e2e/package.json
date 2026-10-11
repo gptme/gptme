@@ -8,7 +8,7 @@
   },
   "devDependencies": {
     "@wdio/cli": "^9",
-    "@wdio/local-runner": "^9",
+    "@wdio/local-runner": "^10",
     "@wdio/mocha-framework": "^9",
     "@wdio/spec-reporter": "^9"
   }
