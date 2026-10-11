@@ -239,6 +239,9 @@ linkcheck_ignore = [
     # touched. scripts/check_docs_repo_links.py checks these paths against git
     # instead (run by `make docs-linkcheck`).
     r"https://github\.com/gptme/[^/]+/(blob|tree)/master/.*",
+    # Topic discovery pages throttle CI crawlers (429); they are not repo refs.
+    # Keep repository, issue, PR, and discussion links checked.
+    r"https://github\.com/topics/[^/?#]+/?(?:[?#].*)?$",
 ]
 # GitHub renders README heading anchors as "user-content-*" ids (resolved by JS),
 # so the anchor check always fails; still check that the page itself exists.
