@@ -736,3 +736,59 @@ def test_read_events_skips_truncated_utf8(logdir: Path):
     msgs = recover_messages(logdir)
     assert msgs is not None
     assert [m["content"] for m in msgs] == ["hi", "after utf8"]
+
+
+def test_sequence_number_skips_valid_json_without_seq(logdir: Path):
+    """A syntactically valid trailing record without an integer ``seq`` must not
+    make ``sequence_number()`` raise.
+
+    The damaged-tail fallback must consider only records that actually carry an
+    integer ``seq`` — otherwise ``max(e["seq"] ...)`` re-raises the same
+    ``KeyError`` the fast path already caught, and the next append aborts.
+    """
+    append_event(
+        logdir,
+        {
+            "seq": 100,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "checkpoint"}]},
+        },
+    )
+    compact_events(logdir)
+
+    # Valid JSON, but no seq field — not parseable as a sequence record.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b"{}\n")
+
+    event = append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "after"}},
+        },
+    )
+    assert event["seq"] == 101
+
+
+def test_read_events_rejects_invalid_utf8_instead_of_substituting(logdir: Path):
+    """A record whose bytes are undecodable must be skipped, not replayed with
+    U+FFFD substitution characters inside its message content."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+        },
+    )
+    # Complete, syntactically valid JSON whose string content holds an invalid
+    # 0xff byte; errors="replace" would decode this into valid JSON with U+FFFD.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(
+            b'{"seq":2,"type":"message_append","payload":{"message":'
+            b'{"role":"assistant","content":"a\xffb"}}}\n'
+        )
+
+    events = read_events(logdir)
+    assert [event["seq"] for event in events] == [1]
