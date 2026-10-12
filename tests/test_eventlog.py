@@ -823,104 +823,104 @@ if _HYPOTHESIS_AVAILABLE:
         ["truncate", "garbage", "partial_json", "dup_last_line"]
     )
 
+    @given(
+        operations=st.lists(_h_operation, min_size=1, max_size=15),
+        damage_type=_h_damage_type,
+        damage_offset_frac=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
+    )
+    @settings(
+        max_examples=300,
+        deadline=10_000,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    def test_eventlog_recovery_survives_arbitrary_damage(
+        operations, damage_type, damage_offset_frac
+    ):
+        """Property: recovery from a damaged event log must never raise.
 
-@pytest.mark.skipif(not _HYPOTHESIS_AVAILABLE, reason="hypothesis not installed")
-@given(
-    operations=st.lists(_h_operation, min_size=1, max_size=15),
-    damage_type=_h_damage_type,
-    damage_offset_frac=st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
-)
-@settings(
-    max_examples=300,
-    deadline=10_000,
-    suppress_health_check=[HealthCheck.too_slow],
-)
-def test_eventlog_recovery_survives_arbitrary_damage(
-    operations, damage_type, damage_offset_frac
-):
-    """Property: recovery from a damaged event log must never raise.
+        Hypothesis generates arbitrary operation sequences (append/undo/checkpoint)
+        followed by one of four damage patterns at an arbitrary byte offset.
 
-    Hypothesis generates arbitrary operation sequences (append/undo/checkpoint)
-    followed by one of four damage patterns at an arbitrary byte offset.
+        Invariants checked on every generated example:
+        1. ``recover_messages()`` never raises — any damaged input is tolerated.
+        2. After a post-damage append the new event's seq is strictly greater than
+           every surviving event's seq (monotonicity holds even after damage).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logdir = Path(tmpdir) / "conv"
+            logdir.mkdir()
 
-    Invariants checked on every generated example:
-    1. ``recover_messages()`` never raises — any damaged input is tolerated.
-    2. After a post-damage append the new event's seq is strictly greater than
-       every surviving event's seq (monotonicity holds even after damage).
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        logdir = Path(tmpdir) / "conv"
-        logdir.mkdir()
-
-        # Build a valid event log from the generated operation sequence
-        live_messages: list[Message] = []
-        for op in operations:
-            if op[0] == "append":
-                _, role, content = op
-                msg = Message(role, content)
-                append_next_event(
-                    logdir,
-                    lambda seq, m=msg: build_message_append_event(seq, m),  # type: ignore[misc]
-                )
-                live_messages.append(msg)
-            elif op[0] == "undo":
-                _, n = op
-                n_actual = min(n, len(live_messages))
-                if n_actual > 0:
+            # Build a valid event log from the generated operation sequence
+            live_messages: list[Message] = []
+            for op in operations:
+                if op[0] == "append":
+                    _, role, content = op
+                    msg = Message(role, content)
                     append_next_event(
                         logdir,
-                        lambda seq, k=n_actual: build_undo_event(seq, k),  # type: ignore[misc]
+                        lambda seq, m=msg: build_message_append_event(seq, m),  # type: ignore[misc]
                     )
-                    live_messages = live_messages[:-n_actual]
-            elif op[0] == "checkpoint":
-                if live_messages:
-                    write_checkpoint(logdir, [m.to_dict() for m in live_messages])
+                    live_messages.append(msg)
+                elif op[0] == "undo":
+                    _, n = op
+                    n_actual = min(n, len(live_messages))
+                    if n_actual > 0:
+                        append_next_event(
+                            logdir,
+                            lambda seq, k=n_actual: build_undo_event(seq, k),  # type: ignore[misc]
+                        )
+                        live_messages = live_messages[:-n_actual]
+                elif op[0] == "checkpoint":
+                    if live_messages:
+                        write_checkpoint(logdir, [m.to_dict() for m in live_messages])
 
-        event_path = _event_log_path(logdir)
-        if not event_path.exists():
-            return  # All ops were no-ops (e.g. undo on empty); trivially OK
+            event_path = _event_log_path(logdir)
+            if not event_path.exists():
+                return  # All ops were no-ops (e.g. undo on empty); trivially OK
 
-        data = event_path.read_bytes()
-        if not data:
-            return
+            data = event_path.read_bytes()
+            if not data:
+                return
 
-        # Apply damage at the chosen fractional offset
-        offset = max(0, min(int(damage_offset_frac * len(data)), len(data)))
+            # Apply damage at the chosen fractional offset
+            offset = max(0, min(int(damage_offset_frac * len(data)), len(data)))
 
-        if damage_type == "truncate":
-            event_path.write_bytes(data[:offset])
-        elif damage_type == "garbage":
-            garbage = b"\x00\xff garbage!\n{not-json}\n"
-            event_path.write_bytes(data[:offset] + garbage + data[offset:])
-        elif damage_type == "partial_json":
-            partial = b'{"seq":9999,"type":"message_a'
-            event_path.write_bytes(data[:offset] + partial + data[offset:])
-        elif damage_type == "dup_last_line":
-            lines = data.splitlines(keepends=True)
-            last = lines[-1] if lines else b""
-            event_path.write_bytes(data + last)
+            if damage_type == "truncate":
+                event_path.write_bytes(data[:offset])
+            elif damage_type == "garbage":
+                garbage = b"\x00\xff garbage!\n{not-json}\n"
+                event_path.write_bytes(data[:offset] + garbage + data[offset:])
+            elif damage_type == "partial_json":
+                partial = b'{"seq":9999,"type":"message_a'
+                event_path.write_bytes(data[:offset] + partial + data[offset:])
+            elif damage_type == "dup_last_line":
+                lines = data.splitlines(keepends=True)
+                last = lines[-1] if lines else b""
+                event_path.write_bytes(data + last)
 
-        # Invariant 1: recover_messages() must never raise
-        try:
-            recover_messages(logdir)
-        except Exception as exc:
-            pytest.fail(
-                f"recover_messages raised {type(exc).__name__} after "
-                f"{damage_type!r} damage at offset {offset}/{len(data)}: {exc!r}"
+            # Invariant 1: recover_messages() must never raise
+            try:
+                recover_messages(logdir)
+            except Exception as exc:
+                pytest.fail(
+                    f"recover_messages raised {type(exc).__name__} after "
+                    f"{damage_type!r} damage at offset {offset}/{len(data)}: {exc!r}"
+                )
+
+            # Invariant 2: post-damage append must have the highest seq number.
+            # Capture surviving seqs BEFORE append so we don't accidentally skip
+            # a surviving event that collides with new_seq (the exact failure
+            # this assertion guards against).
+            surviving_seqs = {event["seq"] for event in read_events(logdir)}
+            probe = Message("user", "post-damage-probe")
+            new_event = append_next_event(
+                logdir,
+                lambda seq, m=probe: build_message_append_event(seq, m),  # type: ignore[misc]
             )
+            new_seq = new_event["seq"]
 
-        # Invariant 2: post-damage append must have the highest seq number
-        probe = Message("user", "post-damage-probe")
-        new_event = append_next_event(
-            logdir,
-            lambda seq, m=probe: build_message_append_event(seq, m),  # type: ignore[misc]
-        )
-        new_seq = new_event["seq"]
-
-        for event in read_events(logdir):
-            if event["seq"] == new_seq:
-                continue
-            assert event["seq"] < new_seq, (
-                f"non-monotonic seq after {damage_type!r} damage: "
-                f"existing seq={event['seq']} >= new seq={new_seq}"
-            )
+            for seq in surviving_seqs:
+                assert seq < new_seq, (
+                    f"non-monotonic seq after {damage_type!r} damage: "
+                    f"existing seq={seq} >= new seq={new_seq}"
+                )
