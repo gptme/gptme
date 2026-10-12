@@ -8,10 +8,12 @@ Covers:
 
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from threading import Thread
 from unittest.mock import Mock, patch
 
@@ -200,6 +202,64 @@ class TestJobLifecycle:
 
 
 class TestOutputCapture:
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    @pytest.mark.parametrize(
+        "character", ["\u00e9", "\u20ac", "\U0001f642"], ids=["two-byte", "three-byte", "four-byte"]
+    )
+    def test_split_utf8_pipe_output(
+        self, tmp_path: Path, stream: str, character: str
+    ) -> None:
+        """A pipe read boundary must not replace a valid multibyte character."""
+        release = tmp_path / "release"
+        prefix = "x" * 4095
+        encoded = character.encode("utf-8")
+        fd = 1 if stream == "stdout" else 2
+        script = (
+            "import os,time\nfrom pathlib import Path\n"
+            f"os.write({fd}, {prefix.encode() + encoded[:1]!r})\n"
+            f"while not Path({str(release)!r}).exists(): time.sleep(0.01)\n"
+            f"os.write({fd}, {encoded[1:]!r})\n"
+        )
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        index = 0 if stream == "stdout" else 1
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if job.get_output()[index].startswith(prefix):
+                    break
+                time.sleep(0.01)
+            else:
+                pytest.fail("fixture did not capture the first pipe fragment")
+            # The remaining bytes cannot be written until this assertion has
+            # inspected the reader's first fragment, avoiding timing-based splits.
+            assert job.get_output(incremental=True)[index] == prefix
+        finally:
+            release.touch()
+            job.process.wait(timeout=5)
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=5)
+            assert not job._reader_thread.is_alive()
+        assert job.get_output()[index] == prefix + character
+        assert job.get_output(incremental=True)[index] == character
+
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_invalid_utf8_pipe_output(self, stream: str) -> None:
+        """Malformed and incomplete bytes retain replacement decoding at EOF."""
+        fd = 1 if stream == "stdout" else 2
+        payload = b"before\xffafter\xe2\x82"
+        script = f"import os; os.write({fd}, {payload!r})"
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        job.process.wait(timeout=5)
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+        index = 0 if stream == "stdout" else 1
+        assert job.get_output()[index] == payload.decode("utf-8", errors="replace")
+
     def test_stdout_captured(self):
         job = start_background_job("echo hello_stdout")
         job.process.wait(timeout=5)
