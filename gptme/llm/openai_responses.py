@@ -11,6 +11,7 @@ import httpx
 from typing_extensions import NotRequired
 
 from ..tools.base import truncate_tool_description
+from ..tools.native_names import native_tool_name
 from .utils import extract_tool_uses_from_assistant_message, parameters2dict
 
 if TYPE_CHECKING:
@@ -204,7 +205,7 @@ def _content_to_responses_input(content: MessageContent) -> str | list[dict[str,
 
 def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
     """Convert a ToolSpec to the flat Responses API function tool format."""
-    name = spec.block_types[0] if spec.block_types else spec.name
+    name = native_tool_name(spec.block_types[0] if spec.block_types else spec.name)
     # Prefer a format-specific compact summary verbatim (see _spec2tool).
     description = (
         spec.instructions_format.get("tool")
@@ -375,7 +376,7 @@ def _messages_to_responses_input(
             items.extend(
                 {
                     "type": "function_call",
-                    "name": tooluse.tool,
+                    "name": native_tool_name(tooluse.tool),
                     "call_id": tooluse.call_id or "",
                     "arguments": json.dumps(tooluse.kwargs or {}),
                 }

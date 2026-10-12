@@ -73,7 +73,7 @@ _tool_format_var: ContextVar[ToolFormat | None] = ContextVar(
 
 # Match tool name and start of JSON
 toolcall_re = re.compile(
-    r"^@([\w.]+)\(([\w\-:\.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL
+    r"^@([\w.\-]+)\(([\w\-:\.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL
 )
 
 
@@ -1230,7 +1230,9 @@ class ToolUse:
             if block_end is not None:
                 search_from = block_end
                 continue
-            tool_name = match.group(1)
+            from .native_names import canonical_tool_name
+
+            tool_name = canonical_tool_name(match.group(1))
             call_id = match.group(2)
             json_start = match.start(3)
             json_end = find_json_end(content, json_start)

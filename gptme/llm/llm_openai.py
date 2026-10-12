@@ -22,6 +22,7 @@ from ..message import (
 )
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
+from ..tools.native_names import native_tool_name
 from ._degeneration import (
     _DEGEN_WITHHOLD_MAX,
     _ENV_DEGEN_RETRY,
@@ -2278,7 +2279,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                         "function": cast(
                             ToolCallFunction,
                             {
-                                "name": tooluse.tool,
+                                "name": native_tool_name(tooluse.tool),
                                 "arguments": json.dumps(tooluse.kwargs or {}),
                             },
                         ),
@@ -2653,9 +2654,7 @@ def _transform_msgs_for_special_provider(
 
 
 def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
-    name = spec.name
-    if spec.block_types:
-        name = spec.block_types[0]
+    name = native_tool_name(spec.block_types[0] if spec.block_types else spec.name)
 
     # Prefer a format-specific compact summary verbatim: get_instructions()
     # appends it to the (potentially very long) base instructions, which
