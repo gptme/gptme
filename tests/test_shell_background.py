@@ -264,6 +264,53 @@ class TestOutputCapture:
         index = 0 if stream == "stdout" else 1
         assert job.get_output()[index] == payload.decode("utf-8", errors="replace")
 
+    @pytest.mark.no_retry
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_incomplete_utf8_flushed_at_stream_eof(
+        self, tmp_path: Path, stream: str
+    ) -> None:
+        """Stream EOF flushes pending bytes even while the child is alive."""
+        release = tmp_path / "release"
+        fd = 1 if stream == "stdout" else 2
+        script = (
+            "import os,time\nfrom pathlib import Path\n"
+            f"os.write({fd}, b'before\\xe2\\x82')\nos.close({fd})\n"
+            f"while not Path({str(release)!r}).exists(): time.sleep(0.01)\n"
+        )
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        index = 0 if stream == "stdout" else 1
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if job.get_output()[index] == "before\ufffd":
+                    break
+                time.sleep(0.01)
+            else:
+                pytest.fail("stream EOF did not flush the pending UTF-8 bytes")
+            assert job.is_running()
+        finally:
+            release.touch()
+            job.process.wait(timeout=5)
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=5)
+            assert not job._reader_thread.is_alive()
+        assert job.get_output()[index] == "before\ufffd"
+
+    @pytest.mark.no_retry
+    def test_utf8_decoder_state_is_separate_for_each_stream(self) -> None:
+        """Bytes from stderr must not complete a pending stdout character."""
+        script = "import os; os.write(1, b'\\xe2'); os.write(2, b'\\x82\\xac')"
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        job.process.wait(timeout=5)
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+        assert job.get_output() == ("\ufffd", "\ufffd\ufffd")
+
     def test_stdout_captured(self):
         job = start_background_job("echo hello_stdout")
         job.process.wait(timeout=5)

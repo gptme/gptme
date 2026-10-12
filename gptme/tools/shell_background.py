@@ -7,6 +7,7 @@ See Issue #576 for the original background jobs feature.
 """
 
 import atexit
+import codecs
 import hashlib
 import importlib
 import logging
@@ -132,9 +133,8 @@ class BackgroundJob:
         self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self._reader_thread.start()
 
-    def _append_output(self, fd: int, stdout_fd: int, data: bytes) -> None:
-        """Decode and append one output chunk while maintaining offsets."""
-        text = data.decode("utf-8", errors="replace")
+    def _append_output(self, fd: int, stdout_fd: int, text: str) -> None:
+        """Append decoded output while maintaining character offsets."""
         with self._buffer_lock:
             if fd == stdout_fd:
                 self._stdout_buffer_start += self._append_to_buffer_locked(
@@ -150,6 +150,11 @@ class BackgroundJob:
         stdout_fd = self.process.stdout.fileno() if self.process.stdout else -1
         stderr_fd = self.process.stderr.fileno() if self.process.stderr else -1
         open_fds = {fd for fd in (stdout_fd, stderr_fd) if fd >= 0}
+        # Pipe reads may split a UTF-8 character; each stream needs its own state.
+        decoders = {
+            fd: codecs.getincrementaldecoder("utf-8")(errors="replace")
+            for fd in open_fds
+        }
 
         if _is_windows:
             # Windows: use non-blocking reads with polling.
@@ -190,18 +195,23 @@ class BackgroundJob:
                     except BlockingIOError:
                         continue
                     except (OSError, ValueError):
-                        open_fds.discard(fd)
-                        continue
+                        raw = b""
                     if not raw:
                         open_fds.discard(fd)
+                        self._append_output(
+                            fd, stdout_fd, decoders.pop(fd).decode(b"", final=True)
+                        )
                         continue
                     read_any = True
-                    self._append_output(fd, stdout_fd, raw)
+                    self._append_output(fd, stdout_fd, decoders[fd].decode(raw))
                 if _is_windows and not read_any:
                     time.sleep(0.1)
             except (OSError, ValueError):
                 break
 
+        # A stop or bounded post-exit drain may finish before inherited pipes close.
+        for fd, decoder in decoders.items():
+            self._append_output(fd, stdout_fd, decoder.decode(b"", final=True))
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:
