@@ -9,6 +9,14 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    # lockfile-only: Dependabot runs a single `poetry lock` instead of
+    # `poetry update <dep> --lock` per package. The per-package solve
+    # re-evaluates the full 350+ package graph (torch, CUDA, ML extras)
+    # each time; 3 deps × 2 retries ≈ 48 min and hits GitHub's ~45-min
+    # Dependabot job limit, causing three consecutive cancellations
+    # (2026-09-27, 2026-10-04, 2026-10-11). A single poetry lock run
+    # resolves the whole graph once and stays within the timeout.
+    versioning-strategy: lockfile-only
     # Collapse routine minor/patch bumps into a single PR per run to keep the
     # review queue small. Major bumps still open individual PRs so breaking
     # changes get scrutiny.
