@@ -299,6 +299,41 @@ class TestOutputCapture:
         assert job.get_output()[index] == "before\ufffd"
 
     @pytest.mark.no_retry
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_reader_stop_flushes_pending_utf8(
+        self, tmp_path: Path, stream: str
+    ) -> None:
+        """Stopping a reader flushes captured partial bytes exactly once."""
+        release = tmp_path / "release"
+        fd = 1 if stream == "stdout" else 2
+        script = (
+            "import os,time\nfrom pathlib import Path\n"
+            f"os.write({fd}, b'before\\xe2\\x82')\n"
+            f"while not Path({str(release)!r}).exists(): time.sleep(0.01)\n"
+        )
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        index = 0 if stream == "stdout" else 1
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if job.get_output()[index].startswith("before"):
+                    break
+                time.sleep(0.01)
+            else:
+                pytest.fail("fixture did not capture the pending bytes")
+            job._stop_event.set()
+            assert job._reader_thread is not None
+            job._reader_thread.join(timeout=5)
+            assert not job._reader_thread.is_alive()
+            assert job.get_output(incremental=True)[index] == "before\ufffd"
+            assert job.get_output(incremental=True)[index] == ""
+        finally:
+            release.touch()
+            job.process.wait(timeout=5)
+
+    @pytest.mark.no_retry
     def test_utf8_decoder_state_is_separate_for_each_stream(self) -> None:
         """Bytes from stderr must not complete a pending stdout character."""
         script = "import os; os.write(1, b'\\xe2'); os.write(2, b'\\x82\\xac')"
