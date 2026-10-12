@@ -77,14 +77,30 @@ def test_native_alias_cannot_shadow_valid_tool(provider: str) -> None:
 
 
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "responses"])
-def test_canonical_history_replays_with_native_name(provider: str) -> None:
-    spec = ToolSpec(name="wordcraft.new_document", desc="test")
+@pytest.mark.parametrize(
+    "name",
+    [
+        "wordcraft.new_document",
+        "docs/team.search",
+        "docs team.search",
+        "docs:team.search",
+        "docs(team).search",
+    ],
+)
+def test_canonical_history_replays_with_native_name(provider: str, name: str) -> None:
+    spec = ToolSpec(name=name, desc="test", execute=execute)
     set_tools([spec])
     alias = schema(spec, provider)["name"]
     messages = [
-        Message("assistant", "@wordcraft.new_document(call_1): {}"),
+        Message("assistant", f"@{name}(call_1): {{}}"),
         Message("system", "created", call_id="call_1"),
     ]
+    calls = list(ToolUse.iter_from_content(messages[0].content, "tool"))
+    assert len(calls) == 1
+    assert calls[0].tool == name
+    assert calls[0].call_id == "call_1"
+    assert calls[0].is_runnable
+    assert list(calls[0].execute())[-1].content == "created"
     if provider == "responses":
         _, items = _messages_to_responses_input(messages)
         call = next(item for item in items if item.get("type") == "function_call")
@@ -151,10 +167,19 @@ def test_block_name_is_resolved_only_once(provider: str) -> None:
     assert [schema(spec, provider)["name"] for spec in specs] == ["b", "c"]
 
 
-def test_returned_call_is_canonical_before_registry_changes() -> None:
+@pytest.mark.parametrize(
+    "name",
+    [
+        "wordcraft.new_document",
+        "docs/team.search",
+        "docs team.search",
+        "docs:team.search",
+    ],
+)
+def test_returned_call_is_canonical_before_registry_changes(name: str) -> None:
     from gptme.llm.openai_responses import _stream_responses_events
 
-    spec = ToolSpec(name="wordcraft.new_document", desc="test")
+    spec = ToolSpec(name=name, desc="test")
     set_tools([spec])
     alias = native_tool_name(spec.name)
     events = [
@@ -179,3 +204,9 @@ def test_returned_call_is_canonical_before_registry_changes() -> None:
     )
     assert items[0]["name"] == native_tool_name(spec.name)
     assert items[0]["name"] != alias
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_native_tool_name_cannot_span_lines(newline: str) -> None:
+    content = f"@not a call{newline}docs/team.search(call_1): {{}}"
+    assert list(ToolUse.iter_from_content(content, "tool")) == []
