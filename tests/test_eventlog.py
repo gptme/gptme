@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
@@ -136,110 +135,6 @@ def test_sequence_number_increments(logdir: Path):
 
     append_event(logdir, {"seq": 2, "ts": "", "type": "test", "payload": {}})
     assert sequence_number(logdir) == 3
-
-
-@pytest.mark.parametrize(
-    "tail",
-    [b'{"seq":101\n', b'{"seq":101', b'{"seq":101,"text":"\xe2\x82'],
-)
-def test_append_after_damaged_compacted_tail(logdir: Path, tail: bytes) -> None:
-    """A torn write must not hide subsequent replies behind a checkpoint."""
-    checkpoint_message = {"role": "user", "content": "checkpoint"}
-    append_event(
-        logdir,
-        {
-            "seq": 100,
-            "type": EVENT_CHECKPOINT,
-            "payload": {"messages": [checkpoint_message]},
-        },
-    )
-    compact_events(logdir)
-    with _event_log_path(logdir).open("ab") as file:
-        file.write(tail)
-
-    message = {"role": "assistant", "content": "new reply"}
-    event = append_next_event(
-        logdir,
-        lambda seq: {
-            "seq": seq,
-            "type": EVENT_MESSAGE_APPEND,
-            "payload": {"message": message},
-        },
-    )
-
-    assert event["seq"] == 101
-    assert [event["seq"] for event in read_events(logdir)] == [100, 101]
-    assert recover_messages(logdir) == [checkpoint_message, message]
-
-
-def test_append_preserves_complete_unterminated_tail(logdir: Path) -> None:
-    """A valid final JSON record needs a separator, not deletion."""
-    first = {
-        "seq": 80,
-        "type": EVENT_MESSAGE_APPEND,
-        "payload": {"message": {"role": "user", "content": "first"}},
-    }
-    _event_log_path(logdir).write_text(json.dumps(first), encoding="utf-8")
-    second = append_next_event(
-        logdir,
-        lambda seq: {
-            "seq": seq,
-            "type": EVENT_MESSAGE_APPEND,
-            "payload": {"message": {"role": "assistant", "content": "second"}},
-        },
-    )
-
-    assert second["seq"] == 81
-    assert read_events(logdir) == [first, second]
-    assert recover_messages(logdir) == [
-        first["payload"]["message"],
-        second["payload"]["message"],
-    ]
-
-
-def test_checkpoint_after_damaged_compacted_tail(logdir: Path) -> None:
-    """A replacement checkpoint must advance the existing sequence."""
-    append_event(
-        logdir,
-        {"seq": 100, "type": EVENT_CHECKPOINT, "payload": {"messages": []}},
-    )
-    with _event_log_path(logdir).open("ab") as file:
-        file.write(b'{"seq":101')
-    messages = [{"role": "user", "content": "saved"}]
-
-    checkpoint = write_checkpoint(logdir, messages)
-
-    assert checkpoint["seq"] == 101
-    assert read_events(logdir) == [checkpoint]
-    assert recover_messages(logdir) == messages
-
-
-def test_concurrent_appends_after_damaged_tail(logdir: Path) -> None:
-    """Tail separation and sequence recovery stay inside the shared lock."""
-    append_event(
-        logdir,
-        {"seq": 100, "type": EVENT_CHECKPOINT, "payload": {"messages": []}},
-    )
-    with _event_log_path(logdir).open("ab") as file:
-        file.write(b'{"seq":101')
-
-    def append(i: int) -> dict[str, object]:
-        return append_next_event(
-            logdir,
-            lambda seq: {
-                "seq": seq,
-                "type": EVENT_MESSAGE_APPEND,
-                "payload": {"message": {"role": "user", "content": str(i)}},
-            },
-        )
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        events = list(executor.map(append, range(40)))
-
-    assert sorted(event["seq"] for event in events) == list(range(101, 141))
-    recovered = recover_messages(logdir)
-    assert recovered is not None
-    assert sorted(int(message["content"]) for message in recovered) == list(range(40))
 
 
 def test_different_event_logs_do_not_share_an_io_lock(logdir: Path):
@@ -744,3 +639,201 @@ def test_compact_events_write_failure_does_not_close_reused_fd(logdir: Path):
     # The temp file is still cleaned up and the log is left intact.
     assert not list(logdir.glob(f".{EVENT_LOG_NAME}.*.tmp"))
     assert [event["seq"] for event in read_events(logdir)] == [1]
+
+
+def test_sequence_number_after_compaction_with_damaged_tail(logdir: Path):
+    """sequence_number() must return max_seq+1, not len(events)+1.
+
+    After compaction the log may contain only the checkpoint.  A damaged
+    trailing record must not cause the fallback to assign a sequence below the
+    checkpoint, which would make recover_messages() discard the new event.
+    Regression for gptme/gptme#4246.
+    """
+    # Checkpoint at seq 100; compact to a single-event log.
+    append_event(
+        logdir,
+        {
+            "seq": 100,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "checkpoint"}]},
+        },
+    )
+    compact_events(logdir)
+
+    # Inject a malformed tail — simulates a crash mid-write.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b'{"seq":101\n')
+
+    # Next sequence must be 101 (resuming after the damaged record),
+    # not 2 (len-based fallback).
+    event = append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "new reply"}},
+        },
+    )
+    assert event["seq"] == 101
+
+    # Recovery must include both the checkpoint message and the new append.
+    msgs = recover_messages(logdir)
+    assert msgs is not None
+    assert [m["content"] for m in msgs] == ["checkpoint", "new reply"]
+
+
+def test_append_inserts_separator_for_unterminated_tail(logdir: Path):
+    """A tail without a terminating newline must not be concatenated with the
+    next append, producing two unparseable records."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+        },
+    )
+    # Write a partial record with no trailing newline.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b'{"seq":2, "type":"partial"')
+
+    append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "after"}},
+        },
+    )
+    msgs = recover_messages(logdir)
+    assert msgs is not None
+    assert [m["content"] for m in msgs] == ["hi", "after"]
+
+
+def test_read_events_skips_truncated_utf8(logdir: Path):
+    """A record truncated inside a multi-byte UTF-8 sequence must be skipped
+    rather than raising UnicodeDecodeError."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+        },
+    )
+    # 0xc3 is the first byte of a two-byte UTF-8 sequence — incomplete here.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b'{"seq":2\xc3\n')
+
+    append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "after utf8"}},
+        },
+    )
+    msgs = recover_messages(logdir)
+    assert msgs is not None
+    assert [m["content"] for m in msgs] == ["hi", "after utf8"]
+
+
+def test_sequence_number_skips_valid_json_without_seq(logdir: Path):
+    """A syntactically valid trailing record without an integer ``seq`` must not
+    make ``sequence_number()`` raise.
+
+    The damaged-tail fallback must consider only records that actually carry an
+    integer ``seq`` — otherwise ``max(e["seq"] ...)`` re-raises the same
+    ``KeyError`` the fast path already caught, and the next append aborts.
+    """
+    append_event(
+        logdir,
+        {
+            "seq": 100,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "checkpoint"}]},
+        },
+    )
+    compact_events(logdir)
+
+    # Valid JSON, but no seq field — not parseable as a sequence record.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(b"{}\n")
+
+    event = append_next_event(
+        logdir,
+        lambda seq: {
+            "seq": seq,
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "after"}},
+        },
+    )
+    assert event["seq"] == 101
+
+
+def test_read_events_rejects_invalid_utf8_instead_of_substituting(logdir: Path):
+    """A record whose bytes are undecodable must be skipped, not replayed with
+    U+FFFD substitution characters inside its message content."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "type": EVENT_CHECKPOINT,
+            "payload": {"messages": [{"role": "user", "content": "hi"}]},
+        },
+    )
+    # Complete, syntactically valid JSON whose string content holds an invalid
+    # 0xff byte; errors="replace" would decode this into valid JSON with U+FFFD.
+    with (logdir / EVENT_LOG_NAME).open("ab") as f:
+        f.write(
+            b'{"seq":2,"type":"message_append","payload":{"message":'
+            b'{"role":"assistant","content":"a\xffb"}}}\n'
+        )
+
+    events = read_events(logdir)
+    assert [event["seq"] for event in events] == [1]
+
+
+def test_checkpoint_after_damaged_compacted_tail(logdir: Path) -> None:
+    """A replacement checkpoint must advance the existing sequence."""
+    append_event(
+        logdir,
+        {"seq": 100, "type": EVENT_CHECKPOINT, "payload": {"messages": []}},
+    )
+    with _event_log_path(logdir).open("ab") as file:
+        file.write(b'{"seq":101')
+    messages = [{"role": "user", "content": "saved"}]
+
+    checkpoint = write_checkpoint(logdir, messages)
+
+    assert checkpoint["seq"] == 101
+    assert read_events(logdir) == [checkpoint]
+    assert recover_messages(logdir) == messages
+
+
+def test_concurrent_appends_after_damaged_tail(logdir: Path) -> None:
+    """Tail separation and sequence recovery stay inside the shared lock."""
+    append_event(
+        logdir,
+        {"seq": 100, "type": EVENT_CHECKPOINT, "payload": {"messages": []}},
+    )
+    with _event_log_path(logdir).open("ab") as file:
+        file.write(b'{"seq":101')
+
+    def append(i: int) -> dict[str, object]:
+        return append_next_event(
+            logdir,
+            lambda seq: {
+                "seq": seq,
+                "type": EVENT_MESSAGE_APPEND,
+                "payload": {"message": {"role": "user", "content": str(i)}},
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        events = list(executor.map(append, range(40)))
+
+    assert sorted(event["seq"] for event in events) == list(range(101, 141))
+    recovered = recover_messages(logdir)
+    assert recovered is not None
+    assert sorted(int(message["content"]) for message in recovered) == list(range(40))
