@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import Any
 
 import pytest
 
@@ -820,7 +821,7 @@ def test_concurrent_appends_after_damaged_tail(logdir: Path) -> None:
     with _event_log_path(logdir).open("ab") as file:
         file.write(b'{"seq":101')
 
-    def append(i: int) -> dict[str, object]:
+    def append(i: int) -> dict[str, Any]:
         return append_next_event(
             logdir,
             lambda seq: {
