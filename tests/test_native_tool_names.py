@@ -139,3 +139,43 @@ def test_builtin_block_name_is_unchanged() -> None:
     assert native_tool_name("python") == "ipython"
     assert schema(spec, "responses")["name"] == "ipython"
     assert canonical_tool_name("ipython") == "ipython"
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "responses"])
+def test_block_name_is_resolved_only_once(provider: str) -> None:
+    specs = [
+        ToolSpec(name="a", block_types=["b"], desc="first"),
+        ToolSpec(name="b", block_types=["c"], desc="second"),
+    ]
+    set_tools(specs)
+    assert [schema(spec, provider)["name"] for spec in specs] == ["b", "c"]
+
+
+def test_returned_call_is_canonical_before_registry_changes() -> None:
+    from gptme.llm.openai_responses import _stream_responses_events
+
+    spec = ToolSpec(name="wordcraft.new_document", desc="test")
+    set_tools([spec])
+    alias = native_tool_name(spec.name)
+    events = [
+        {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {"type": "function_call", "name": alias, "call_id": "call_1"},
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "output_index": 0,
+            "delta": "{}",
+        },
+    ]
+    content = "".join(_stream_responses_events(events))
+    assert f"@{spec.name}(call_1)" in content
+    set_tools([spec, ToolSpec(name=alias, desc="new collision")])
+    call = next(ToolUse.iter_from_content(content, "tool"))
+    assert call.tool == spec.name
+    _, items = _messages_to_responses_input(
+        [Message("assistant", content), Message("system", "created", call_id="call_1")]
+    )
+    assert items[0]["name"] == native_tool_name(spec.name)
+    assert items[0]["name"] != alias

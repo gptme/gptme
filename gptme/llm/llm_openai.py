@@ -22,7 +22,7 @@ from ..message import (
 )
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
-from ..tools.native_names import native_tool_name
+from ..tools.native_names import canonical_tool_name, native_tool_name
 from ._degeneration import (
     _DEGEN_WITHHOLD_MAX,
     _ENV_DEGEN_RETRY,
@@ -1354,7 +1354,7 @@ def chat(
     for tool_call in choice.message.tool_calls or []:
         assert isinstance(tool_call, ChatCompletionMessageToolCall)
         result.append(
-            f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
+            f"@{canonical_tool_name(tool_call.function.name.strip())}({tool_call.id.strip()}): {tool_call.function.arguments}"
         )
 
     if not result:
@@ -2052,7 +2052,7 @@ def stream(
                             if isinstance(func, ChoiceDeltaToolCallFunction):
                                 if func.name:
                                     yield from _emit(
-                                        f"\n@{func.name}({tool_call.id}): "
+                                        f"\n@{canonical_tool_name(func.name)}({tool_call.id}): "
                                     )
                                 if func.arguments:
                                     yield from _emit(func.arguments)
@@ -2654,7 +2654,7 @@ def _transform_msgs_for_special_provider(
 
 
 def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
-    name = native_tool_name(spec.block_types[0] if spec.block_types else spec.name)
+    name = native_tool_name(spec.name)
 
     # Prefer a format-specific compact summary verbatim: get_instructions()
     # appends it to the (potentially very long) base instructions, which
