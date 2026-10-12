@@ -202,9 +202,12 @@ class TestJobLifecycle:
 
 
 class TestOutputCapture:
+    @pytest.mark.no_retry
     @pytest.mark.parametrize("stream", ["stdout", "stderr"])
     @pytest.mark.parametrize(
-        "character", ["\u00e9", "\u20ac", "\U0001f642"], ids=["two-byte", "three-byte", "four-byte"]
+        "character",
+        ["\u00e9", "\u20ac", "\U0001f642"],
+        ids=["two-byte", "three-byte", "four-byte"],
     )
     def test_split_utf8_pipe_output(
         self, tmp_path: Path, stream: str, character: str
@@ -244,6 +247,7 @@ class TestOutputCapture:
         assert job.get_output()[index] == prefix + character
         assert job.get_output(incremental=True)[index] == character
 
+    @pytest.mark.no_retry
     @pytest.mark.parametrize("stream", ["stdout", "stderr"])
     def test_invalid_utf8_pipe_output(self, stream: str) -> None:
         """Malformed and incomplete bytes retain replacement decoding at EOF."""
