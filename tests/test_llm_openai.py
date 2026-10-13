@@ -5131,8 +5131,8 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
             ],
         )
 
-    # Signature arrives on a continuation chunk without the id, so it must be
-    # attributed by index.
+    # Signatures arrive on interleaved continuation chunks without ids, so each
+    # must be attributed to its own call by index.
     chunks = [
         chunk(
             {
@@ -5140,6 +5140,21 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
                 "id": "call_1",
                 "type": "function",
                 "function": {"name": "shell", "arguments": ""},
+            }
+        ),
+        chunk(
+            {
+                "index": 1,
+                "id": "call_2",
+                "type": "function",
+                "function": {"name": "shell", "arguments": ""},
+            }
+        ),
+        chunk(
+            {
+                "index": 1,
+                "function": {"arguments": '{"command": "ls"}'},
+                "extra_content": {"google": {"thought_signature": "sig-2"}},
             }
         ),
         chunk(
@@ -5168,7 +5183,10 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
             break
 
     assert "@shell(call_1): " in "".join(parts)
-    assert metadata["thought_signatures"] == {"call_1": "c2lnLWNhbGwtMQ=="}
+    assert metadata["thought_signatures"] == {
+        "call_1": "c2lnLWNhbGwtMQ==",
+        "call_2": "sig-2",
+    }
 
 
 def test_chat_completions_captures_gemini_thought_signature(monkeypatch):
