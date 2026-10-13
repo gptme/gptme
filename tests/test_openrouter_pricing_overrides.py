@@ -28,6 +28,7 @@ CATALOG = {
 
 @pytest.fixture(autouse=True)
 def no_live_catalog(monkeypatch):
+    monkeypatch.setattr("gptme.telemetry._openrouter_pricing_retry_after", 0.0)
     monkeypatch.setattr("gptme.llm.get_available_models", lambda provider: [])
 
 
@@ -172,6 +173,46 @@ def test_static_openrouter_cost_falls_back_without_catalog(monkeypatch, unavaila
     assert _calculate_llm_cost("openrouter", name, 250_000, 1_000) == pytest.approx(
         250_000 * static.price_input / 1e6 + 1_000 * static.price_output / 1e6
     )
+
+
+def test_failed_catalog_fetch_backs_off_and_recovers(monkeypatch):
+    from gptme.llm.models import get_model
+
+    clock = [100.0]
+    attempts = []
+    catalog = openrouter_model_to_modelmeta(
+        {
+            "id": "anthropic/claude-sonnet-4.6",
+            "pricing": {"prompt": "0.000006", "completion": "0.0000225"},
+        }
+    )
+
+    def fetch(provider):
+        attempts.append(provider)
+        if len(attempts) == 1:
+            raise TimeoutError("catalog timed out")
+        return [catalog]
+
+    monkeypatch.setattr("gptme.telemetry.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("gptme.llm.get_available_models", fetch)
+    name = "openrouter/anthropic/claude-sonnet-4.6"
+    static = get_model(name)
+    fallback = 250_000 * static.price_input / 1e6 + 1_000 * static.price_output / 1e6
+    for _ in range(2):
+        assert _calculate_llm_cost("openrouter", name, 250_000, 1_000) == pytest.approx(
+            fallback
+        )
+    assert attempts == ["openrouter"]
+    clock[0] += 59
+    assert _calculate_llm_cost("openrouter", name, 250_000, 1_000) == pytest.approx(
+        fallback
+    )
+    assert len(attempts) == 1
+    clock[0] += 1
+    assert _calculate_llm_cost("openrouter", name, 250_000, 1_000) == pytest.approx(
+        250_000 * 6 / 1e6 + 1_000 * 22.5 / 1e6
+    )
+    assert attempts == ["openrouter", "openrouter"]
 
 
 def test_short_prompt_is_billed_at_base_rate(monkeypatch):

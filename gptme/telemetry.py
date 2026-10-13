@@ -52,6 +52,11 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# Successful catalogs are cached by the provider. Failed requests are not;
+# avoid retrying them for every cost calculation after an endpoint timeout.
+_openrouter_pricing_retry_after = 0.0
+_OPENROUTER_PRICING_RETRY_SECONDS = 60.0
+
 # Type variable for generic function decoration
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -386,7 +391,11 @@ def _calculate_llm_cost(
     if meta.pricing_type == "subscription":
         return 0.0
 
-    if meta.provider == "openrouter":
+    global _openrouter_pricing_retry_after
+    if (
+        meta.provider == "openrouter"
+        and time.monotonic() >= _openrouter_pricing_retry_after
+    ):
         # Static metadata deliberately wins in get_model() for capabilities and
         # startup performance. Cost accounting needs the cached catalog prices,
         # including tiers, even when that lookup returned a static model.
@@ -397,6 +406,9 @@ def _calculate_llm_cost(
             catalog = get_available_models("openrouter")
             meta = next((m for m in catalog if m.model == catalog_id), meta)
         except Exception as exc:
+            _openrouter_pricing_retry_after = (
+                time.monotonic() + _OPENROUTER_PRICING_RETRY_SECONDS
+            )
             logger.debug("OpenRouter pricing unavailable for %s: %s", catalog_id, exc)
 
     # Long-context tiers key off the whole prompt, cached tokens included.
