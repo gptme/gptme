@@ -26,6 +26,11 @@ CATALOG = {
 }
 
 
+@pytest.fixture(autouse=True)
+def no_live_catalog(monkeypatch):
+    monkeypatch.setattr("gptme.llm.get_available_models", lambda provider: [])
+
+
 def test_mapper_preserves_override_tiers():
     meta = openrouter_model_to_modelmeta(CATALOG)
     assert meta.price_input == pytest.approx(0.1)
@@ -102,6 +107,70 @@ def test_long_prompt_is_billed_at_tier_rate(monkeypatch):
     )
     assert cost == pytest.approx(
         120_000 * 0.5 / 1e6 + 1_000 * 2.5 / 1e6 + 30_000 * 0.05 / 1e6
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", "@anthropic"])
+@pytest.mark.parametrize("prompt_tokens", [199_999, 200_000])
+def test_static_openrouter_cost_uses_catalog_pricing(
+    monkeypatch, suffix, prompt_tokens
+):
+    from gptme.llm.models import get_model
+
+    name = f"openrouter/anthropic/claude-sonnet-4.6{suffix}"
+    static = get_model(name)
+    assert static.price_tiers == ()
+    catalog = openrouter_model_to_modelmeta(
+        {
+            "id": "anthropic/claude-sonnet-4.6",
+            "pricing": {
+                "prompt": "0.000003",
+                "completion": "0.000015",
+                "input_cache_read": "0.0000003",
+                "overrides": [
+                    {
+                        "min_prompt_tokens": 200_000,
+                        "prompt": "0.000006",
+                        "completion": "0.0000225",
+                        "input_cache_read": "0.0000006",
+                    }
+                ],
+            },
+        }
+    )
+    monkeypatch.setattr("gptme.llm.get_available_models", lambda provider: [catalog])
+    # Exercise real get_model(), including static metadata and @ routing suffixes.
+    cost = _calculate_llm_cost(
+        "anthropic",
+        name,
+        prompt_tokens - 100_000,
+        1_000,
+        cache_read_tokens=100_000,
+    )
+    price_in, price_out, price_cache = catalog.effective_prices(prompt_tokens)
+    assert price_cache is not None
+    assert cost == pytest.approx(
+        (prompt_tokens - 100_000) * price_in / 1e6
+        + 1_000 * price_out / 1e6
+        + 100_000 * price_cache / 1e6
+    )
+    assert get_model(name) == static  # catalog pricing must not mutate capabilities
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_static_openrouter_cost_falls_back_without_catalog(monkeypatch, unavailable):
+    from gptme.llm.models import get_model
+
+    def fetch(provider):
+        if unavailable:
+            raise RuntimeError("catalog unavailable")
+        return []
+
+    monkeypatch.setattr("gptme.llm.get_available_models", fetch)
+    name = "openrouter/anthropic/claude-sonnet-4.6"
+    static = get_model(name)
+    assert _calculate_llm_cost("openrouter", name, 250_000, 1_000) == pytest.approx(
+        250_000 * static.price_input / 1e6 + 1_000 * static.price_output / 1e6
     )
 
 

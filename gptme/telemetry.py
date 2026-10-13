@@ -386,6 +386,19 @@ def _calculate_llm_cost(
     if meta.pricing_type == "subscription":
         return 0.0
 
+    if meta.provider == "openrouter":
+        # Static metadata deliberately wins in get_model() for capabilities and
+        # startup performance. Cost accounting needs the cached catalog prices,
+        # including tiers, even when that lookup returned a static model.
+        from .llm import get_available_models
+
+        catalog_id = meta.model.split("@", 1)[0]
+        try:
+            catalog = get_available_models("openrouter")
+            meta = next((m for m in catalog if m.model == catalog_id), meta)
+        except Exception as exc:
+            logger.debug("OpenRouter pricing unavailable for %s: %s", catalog_id, exc)
+
     # Long-context tiers key off the whole prompt, cached tokens included.
     prompt_tokens = (
         (input_tokens or 0) + (cache_creation_tokens or 0) + (cache_read_tokens or 0)
