@@ -5112,8 +5112,10 @@ def _gemini_shell_conversation() -> list[Message]:
     ]
 
 
-def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
+def test_stream_completions_captures_gemini_thought_signature(monkeypatch, tmp_path):
     from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+
+    from gptme.logmanager.manager import Log, _gen_read_jsonl
 
     def chunk(tool_call):
         return SimpleNamespace(
@@ -5132,14 +5134,18 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
         )
 
     # Signatures arrive on interleaved continuation chunks without ids, so each
-    # must be attributed to its own call by index.
+    # must be attributed to its own call by index. Arguments are emitted with
+    # the initial calls; the continuation chunks carry only signature metadata.
     chunks = [
         chunk(
             {
                 "index": 0,
                 "id": "call_1",
                 "type": "function",
-                "function": {"name": "shell", "arguments": ""},
+                "function": {
+                    "name": "shell",
+                    "arguments": '{"command": "cat probe.txt"}',
+                },
             }
         ),
         chunk(
@@ -5147,20 +5153,18 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
                 "index": 1,
                 "id": "call_2",
                 "type": "function",
-                "function": {"name": "shell", "arguments": ""},
+                "function": {"name": "shell", "arguments": '{"command": "ls"}'},
             }
         ),
         chunk(
             {
                 "index": 1,
-                "function": {"arguments": '{"command": "ls"}'},
                 "extra_content": {"google": {"thought_signature": "sig-2"}},
             }
         ),
         chunk(
             {
                 "index": 0,
-                "function": {"arguments": '{"command": "cat probe.txt"}'},
                 "extra_content": _GEMINI_EXTRA,
             }
         ),
@@ -5186,6 +5190,32 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch):
     assert metadata["thought_signatures"] == {
         "call_1": "c2lnLWNhbGwtMQ==",
         "call_2": "sig-2",
+    }
+
+    # Exercise the captured metadata through persistence and API preparation,
+    # rather than only checking the in-memory capture map.
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell
+    path = tmp_path / "conversation.jsonl"
+    Log(
+        [
+            Message(role="user", content="hi"),
+            Message(role="assistant", content="".join(parts), metadata=metadata),
+            Message(role="system", content="PROBE", call_id="call_1"),
+            Message(role="system", content="probe.txt", call_id="call_2"),
+        ]
+    ).write_jsonl(path)
+    reloaded = list(_gen_read_jsonl(path))
+
+    result, _ = _prepare_messages_for_api(reloaded, _GEMINI_MODEL, [shell])
+
+    assert {
+        call["id"]: call["extra_content"]  # type: ignore[typeddict-item]
+        for call in result[1]["tool_calls"]
+    } == {
+        "call_1": _GEMINI_EXTRA,
+        "call_2": {"google": {"thought_signature": "sig-2"}},
     }
 
 
