@@ -7,7 +7,7 @@ publishes the result to GitHub Pages (gptme.org). The old pandoc homepage
 get a Cloudflare Pages preview from `.github/workflows/site-next.yml`.
 
 This directory is the redesigned gptme.org open-source showcase (design v3).
-It has two pages:
+It has three pages:
 
 - `/` is the landing page: hero with install command, "See it work" terminal card, the
   six ways to run gptme, project stats, Bob and the open-source/managed comparison,
@@ -15,6 +15,8 @@ It has two pages:
 - `/readme/` renders the repository `README.md` at build time (GFM, GitHub-style
   heading anchors, without the logo/badge header). The HTML is sanitized before
   it is inserted into the page.
+- `/stats/` shows usage and community stats (stars, PyPI and release downloads,
+  repository activity) from [gptme/stats](https://github.com/gptme/stats).
 
 ## Stack
 
@@ -30,8 +32,8 @@ Pages are **prerendered to static HTML** for SEO, not shipped as a client-side S
    mobile menu. There is no React hydration, so no React code runs in the browser.
 2. `vite build --ssr src/entry-server.tsx` builds the server renderer.
 3. `scripts/prerender.mjs` renders each route with `react-dom/server` into
-   `dist/index.html` and `dist/readme/index.html`. It fails the build if the hero content
-   is missing.
+   `dist/index.html`, `dist/readme/index.html` and `dist/stats/index.html`. It fails the
+   build if the hero or stats content is missing.
 
 In dev, a small Vite middleware (`vite.config.ts`) renders pages through the same server
 entry.
@@ -57,10 +59,16 @@ the README and docs.
 
 ## Data
 
-Stars and contributors are fetched at build time from
-[gptme/stats](https://github.com/gptme/stats) (`data/summary.json`). If the fetch fails
-(offline, rate limited), the build logs a warning and uses the committed defaults in
-`src/lib/stats.ts`, so it never fails because of the network.
+Stats are fetched at build time from [gptme/stats](https://github.com/gptme/stats)
+(`data/summary.json`). If the fetch fails (offline, rate limited), the build logs a warning
+and uses the committed defaults in `src/lib/stats.ts`, so it never fails because of the
+network.
+
+The `/stats/` charts are the SVGs gptme/stats publishes under `charts/`, embedded from
+`raw.githubusercontent.com`. The chart list is in `src/routes/Stats.tsx`; the build checks
+each one and leaves out charts gptme/stats doesn't publish (yet), so a new chart can be
+listed before it exists. `docs.yml` rebuilds gptme.org daily at 05:07 UTC, after the stats
+collection run, so the numbers stay current without committing data to this repo.
 
 ## Design tokens
 
@@ -104,6 +112,7 @@ src/
   components/icons.tsx   inline SVG icons
   routes/Home.tsx        landing page
   routes/Readme.tsx      rendered README
+  routes/Stats.tsx       /stats/ page and its chart list
   lib/links.ts           outbound links (one place to update for docs.gptme.org)
   lib/stats.ts           build-time stats with fallback
   lib/readme.ts          README rendering

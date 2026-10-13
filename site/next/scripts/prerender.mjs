@@ -33,4 +33,10 @@ if (!home.includes("An AI agent that lives in your terminal")) {
   process.exit(1);
 }
 
+const statsPage = readFileSync(join(dist, "stats/index.html"), "utf8");
+if (!statsPage.includes("Project stats") || !statsPage.includes("raw.githubusercontent.com/gptme/stats/")) {
+  console.error("prerender check failed: dist/stats/index.html has no stats content or charts");
+  process.exit(1);
+}
+
 rmSync(ssrDir, { recursive: true, force: true });

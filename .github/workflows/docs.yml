@@ -15,6 +15,11 @@ on:
     paths-ignore:
       - 'webui/**'
       - 'tauri/**'
+  # Daily rebuild so gptme.org/stats/ (and the stars count in the header) picks
+  # up the numbers gptme/stats collects at 04:17 UTC, without committing data here.
+  schedule:
+    - cron: '7 5 * * *'
+  workflow_dispatch:
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
 # Master pushes share one group without cancel-in-progress: a running master

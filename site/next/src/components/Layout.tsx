@@ -92,7 +92,7 @@ function Header({ stats }: { stats: SiteStats }) {
               </a>
             </li>
             <li>
-              <a className={navLink} href={links.stats}>
+              <a className={navLink} href="/stats/">
                 Stats
               </a>
             </li>
@@ -250,6 +250,7 @@ function SuperuserBand() {
 const footerLinks: Array<[string, string]> = [
   ["Docs", links.docs],
   ["README", "/readme/"],
+  ["Stats", "/stats/"],
   ["GitHub", links.github],
   ["Discord", links.discord],
   ["gptme.ai", links.gptmeAi],
