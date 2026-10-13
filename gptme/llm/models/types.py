@@ -132,6 +132,20 @@ def infer_supports_mid_system(*names: str) -> bool:
 
 
 @dataclass(frozen=True)
+class PriceTier:
+    """Prices (USD per 1M tokens) that apply once a prompt reaches a size.
+
+    Mirrors OpenRouter's ``pricing.overrides[]`` long-context tiers. ``None``
+    for ``price_cache_read`` means the tier does not change the base cache rate.
+    """
+
+    min_prompt_tokens: int
+    price_input: float
+    price_output: float
+    price_cache_read: float | None = None
+
+
+@dataclass(frozen=True)
 class ModelMeta:
     provider: Provider | Literal["unknown"]
     model: str
@@ -180,6 +194,30 @@ class ModelMeta:
     # USD per 1M cached input tokens. None means no explicit model rate;
     # zero is a known free cache read. Keep last for positional compatibility.
     price_cache_read: float | None = None
+
+    # Long-context price tiers, ascending by min_prompt_tokens. Empty for flat
+    # pricing. Kept last for positional compatibility.
+    price_tiers: tuple[PriceTier, ...] = ()
+
+    def effective_prices(self, prompt_tokens: int) -> tuple[float, float, float | None]:
+        """Return (price_input, price_output, price_cache_read) for a prompt size.
+
+        Picks the largest tier whose ``min_prompt_tokens`` the prompt reaches;
+        falls back to the base prices. A tier without a cache rate keeps the
+        base cache rate.
+        """
+        price_input, price_output, price_cache_read = (
+            self.price_input,
+            self.price_output,
+            self.price_cache_read,
+        )
+        for tier in self.price_tiers:
+            if prompt_tokens < tier.min_prompt_tokens:
+                break
+            price_input, price_output = tier.price_input, tier.price_output
+            if tier.price_cache_read is not None:
+                price_cache_read = tier.price_cache_read
+        return price_input, price_output, price_cache_read
 
     @property
     def full(self) -> str:

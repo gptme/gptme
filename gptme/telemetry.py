@@ -386,8 +386,13 @@ def _calculate_llm_cost(
     if meta.pricing_type == "subscription":
         return 0.0
 
-    price_in = (meta.price_input or 0.0) / 1e6
-    price_out = (meta.price_output or 0.0) / 1e6
+    # Long-context tiers key off the whole prompt, cached tokens included.
+    prompt_tokens = (
+        (input_tokens or 0) + (cache_creation_tokens or 0) + (cache_read_tokens or 0)
+    )
+    tier_input, tier_output, tier_cache_read = meta.effective_prices(prompt_tokens)
+    price_in = (tier_input or 0.0) / 1e6
+    price_out = (tier_output or 0.0) / 1e6
     cost = (input_tokens or 0) * price_in + (output_tokens or 0) * price_out
 
     # Keep the existing provider defaults when no explicit model rate is known.
@@ -402,8 +407,8 @@ def _calculate_llm_cost(
         price_cache_read = 0.5 * price_in
 
     # Zero is a known free cache read, not an absent catalog/model rate.
-    if meta.price_cache_read is not None:
-        price_cache_read = meta.price_cache_read / 1e6
+    if tier_cache_read is not None:
+        price_cache_read = tier_cache_read / 1e6
     caching_cost += price_cache_read * (cache_read_tokens or 0)
 
     return cost + caching_cost
