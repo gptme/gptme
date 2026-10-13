@@ -27,6 +27,7 @@ guards, or poll/wait for completion.
 
 import json
 import logging
+import re
 import shlex
 import shutil
 import subprocess
@@ -546,6 +547,40 @@ def _passthrough_gh(
         )
 
 
+_REPO_RE = re.compile(r"^[\w.-]+/[\w.-]+$")
+
+
+def _parse_run_repo(flags: list[str]) -> tuple[str | None, str | None]:
+    """Extract an explicit ``--repo``/``-R`` value from ``gh run view`` flags.
+
+    Accepts ``--repo X``, ``--repo=X``, ``-R X``, ``-RX`` and ``-R=X``; the last
+    occurrence wins, as in the gh CLI.  Returns ``(repo, error)``; ``repo`` is
+    None when no flag was given.
+    """
+    repo: str | None = None
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        i += 1
+        value: str | None
+        if flag in ("--repo", "-R"):
+            value = flags[i] if i < len(flags) else ""
+            i += 1
+        elif flag.startswith("--repo="):
+            value = flag[len("--repo=") :]
+        elif flag.startswith("-R"):
+            value = flag[2:].removeprefix("=")
+        else:
+            continue
+        if value.startswith("-") or not _REPO_RE.fullmatch(value):
+            return None, (
+                f"Error: Invalid or missing repository '{value}' for --repo/-R. "
+                "Expected OWNER/REPO."
+            )
+        repo = value
+    return repo, None
+
+
 def execute_gh(
     code: str | None,
     args: list[str] | None,
@@ -648,7 +683,16 @@ def execute_gh(
             )
             return
 
-        content = get_github_run_logs(run_id)
+        repo, repo_err = _parse_run_repo(args[3:])
+        if repo_err:
+            yield Message("system", repo_err)
+            return
+
+        content = (
+            get_github_run_logs(run_id, repo=repo)
+            if repo
+            else get_github_run_logs(run_id)
+        )
         if content:
             yield Message("system", content)
         else:

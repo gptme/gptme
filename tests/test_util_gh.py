@@ -894,6 +894,67 @@ class TestGetGithubRunLogs:
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
+    def test_explicit_repo_forwarded_to_metadata_and_logs(self, mock_run, _mock_which):
+        """Both `gh run view` calls carry the explicit repository."""
+        failed_step = {"name": "Run tests", "conclusion": "failure"}
+        jobs = [self._make_job("test", "failure", 200, [failed_step])]
+        mock_run.side_effect = [
+            MagicMock(stdout=self._make_run_json("failure", jobs), returncode=0),
+            MagicMock(stdout="test\tRun tests\tERROR: boom\n", returncode=0),
+        ]
+        result = get_github_run_logs("12345", repo="foreign/repo")
+        assert result is not None
+        assert mock_run.call_count == 2
+        meta_cmd = mock_run.call_args_list[0][0][0]
+        log_cmd = mock_run.call_args_list[1][0][0]
+        assert meta_cmd[:5] == ["gh", "run", "view", "12345", "--json"]
+        assert meta_cmd[-2:] == ["--repo", "foreign/repo"]
+        assert log_cmd == [
+            "gh",
+            "run",
+            "view",
+            "12345",
+            "--log-failed",
+            "--repo",
+            "foreign/repo",
+        ]
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_explicit_repo_used_for_per_job_api_fallback(self, mock_run, _mock_which):
+        """API fallback targets the explicit repo, not the run URL's repo."""
+        jobs = [self._make_job("test", "failure", 200)]
+        # URL in metadata points at owner/repo; explicit repo must win.
+        mock_run.side_effect = [
+            MagicMock(stdout=self._make_run_json("failure", jobs), returncode=0),
+            MagicMock(stdout="", returncode=1),  # --log-failed empty
+            MagicMock(stdout="test\tstep\tERROR: x\n", returncode=0),  # api
+        ]
+        result = get_github_run_logs("12345", repo="foreign/repo")
+        assert result is not None
+        api_cmd = mock_run.call_args_list[2][0][0]
+        assert api_cmd == ["gh", "api", "/repos/foreign/repo/actions/jobs/200/logs"]
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_no_repo_keeps_commands_and_url_derived_fallback(
+        self, mock_run, _mock_which
+    ):
+        """Without repo: no --repo flag, API fallback derives repo from the URL."""
+        jobs = [self._make_job("test", "failure", 200)]
+        mock_run.side_effect = [
+            MagicMock(stdout=self._make_run_json("failure", jobs), returncode=0),
+            MagicMock(stdout="", returncode=1),
+            MagicMock(stdout="ERROR: x\n", returncode=0),
+        ]
+        get_github_run_logs("12345")
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        assert "--repo" not in cmds[0]
+        assert cmds[1] == ["gh", "run", "view", "12345", "--log-failed"]
+        assert cmds[2] == ["gh", "api", "/repos/owner/repo/actions/jobs/200/logs"]
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
     def test_no_jobs_available(self, mock_run, _mock_which):
         """Run with empty jobs list."""
         mock_run.return_value = MagicMock(
