@@ -10,6 +10,8 @@ import subprocess
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from gptme.tools.gh import (
     _extract_url,
     _format_check_results,
@@ -675,6 +677,79 @@ class TestExecuteGh:
         messages = list(execute_gh(None, ["run", "view", "12345"], None))
         assert len(messages) == 1
         assert "Run 12345" in messages[0].content
+        mock_logs.assert_called_once_with("12345")
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["run", "view", "12345", "--repo", "other/repo"],
+            ["run", "view", "12345", "--repo=other/repo"],
+            ["run", "view", "12345", "-R", "other/repo"],
+            ["run", "view", "12345", "-Rother/repo"],
+            ["run", "view", "12345", "-R=other/repo"],
+            ["run", "view", "12345", "--log-failed", "--repo", "other/repo"],
+            ["run", "view", "12345", "--repo", "first/repo", "-R", "other/repo"],
+        ],
+    )
+    @patch("gptme.tools.gh.get_github_run_logs")
+    def test_run_view_forwards_explicit_repo(self, mock_logs, argv):
+        """An explicit --repo/-R reaches get_github_run_logs (positional args)."""
+        mock_logs.return_value = "## Run 12345: Test"
+        messages = list(execute_gh(None, argv, None))
+        assert len(messages) == 1
+        assert "Run 12345" in messages[0].content
+        mock_logs.assert_called_once_with("12345", repo="other/repo")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "run view 12345 --repo other/repo",
+            "run view 12345 --repo=other/repo",
+            "run view 12345 -R other/repo",
+            "run view 12345 -Rother/repo",
+            "run view 12345 --json jobs -R other/repo",
+        ],
+    )
+    @patch("gptme.tools.gh.get_github_run_logs")
+    def test_run_view_forwards_explicit_repo_structured(self, mock_logs, command):
+        """An explicit --repo/-R reaches get_github_run_logs (structured command)."""
+        mock_logs.return_value = "## Run 12345: Test"
+        messages = list(execute_gh(None, None, {"command": command}))
+        assert len(messages) == 1
+        mock_logs.assert_called_once_with("12345", repo="other/repo")
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["run", "view", "12345", "--repo"],
+            ["run", "view", "12345", "-R"],
+            ["run", "view", "12345", "--repo="],
+            ["run", "view", "12345", "-R="],
+            ["run", "view", "12345", "-R", ""],
+            ["run", "view", "12345", "--repo", "--log-failed"],
+            ["run", "view", "12345", "--repo", "noslash"],
+            ["run", "view", "12345", "--repo", "a/b/c/d"],
+            ["run", "view", "12345", "-R", "owner/"],
+            ["run", "view", "12345", "--repo", "-owner/repo"],
+            ["run", "view", "12345", "--repo", "owner/repo\n"],
+        ],
+    )
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.tools.gh.get_github_run_logs")
+    def test_run_view_rejects_bad_repo_before_spend(self, mock_logs, mock_run, argv):
+        """Missing/malformed repo values fail without any subprocess call."""
+        messages = list(execute_gh(None, argv, None))
+        assert len(messages) == 1
+        assert "repo" in messages[0].content.lower()
+        assert "Error" in messages[0].content
+        mock_logs.assert_not_called()
+        mock_run.assert_not_called()
+
+    @patch("gptme.tools.gh.get_github_run_logs")
+    def test_run_view_without_repo_keeps_old_call(self, mock_logs):
+        """No repo flag: the utility is called exactly as before."""
+        mock_logs.return_value = "## Run 12345: Test"
+        list(execute_gh(None, None, {"command": "run view 12345 --log-failed"}))
         mock_logs.assert_called_once_with("12345")
 
     @patch("gptme.tools.gh.get_github_run_logs")
