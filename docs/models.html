@@ -689,7 +689,6 @@ gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;op
 <li><p>Grok 4.6 via the API (<code class="docutils literal notranslate"><span class="pre">xai/grok-4.6</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/x-ai/grok-4.6</span></code>)</p></li>
 <li><p>DeepSeek V4 Pro (<code class="docutils literal notranslate"><span class="pre">openrouter/deepseek/deepseek-v4-pro-0813</span></code>; DeepSeek’s own API now serves <code class="docutils literal notranslate"><span class="pre">deepseek-v4-pro</span></code> requests with V4.1 Flash)</p></li>
 <li><p>Kimi K3 / K2.6 (<code class="docutils literal notranslate"><span class="pre">moonshot/kimi-k3</span></code>, <code class="docutils literal notranslate"><span class="pre">openrouter/moonshotai/kimi-k2.6</span></code>)</p></li>
-<li><p>Qwen3 Max (<code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-max</span></code>)</p></li>
 <li><p>MiniMax M2 (<code class="docutils literal notranslate"><span class="pre">openrouter/minimax/minimax-m2</span></code>)</p></li>
 </ul>
 <p>Some models perform better or worse with different <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> options (<code class="docutils literal notranslate"><span class="pre">markdown</span></code>, <code class="docutils literal notranslate"><span class="pre">xml</span></code>, or <code class="docutils literal notranslate"><span class="pre">tool</span></code> for native tool-calling); see <a class="reference internal" href="tool-formats.html"><span class="doc">Tool Formats</span></a>.</p>
@@ -699,7 +698,7 @@ gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;op
 <h2>Pick a model per session<a class="headerlink" href="#pick-a-model-per-session" title="Link to this heading">#</a></h2>
 <p>Pass <code class="docutils literal notranslate"><span class="pre">--model</span></code> (<code class="docutils literal notranslate"><span class="pre">-m</span></code>) as <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code> to choose the model for a single run:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Quick question — small, cheap, fast</span>
-gptme<span class="w"> </span><span class="s2">&quot;what does this regex match?&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/qwen/qwen3-max
+gptme<span class="w"> </span><span class="s2">&quot;what does this regex match?&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4.1-flash
 
 <span class="c1"># Complex coding — powerful reasoning model</span>
 gptme<span class="w"> </span><span class="s2">&quot;refactor this module for testability&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-5-5
@@ -760,7 +759,7 @@ training on API inputs.</p></li>
 <p>If you mostly use one model, set it once in your global config
 (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>) instead of passing <code class="docutils literal notranslate"><span class="pre">--model</span></code> every time:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
-<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/qwen/qwen3-max&quot;</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash&quot;</span>
 </pre></div>
 </div>
 <p>With a default configured, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">&quot;query&quot;</span></code> uses that model, and <code class="docutils literal notranslate"><span class="pre">--model</span></code> still
@@ -775,7 +774,7 @@ config so a fast routing agent and a reasoning-heavy coding agent can coexist
 without per-call flags:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># router-agent/gptme.toml — cheap, fast, handles triage and dispatch</span>
 <span class="k">[env]</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/qwen/qwen3-max&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash&quot;</span>
 </pre></div>
 </div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># coder-agent/gptme.toml — frontier model for complex implementation</span>
