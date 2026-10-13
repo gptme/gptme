@@ -222,6 +222,11 @@ class BackgroundJob:
             except (OSError, ValueError):
                 break
 
+        # EOF is not guaranteed: drain limits, read errors and forced stops can
+        # also end the reader. Preserve any pending bytes before publishing output.
+        for fd in (stdout_fd, stderr_fd):
+            if fd >= 0:
+                self._append_output(fd, stdout_fd, b"", final=True)
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:

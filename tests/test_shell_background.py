@@ -851,6 +851,66 @@ class TestEdgeCases:
         assert "é" in stderr
         assert "�" not in stderr
 
+    @pytest.mark.parametrize(
+        "exit_path", ["drain_limit", "read_error", "poll_error", "stop", "eof"]
+    )
+    def test_utf8_finalized_before_completion(self, exit_path):
+        """Every reader exit preserves pending bytes on both streams exactly once."""
+        process = Mock()
+        process.stdout.fileno.return_value = 10
+        process.stderr.fileno.return_value = 11
+        process.poll.return_value = 0 if exit_path == "drain_limit" else None
+        job = BackgroundJob(0, "test", process, time.time())
+        reads = {10: 0, 11: 0}
+        polls = 0
+
+        def read(fd, size):
+            reads[fd] += 1
+            if reads[fd] == 1:
+                return b"out\xc3" if fd == 10 else b"err\xe2\x82"
+            if exit_path == "read_error":
+                raise OSError("pipe closed")
+            return b""
+
+        def wait_readable(fds, timeout):
+            nonlocal polls
+            polls += 1
+            if polls > 1:
+                if exit_path == "poll_error":
+                    raise OSError("poll failed")
+                if exit_path == "stop":
+                    job._stop_event.set()
+                    return []
+            return fds
+
+        completion_outputs = []
+        with (
+            patch("gptme.tools.shell_background._is_windows", False),
+            patch("gptme.tools.shell_background.os.read", side_effect=read),
+            patch(
+                "gptme.tools.shell_background._wait_readable",
+                side_effect=wait_readable,
+            ),
+            patch(
+                "gptme.tools.shell_background.time.monotonic", side_effect=[0.0, 2.0]
+            ),
+            patch(
+                "gptme.tools.shell_background._notify_completion",
+                side_effect=lambda completed: completion_outputs.append(
+                    completed.get_output()
+                ),
+            ),
+        ):
+            if exit_path in ("read_error", "eof"):
+                # Exit after both fds have been discarded, without a live child.
+                process.poll.side_effect = [None, None, 0]
+            job._read_output()
+
+        assert completion_outputs == [("out�", "err�")]
+        assert job.get_output() == ("out�", "err�")
+        assert job._stdout_decoder.getstate()[0] == b""
+        assert job._stderr_decoder.getstate()[0] == b""
+
     @pytest.mark.slow
     def test_rapid_start_and_kill(self):
         """Starting and immediately killing should not hang or raise."""
