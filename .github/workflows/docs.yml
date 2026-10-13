@@ -35,15 +35,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install poetry
-        run: |
-          pipx install poetry
-
-      - name: Setup Python
-        uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.12'
-          cache: 'poetry'
 
       - name: Use Node.js 22
         uses: actions/setup-node@v7
@@ -62,8 +56,7 @@ jobs:
           echo -e '[prompt]\nabout_user = "testing"\nresponse_preference = "just testing"\n\n[env]\nOPENAI_API_KEY="sk-dummy-key"' > ~/.config/gptme/config.toml
 
       - name: Install dependencies
-        run: |
-          poetry install -E browser -E server
+        run: uv sync --extra browser --extra server --frozen
 
       - name: Fetch eval results for leaderboard
         run: |

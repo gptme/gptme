@@ -9,7 +9,7 @@ on:
     paths:
       - 'gptme/**'
       - 'pyproject.toml'
-      - 'poetry.lock'
+      - 'uv.lock'
       - 'gptme.toml'
       # files and lessons the repo's gptme.toml loads in the start/exit cycle
       - 'README.md'
@@ -41,18 +41,12 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Install poetry
-      run: pipx install poetry
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.12'
-        cache: 'poetry'
 
     - name: Install dependencies
-      run: |
-        poetry install
+      run: uv sync --frozen
 
     - name: Install hyperfine
       run: |
@@ -62,14 +56,14 @@ jobs:
       id: cold
       run: |
         # Get virtualenv path so we can clear .pyc files in dependencies too
-        VENV_PATH=$(poetry env info --path)
+        VENV_PATH=$(uv run python -c "import sys, os; print(os.path.dirname(os.path.dirname(sys.executable)))")
 
         # Cold startup: --prepare clears .pyc in repo AND virtualenv, drops OS page cache
         hyperfine \
           --runs 10 \
           --prepare "find . '$VENV_PATH' -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; sudo sh -c 'sync && echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null; true" \
           --export-json cold.json \
-          'poetry run python -c "from gptme.cli.main import main"'
+          'uv run python -c "from gptme.cli.main import main"'
 
         COLD_TIME=$(python3 -c "import json; print(f'{json.load(open(\"cold.json\"))[\"results\"][0][\"median\"]:.3f}')")
         echo "cold_time=$COLD_TIME" >> $GITHUB_OUTPUT
@@ -83,7 +77,7 @@ jobs:
           --runs 10 \
           --warmup 3 \
           --export-json warm.json \
-          'poetry run python -c "from gptme.cli.main import main"'
+          'uv run python -c "from gptme.cli.main import main"'
 
         WARM_TIME=$(python3 -c "import json; print(f'{json.load(open(\"warm.json\"))[\"results\"][0][\"median\"]:.3f}')")
         echo "warm_time=$WARM_TIME" >> $GITHUB_OUTPUT
@@ -94,7 +88,7 @@ jobs:
       run: |
         # --help renders the dynamic help (tool/command discovery) but skips
         # config/LLM/prompt init — an in-between of import-only and full cycle.
-        VENV_PATH=$(poetry env info --path)
+        VENV_PATH=$(uv run python -c "import sys, os; print(os.path.dirname(os.path.dirname(sys.executable)))")
         hyperfine \
           --runs 10 \
           --warmup 3 \
@@ -113,10 +107,9 @@ jobs:
         OPENAI_API_KEY: sk-dummy-benchmark
       run: |
         # Full cycle: config load, plugin/tool init, prompt build, /exit.
-        # Invokes the venv binary directly — `poetry run` adds substantial
-        # wrapper overhead that would drown out what we're measuring.
+        # Invokes the venv binary directly to avoid uv run wrapper overhead.
         # stdin from /dev/null so the piped-stdin grace period isn't hit.
-        VENV_PATH=$(poetry env info --path)
+        VENV_PATH=$(uv run python -c "import sys, os; print(os.path.dirname(os.path.dirname(sys.executable)))")
         hyperfine \
           --runs 10 \
           --warmup 3 \

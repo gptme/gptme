@@ -33,7 +33,7 @@ cd "$REPO_ROOT"
 
 # --- Read version metadata from git/pyproject ---
 
-VERSION=$(poetry version --short)
+VERSION=$(python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read())['project']['version'])")
 TAG="v${VERSION}"
 
 # Verify the tag exists on HEAD

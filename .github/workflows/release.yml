@@ -179,8 +179,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Install poetry
-        run: pipx install poetry
+      - uses: astral-sh/setup-uv@v7
 
       - name: Bump version
         id: version
@@ -291,13 +290,9 @@ jobs:
       with:
         ref: ${{ env.TAG }}
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.x'
-
-    - name: Install poetry
-      run: pipx install poetry
 
     - name: Set up Node.js
       uses: actions/setup-node@v7
@@ -315,20 +310,15 @@ jobs:
     - name: Build Python packages
       run: |
         rm -f dist/*.whl dist/*.tar.gz
-        poetry build
+        uv build
 
     - name: Validate package contents
       run: make validate-release-package
 
-    - name: Validate package (dry-run publish)
-      run: |
-        # Dry-run validates artifact structure and metadata — no upload, no auth check
-        poetry publish --dry-run --no-interaction
-
     - name: Publish to PyPI
       env:
-        POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
-      run: poetry publish
+        UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: uv publish
 
     - name: Build gptme-acp shim
       continue-on-error: true

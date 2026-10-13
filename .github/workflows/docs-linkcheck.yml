@@ -34,19 +34,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install poetry
-        run: |
-          pipx install poetry
-
-      - name: Setup Python
-        uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.12'
-          cache: 'poetry'
 
       - name: Install dependencies
-        run: |
-          poetry install -E browser -E server
+        run: uv sync --extra browser --extra server --frozen
 
       - name: Check docs for dead links
         # Fail (rather than get cancelled at the job timeout) if a host keeps
