@@ -27,9 +27,9 @@ RUN if [ "$RUST" = "yes" ]; then \
 ARG PLAYWRIGHT=no
 USER root
 RUN if [ "$PLAYWRIGHT" = "yes" ]; then \
-        poetry install -E browser --without=dev; \
-        poetry run playwright install-deps; \
-        su appuser -c "poetry run playwright install chromium"; \
+        pip install --no-cache-dir -r /tmp/requirements-browser.txt && \
+        python -m playwright install-deps && \
+        su appuser -c "python -m playwright install chromium" && \
         rm -rf /var/lib/apt/lists/*; \
     else \
         apt-get update && apt-get install --no-install-recommends lynx -y \
