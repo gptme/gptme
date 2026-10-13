@@ -42,7 +42,7 @@ _bump_shim_version() {
 }
 
 _get_pyproject_version() {
-    python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read())['project']['version'])"
+    uv version --short
 }
 
 TYPE=""
@@ -108,7 +108,8 @@ if [ -z "$TYPE" ]; then
         echo "Updating the version in pyproject.toml to match the latest tag"
         _bump_main_version "${VERSION_TAG}"
         _bump_shim_version "${VERSION_TAG}"
-        git add pyproject.toml packages/gptme-acp/pyproject.toml
+        uv lock
+        git add pyproject.toml packages/gptme-acp/pyproject.toml uv.lock
         git commit -m "chore: bump version to ${VERSION_TAG}" || echo "No version bump needed"
     else
         read -rp "Enter new version number: " VERSION_NEW
@@ -120,7 +121,8 @@ if [ -z "$TYPE" ]; then
         echo "Bumping version to ${VERSION_NEW}"
         _bump_main_version "${VERSION_NEW}"
         _bump_shim_version "${VERSION_NEW}"
-        git add pyproject.toml packages/gptme-acp/pyproject.toml
+        uv lock
+        git add pyproject.toml packages/gptme-acp/pyproject.toml uv.lock
         git commit -m "chore: bump version to ${VERSION_NEW}"
         git tag -s "v${VERSION_NEW}" -m "v${VERSION_NEW}"
 
@@ -185,8 +187,11 @@ echo "Updated pyproject.toml: $(grep '^version' pyproject.toml)"
 _bump_shim_version "$NEW_VERSION"
 echo "Updated packages/gptme-acp/pyproject.toml: $(grep '^version' packages/gptme-acp/pyproject.toml)"
 
+# Refresh the root package version in the lockfile before committing and tagging.
+uv lock
+
 # Commit and tag
-git add pyproject.toml packages/gptme-acp/pyproject.toml
+git add pyproject.toml packages/gptme-acp/pyproject.toml uv.lock
 git commit -m "chore: bump version to ${NEW_VERSION}"
 git tag "$TAG"
 echo "Created commit and tag: $TAG"

@@ -221,7 +221,7 @@ release-minor:  ## Create a stable minor release (x.Y+1.0)
 .PHONY: dist/CHANGELOG.md
 dist/CHANGELOG.md: ./scripts/build_changelog.py
 	@# Use clean version if on tagged commit, otherwise use descriptive version
-	@UV_VERSION=v$$(uv version --short 2>/dev/null || python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read())['project']['version'])") && \
+	@UV_VERSION=v$$(uv version --short) && \
 	GIT_VERSION=$$(git describe --tags) && \
 	if [ "$$UV_VERSION" = "$$GIT_VERSION" ]; then \
 		VERSION=$$UV_VERSION; \
@@ -250,7 +250,7 @@ release: version dist/CHANGELOG.md  ## Release new version (interactive)
 	# Amend version commit to include changelog
 	# Force-update tag to amended commit
 	# Then use shared publish script for push + GH release
-	@VERSION=v$$(uv version --short 2>/dev/null || python3 -c "import tomllib; print(tomllib.loads(open('pyproject.toml','rb').read())['project']['version'])") && \
+	@VERSION=v$$(uv version --short) && \
 		echo "Releasing version $${VERSION}"; \
 		grep $${VERSION} docs/changelog.rst || (awk '/^   releases\// && !done { \
 			print "   releases/'"$${VERSION}"'.md"; \
