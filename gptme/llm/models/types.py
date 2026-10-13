@@ -215,8 +215,11 @@ class ModelMeta:
             if prompt_tokens < tier.min_prompt_tokens:
                 break
             price_input, price_output = tier.price_input, tier.price_output
-            if tier.price_cache_read is not None:
-                price_cache_read = tier.price_cache_read
+            price_cache_read = (
+                tier.price_cache_read
+                if tier.price_cache_read is not None
+                else self.price_cache_read
+            )
         return price_input, price_output, price_cache_read
 
     @property

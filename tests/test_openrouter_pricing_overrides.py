@@ -71,6 +71,24 @@ def test_effective_prices_tier_without_cache_rate_keeps_base():
     assert price_cache_read == pytest.approx(0.1)
 
 
+def test_later_tier_without_cache_rate_resets_to_base():
+    meta = openrouter_model_to_modelmeta(
+        {
+            "id": "x/y",
+            "pricing": {
+                "prompt": "0.000001",
+                "input_cache_read": "0.0000001",
+                "overrides": [
+                    {"min_prompt_tokens": 10, "input_cache_read": "0.0000002"},
+                    {"min_prompt_tokens": 20, "prompt": "0.000003"},
+                ],
+            },
+        }
+    )
+    assert meta.effective_prices(10)[2] == pytest.approx(0.2)
+    assert meta.effective_prices(20) == pytest.approx((3.0, 0.0, 0.1))
+
+
 def test_long_prompt_is_billed_at_tier_rate(monkeypatch):
     meta = openrouter_model_to_modelmeta(CATALOG)
     monkeypatch.setattr("gptme.llm.models.get_model", lambda name: meta)
