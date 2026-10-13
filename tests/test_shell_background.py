@@ -784,6 +784,73 @@ class TestEdgeCases:
         stdout, _ = job.get_output()
         assert "hello" in stdout  # valid portion preserved
 
+    def test_utf8_split_across_reads_2byte(self):
+        """A 2-byte UTF-8 character split across two reads must not be replaced."""
+        job = _make_job()
+        stdout_fd = 0
+        # é = U+00E9 = \xc3 \xa9
+        job._append_output(stdout_fd, stdout_fd, b"\xc3")
+        stdout, _ = job.get_output()
+        assert "�" not in stdout, (
+            "first byte of 2-byte seq should be buffered, not replaced"
+        )
+        job._append_output(stdout_fd, stdout_fd, b"\xa9")
+        stdout, _ = job.get_output()
+        assert "\xe9" in stdout or "é" in stdout, (
+            "completed 2-byte seq should decode to é"
+        )
+        assert "�" not in stdout
+
+    def test_utf8_split_across_reads_3byte(self):
+        """A 3-byte UTF-8 character split across two reads must not be replaced."""
+        job = _make_job()
+        stdout_fd = 0
+        # € = U+20AC = \xe2 \x82 \xac
+        job._append_output(stdout_fd, stdout_fd, b"\xe2\x82")
+        stdout, _ = job.get_output()
+        assert "�" not in stdout
+        job._append_output(stdout_fd, stdout_fd, b"\xac")
+        stdout, _ = job.get_output()
+        assert "€" in stdout
+        assert "�" not in stdout
+
+    def test_utf8_split_across_reads_4byte(self):
+        """A 4-byte UTF-8 character split byte-by-byte must not be replaced."""
+        job = _make_job()
+        stdout_fd = 0
+        # 𝄞 = U+1D11E = \xf0 \x9d \x84 \x9e
+        for byte in [b"\xf0", b"\x9d", b"\x84"]:
+            job._append_output(stdout_fd, stdout_fd, byte)
+            stdout, _ = job.get_output()
+            assert "�" not in stdout, "incomplete bytes must be buffered"
+        job._append_output(stdout_fd, stdout_fd, b"\x9e")
+        stdout, _ = job.get_output()
+        assert "\U0001d11e" in stdout or "𝄞" in stdout
+        assert "�" not in stdout
+
+    def test_utf8_incomplete_at_eof_emits_replacement(self):
+        """An incomplete sequence at stream EOF must be replaced (not silently dropped)."""
+        job = _make_job()
+        stdout_fd = 0
+        job._append_output(stdout_fd, stdout_fd, b"\xc3")
+        job._append_output(stdout_fd, stdout_fd, b"", final=True)
+        stdout, _ = job.get_output()
+        assert "�" in stdout, "incomplete seq at EOF should emit replacement char"
+
+    def test_utf8_stderr_split_across_reads(self):
+        """Split multibyte characters on stderr are also reassembled."""
+        job = _make_job()
+        stdout_fd = 0
+        stderr_fd = 1
+        # é = \xc3 \xa9
+        job._append_output(stderr_fd, stdout_fd, b"\xc3")
+        _, stderr = job.get_output()
+        assert "�" not in stderr
+        job._append_output(stderr_fd, stdout_fd, b"\xa9")
+        _, stderr = job.get_output()
+        assert "é" in stderr
+        assert "�" not in stderr
+
     @pytest.mark.slow
     def test_rapid_start_and_kill(self):
         """Starting and immediately killing should not hang or raise."""

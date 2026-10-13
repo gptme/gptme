@@ -7,6 +7,7 @@ See Issue #576 for the original background jobs feature.
 """
 
 import atexit
+import codecs
 import hashlib
 import importlib
 import logging
@@ -115,6 +116,14 @@ class BackgroundJob:
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _completion_notified: bool = field(default=False, repr=False)
     _wait_expired: bool = field(default=False, repr=False)
+    _stdout_decoder: codecs.IncrementalDecoder = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")("replace"),
+        repr=False,
+    )
+    _stderr_decoder: codecs.IncrementalDecoder = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")("replace"),
+        repr=False,
+    )
     _kill_callback: Callable[[], None] | None = field(default=None, repr=False)
     _close_callback: Callable[[], None] | None = field(default=None, repr=False)
     _output_callback: Callable[[], tuple[str, str]] | None = field(
@@ -132,9 +141,19 @@ class BackgroundJob:
         self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self._reader_thread.start()
 
-    def _append_output(self, fd: int, stdout_fd: int, data: bytes) -> None:
-        """Decode and append one output chunk while maintaining offsets."""
-        text = data.decode("utf-8", errors="replace")
+    def _append_output(
+        self, fd: int, stdout_fd: int, data: bytes, *, final: bool = False
+    ) -> None:
+        """Decode and append one output chunk while maintaining offsets.
+
+        Uses an incremental UTF-8 decoder so multibyte characters split across
+        pipe reads are reassembled correctly instead of replaced. Pass
+        ``final=True`` at stream EOF to flush any buffered incomplete sequence.
+        """
+        decoder = self._stdout_decoder if fd == stdout_fd else self._stderr_decoder
+        text = decoder.decode(data, final=final)
+        if not text:
+            return
         with self._buffer_lock:
             if fd == stdout_fd:
                 self._stdout_buffer_start += self._append_to_buffer_locked(
@@ -194,6 +213,7 @@ class BackgroundJob:
                         continue
                     if not raw:
                         open_fds.discard(fd)
+                        self._append_output(fd, stdout_fd, b"", final=True)
                         continue
                     read_any = True
                     self._append_output(fd, stdout_fd, raw)
