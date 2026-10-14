@@ -911,9 +911,11 @@ def complete_path(text: str) -> list[str]:
     Candidates are written so include_paths attaches them: directories get a
     trailing slash ("journ<Tab>" -> "journal/"; a bare "journal" is prose),
     bare cwd files without an extension get "./" ("./Makefile"), and names
-    with spaces are backtick-quoted.
+    with spaces are backtick-quoted. A directory's quote is left open, so
+    Tab keeps completing inside it.
     """
-    seg = re.split(r"\s", text)[-1]
+    quoted = text.count("`") % 2 == 1  # completing inside an open `...
+    seg = text[text.rindex("`") + 1 :] if quoted else re.split(r"\s", text)[-1]
     if not seg:
         return []
     at = "@" if seg.startswith("@") else ""
@@ -933,12 +935,15 @@ def complete_path(text: str) -> list[str]:
             is_dir = e.is_dir()
         except OSError:  # e.g. a symlink loop
             continue
-        path = dir_part + e.name + ("/" if is_dir else "")
+        path = at + dir_part + e.name + ("/" if is_dir else "")
         if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
             path = "./" + path
-        if any(c.isspace() for c in path):
-            path = f"`{path}`"
-        candidates.append(text[: len(text) - len(seg)] + at + path)
+        close = "" if is_dir else "`"
+        if quoted:
+            path += close
+        elif any(c.isspace() for c in path):
+            path = f"`{path}{close}"
+        candidates.append(text[: len(text) - len(seg)] + path)
     return sorted(candidates)
 
 
@@ -950,9 +955,9 @@ def complete_input(text: str) -> list[str]:
         return complete_path(text)  # text, or an absolute path like /tmp/x
     parts = text.split(None, 1)
     if len(parts) == 1 and not text.endswith(" "):
-        # completing the command name itself
+        # completing the command name itself, else a root path like /tm
         commands = set(get_user_commands()) | {f"/{c}" for c in TUI_COMMANDS}
-        return sorted(c for c in commands if c.startswith(text))
+        return sorted(c for c in commands if c.startswith(text)) or complete_path(text)
     # completing command arguments
     arg_text = parts[1] if len(parts) > 1 else ""
     args = arg_text.split()

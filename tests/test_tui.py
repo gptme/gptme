@@ -415,6 +415,8 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     assert complete_input("see .j") == ["see ./.jhidden"]
     assert complete_input(f"see {tmp_path}/jou") == [f"see {tmp_path}/journal/"]
     assert complete_input(f"{tmp_path}/jou") == [f"{tmp_path}/journal/"]
+    # no command matches a root path: fall back to path completion
+    assert "/tmp/" in complete_input("/tm")
     assert complete_input("hello") == []
     assert complete_input("hello ") == []
     # completed names must be ones include_paths attaches
@@ -423,6 +425,13 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     assert complete_input("see Mak") == ["see ./Makefile"]
     assert complete_input("see @Mak") == ["see @Makefile"]
     assert complete_input("see my") == ["see `my notes.txt`"]
+    assert complete_input("see @my") == ["see `@my notes.txt`"]
+    # a quoted directory stays open, so Tab keeps completing inside it
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "a b.md").write_text("x")
+    assert complete_input("see my d") == []  # "d" alone is the last word
+    assert complete_input("see my") == ["see `my dir/", "see `my notes.txt`"]
+    assert complete_input("see `my dir/a") == ["see `my dir/a b.md`"]
     # a symlink loop is skipped, not raised
     (tmp_path / "loop").symlink_to(tmp_path / "loop")
     assert complete_input("see lo") == []
