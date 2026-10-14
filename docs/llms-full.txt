@@ -15169,7 +15169,7 @@ To build a standalone executable for gptme-server:
 
    .. code-block:: bash
 
-      poetry install --extras server --with dev
+      uv sync --extra server --extra pyinstaller
 
 2. **Build the executable**:
 
