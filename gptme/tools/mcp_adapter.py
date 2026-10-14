@@ -137,6 +137,10 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
             logger.debug(f"Closed old MCP client for {server_name}")
         except Exception as e:
             logger.warning(f"Error closing old MCP client for {server_name}: {e}")
+        # The old client is closed either way; drop it from the registry now so a
+        # failed reconnect below does not leave a dead client registered (which
+        # would make load_mcp_server() refuse with "already loaded" forever).
+        _mcp_clients.pop(server_name, None)
 
     # Create new client and reconnect
     new_client = MCPClient(config=config)
