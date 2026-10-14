@@ -102,6 +102,21 @@ Without ``on``/``off`` the setting toggles. In the default view the change
 applies to existing messages; in inline mode it applies to messages printed
 afterwards.
 
+Status line
+-----------
+
+The status bar shows the model, context use, cost and what the agent is
+doing. To render your own instead, for example with the same script as your
+Claude Code status line, set a command:
+
+.. code-block:: toml
+
+    # ~/.config/gptme/config.toml
+    [tui]
+    statusline = "python3 ~/.claude/scripts/statusline.py"
+
+See :ref:`tui-statusline` for what the command receives.
+
 Keys
 ----
 

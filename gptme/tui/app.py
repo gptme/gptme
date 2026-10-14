@@ -93,6 +93,7 @@ from ..util.cost_display import inline_cost_text
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
+from .statusline import LogStats, build_payload, run_statusline
 
 logger = logging.getLogger(__name__)
 
@@ -1457,6 +1458,9 @@ class _CommandResult:
     exit: bool = False
 
 
+# Seconds between statusline refreshes when nothing else triggers one.
+STATUSLINE_REFRESH = 10
+
 # Max stream re-renders per second; each re-lays out the whole buffer.
 STREAM_FPS = 20
 
@@ -1612,7 +1616,8 @@ class GptmeApp(App):
     }
     /* status lines up with the input text, key hints on the right */
     #status-row {
-        height: 1;
+        height: auto;
+        max-height: 4;
         margin: 0 2;
         background: ansi_default;
     }
@@ -1706,6 +1711,13 @@ class GptmeApp(App):
         )
         self._skill_session_id = str(uuid4())
         self._active_skill_invocation_id: str | None = None
+        # [tui] statusline: a command rendering the status bar (see statusline.py)
+        self._statusline_cmd = get_config().user.tui.statusline
+        self._statusline_stats = LogStats()
+        self._statusline_running = False
+        self._statusline_pending: dict | None = None
+        self._statusline_output: str | None = None
+        self._started = time.monotonic()
         self.prompt_queue: list[str | Message] = []
         self._queued_widgets: list[Widget] = []
         self.generating = False
@@ -1815,6 +1827,9 @@ class GptmeApp(App):
         self._update_status()
         # watchdog: tools can reset the tty at any point during execution
         self.set_interval(0.5, self._restore_terminal)
+        if self._statusline_cmd:
+            # durations and other time-based fields change without events
+            self.set_interval(STATUSLINE_REFRESH, self._update_status)
         if self._initial_prompts:
             self.call_after_refresh(self._submit_initial_prompts)
 
@@ -2106,9 +2121,10 @@ class GptmeApp(App):
             if termios.tcgetattr(fd) != self._term_attrs:
                 termios.tcsetattr(fd, termios.TCSANOW, self._term_attrs)
 
-    def _update_status(self) -> None:
+    def _update_status(self, run_statusline: bool = True) -> None:
         parts = []
         model = self._model
+        tokens: int | None = None
         if model:
             parts.append(model.full)
             try:
@@ -2117,12 +2133,31 @@ class GptmeApp(App):
                 parts.append(f"{tokens // 1000}k/{model.context // 1000}k ({pct:.0f}%)")
             except Exception:  # token counting must never break the UI
                 pass
-        if cost := sum(e.cost for e in self._session_costs.snapshot_entries()):
+        cost = sum(e.cost for e in self._session_costs.snapshot_entries())
+        if cost:
             parts.append(f"${cost:.2f}")
         parts.append(self.state)
         if self.prompt_queue:
             parts.append(f"{len(self.prompt_queue)} queued")
-        self.query_one("#status", Static).update(Text(" | ".join(parts)))
+        if self._statusline_cmd and run_statusline:
+            self._statusline_stats.update(self.manager.log.messages)
+            self._request_statusline(
+                build_payload(
+                    session=self.manager.logdir.name,
+                    logdir=self.manager.logdir,
+                    workspace=self.workspace,
+                    model=model.full if model else None,
+                    context_size=model.context if model else None,
+                    tokens=tokens,
+                    cost=cost,
+                    duration_ms=int((time.monotonic() - self._started) * 1000),
+                    state=self.state,
+                    queued=len(self.prompt_queue),
+                    stats=self._statusline_stats,
+                )
+            )
+        if not self._statusline_output:
+            self.query_one("#status", Static).update(Text(" | ".join(parts)))
         if self.inline:
             self._update_queued_view()
 
@@ -2142,6 +2177,35 @@ class GptmeApp(App):
         queued = self.query_one("#queued", Static)
         queued.update(text)
         queued.display = bool(self.prompt_queue)
+
+    def _request_statusline(self, payload: dict) -> None:
+        """Run the statusline command off the UI thread; while one runs, keep
+        only the latest payload, sent when it finishes."""
+        if self._statusline_running:
+            self._statusline_pending = payload
+            return
+        self._statusline_running = True
+        self.run_worker(
+            functools.partial(self._statusline_worker, payload),
+            thread=True,
+            group="statusline",
+        )
+
+    def _statusline_worker(self, payload: dict) -> None:
+        output = run_statusline(self._statusline_cmd or "", payload, self.workspace)
+        if not self._quitting:
+            self.call_from_thread(self._show_statusline, output)
+
+    def _show_statusline(self, output: str | None) -> None:
+        self._statusline_running = False
+        self._statusline_output = output
+        if output:
+            self.query_one("#status", Static).update(Text.from_ansi(output))
+        else:
+            self._update_status(run_statusline=False)  # the built-in status
+        if (payload := self._statusline_pending) is not None:
+            self._statusline_pending = None
+            self._request_statusline(payload)
 
     def _set_state(self, state: str) -> None:
         self.state = state

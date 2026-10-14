@@ -3366,3 +3366,19 @@ def test_invalid_agent_color_env_is_ignored(monkeypatch):
 class _NoColorConfig:
     class chat:
         agent_config = None
+
+
+def test_tui_statusline_config(tmp_path, caplog):
+    """[tui] statusline is a known section: parsed, and never stripped from the file."""
+    from gptme.config.user import load_user_config
+
+    caplog.set_level(logging.WARNING)
+    path = tmp_path / "config.toml"
+    path.write_text('[prompt]\nabout_user = "hi"\n\n[tui]\nstatusline = "echo hi"\n')
+    assert load_user_config(str(path)).tui.statusline == "echo hi"
+    assert "[tui]" in path.read_text()
+
+    path.write_text('[prompt]\nabout_user = "hi"\n\n[tui]\nstatusline = 1\nfoo = 2\n')
+    assert load_user_config(str(path)).tui.statusline is None
+    assert "statusline" in caplog.text
+    assert "foo" in caplog.text
