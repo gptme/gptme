@@ -3312,6 +3312,17 @@ def test_agent_and_user_color_config(tmp_path, caplog):
     assert user_config.user.about == "hi"
 
 
+def test_css_color_names_are_accepted():
+    """CSS names Rich lacks ("pink") work when Textual is installed."""
+    from gptme.constants import color_to_hex
+
+    pytest.importorskip("textual")
+    config = ProjectConfig.from_dict({"agent": {"name": "Bob", "color": "pink"}})
+    assert config.agent is not None
+    assert config.agent.color == "#ffc0cb"
+    assert color_to_hex(config.agent.color) == "#ffc0cb"
+
+
 def test_invalid_color_types_are_ignored(caplog):
     """Non-string or unparsable colors warn and are dropped, never crash."""
     caplog.set_level(logging.WARNING, logger="gptme.constants")

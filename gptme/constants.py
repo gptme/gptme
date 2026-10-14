@@ -34,9 +34,11 @@ ROLE_COLOR = {
 def valid_color(value: object, where: str) -> str | None:
     """Return *value* if it is a color Rich can parse, else warn and drop it.
 
-    Accepts hex (``#e5a50a``), ``rgb(r,g,b)`` and color names. An invalid
-    color (or a non-string, e.g. ``color = 123`` in TOML) must not stop gptme
-    from starting or break rendering.
+    Accepts hex (``#e5a50a``), ``rgb(r,g,b)`` and Rich color names. CSS names
+    Rich lacks (``pink``, ``rebeccapurple``) are converted to hex when Textual
+    (the TUI extra) is installed. An invalid color (or a non-string, e.g.
+    ``color = 123`` in TOML) must not stop gptme from starting or break
+    rendering.
     """
     if value is None:
         return None
@@ -48,10 +50,28 @@ def valid_color(value: object, where: str) -> str | None:
             return value
         except (ColorParseError, ValueError, KeyError):
             pass
+        if css_hex := _css_color_hex(value):
+            return css_hex
     import logging
 
-    logging.getLogger(__name__).warning("Ignoring invalid %s color %r", where, value)
+    logging.getLogger(__name__).warning(
+        "Ignoring invalid %s color %r (use hex like '#ff69b4' or a Rich color name)",
+        where,
+        value,
+    )
     return None
+
+
+def _css_color_hex(value: str) -> str | None:
+    """Hex for a CSS color name, via Textual if installed."""
+    try:
+        from textual.color import Color, ColorParseError
+    except ImportError:
+        return None
+    try:
+        return Color.parse(value).hex.lower()
+    except ColorParseError:
+        return None
 
 
 def color_to_hex(value: object) -> str | None:
