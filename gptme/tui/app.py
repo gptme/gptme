@@ -1979,6 +1979,9 @@ class GptmeApp(App):
         # assistant message rendered from the stream when its tools started,
         # replaced by the final message once they finish
         self._provisional_assistant: Widget | None = None
+        # True when _on_before_tool_execution has already finalized the stream widget
+        # into an AssistantMessage so _on_step_message must not re-render the same msg.
+        self._message_pre_rendered = False
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
         self.show_hidden = _show_hidden_default()
@@ -3199,10 +3202,11 @@ class GptmeApp(App):
             self._mount_in_chat(CostMessage(cost_text))
 
     def _on_before_tool_execution(self, msg: Message) -> None:
-        """Called from the worker thread before tool execution begins.
+        """Called before tool execution: show the completed message, then the tool indicator.
 
-        Clears the raw stream preview and shows the "running tool" indicator so
-        long-running tools don't leave the UI looking stalled in "generating" state.
+        Replaces the streaming preview with the final AssistantMessage so the user
+        can read the full reply while tools run. Sets _message_pre_rendered so
+        _on_step_message skips the re-render when it fires after tools complete.
         """
         if not any(
             tool_use.is_runnable
@@ -3211,7 +3215,14 @@ class GptmeApp(App):
             )
         ):
             return
-        self._clear_stream_view()
+        if not self.inline:
+            if self._stream_widget is not None:
+                # Swap stream preview for the final rendered message in one DOM update.
+                self._finalize_stream_in_place(msg)
+            else:
+                # No stream widget (e.g. very fast first response) — render directly.
+                self._show_message(msg)
+            self._message_pre_rendered = True
         self._set_state("executing tools")
         self._show_tool_placeholder()
         self._update_status()
@@ -3228,6 +3239,10 @@ class GptmeApp(App):
             if not self.inline and self._stream_widget is not None:
                 # Swap streaming preview for final rendering without a DOM gap.
                 self._finalize_stream_in_place(msg)
+            elif self._message_pre_rendered:
+                # _on_before_tool_execution already finalized the stream into an
+                # AssistantMessage widget — skip re-render to avoid a duplicate.
+                self._message_pre_rendered = False
             else:
                 # Inline path or no stream widget: clear preview and show normally.
                 self._clear_stream_view()
