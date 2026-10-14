@@ -22,17 +22,18 @@ def test_grid_table_aligned():
     assert check_grid_tables(table) == []
 
 
-def test_grid_table_overlong_cell():
-    # docutils silently reads this as a column-spanning cell instead of warning
+def test_grid_table_separator_on_some_lines():
+    # the original bug: docutils silently reads this as a column-spanning cell
     table = """
 +------+------+
 | a    | b    |
 +------+------+
-| long text| d|
+| text | d    |
+| more text| d|
 +------+------+
 """.splitlines()
     issues = check_grid_tables(table)
-    assert [(kind, line) for kind, _, line, _ in issues] == [("grid_table", 5)]
+    assert [(kind, line) for kind, _, line, _ in issues] == [("grid_table", 6)]
 
 
 def test_grid_table_overflowing_row():
@@ -63,3 +64,64 @@ def test_grid_table_wide_chars():
 +------+------+
 """.splitlines()
     assert check_grid_tables(table) == []
+
+
+def test_grid_table_row_span():
+    table = """
++------+------+
+| a    | b    |
+|      +------+
+|      | c    |
++------+------+
+""".splitlines()
+    assert check_grid_tables(table) == []
+
+
+def test_grid_table_literal_pipe_in_cell():
+    table = """
++------+------+
+| a|b  | c    |
++------+------+
+""".splitlines()
+    assert check_grid_tables(table) == []
+
+
+def test_grid_table_in_code_block_skipped():
+    text = """
+Example of a broken table:
+
+.. code-block:: text
+
+   +------+------+
+   | too wide here|      |
+   +------+------+
+
+And as a literal block::
+
+   +------+------+
+   | too wide here|      |
+   +------+------+
+""".splitlines()
+    assert check_grid_tables(text) == []
+
+
+def test_grid_table_in_table_directive_checked():
+    text = """
+.. table:: Caption
+
+   +------+------+
+   | too wide here|      |
+   +------+------+
+""".splitlines()
+    assert len(check_grid_tables(text)) == 1
+
+
+def test_docstring_grid_table_checked():
+    docstring = """Summary.
+
+    +------+------+
+    | too wide here|      |
+    +------+------+
+    """
+    issues = check_rst_formatting.check_docstring(docstring, start_line=10)
+    assert [(kind, line) for kind, _, line, _ in issues] == [("grid_table", 13)]
