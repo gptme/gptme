@@ -13,11 +13,14 @@ Commands provided:
 """
 
 import importlib
+import json
 import logging
 import re
+import uuid
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
@@ -244,7 +247,58 @@ def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]
     yield from lesson(ctx)
 
 
+def _record_lesson_emission(
+    manager: "LogManager", outcome: str, context_bytes: int
+) -> None:
+    """Append aggregate emission evidence; never let telemetry break the hook."""
+    try:
+        logdir = manager.logdir.resolve()
+        record = {
+            "record_type": "emission_receipt",
+            "receipt_version": 1,
+            "event_id": uuid.uuid4().hex,
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "runtime": "gptme",
+            "session_id": str(logdir),
+            "hook": "STEP_PRE",
+            "outcome": outcome,
+            "bytes": context_bytes,
+        }
+        with (logdir / "lesson-emissions.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record) + "\n")
+    except Exception:
+        pass  # A missing receipt is unknown exposure, never a measured zero.
+
+
 def auto_include_lessons_hook(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
+    """Include lessons and receipt each consumed invocation, including empty ones.
+
+    Bytes measure final UTF-8 context handed to the caller, not provider delivery.
+    Exhaustion or early close records once; an unstarted generator records nothing.
+    Error outcomes must not be counted as successful empty invocations.
+    """
+    outcome = "empty"
+    context_bytes = 0
+    try:
+        for message in _auto_include_lessons(manager):
+            if isinstance(message, Message):
+                context_bytes += len(message.content.encode("utf-8"))
+                outcome = "emitted"
+            yield message
+    except GeneratorExit:
+        raise
+    except Exception:
+        outcome = "error"
+    except BaseException:
+        outcome = "error"
+        raise
+    finally:
+        _record_lesson_emission(manager, outcome, context_bytes)
+
+
+def _auto_include_lessons(
     manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
     """Hook to automatically include relevant lessons in context.
@@ -462,7 +516,7 @@ def auto_include_lessons_hook(
 
     except Exception as e:
         logger.warning(f"Error during lesson auto-inclusion: {e}")
-        return
+        raise
 
 
 def session_end_lessons_hook(
