@@ -678,20 +678,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-      37881 |         gptme.config.cli_setup
-      37908 |   importlib.metadata
-      48571 |     playwright.sync_api._generated
-      51977 |   playwright.sync_api
-      55169 | gptme.tools._browser_playwright
-      64707 |       gptme.config
-     108043 |     gptme.llm
-     109285 | gptme.cli.main
-     122744 |   gptme.commands
-     195173 | gptme.chat
+      36719 |         gptme.config.cli_setup
+      36849 |   importlib.metadata
+      49356 |     playwright.sync_api._generated
+      52435 |   playwright.sync_api
+      55441 | gptme.tools._browser_playwright
+      61845 |       gptme.config
+     103415 |     gptme.llm
+     105796 | gptme.cli.main
+     117079 |   gptme.commands
+     183483 | gptme.chat
 
-real	0m1.369s
-user	0m1.125s
-sys	0m0.139s
+real	0m1.205s
+user	0m1.102s
+sys	0m0.105s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -699,21 +699,21 @@ make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     141.6 ms ±   6.9 ms    [User: 120.0 ms, System: 21.5 ms]
-  Range (min … max):   136.1 ms … 158.2 ms    10 runs
+  Time (mean ± σ):     134.4 ms ±   0.7 ms    [User: 119.2 ms, System: 15.1 ms]
+  Range (min … max):   132.8 ms … 135.0 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):     546.6 ms ±  13.9 ms    [User: 489.3 ms, System: 57.2 ms]
-  Range (min … max):   527.1 ms … 572.1 ms    10 runs
+  Time (mean ± σ):     552.2 ms ±  23.2 ms    [User: 511.2 ms, System: 40.9 ms]
+  Range (min … max):   529.3 ms … 599.9 ms    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):     998.4 ms ±  12.8 ms    [User: 809.2 ms, System: 553.0 ms]
-  Range (min … max):   982.4 ms … 1022.7 ms    10 runs
+  Time (mean ± σ):     971.8 ms ±   6.9 ms    [User: 823.4 ms, System: 400.1 ms]
+  Range (min … max):   959.7 ms … 982.5 ms    10 runs
  
 Summary
   import gptme.cli.main ran
-    3.86 ± 0.21 times faster than gptme --help
-    7.05 ± 0.36 times faster than full start/exit cycle
+    4.11 ± 0.17 times faster than gptme --help
+    7.23 ± 0.06 times faster than full start/exit cycle
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -987,7 +987,7 @@ cloc gptme/server --by-file --hide-rate --quiet | tail -n +2
 -------------------------------------------------------------------------------------------
 File                                                    blank        comment           code
 -------------------------------------------------------------------------------------------
-gptme/server/api_v2.py                                    551            492           3328
+gptme/server/api_v2.py                                    552            495           3328
 gptme/server/session_step.py                              194            438           1290
 gptme/server/api_v2_sessions.py                           132            199            982
 gptme/server/openapi_docs.py                              309            210            941
@@ -1017,7 +1017,7 @@ gptme/server/__init__.py                                    5              8    
 gptme/server/constants.py                                   7             11              9
 gptme/server/__main__.py                                    1              0              3
 -------------------------------------------------------------------------------------------
-SUM:                                                     2622           2973          12635
+SUM:                                                     2623           2976          12635
 -------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1527,7 +1527,7 @@ File                                                                            
 tests/test_subagent_unit.py                                                                  1532            734           6185
 tests/test_server_v2.py                                                                      1014            385           4447
 tests/test_llm_openai.py                                                                      946            568           3778
-gptme/server/api_v2.py                                                                        551            492           3328
+gptme/server/api_v2.py                                                                        552            495           3328
 tests/test_auto_compact.py                                                                    959            544           3204
 gptme/tools/shell.py                                                                          399            716           2876
 tests/test_tools_subagent.py                                                                  859            443           2849
@@ -2477,7 +2477,7 @@ gptme/dataset/__init__.py                                                       
 gptme/oauth/__init__.py                                                                         1              4              0
 gptme/tui/__init__.py                                                                           4             12              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        77812          73113         301831
+SUM:                                                                                        77813          73116         301831
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2568,11 +2568,11 @@ Most Complex Functions (D+):
   gptme/server/api_v2_agents.py
       F 57:0 api_agents_put - D
   gptme/server/api_v2.py
-      F 1793:0 api_conversation_put - E
-      F 2265:0 api_conversation_edit_message - E
-      F 3047:0 api_conversation_config_patch - E
-      F 1654:0 api_conversation - E
-      F 2020:0 api_conversation_post - E
+      F 1797:0 api_conversation_put - E
+      F 2269:0 api_conversation_edit_message - E
+      F 3051:0 api_conversation_config_patch - E
+      F 1658:0 api_conversation - E
+      F 2024:0 api_conversation_post - E
       F 712:0 _parse_mcp_request - D
   gptme/server/tasks_api.py
       F 396:0 get_git_status - D
@@ -3463,59 +3463,59 @@ Clone found (python)
  - prompts/__init__.py [473:5 - 490:6] (18 lines, 73 tokens)
    prompts/__init__.py [655:5 - 672:6]
 Clone found (python)
- - server/api_v2.py [1267:84 - 1285:4] (19 lines, 69 tokens)
-   server/api_v2.py [1319:5 - 1337:4]
+ - server/api_v2.py [1271:84 - 1289:4] (19 lines, 69 tokens)
+   server/api_v2.py [1323:5 - 1341:4]
 Clone found (python)
- - server/api_v2.py [1287:5 - 1303:15] (17 lines, 118 tokens)
-   server/api_v2.py [1358:5 - 1374:15]
+ - server/api_v2.py [1291:5 - 1307:15] (17 lines, 118 tokens)
+   server/api_v2.py [1362:5 - 1378:15]
 Clone found (python)
- - server/api_v2.py [2022:5 - 2029:76] (8 lines, 61 tokens)
-   server/api_v2.py [3050:5 - 3057:76]
+ - server/api_v2.py [2026:5 - 2033:76] (8 lines, 61 tokens)
+   server/api_v2.py [3054:5 - 3061:76]
 Clone found (python)
- - server/api_v2.py [2059:5 - 2079:30] (21 lines, 95 tokens)
-   server/api_v2.py [2677:5 - 2697:30]
+ - server/api_v2.py [2063:5 - 2083:30] (21 lines, 95 tokens)
+   server/api_v2.py [2681:5 - 2701:30]
 Clone found (python)
- - server/api_v2.py [2067:31 - 2079:30] (13 lines, 54 tokens)
-   server/api_v2.py [3114:33 - 3126:30]
+ - server/api_v2.py [2071:31 - 2083:30] (13 lines, 54 tokens)
+   server/api_v2.py [3118:33 - 3130:30]
 Clone found (python)
- - server/api_v2.py [2239:118 - 2254:11] (16 lines, 54 tokens)
-   server/api_v2.py [2395:97 - 2410:11]
+ - server/api_v2.py [2243:118 - 2258:11] (16 lines, 54 tokens)
+   server/api_v2.py [2399:97 - 2414:11]
 Clone found (python)
- - server/api_v2.py [2299:5 - 2317:40] (19 lines, 82 tokens)
-   server/api_v2.py [2424:5 - 2443:30]
+ - server/api_v2.py [2303:5 - 2321:40] (19 lines, 82 tokens)
+   server/api_v2.py [2428:5 - 2447:30]
 Clone found (python)
- - server/api_v2.py [2317:86 - 2336:14] (20 lines, 80 tokens)
-   server/api_v2.py [2443:78 - 2463:14]
+ - server/api_v2.py [2321:86 - 2340:14] (20 lines, 80 tokens)
+   server/api_v2.py [2447:78 - 2467:14]
 Clone found (python)
- - server/api_v2.py [2544:5 - 2555:10] (12 lines, 61 tokens)
-   server/api_v2.py [2570:9 - 2583:14]
+ - server/api_v2.py [2548:5 - 2559:10] (12 lines, 61 tokens)
+   server/api_v2.py [2574:9 - 2587:14]
 Clone found (python)
- - server/api_v2.py [3290:58 - 3303:38] (14 lines, 94 tokens)
-   server/api_v2.py [3326:51 - 3339:38]
+ - server/api_v2.py [3294:58 - 3307:38] (14 lines, 94 tokens)
+   server/api_v2.py [3330:51 - 3343:38]
 Clone found (python)
- - server/api_v2.py [3294:5 - 3303:38] (10 lines, 73 tokens)
-   server/api_v2.py [3961:5 - 3970:38]
+ - server/api_v2.py [3298:5 - 3307:38] (10 lines, 73 tokens)
+   server/api_v2.py [3965:5 - 3974:38]
 Clone found (python)
- - server/api_v2.py [3331:74 - 3342:15] (12 lines, 54 tokens)
-   server/api_v2.py [3962:74 - 3973:15]
+ - server/api_v2.py [3335:74 - 3346:15] (12 lines, 54 tokens)
+   server/api_v2.py [3966:74 - 3977:15]
 Clone found (python)
- - server/api_v2.py [3445:53 - 3450:76] (6 lines, 51 tokens)
-   server/api_v2.py [3546:52 - 3551:76]
+ - server/api_v2.py [3449:53 - 3454:76] (6 lines, 51 tokens)
+   server/api_v2.py [3550:52 - 3555:76]
 Clone found (python)
- - server/api_v2.py [3445:53 - 3452:40] (8 lines, 59 tokens)
-   server/api_v2.py [3828:64 - 3835:40]
+ - server/api_v2.py [3449:53 - 3456:40] (8 lines, 59 tokens)
+   server/api_v2.py [3832:64 - 3839:40]
 Clone found (python)
- - server/api_v2.py [3445:53 - 3450:76] (6 lines, 51 tokens)
-   server/api_v2.py [3896:50 - 3901:76]
+ - server/api_v2.py [3449:53 - 3454:76] (6 lines, 51 tokens)
+   server/api_v2.py [3900:50 - 3905:76]
 Clone found (python)
- - server/api_v2.py [3445:53 - 3450:76] (6 lines, 51 tokens)
-   server/api_v2.py [4001:54 - 4006:76]
+ - server/api_v2.py [3449:53 - 3454:76] (6 lines, 51 tokens)
+   server/api_v2.py [4005:54 - 4010:76]
 Clone found (python)
- - server/api_v2.py [3445:53 - 3450:76] (6 lines, 51 tokens)
-   server/api_v2.py [4050:54 - 4055:76]
+ - server/api_v2.py [3449:53 - 3454:76] (6 lines, 51 tokens)
+   server/api_v2.py [4054:54 - 4059:76]
 Clone found (python)
- - server/api_v2.py [3446:14 - 3453:12] (8 lines, 57 tokens)
-   server/api_v2.py [3829:14 - 3836:7]
+ - server/api_v2.py [3450:14 - 3457:12] (8 lines, 57 tokens)
+   server/api_v2.py [3833:14 - 3840:7]
 Clone found (python)
  - server/api_v2_agents.py [59:5 - 65:15] (7 lines, 52 tokens)
    server/tasks_api.py [746:5 - 752:7]
@@ -3715,7 +3715,7 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 482         │ 3220         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 504            │ 210279      │ 1015035      │ 195          │ 2565 (1.22%)     │ 13510 (1.33%)     │
+│ python     │ 504            │ 210283      │ 1015056      │ 195          │ 2565 (1.22%)     │ 13510 (1.33%)     │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 3              │ 32          │ 330          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -3723,10 +3723,10 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 3              │ 257         │ 1647         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 534            │ 214578      │ 1043075      │ 195          │ 2565 (1.20%)     │ 13510 (1.30%)     │
+│ Total:     │ 534            │ 214582      │ 1043096      │ 195          │ 2565 (1.20%)     │ 13510 (1.30%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 195 clones.
-time: 481.771ms
+time: 524.075ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
