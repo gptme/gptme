@@ -911,6 +911,10 @@ Clear commit history, automated changelog generation.
 <span class="c1"># This is a session-wide limit - once reached, no more lessons are included</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_MAX_SESSION</span><span class="o">=</span><span class="m">20</span>
 
+<span class="c1"># Maximum new lessons per turn (default: unset, no per-turn limit)</span>
+<span class="c1"># Keeps a long first prompt from spending the whole session budget</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_MAX_PER_TURN</span><span class="o">=</span><span class="m">8</span>
+
 <span class="c1"># Use hybrid keyword + semantic matching (default: false)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_LESSONS_USE_HYBRID</span><span class="o">=</span><span class="nb">true</span>
 
