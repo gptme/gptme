@@ -45,6 +45,7 @@ Configuration:
 
 import atexit
 import codecs
+import functools
 import logging
 import math
 import os
@@ -107,6 +108,8 @@ from .shell_background import (
 from .shell_background import (
     start_background_job as start_background_job,
 )
+from .shell_memory import Target as MemoryTarget
+from .shell_memory import watch as watch_memory
 from .shell_validation import (
     _find_first_unquoted_pipe,
     check_with_shellcheck,
@@ -733,6 +736,18 @@ class ShellSession:
             **popen_kwargs,
         )
         _record_shell_pgid(self.process.pid)
+        # The running command shares the shell's process group; on low memory
+        # the guard kills the command (not the shell) and says why in its output.
+        process = self.process
+        watch_memory(
+            MemoryTarget(
+                pgid=process.pid,
+                label="the running shell command",
+                kill=functools.partial(_kill_descendants, process.pid),
+                alive=lambda: process.poll() is None,
+                on_killed=self._queue_restart_notice,
+            )
+        )
         assert self.process.stdout is not None
         assert self.process.stderr is not None
         self.stdout_fd = self.process.stdout.fileno()

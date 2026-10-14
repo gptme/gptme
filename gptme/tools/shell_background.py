@@ -135,6 +135,8 @@ class BackgroundJob:
     log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
     _final_log_written: bool = field(default=False, repr=False)
+    # Why the job was killed by gptme (e.g. the memory guard), for the model.
+    kill_reason: str | None = None
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -569,6 +571,18 @@ def start_background_job(
             log_dir=_current_log_dir(),
         )
         _jobs_for(conversation_id)[job_id] = job
+    if not _is_windows:
+        from .shell_memory import Target, watch
+
+        watch(
+            Target(
+                pgid=process.pid,
+                label=f"background job #{job_id}",
+                kill=job.kill,
+                alive=job.is_running,
+                on_killed=lambda reason: setattr(job, "kill_reason", reason),
+            )
+        )
     job.start_reader()
     return job
 
@@ -649,6 +663,8 @@ def _completion_message(job: BackgroundJob) -> Message:
     stdout, stderr = job.get_output()
     details = format_job_output(job, stdout, stderr)
     suffix = f"\n\n{details}" if details else "\n\nNo output."
+    if job.kill_reason:
+        suffix = f"\n\n{job.kill_reason}{suffix}"
     return Message(
         "system",
         f"Background shell job #{job.id} finished ({status}): `{job.command}`{suffix}",
