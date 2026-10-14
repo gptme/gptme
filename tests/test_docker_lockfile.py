@@ -18,6 +18,15 @@ def test_docker_lockfile_inputs_exist(name: str) -> None:
                 assert (ROOT / source).exists(), f"{name} copies missing input {source}"
 
 
+def test_selfhost_installs_from_locked_export() -> None:
+    """The selfhost image must install dependencies from the committed uv.lock."""
+    dockerfile = (ROOT / "scripts" / "Dockerfile.selfhost").read_text()
+    assert "uv export --frozen" in dockerfile
+    assert "--extra server" in dockerfile
+    assert "pip install --no-cache-dir -r /tmp/requirements-server.txt" in dockerfile
+    assert 'pip install --no-cache-dir ".[server]"' not in dockerfile
+
+
 def test_docker_exports_exclude_local_project() -> None:
     """Requirements are installed outside the source tree alongside a built wheel."""
     dockerfile = (ROOT / "scripts" / "Dockerfile").read_text()

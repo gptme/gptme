@@ -28,7 +28,13 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY gptme/ gptme/
 COPY --from=webui-builder /app/webui/dist gptme/server/webui-dist/
-RUN pip install --no-cache-dir ".[server]"
+# Install the exact locked server dependency set, then the local package without
+# re-resolving dependencies.
+RUN pip install --no-cache-dir uv \
+    && uv export --frozen --no-hashes --no-dev --no-emit-project --extra server -o /tmp/requirements-server.txt \
+    && pip install --no-cache-dir -r /tmp/requirements-server.txt \
+    && pip install --no-cache-dir --no-deps . \
+    && rm /tmp/requirements-server.txt
 
 # Run as a non-root user; named volumes inherit this ownership.
 RUN useradd --create-home --uid 1000 gptme \
