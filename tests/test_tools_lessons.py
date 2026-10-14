@@ -530,6 +530,49 @@ class TestAutoIncludeLessonsHook:
 
     @patch("gptme.tools.lessons._get_lesson_index")
     @patch("gptme.tools.lessons.get_config")
+    def test_respects_per_turn_limit(self, mock_config, mock_index):
+        """Per-turn limit leaves session budget for lessons matched later."""
+        config = MagicMock()
+        config.get_env_bool.side_effect = lambda key, default: default
+        config.get_env.side_effect = lambda key: {
+            "GPTME_LESSONS_MAX_SESSION": "20",
+            "GPTME_LESSONS_MAX_PER_TURN": "2",
+        }.get(key)
+        mock_config.return_value = config
+
+        lessons = [
+            _lesson(path=f"/lessons/l{i}.md", title=f"Lesson {i}") for i in range(3)
+        ]
+        mock_idx = MagicMock()
+        mock_idx.lessons = lessons
+        mock_index.return_value = mock_idx
+
+        manager = self._make_manager([_msg("user", "trigger content")])
+
+        with patch("gptme.tools.lessons.LessonMatcher") as MockMatcher:
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = [
+                _match_result(lesson) for lesson in lessons
+            ]
+            MockMatcher.return_value = mock_matcher
+
+            first = list(auto_include_lessons_hook(manager))
+            second = list(auto_include_lessons_hook(manager))
+
+        assert isinstance(first[0], Message)
+        assert isinstance(second[0], Message)
+        assert "Lesson 0" in first[0].content
+        assert "Lesson 1" in first[0].content
+        assert "Lesson 2" not in first[0].content
+        assert "Lesson 2" in second[0].content
+        assert _get_session_stats().unique_lessons == {
+            "/lessons/l0.md",
+            "/lessons/l1.md",
+            "/lessons/l2.md",
+        }
+
+    @patch("gptme.tools.lessons._get_lesson_index")
+    @patch("gptme.tools.lessons.get_config")
     def test_updates_session_stats(self, mock_config, mock_index):
         """Session stats are updated after including lessons."""
         config = MagicMock()

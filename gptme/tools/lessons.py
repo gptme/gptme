@@ -273,6 +273,14 @@ def auto_include_lessons_hook(
     except (ValueError, TypeError):
         max_lessons = 20
 
+    # Optional per-turn limit. Unset keeps the old behavior, where a long first
+    # prompt can match enough lessons to spend the whole session budget at once
+    # and leave nothing for lessons matched later (e.g. by tool errors).
+    try:
+        max_per_turn = int(config.get_env("GPTME_LESSONS_MAX_PER_TURN") or "0")
+    except (ValueError, TypeError):
+        max_per_turn = 0
+
     # Get session stats and check if we've hit the limit
     stats = _get_session_stats()
 
@@ -384,6 +392,13 @@ def auto_include_lessons_hook(
                 f"(session: {len(stats.unique_lessons)}/{max_lessons})"
             )
             new_matches = new_matches[:remaining_budget]
+
+        if max_per_turn > 0 and len(new_matches) > max_per_turn:
+            logger.debug(
+                f"Limiting lessons from {len(new_matches)} to {max_per_turn} "
+                f"(per-turn limit)"
+            )
+            new_matches = new_matches[:max_per_turn]
 
         if not new_matches:
             logger.debug("No new lessons to include")
