@@ -23,7 +23,16 @@ Configuration:
         off by default). Accepts a plain byte count or a binary suffix (e.g.
         "512M", "1G"). Applies to the persistent shell and any command it runs
         via `ulimit -v`, so a runaway build fails with an allocation error
-        instead of stalling the session.
+        instead of stalling the session. Not enforced on macOS, which ignores
+        `ulimit -v` (gptme then warns and runs without the ceiling).
+
+    GPTME_SHELL_MEMORY_GUARD: When system memory runs low (under 10% available,
+        or memory pressure reported by macOS), kill the command the agent
+        started that uses the most memory (the running shell command or a
+        background job) if it holds at least 5% of RAM, and tell the model
+        why. Catches several heavy commands that only together exhaust
+        memory, which per-process limits can't. On by default (POSIX); set
+        to 0 to disable.
 
     GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
     head/tail token budget for stdout truncation. Defaults: 2000 / 8000.
