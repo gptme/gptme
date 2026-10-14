@@ -69,7 +69,7 @@ def build_payload(
         "session_name": session,
         "cwd": str(workspace),
         "workspace": {"current_dir": str(workspace), "project_dir": str(workspace)},
-        "model": {"id": model, "display_name": model},
+        "model": {"id": model, "display_name": model or "<no model set>"},
         "cost": {
             "total_cost_usd": cost,
             "total_duration_ms": duration_ms,
