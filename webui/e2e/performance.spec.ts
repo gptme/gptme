@@ -66,9 +66,11 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
 
-    // Open a conversation so the store is populated
+    // Open a conversation so the store is populated.
+    // With virtualization the page opens at the bottom; the first message is not
+    // in the DOM — wait for any rendered message instead.
     await page.getByText('Introduction to gptme').click();
-    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
     // Navigate back to the root and measure how quickly the sidebar becomes visible.
     // Pre-fix: the store subscription triggered cascading re-renders that slowed the sidebar
@@ -94,9 +96,11 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
 
-    // Load a conversation so every subsequent sidebar render has a populated store
+    // Load a conversation so every subsequent sidebar render has a populated store.
+    // With virtualization the page opens at the bottom; the first message is not
+    // in the DOM — wait for any rendered message instead.
     await page.getByText('Introduction to gptme').click();
-    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
     // Go back to the list
     await page.goto('/');
