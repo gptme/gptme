@@ -3568,8 +3568,17 @@ async def test_take_steer_prompts(tmp_path):
             "second",
         ]
 
+        # URLs not yet confirmed (e.g. initial prompts) wait; queued ones were
+        # confirmed when queued and join with exactly the confirmed URLs
         app.prompt_queue = ["see https://example.com"]
         assert app._take_steer_prompts() == []
+        confirmed = Message("user", "see https://example.com", quiet=True)
+        app._confirmed_urls[id(confirmed)] = []
+        app.prompt_queue = [confirmed]
+        assert [m.content for m in app._take_steer_prompts()] == [
+            "see https://example.com"
+        ]
+        assert app._confirmed_urls == {}
         app.prompt_queue = [Message("user", "skill prompt")]
         assert app._take_steer_prompts() == []
         app.prompt_queue = ["after interrupt"]

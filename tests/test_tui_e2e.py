@@ -296,6 +296,48 @@ async def test_e2e_queued_prompt_steers_running_turn(mock_app, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_e2e_queued_url_prompt_confirms_at_queue_time(mock_app, monkeypatch):
+    """Queuing a prompt with URLs asks about fetching right away; the prompt
+    then steers the running turn like any other."""
+    from gptme.tui.app import UrlConfirmScreen
+
+    monkeypatch.setenv("GPTME_MAX_STEPS", "3")
+    app = mock_app
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "run this:\n```shell\nsleep 1.5\n```"
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+            what="confirmation dialog",
+        )
+        await pilot.press("y")
+        await pilot.pause()
+        inp.text = "also see https://example.invalid/page"
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], UrlConfirmScreen),
+            what="URL dialog at queue time",
+        )
+        assert app.generating
+        await pilot.press("n")  # don't fetch
+        await pilot.pause()
+        assert len(app.prompt_queue) == 1
+        await wait_for(
+            pilot,
+            lambda: not app.generating and app.state == "idle",
+            what="generation to finish",
+        )
+        users = [m.content for m in app.manager.log if m.role == "user"]
+        assert users[-1] == "also see https://example.invalid/page"
+        assert app.prompt_queue == []
+        assert not isinstance(app.screen_stack[-1], UrlConfirmScreen)  # asked once
+
+
+@pytest.mark.asyncio
 async def test_e2e_tool_skip(mock_app, tmp_path):
     """Declining the confirm dialog skips execution and returns to idle."""
     app = mock_app

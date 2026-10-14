@@ -134,8 +134,8 @@ Key                Action
 
 A prompt sent while the agent is working is queued. It joins the running
 turn before the agent's next step, so you can steer it without waiting for
-the turn to finish. Slash-commands and prompts with URLs wait until the turn
-ends.
+the turn to finish. If it contains URLs, you're asked whether to fetch them
+when you queue it. Slash-commands wait until the turn ends.
 
 When a tool is about to execute, a confirmation dialog shows a preview;
 press :kbd:`y` to execute, :kbd:`n` to skip, or :kbd:`a` to auto-confirm for
