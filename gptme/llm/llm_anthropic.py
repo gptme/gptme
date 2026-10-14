@@ -22,6 +22,7 @@ from ..tools.base import ToolSpec, truncate_tool_description
 from ..tools.native_names import canonical_tool_name, native_tool_name
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
+from .request_limits import bounded_attempts, reserve_request
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
     DEFAULT_BASE_DELAY,
@@ -627,7 +628,9 @@ def retry_on_overloaded(
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
             generation = current_generation()
-            attempts = max_retries if max_retries is not None else get_max_retries()
+            attempts = bounded_attempts(
+                max_retries if max_retries is not None else get_max_retries()
+            )
             last_error: Exception | None = None
             for attempt in range(attempts):
                 # Do not start or retry a request after a thread-mode subagent's
@@ -973,6 +976,9 @@ def chat(
     else:
         _call_timeout = _chat_timeout()
 
+    reserve_request(
+        client, "anthropic", {"messages": messages_dicts, "system": system_messages}
+    )
     response = client.messages.create(  # type: ignore[call-overload]
         model=api_model,
         messages=messages_dicts,

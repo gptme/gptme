@@ -85,6 +85,8 @@ class LLMSelector(ContextSelector):
             model=self.config.llm_model,
             workspace=None,  # Context selection doesn't need context discovery (would be circular)
             max_tokens=self.config.max_tokens,
+            max_input_bytes=self.config.max_input_bytes,
+            max_provider_requests=self.config.max_provider_requests,
         )
         duration = time.monotonic() - start
 

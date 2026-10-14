@@ -56,6 +56,7 @@ from .openai_responses import (
     _tool_spec_to_responses_tool,
     served_model_from,
 )
+from .request_limits import bounded_attempts, reserve_request
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
     DEFAULT_BASE_DELAY,
@@ -1043,7 +1044,9 @@ def retry_on_openai_error(
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = max_retries if max_retries is not None else get_max_retries()
+            attempts = bounded_attempts(
+                max_retries if max_retries is not None else get_max_retries()
+            )
             # Capture the retry generation once per call: if test teardown
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
@@ -1236,6 +1239,7 @@ def chat(
             if top_p_value is not None:
                 response_kwargs["top_p"] = top_p_value
 
+        reserve_request(client, str(provider), response_kwargs)
         response = client.responses.create(**response_kwargs)
         metadata = _record_usage(
             response.usage,
@@ -1290,6 +1294,12 @@ def chat(
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
 
     def _chat_create(relaxed_privacy: bool = False) -> Any:
+        reserve_request(
+            client,
+            str(provider),
+            {"messages": messages_dicts},
+            relaxed_parameters=relaxed_privacy,
+        )
         return client.chat.completions.with_raw_response.create(
             model=api_model.split("@")[0],
             messages=cast(list, messages_dicts),
