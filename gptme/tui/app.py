@@ -3107,6 +3107,7 @@ class GptmeApp(App):
     def _begin_stream(self) -> None:
         # A new model step starts only after the previous tool batch finished.
         self._clear_tool_placeholder()
+        self._message_pre_rendered = False
         self._set_state("generating")
         if self.inline:
             self.query_one("#live", Static).update(Text("Generating…", style="dim"))
