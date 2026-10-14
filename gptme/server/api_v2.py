@@ -1219,7 +1219,7 @@ def api_dev_deploy_staging_trigger():
 @v2_api.route("/api/v2/external-sessions")
 @require_auth
 @api_doc_simple(
-    responses={200: ExternalSessionListResponse, 503: ErrorResponse},
+    responses={200: ExternalSessionListResponse},
     tags=["external-sessions"],
     parameters=[
         {
@@ -1237,10 +1237,14 @@ def api_dev_deploy_staging_trigger():
     ],
 )
 def api_external_sessions():
-    """List read-only external sessions discovered by the server."""
+    """List read-only external sessions discovered by the server.
+
+    When no external session provider is configured, returns HTTP 200 with
+    an empty ``sessions`` list rather than an error.
+    """
     provider = get_external_session_provider()
     if provider is None:
-        return flask.jsonify({"error": "external session provider unavailable"}), 503
+        return flask.jsonify({"sessions": []})
 
     try:
         limit = int(request.args.get("limit", 100))
