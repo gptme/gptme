@@ -11,6 +11,7 @@ import contextlib
 import contextvars
 import functools
 import io
+import json
 import logging
 import math
 import os.path
@@ -517,6 +518,19 @@ def _split_streaming_markdown_tool_calls(text: str) -> list[tuple[bool, str]]:
 def _streaming_tool_stub(tool_body: str) -> str:
     """One-line stub for a streaming (open/incomplete) markdown tool call."""
     first_line = tool_body.lstrip("\n").split("\n")[0].rstrip()
+    if native := re.match(r"^@(\w+)\(", first_line):
+        # native call: show its main argument (command/code/path), if any yet
+        arg = _NATIVE_ARG_RE.search(first_line)
+        summary = ""
+        if arg:
+            with contextlib.suppress(ValueError):
+                summary = json.loads(f'"{arg.group(1)}"')
+            summary = summary or arg.group(1)
+            summary = summary.strip().split("\n")[0]
+        if summary:
+            summary = summary if len(summary) <= 55 else summary[:54] + "…"
+            return f"▶ {native.group(1)}: {summary}…"
+        return f"▶ {native.group(1)}…"
     m = re.match(r"^`{3,}(\S+)(?:\s+(.+?))?[ \t]*$", first_line)
     if not m:
         return "▶ tool…"
@@ -543,8 +557,35 @@ def _streaming_all_segments(buffer: str) -> list[tuple[str, str]]:
             for is_tool, seg in _split_streaming_markdown_tool_calls(text):
                 if not seg.strip():
                     continue
-                out.append(("tool_call" if is_tool else "prose", seg))
+                if is_tool:
+                    out.append(("tool_call", seg))
+                    continue
+                for is_call, part in _split_streaming_native_tool_calls(seg):
+                    if part.strip():
+                        out.append(("tool_call" if is_call else "prose", part))
     return out
+
+
+# A native ("tool" format) call while streaming: its header line, up to the
+# end of that line or of the buffer (the JSON may still be arriving).
+_STREAMING_NATIVE_CALL_RE = re.compile(r"^@\w+\([^)\n]*\):[^\n]*", re.MULTILINE)
+
+
+def _split_streaming_native_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Split prose into (is_tool, segment) at ``@tool(id): {...}`` lines."""
+    out: list[tuple[bool, str]] = []
+    last = 0
+    for m in _STREAMING_NATIVE_CALL_RE.finditer(text):
+        if text[last : m.start()].strip():
+            out.append((False, text[last : m.start()]))
+        out.append((True, m.group(0)))
+        last = m.end()
+    if text[last:].strip() or not out:
+        out.append((False, text[last:]))
+    return out
+
+
+_NATIVE_ARG_RE = re.compile(r'"(?:command|code|path|file)"\s*:\s*"((?:[^"\\]|\\.)*)')
 
 
 def _split_xml_tool_calls(content: str) -> list[tuple[bool, str]]:

@@ -3455,3 +3455,24 @@ async def test_statusline_result_after_shutdown_is_ignored(tmp_path):
         await app.screen.query_one("#status").remove()
         app._show_statusline("late output")
         app._show_statusline(None)
+
+
+def test_streaming_native_tool_call_is_collapsed():
+    """A native-format call (``@tool(id): {json}``) streams as a one-line stub,
+    not raw JSON, including while its arguments are still arriving."""
+    from gptme.tui.app import _streaming_all_segments, _streaming_tool_stub
+
+    buf = (
+        "Off-by-one in the windowing. Let me fix it.\n"
+        '@ipython(call_38c6): {"code":"\\nimport subprocess, os\\nprint(1)'
+    )
+    segments = _streaming_all_segments(buf)
+    assert [kind for kind, _ in segments] == ["prose", "tool_call"]
+    assert _streaming_tool_stub(segments[1][1]) == "▶ ipython: import subprocess, os…"
+    assert (
+        _streaming_tool_stub('@shell(c1): {"command":"ls -la"}') == "▶ shell: ls -la…"
+    )
+    assert _streaming_tool_stub("@save(c2): {") == "▶ save…"
+    assert _streaming_all_segments("use @mention in prose") == [
+        ("prose", "use @mention in prose")
+    ]
