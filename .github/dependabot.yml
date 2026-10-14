@@ -3,10 +3,12 @@
 # Please see the documentation for all configuration options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
-# Policy: every directory gets at most two PRs per run, one for minor/patch and
-# one for majors, so bumps that share a lockfile never conflict with each other
-# (four separate @wdio/* majors in /tauri/e2e kept rebasing each other and
-# re-running the full Tauri matrix, gptme/gptme#4253). If one major in a
+# Policy: each directory gets one minor/patch group and one catch-all majors
+# group (plus any peer-coupled majors groups, e.g. react/jest in /webui), so a
+# run opens a handful of PRs per directory instead of one per major. Fewer PRs
+# sharing a lockfile means fewer rebase-and-rerun-CI cycles (four separate
+# @wdio/* majors in /tauri/e2e kept rebasing each other and re-running the
+# full Tauri matrix, gptme/gptme#4253). If one major in a
 # group breaks, drop just that one with `@dependabot ignore <dep> major version`
 # on the PR instead of closing the group.
 #
@@ -18,9 +20,7 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
-    # Collapse routine minor/patch bumps into a single PR per run to keep the
-    # review queue small. Major bumps still open individual PRs so breaking
-    # changes get scrutiny.
+    # One PR for routine minor/patch bumps, one for majors (reviewed by hand).
     groups:
       python-minor-patch:
         patterns:
