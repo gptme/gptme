@@ -2690,3 +2690,74 @@ async def test_exit_command_does_not_submit_queued_prompt(tmp_path, monkeypatch)
         await pilot.pause()
     assert started == []
     assert [m.content for m in app.manager.log if m.role == "user"] == ["/exit"]
+
+
+@pytest.mark.asyncio
+async def test_stream_updates_are_batched(tmp_path, monkeypatch):
+    """Chunks from the worker are buffered and rendered at most STREAM_FPS
+    times a second: each render re-lays out the whole buffer."""
+    import threading
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    renders: list[str] = []
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._begin_stream()
+        await pilot.pause()
+        widget = app._stream_widget
+        assert widget is not None
+        real_append = widget.append_token
+
+        def counting_append(token: str) -> None:
+            renders.append(token)
+            real_append(token)
+
+        monkeypatch.setattr(widget, "append_token", counting_append)
+
+        def stream() -> None:
+            for i in range(500):
+                app._on_token(f"{i} ")
+
+        worker = threading.Thread(target=stream)
+        worker.start()
+        worker.join(5)
+        assert not worker.is_alive()  # the worker never waits on the UI
+        await pilot.pause(0.2)
+        assert "".join(renders) == "".join(f"{i} " for i in range(500))
+        assert len(renders) < 20, len(renders)
+
+
+@pytest.mark.asyncio
+async def test_chat_anchors_only_once_overflowing(tmp_path):
+    """A short chat starts at the top; once it overflows it is anchored to
+    the bottom instead of scrolling on every update."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        chat = app.query_one("#chat")
+        app._show_info("short")
+        await pilot.pause()
+        assert not chat.is_anchored
+        for i in range(30):
+            app._show_info(f"line {i}")
+        await pilot.pause()
+        assert chat.is_anchored
+        assert chat.scroll_y == chat.max_scroll_y
+
+
+@pytest.mark.asyncio
+async def test_tool_results_mount_above_persistent_status_line(tmp_path):
+    """Tool results go above the 'Running tool…' line instead of removing
+    and remounting it after every result."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._show_tool_placeholder()
+        placeholder = app._tool_placeholder
+        app.state = "executing tools"
+        app._on_step_message(Message("system", "result 1"))
+        app._on_step_message(Message("system", "result 2"))
+        await pilot.pause()
+        assert app._tool_placeholder is placeholder
+        chat = app.query_one("#chat")
+        assert chat.children[-1] is placeholder

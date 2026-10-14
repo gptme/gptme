@@ -23,6 +23,7 @@ try:
 except ImportError:
     termios = None  # type: ignore[assignment]
 import threading
+import time
 from pathlib import Path
 from typing import IO, cast
 from uuid import uuid4
@@ -1328,6 +1329,10 @@ class _CommandResult:
     exit: bool = False
 
 
+# Max stream re-renders per second; each re-lays out the whole buffer.
+STREAM_FPS = 20
+
+
 class GptmeApp(App):
     """gptme TUI: streaming chat with live input, queueing and collapsible output."""
 
@@ -1580,6 +1585,12 @@ class GptmeApp(App):
         self._interrupt_event = threading.Event()
         self._quitting = False
         self._stream_widget: StreamingMessage | None = None
+        # Streamed chunks are buffered by the worker and rendered at most
+        # STREAM_FPS times a second: each render re-lays out the whole buffer.
+        self._stream_lock = threading.Lock()
+        self._stream_pending: list[str] = []
+        self._stream_flush_scheduled = False
+        self._stream_last_flush = 0.0
         self._tool_placeholder: ToolPlaceholder | None = None
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
@@ -1666,9 +1677,12 @@ class GptmeApp(App):
         else:
             # inline mode prints history to the terminal before the app starts
             self._render_history()
+            chat = self.query_one("#chat", VerticalScroll)
             # prevent the chat scroll area from stealing focus; input is always
             # the active widget for keyboard input
-            self.query_one("#chat", VerticalScroll).can_focus = False
+            chat.can_focus = False
+            self.watch(chat, "virtual_size", self._anchor_chat, init=False)
+            self.watch(chat, "size", self._anchor_chat, init=False)
         self.query_one("#input", ChatInput).focus()
         self._update_status()
         # watchdog: tools can reset the tty at any point during execution
@@ -1682,7 +1696,7 @@ class GptmeApp(App):
         if not self.inline:
             widget = UserMessage(_queued_prompt_text(prompt), queued=True)
             self._queued_widgets.append(widget)
-            self._mount_in_chat(widget)
+            self.query_one("#chat", VerticalScroll).mount(widget)
         self._update_status()
 
     def _pop_queued_prompt(self) -> str | Message:
@@ -1843,7 +1857,21 @@ class GptmeApp(App):
             widget = self._widget_for(msg)
             if widget:
                 chat.mount(widget)
-        self.call_after_refresh(chat.scroll_end, animate=False)
+        chat.anchor(False)  # re-evaluated for the new content
+        self.call_after_refresh(self._anchor_chat)
+
+    def _anchor_chat(self, *_: object) -> None:
+        """Anchor the chat to the bottom once its content overflows.
+
+        Anchored, it stays at the bottom as content grows or shrinks, without
+        a scroll per update, until the user scrolls up (scrolling back down
+        re-anchors). Not before overflowing: Textual would then bottom-align
+        a short chat instead of starting it at the top.
+        """
+        chat = self.query_one("#chat", VerticalScroll)
+        height = chat.container_size.height
+        if not chat.is_anchored and 0 < height < chat.virtual_size.height:
+            chat.anchor()
 
     def _widget_for(self, msg: Message) -> Widget | None:
         if msg.role == "user":
@@ -1927,10 +1955,13 @@ class GptmeApp(App):
 
     def _mount_in_chat(self, widget: Widget) -> None:
         chat = self.query_one("#chat", VerticalScroll)
-        stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
-        chat.mount(widget)
-        if stick:
-            self.call_after_refresh(chat.scroll_end, animate=False)
+        # keep the tool status line last while a tool batch runs, instead of
+        # removing and remounting it around every result
+        placeholder = self._tool_placeholder
+        if placeholder is not None and placeholder.parent is chat:
+            chat.mount(widget, before=placeholder)
+        else:
+            chat.mount(widget)
 
     def _restore_terminal(self) -> None:
         """Reassert raw mode if tool execution reset the tty (e.g. ipython).
@@ -2510,10 +2541,35 @@ class GptmeApp(App):
         # next worker re-enter a still-entered Context and crash.
 
     def _on_token(self, token: str) -> None:
-        # called from the worker thread, per streamed line/chunk
+        # called from the worker thread, per streamed line/chunk: buffer it and
+        # post (without blocking the worker on the UI) at most one flush
         if self._interrupt_event.is_set():
             raise KeyboardInterrupt
-        self.call_from_thread(self._on_stream_token, token)
+        with self._stream_lock:
+            self._stream_pending.append(token)
+            if self._stream_flush_scheduled:
+                return
+            self._stream_flush_scheduled = True
+        self.post_message(self.StreamPending())
+
+    class StreamPending(TextualMessage):
+        """Streamed chunks are waiting in the buffer (posted from the worker)."""
+
+    def on_gptme_app_stream_pending(self, _: StreamPending) -> None:
+        delay = self._stream_last_flush + 1 / STREAM_FPS - time.monotonic()
+        if delay > 0:
+            self.set_timer(delay, self._flush_stream)
+        else:
+            self._flush_stream()
+
+    def _flush_stream(self) -> None:
+        with self._stream_lock:
+            text = "".join(self._stream_pending)
+            self._stream_pending.clear()
+            self._stream_flush_scheduled = False
+        self._stream_last_flush = time.monotonic()
+        if text:
+            self._on_stream_token(text)
 
     def _on_thinking(self, is_thinking: bool) -> None:
         # called from the worker thread when thinking state changes
@@ -2561,14 +2617,13 @@ class GptmeApp(App):
         if self._stream_widget is None:
             self._stream_widget = StreamingMessage(self.show_thinking)
             self._mount_in_chat(self._stream_widget)
-        chat = self.query_one("#chat", VerticalScroll)
-        stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
         self._stream_widget.append_token(token)
-        if stick:
-            self.call_after_refresh(chat.scroll_end, animate=False)
 
     def _clear_stream_view(self) -> None:
         self._stream_text = ""
+        with self._stream_lock:
+            # a pending flush belongs to the stream being replaced
+            self._stream_pending.clear()
         if self.inline:
             self.query_one("#live", Static).update("")
         if self._stream_widget is not None:
@@ -2596,10 +2651,8 @@ class GptmeApp(App):
         if msg.role == "assistant":
             # replace the live stream view with the final rendering
             self._clear_stream_view()
-        if msg.role == "system":
-            # Keep the indicator at the bottom while results and hook messages
-            # arrive. The next model step or worker completion ends the batch.
-            self._clear_tool_placeholder()
+        # Results and hook messages mount above the tool status line, which
+        # stays until the next model step or worker completion ends the batch.
         self._show_message(msg)
         # UI thread: the tool format lives in the chat context, so pass it
         if msg.role == "assistant" and any(
