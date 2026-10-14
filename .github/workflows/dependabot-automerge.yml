@@ -6,14 +6,13 @@ name: Dependabot auto-merge
 # App to hold `Workflows: write`, which is more power than this job deserves
 # for one monthly PR.
 #
-# It also needs Greptile's review to score 5/5. Anything lower means Greptile
-# found something worth a look (e.g. #4257: tailwind-merge 3 targets Tailwind
-# 4), so the PR is held with a comment. Greptile does not re-review when
-# Dependabot rebases, so a review of an older commit still counts if that
-# commit's updated-dependencies list (from Dependabot's commit message) is
-# identical to the head's; otherwise the PR is held too. No review at all
-# within 90 minutes of the PR opening counts as 5/5: Greptile being down or
-# skipping a PR shouldn't stall routine bumps.
+# It also needs a 5/5 confidence review. The reviewer is Greptile by default;
+# if Greptile hasn't reviewed within 90 minutes of the PR opening, Bob's AI
+# review (`@TimeToBuildBob review`) is requested instead. Anything below 5/5
+# holds the PR. Greptile does not re-review when Dependabot rebases, so a
+# review of an older commit still counts if that commit's
+# updated-dependencies list (from Dependabot's commit message) is identical
+# to the head's; the same rebase-tolerance applies to Bob's review.
 #
 # Why it waits itself instead of using GitHub's native auto-merge: the Master
 # ruleset has no required status checks (most workflows are path-filtered, so
@@ -111,7 +110,14 @@ jobs:
           sleep 60
         done
 
-    - name: Check Greptile review
+    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      id: app-token
+      if: steps.wait.outputs.green == 'true'
+      with:
+        app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+        private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+    - name: Check review (Greptile, then Bob)
       id: greptile
       if: steps.wait.outputs.green == 'true'
       env:
@@ -135,42 +141,64 @@ jobs:
             | awk '/^- dependency-name:/ {n=$3} /^  dependency-version:/ {print n "@" $2}' \
             | sort
         }
+        pass_if_review_ok() {  # usage: pass_if_review_ok <reviewer> <score> <reviewed_sha>
+          local reviewer=$1 score=$2 reviewed=$3
+          echo "$reviewer: score=${score:-?}/5 reviewed=${reviewed:-?} head=$SHA"
+          [ "$score" = 5 ] || hold "$reviewer confidence is ${score:-unknown}/5 (needs 5/5)."
+          if [ "$reviewed" != "$SHA" ]; then
+            head_deps=$(deps "$SHA")
+            [ -n "$head_deps" ] || hold "no updated-dependencies list in the head commit message."
+            [ "$(deps "$reviewed" || true)" = "$head_deps" ] \
+              || hold "$reviewer reviewed ${reviewed:0:9}, and the dependency versions changed since."
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        }
 
         # Greptile usually finishes well before the slowest checks. Wait until
         # 90 min after the PR opened (within the job timeout, since checks take
-        # at most ~60); no review by then is treated as 5/5. Measured from
-        # creation so a rebase of a never-reviewed PR doesn't wait again.
+        # at most ~60). Measured from creation so a rebase of a never-reviewed
+        # PR doesn't wait again.
         deadline=$(( $(date -d "$CREATED" +%s) + 90 * 60 ))
         while :; do
           summary=$(comments | jq -r '[.[] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
           [ -n "$summary" ] || [ "$(date +%s)" -ge "$deadline" ] && break
           sleep 60
         done
-        if [ -z "$summary" ]; then
-          echo "::notice::No Greptile review within 90 min of opening; treating as 5/5."
-          echo "ok=true" >> "$GITHUB_OUTPUT"
-          exit 0
+        if [ -n "$summary" ]; then
+          score=$(grep -oE 'Confidence Score: [0-9]/5' <<<"$summary" | grep -oE '[0-9]' | head -1 || true)
+          reviewed=$(grep -oE 'commit/[0-9a-f]{40}' <<<"$summary" | tail -1 | cut -d/ -f2 || true)
+          [ -n "$reviewed" ] || hold "could not tell which commit Greptile reviewed."
+          pass_if_review_ok "Greptile" "$score" "$reviewed"
         fi
 
-        score=$(grep -oE 'Confidence Score: [0-9]/5' <<<"$summary" | grep -oE '[0-9]' | head -1 || true)
-        reviewed=$(grep -oE 'commit/[0-9a-f]{40}' <<<"$summary" | tail -1 | cut -d/ -f2 || true)
-        echo "Greptile: score=${score:-?}/5 reviewed=${reviewed:-?} head=$SHA"
-        [ "$score" = 5 ] || hold "Greptile confidence is ${score:-unknown}/5 (needs 5/5)."
-        [ -n "$reviewed" ] || hold "could not tell which commit Greptile reviewed."
-        if [ "$reviewed" != "$SHA" ]; then
-          head_deps=$(deps "$SHA")
-          [ -n "$head_deps" ] || hold "no updated-dependencies list in the head commit message."
-          [ "$(deps "$reviewed" || true)" = "$head_deps" ] \
-            || hold "Greptile reviewed ${reviewed:0:9}, and the dependency versions changed since. Comment \`@greptileai review\` to refresh."
+        # No Greptile review — fall back to Bob's AI review.
+        echo "::notice::No Greptile review within 90 min; falling back to Bob's review."
+        # Post @TimeToBuildBob review trigger once per SHA so the sweep picks it
+        # up as a fresh-review request. Deduplicated so a Dependabot rebase that
+        # cancels and restarts this job doesn't post a second comment.
+        bob_trigger="<!-- bob-review-trigger:$SHA -->"
+        if ! gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' | grep -qF "$bob_trigger"; then
+          gh pr comment "$PR" -R "$REPO" --body "@TimeToBuildBob review
+        $bob_trigger"
         fi
-        echo "ok=true" >> "$GITHUB_OUTPUT"
-
-    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-      id: app-token
-      if: steps.greptile.outputs.ok == 'true' || steps.greptile.outputs.hold != ''
-      with:
-        app-id: ${{ secrets.AUTOMERGE_APP_ID }}
-        private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+        # Poll for Bob's verdict for up to 45 min (fits within the 120-min job
+        # timeout; the sweep runs frequently on gptme/gptme so Bob is usually
+        # done within one cycle).
+        bob_deadline=$(( $(date +%s) + 45 * 60 ))
+        while :; do
+          bob_body=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.user.login == "TimeToBuildBob" and (.body | contains("<!-- bob-ai-review ")))] | last | .body // empty')
+          if [ -n "$bob_body" ]; then
+            bob_score=$(grep -oE '"score": *[0-9]+' <<<"$bob_body" | grep -oE '[0-9]+$' | head -1 || true)
+            bob_sha=$(grep -oE '"sha": *"[0-9a-f]{40}"' <<<"$bob_body" | grep -oE '"[0-9a-f]{40}"' | tr -d '"' | head -1 || true)
+            [ -n "$bob_sha" ] || hold "could not parse commit SHA from Bob's review."
+            pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+          fi
+          [ "$(date +%s)" -lt "$bob_deadline" ] || break
+          sleep 60
+        done
+        hold "No review (Greptile or Bob) within the time window."
 
     - name: Post hold comment
       if: steps.greptile.outputs.hold != ''
