@@ -4,10 +4,14 @@ The assistant can execute Python code blocks.
 It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.
 
 Configuration:
-    GPTME_IPYTHON_TIMEOUT: Seconds a code block may run before it is interrupted
-        (default 600, 0 disables). Processes the block started are killed too,
-        and ``time.sleep`` is interruptible while a block runs; other blocking
-        calls (e.g. a socket read) only stop once they return.
+    GPTME_IPYTHON_TIMEOUT: Seconds an in-process code block may run before it is
+        interrupted (default 600, 0 disables). Processes the block started are
+        killed too, and ``time.sleep`` is interruptible while a block runs;
+        other blocking calls (e.g. a socket read) only stop once they return.
+
+Set ``GPTME_IPYTHON_BACKEND=kernel`` to run cells in a separate Jupyter kernel
+process, which enables reliable SIGINT interrupts and project-environment
+isolation (``%pip install`` goes to the project venv, not gptme's).
 """
 
 import ast
@@ -56,6 +60,12 @@ if TYPE_CHECKING:
 
 
 logger = getLogger(__name__)
+
+# When True, cells execute in a separate Jupyter kernel process.
+# Set GPTME_IPYTHON_BACKEND=kernel to enable.
+_KERNEL_MODE: bool = (
+    os.environ.get("GPTME_IPYTHON_BACKEND", "inprocess").lower() == "kernel"
+)
 
 # Default byte cap for python tool output (10 MiB)
 _DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
@@ -257,6 +267,11 @@ def register_function(func: T, *, tool_name: str | None = None) -> T:
     # if ipython is already initialized, push the function to it to make it available
     if _ipython is not None:
         _ipython.push({func.__name__: func})
+    # In kernel mode, register as a bridge-callable stub in the kernel
+    if _KERNEL_MODE:
+        from .python_kernel import get_backend
+
+        get_backend().register_bridge_function(func)
     return func
 
 
@@ -420,6 +435,45 @@ def capture_and_display():
         sys.stdout, sys.stderr = old_stdout, old_stderr
 
 
+def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
+    """Execute *code* in the separate Jupyter kernel process."""
+    from .python_kernel import get_backend
+
+    backend = get_backend()
+    try:
+        result = backend.execute(code)
+    except RuntimeError as exc:
+        yield Message(
+            "system",
+            f"Kernel error: {exc}\n\nFalling back is not automatic; set GPTME_IPYTHON_BACKEND=inprocess to use in-process mode.",
+        )
+        return
+
+    output = ""
+
+    if result.stdout:
+        output += md_codeblock("stdout", _cap_output(result.stdout).rstrip()) + "\n\n"
+
+    if result.result_text is not None:
+        result_str = _cap_output(result.result_text)
+        output += f"Result:\n{md_codeblock('', result_str)}\n\n"
+
+    if result.stderr:
+        output += md_codeblock("stderr", _cap_output(result.stderr).rstrip()) + "\n\n"
+
+    if result.error:
+        tb_str = "\n".join(result.error.get("traceback", []))
+        ename = result.error.get("ename", "Error")
+        evalue = result.error.get("evalue", "")
+        output += f"Exception: {ename}: {evalue}\n"
+        if tb_str:
+            output += md_codeblock("traceback", tb_str) + "\n\n"
+
+    output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
+
+    yield Message("system", "Executed code block (kernel).\n\n" + output)
+
+
 def execute_python(
     code: str | None,
     args: list[str] | None,
@@ -480,6 +534,11 @@ def execute_python(
             "system",
             f"Executed code block ({label}).\n\n" + output,
         )
+        return
+
+    # Kernel mode: execute in a separate Jupyter kernel process
+    if _KERNEL_MODE:
+        yield from _execute_python_kernel(code)
         return
 
     # Create an IPython instance if it doesn't exist yet
