@@ -30,10 +30,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # On PRs that only change the web UI (not tauri/), skip the macOS, Windows
-  # and Android builds: they rarely break from web UI changes and are the
-  # slowest/scarcest runners. Lint, tests, E2E and the Linux build still run;
-  # master pushes and manual runs build everything.
+  # On PRs that only change the web UI or the E2E harness (tauri/e2e, e.g.
+  # WebdriverIO bumps), skip the macOS, Windows and Android builds: they rarely
+  # break from web UI changes, never load the E2E harness, and are the
+  # slowest/scarcest runners. Lint, tests, E2E and
+  # the Linux build still run; master pushes and manual runs build everything.
   changes:
     name: Detect changes
     if: github.event_name == 'pull_request'
@@ -42,16 +43,21 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      tauri: ${{ steps.filter.outputs.tauri }}
+      tauri: ${{ steps.filter.outputs.tauri == 'true' || steps.filter.outputs.workflow == 'true' }}
     steps:
     - uses: actions/checkout@v7
     - uses: dorny/paths-filter@v4
       id: filter
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
+        # `every`: a file counts only if it matches all of a filter's patterns,
+        # which is what makes the `!` exclusion work.
+        predicate-quantifier: 'every'
         filters: |
           tauri:
             - 'tauri/**'
+            - '!tauri/e2e/**'
+          workflow:
             - '.github/workflows/tauri.yml'
 
   lint:
@@ -262,7 +268,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # all platforms, or only Linux on web-UI-only PRs (see `changes`)
+        # all platforms, or only Linux on web-UI- or E2E-only PRs (see `changes`)
         include: ${{ fromJson((github.event_name != 'pull_request' || needs.changes.outputs.tauri == 'true') && '[{"platform":"macos-latest","args":"--bundles app"},{"platform":"ubuntu-24.04","args":"--bundles appimage,deb"},{"platform":"windows-latest","args":"--bundles nsis"}]' || '[{"platform":"ubuntu-24.04","args":"--bundles appimage,deb"}]') }}
 
     runs-on: ${{ matrix.platform }}
@@ -725,7 +731,7 @@ jobs:
     name: Build Android (APK/AAB)
     # Only aarch64 for PR/push checks; full multi-arch on release tags
     needs: [changes, lint, test]
-    # skipped on web-UI-only PRs (see `changes`)
+    # skipped on web-UI- or E2E-only PRs (see `changes`)
     if: >-
       ${{ !cancelled()
           && needs.lint.result == 'success' && needs.test.result == 'success'
