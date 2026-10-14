@@ -15,15 +15,21 @@ on:
     paths-ignore:
       - 'webui/**'
       - 'tauri/**'
+  # Daily rebuild so gptme.org/stats/ (and the stars count in the header) picks
+  # up the numbers gptme/stats collects at 04:17 UTC, without committing data here.
+  schedule:
+    - cron: '7 5 * * *'
+  workflow_dispatch:
 
 # Cancel a PR's older runs when it gets a new push (they're superseded).
 # Master pushes share one group without cancel-in-progress: a running master
 # run finishes, but a queued one is replaced by the newer push, so a burst of
 # merges runs once on the latest commit instead of once per commit. Test keeps
-# one group per master commit (its slow suite attributes regressions); every
-# other run (release, dispatch, schedule) gets its own group.
+# one group per master commit (its slow suite attributes regressions). Here the
+# daily schedule and manual dispatches join the same per-ref group as pushes, so
+# an older scheduled build can never deploy after a newer master build.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

@@ -180,6 +180,7 @@ site-check:  ## Verify the assembled gptme.org tree before deploy
 	grep -F -q "An AI agent that lives in your terminal" site/dist/index.html
 	test -f site/dist/readme/index.html
 	grep -F -q "https://gptme.org/media/" site/dist/readme/index.html
+	test -f site/dist/stats/index.html
 	test -f site/dist/docs/index.html
 	test -f site/dist/CNAME
 	grep -Fxq "gptme.org" site/dist/CNAME

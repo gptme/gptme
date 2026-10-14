@@ -33,4 +33,12 @@ if (!home.includes("An AI agent that lives in your terminal")) {
   process.exit(1);
 }
 
+const statsPage = readFileSync(join(dist, "stats/index.html"), "utf8");
+// Charts are optional (resolveCharts drops any gptme/stats doesn't publish), so only
+// check for the page's own content.
+if (!statsPage.includes("Project stats") || !statsPage.includes("Latest snapshot")) {
+  console.error("prerender check failed: dist/stats/index.html has no stats content");
+  process.exit(1);
+}
+
 rmSync(ssrDir, { recursive: true, force: true });

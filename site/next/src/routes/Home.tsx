@@ -651,7 +651,8 @@ function Stats({ stats }: { stats: SiteStats }) {
         ))}
       </dl>
       <p className="m-0 text-[13px] text-muted-text max-sm:text-xs">
-        Stars and contributors update daily from <a href={links.stats}>gptme/stats</a>.
+        Stars and contributors update daily from <a href={links.stats}>gptme/stats</a>.{" "}
+        <a href="/stats/">More stats →</a>
       </p>
     </section>
   );
