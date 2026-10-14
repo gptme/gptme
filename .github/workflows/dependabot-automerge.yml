@@ -1,0 +1,120 @@
+name: Dependabot auto-merge
+
+# Squash-merges Dependabot minor/patch PRs once every other check on the PR has
+# passed. Majors (any group containing one) are left for a human, and so are
+# GitHub Actions bumps: merging changes under .github/workflows/ would need the
+# App to hold `Workflows: write`, which is more power than this job deserves
+# for one monthly PR.
+#
+# Why it waits itself instead of using GitHub's native auto-merge: the Master
+# ruleset has no required status checks (most workflows are path-filtered, so
+# a required check would hang on PRs that skip it), and native auto-merge with
+# no required checks merges immediately.
+#
+# Why it needs a GitHub App token, not GITHUB_TOKEN: a merge made with
+# GITHUB_TOKEN triggers no push workflows on master. The nightly release
+# preflight only counts push-triggered checks on HEAD, so a bot-merged HEAD
+# would block releases until the next human commit (and docs/site deploys
+# would not run). Setup (one-time, by a maintainer):
+#   1. Create a GitHub App owned by the gptme org with repository permissions
+#      Contents: read & write, Pull requests: read & write; no webhook.
+#      Install it on gptme/gptme only.
+#   2. Generate a private key, then add Dependabot secrets (Dependabot-triggered
+#      runs can only read Dependabot secrets, not Actions secrets):
+#        gh secret set AUTOMERGE_APP_ID --app dependabot -R gptme/gptme
+#        gh secret set AUTOMERGE_APP_PRIVATE_KEY --app dependabot -R gptme/gptme < key.pem
+# Until both secrets exist the job logs a notice and does nothing.
+#
+# Actions in this job are pinned to commit SHAs: it handles the App key.
+
+on:
+  pull_request:
+    branches: [ master ]
+    types: [ opened, synchronize, reopened ]
+
+# A rebase by Dependabot supersedes the previous wait.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+jobs:
+  automerge:
+    name: Auto-merge (minor/patch)
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.actor == 'dependabot[bot]' &&
+      !startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/')
+    runs-on: ubuntu-latest
+    # The slowest PR checks (Tauri macOS/Windows builds) take up to ~60 min.
+    timeout-minutes: 120
+    steps:
+    - name: Check for app credentials
+      id: creds
+      env:
+        APP_ID: ${{ secrets.AUTOMERGE_APP_ID }}
+        APP_KEY: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+      run: |
+        if [ -n "$APP_ID" ] && [ -n "$APP_KEY" ]; then
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::AUTOMERGE_APP_ID/AUTOMERGE_APP_PRIVATE_KEY Dependabot secrets not set; skipping auto-merge (see workflow header)."
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      id: meta
+      if: steps.creds.outputs.ok == 'true'
+
+    - name: Wait for the other checks
+      id: wait
+      if: >-
+        steps.creds.outputs.ok == 'true' &&
+        steps.meta.outputs.update-type != 'version-update:semver-major'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        SELF: ${{ github.workflow }}
+      run: |
+        # Let the other workflows register their checks before the first look.
+        sleep 90
+        while :; do
+          # Every check except this workflow's own job.
+          checks=$(gh pr checks "$PR" -R "$REPO" --json name,bucket,workflow \
+            --jq "[.[] | select(.workflow != \"$SELF\")]")
+          pending=$(jq '[.[] | select(.bucket == "pending")] | length' <<<"$checks")
+          bad=$(jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | .name' <<<"$checks")
+          if [ -n "$bad" ]; then
+            echo "::notice::Not merging; failed or cancelled checks: $(tr '\n' ',' <<<"$bad")"
+            exit 0
+          fi
+          if [ "$pending" -eq 0 ]; then
+            echo "All $(jq length <<<"$checks") checks passed or skipped."
+            echo "green=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$pending checks pending..."
+          sleep 60
+        done
+
+    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      id: app-token
+      if: steps.wait.outputs.green == 'true'
+      with:
+        app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+        private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+    - name: Merge
+      if: steps.wait.outputs.green == 'true'
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+      # --match-head-commit: refuse if Dependabot pushed again while we waited.
+      run: gh pr merge "$PR" -R "$REPO" --squash --match-head-commit "$SHA"
