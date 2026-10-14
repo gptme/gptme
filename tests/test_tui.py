@@ -3378,3 +3378,25 @@ def test_statusline_timeout_kills_command_and_bad_output_is_tolerated(
 
     bad = f"{shlex.quote(sys.executable)} -c \"import sys; sys.stdout.buffer.write(b'ok \\xff')\""
     assert statusline.run_statusline(bad, {}, tmp_path) == "ok \ufffd"
+
+
+def test_statusline_payload_without_model():
+    """No model yet: a clear placeholder, not a bare None for scripts to print."""
+    from pathlib import Path
+
+    from gptme.tui.statusline import LogStats, build_payload
+
+    payload = build_payload(
+        session="s",
+        logdir=Path("/tmp/s"),
+        workspace=Path("/tmp"),
+        model=None,
+        context_size=None,
+        tokens=None,
+        cost=0.0,
+        duration_ms=0,
+        state="idle",
+        queued=0,
+        stats=LogStats(),
+    )
+    assert payload["model"] == {"id": None, "display_name": "<no model set>"}
