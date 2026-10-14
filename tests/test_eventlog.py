@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+if TYPE_CHECKING:
+    from typing import Any
+
 import pytest
 
 from gptme.logmanager import Log, LogManager
@@ -924,3 +927,48 @@ if _HYPOTHESIS_AVAILABLE:
                     f"non-monotonic seq after {damage_type!r} damage: "
                     f"existing seq={seq} >= new seq={new_seq}"
                 )
+
+
+def test_checkpoint_after_damaged_compacted_tail(logdir: Path) -> None:
+    """A replacement checkpoint must advance the existing sequence."""
+    append_event(
+        logdir,
+        {"seq": 100, "type": EVENT_CHECKPOINT, "payload": {"messages": []}},
+    )
+    with _event_log_path(logdir).open("ab") as file:
+        file.write(b'{"seq":101')
+    messages = [{"role": "user", "content": "saved"}]
+
+    checkpoint = write_checkpoint(logdir, messages)
+
+    assert checkpoint["seq"] == 101
+    assert read_events(logdir) == [checkpoint]
+    assert recover_messages(logdir) == messages
+
+
+def test_concurrent_appends_after_damaged_tail(logdir: Path) -> None:
+    """Tail separation and sequence recovery stay inside the shared lock."""
+    append_event(
+        logdir,
+        {"seq": 100, "type": EVENT_CHECKPOINT, "payload": {"messages": []}},
+    )
+    with _event_log_path(logdir).open("ab") as file:
+        file.write(b'{"seq":101')
+
+    def append(i: int) -> dict[str, Any]:
+        return append_next_event(
+            logdir,
+            lambda seq: {
+                "seq": seq,
+                "type": EVENT_MESSAGE_APPEND,
+                "payload": {"message": {"role": "user", "content": str(i)}},
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        events = list(executor.map(append, range(40)))
+
+    assert sorted(event["seq"] for event in events) == list(range(101, 141))
+    recovered = recover_messages(logdir)
+    assert recovered is not None
+    assert sorted(int(message["content"]) for message in recovered) == list(range(40))
