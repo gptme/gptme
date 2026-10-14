@@ -632,6 +632,15 @@
 <h1>Python<a class="headerlink" href="#python" title="Link to this heading">#</a></h1>
 <p>The assistant can execute Python code blocks.</p>
 <p>It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.</p>
+<dl class="simple">
+<dt>Configuration:</dt><dd><dl class="simple">
+<dt>GPTME_IPYTHON_TIMEOUT: Seconds a code block may run before it is interrupted</dt><dd><p>(default 600, 0 disables). Processes the block started are killed too,
+and <code class="docutils literal notranslate"><span class="pre">time.sleep</span></code> is interruptible while a block runs; other blocking
+calls (e.g. a socket read) only stop once they return.</p>
+</dd>
+</dl>
+</dd>
+</dl>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool to execute Python code in an interactive IPython session.
 It responds with the execution output and final result.
@@ -698,7 +707,13 @@ fib(10)
 </pre></div>`</pre>
   </td>
 </tr>
-</table><dl class="py class">
+</table><dl class="py exception">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.python.</span></span><span class="sig-name descname"><span class="pre">CellTimeout</span></span></dt>
+<dd><p>Raised in a cell’s thread when it exceeds GPTME_IPYTHON_TIMEOUT.</p>
+</dd></dl>
+
+<dl class="py class">
 <dt class="sig sig-object py">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.python.</span></span><span class="sig-name descname"><span class="pre">TeeIO</span></span></dt>
 <dd><dl class="py method">
