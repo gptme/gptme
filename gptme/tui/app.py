@@ -2201,11 +2201,11 @@ class GptmeApp(App):
         self._statusline_output = output
         if output:
             self.query_one("#status", Static).update(Text.from_ansi(output))
+        else:
+            self._update_status(run_statusline=False)  # the built-in status
         if (payload := self._statusline_pending) is not None:
             self._statusline_pending = None
             self._request_statusline(payload)
-        elif not output:
-            self._update_status(run_statusline=False)  # the built-in status
 
     def _set_state(self, state: str) -> None:
         self.state = state

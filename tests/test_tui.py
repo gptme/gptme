@@ -3133,3 +3133,25 @@ def test_statusline_log_stats():
     assert stats.tools == {"shell": 2, "save": 1}
     stats.update(log[:2])  # rewritten (e.g. undo): recount
     assert (stats.turns, stats.steps) == (1, 1)
+
+
+def test_statusline_timeout_kills_command_and_bad_output_is_tolerated(
+    tmp_path, monkeypatch
+):
+    """A hung command is killed with its whole process group; undecodable
+    output doesn't raise (that would stop all later refreshes)."""
+    import shlex
+    import time
+
+    from gptme.tui import statusline
+
+    monkeypatch.setattr(statusline, "TIMEOUT", 0.5)
+    marker = tmp_path / "survived"
+    child = f"import time; time.sleep(1.5); open({str(marker)!r}, 'w')"
+    cmd = f"{shlex.quote(sys.executable)} -c {shlex.quote(child)}; true"
+    assert statusline.run_statusline(cmd, {}, tmp_path) is None
+    time.sleep(1.5)
+    assert not marker.exists()
+
+    bad = f"{shlex.quote(sys.executable)} -c \"import sys; sys.stdout.buffer.write(b'ok \\xff')\""
+    assert statusline.run_statusline(bad, {}, tmp_path) == "ok \ufffd"

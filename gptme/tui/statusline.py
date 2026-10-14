@@ -6,8 +6,11 @@ protocol where they map, so one script can serve both; gptme-only data lives
 under a ``"gptme"`` key.
 """
 
+import contextlib
 import json
 import logging
+import os
+import signal
 import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
@@ -92,24 +95,40 @@ def build_payload(
 def run_statusline(command: str, payload: dict, cwd: Path) -> str | None:
     """Run the command; its output, or None if it failed (use the built-in)."""
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             command,
             shell=True,
-            check=False,
-            input=json.dumps(payload),
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=TIMEOUT,
+            errors="replace",
             cwd=cwd,
+            # own process group, so a timeout stops the command, not just the shell
+            start_new_session=os.name == "posix",
         )
-    except (OSError, subprocess.TimeoutExpired) as e:
+    except OSError as e:
         logger.warning("statusline command failed: %s", e)
         return None
-    if result.returncode != 0:
+    try:
+        stdout, stderr = proc.communicate(json.dumps(payload), timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        logger.warning("statusline command timed out after %ss", TIMEOUT)
+        _kill(proc)
+        return None
+    if proc.returncode != 0:
         logger.warning(
-            "statusline command exited %d: %s",
-            result.returncode,
-            result.stderr.strip()[:200],
+            "statusline command exited %d: %s", proc.returncode, stderr.strip()[:200]
         )
         return None
-    return result.stdout.rstrip("\n") or None
+    return stdout.rstrip("\n") or None
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    if os.name == "posix":
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGKILL)
+    else:
+        proc.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.communicate(timeout=1)
