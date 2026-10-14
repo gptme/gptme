@@ -1050,12 +1050,66 @@ def test_streaming_message_set_thinking_ignored_after_tokens():
     mock_update.assert_not_called()
 
 
-def test_streaming_message_thinking_stub_positioned_before_body():
-    """_thinking_stub is always in the DOM before _body so finalize never shifts prose."""
-    msg = StreamingMessage(show_thinking=False)
-    # compose() is called lazily; the stub is set during compose, not __init__.
-    assert msg._thinking_stub is None  # not yet composed
-    assert msg._body is not None
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("chunks", "kinds"),
+    [
+        (["<think>reasoning</think>", "Reply"], [True, False]),
+        (["Intro", "<think>reasoning</think>", "Reply"], [False, True, False]),
+        (["Intro", "<thi", "nk>reasoning</think>", "Reply"], [False, True, False]),
+        (["<think>first</think>", "Reply", "<thinking>second"], [True, False, True]),
+    ],
+)
+async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, kinds):
+    """Thinking rows stay in segment order without moving already-visible prose."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._begin_stream()
+        await pilot.pause()
+        sm = app._stream_widget
+        assert sm is not None
+        intro_y = None
+        for chunk in chunks:
+            sm.append_token(chunk)
+            await pilot.pause()
+            if chunks[0] == "Intro":
+                intro = next(
+                    child for child in sm.children if "Intro" in str(child.render())
+                )
+                if intro_y is None:
+                    intro_y = intro.region.y
+                assert intro.region.y == intro_y
+        rows = [
+            child
+            for child in sm.children
+            if not child.has_class("role") and child.display
+        ]
+        assert [child.has_class("thinking-stub") for child in rows] == kinds
+        assert all("Generating" not in str(child.render()) for child in rows)
+        app._on_step_message(Message("assistant", "".join(chunks)))
+        await pilot.pause()
+        am = app.query_one(AssistantMessage)
+        final_rows = [child for child in am.children if not child.has_class("role")]
+        assert [isinstance(child, Collapsible) for child in final_rows] == kinds
+
+
+@pytest.mark.asyncio
+async def test_streaming_hidden_thinking_has_only_one_status_row(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        await pilot.pause()
+        sm = app._stream_widget
+        assert sm is not None
+        sm.append_token("<think>reasoning")
+        await pilot.pause()
+        rows = [
+            child
+            for child in sm.children
+            if not child.has_class("role") and child.display
+        ]
+        assert len(rows) == 1
+        assert "Thinking" in str(rows[0].render())
 
 
 @pytest.mark.asyncio
@@ -1077,14 +1131,14 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
         await pilot.pause()
 
         # Thinking stub should be visible in position, above the body
-        assert sm._thinking_stub is not None
-        assert sm._thinking_stub.display
-        stub_text = str(sm._thinking_stub.render())
+        stub = sm.query_one(".thinking-stub", Static)
+        assert stub.display
+        assert list(sm.children).index(stub) < list(sm.children).index(sm._segments[1])
+        stub_text = str(stub.render())
         assert "Thinking" in stub_text
 
         # The body should show the visible prose
-        body_text = str(sm._body.render())
-        assert "Some visible prose" in body_text
+        assert any("Some visible prose" in str(child.render()) for child in sm.children)
 
 
 @pytest.mark.asyncio
@@ -1109,9 +1163,24 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
 
         chat = app.query_one("#chat", VerticalScroll)
         stream_idx = list(chat.children).index(sm)
+        trailing = Static("Trailing sibling")
+        await chat.mount(trailing)
+        await pilot.pause()
 
-        # Finalize
-        app._on_step_message(Message("assistant", "hello back"))
+        # The replacement must already be attached when removal is requested.
+        from unittest.mock import patch
+
+        original_remove = sm.remove
+
+        def check_replacement_before_remove():
+            children = list(chat.children)
+            assert isinstance(children[stream_idx], AssistantMessage)
+            assert children[stream_idx + 1] is sm
+            assert children[stream_idx + 2] is trailing
+            return original_remove()
+
+        with patch.object(sm, "remove", side_effect=check_replacement_before_remove):
+            app._on_step_message(Message("assistant", "hello back"))
         await pilot.pause()
 
         # StreamingMessage is gone; AssistantMessage is at the same position
@@ -1119,6 +1188,7 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
         assert len(app.query(AssistantMessage)) == 1
         am = app.query_one(AssistantMessage)
         assert list(chat.children).index(am) == stream_idx
+        assert list(chat.children)[stream_idx + 1] is trailing
 
 
 # A 60-line save tool call — the exact fixture from the issue to test height stability.

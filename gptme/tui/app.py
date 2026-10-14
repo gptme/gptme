@@ -708,28 +708,49 @@ class StreamingMessage(Vertical):
         self._buffer = ""
         self.show_thinking = show_thinking
         self._body = Static(Text("Generating…"), classes="progress-placeholder")
-        # Position-stable stub for hidden thinking: always mounted before _body
-        # so finalize never inserts a new widget above already-visible prose.
-        self._thinking_stub: Static | None = None
+        # Keep one row per thinking/prose segment, in final-render order.
+        self._segments: list[Static] = []
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
+        if not self.show_thinking:
+            self._update_hidden_segments()
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
-        # Pre-mount a hidden stub so its DOM position is locked in from the
-        # start; it becomes visible only when thinking content arrives.
-        self._thinking_stub = Static(Text(""), classes="thinking-stub")
-        self._thinking_stub.display = False
-        yield self._thinking_stub
         yield self._body
 
     def _visible(self) -> str:
         return self._buffer if self.show_thinking else _strip_thinking(self._buffer)
 
-    def _thinking_line_count(self) -> int:
-        segs = _split_thinking(self._buffer)
-        return sum(len(text.splitlines()) for is_think, text in segs if is_think)
+    def _update_hidden_segments(self) -> None:
+        if not self.is_mounted:
+            return
+        segments = _split_thinking(self._buffer)
+        self._body.display = not segments
+        with self.app.batch_update():
+            for index, (is_thinking, text) in enumerate(segments):
+                if index == len(self._segments):
+                    row = Static(
+                        classes="thinking-stub" if is_thinking else "stream-prose"
+                    )
+                    self._segments.append(row)
+                    self.mount(row)
+                row = self._segments[index]
+                row.set_class(is_thinking, "thinking-stub")
+                if is_thinking:
+                    n = len(text.splitlines())
+                    row.update(
+                        Text(
+                            f"▸ Thinking ({n} line{'s' if n != 1 else ''})", style="dim"
+                        )
+                    )
+                else:
+                    row.update(Text(text.strip()))
+            # A split opening tag may briefly be prose before it is complete.
+            # Reuse existing rows and hide any that the parser no longer emits.
+            for index, row in enumerate(self._segments):
+                row.display = index < len(segments)
 
     def append_token(self, token: str) -> None:
         self._buffer += token
@@ -742,19 +763,7 @@ class StreamingMessage(Vertical):
                 self.set_thinking(bool(_THINK_OPEN_RE.search(self._buffer)))
             return
 
-        # show_thinking=False: keep the thinking stub in its pre-allocated
-        # position so finalize never inserts a collapsible above visible prose.
-        has_open_think = bool(_THINK_OPEN_RE.search(self._buffer))
-        if has_open_think and self._thinking_stub is not None:
-            n = self._thinking_line_count()
-            label = f"▸ Thinking ({n} line{'s' if n != 1 else ''}, generating…)"
-            self._thinking_stub.update(Text(label, style="dim"))
-            self._thinking_stub.display = True
-
-        if visible:
-            self._body.update(Text(visible))
-        elif not has_open_think:
-            self._body.update(Text("Generating…"))
+        self._update_hidden_segments()
 
     def set_thinking(self, is_thinking: bool) -> None:
         """Update the placeholder when the model transitions in/out of thinking."""
