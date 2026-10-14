@@ -158,6 +158,35 @@ Auto-discovery never writes config. Use ``gptme providers add`` (or a
     gptme providers list
     gptme providers list --json
 
+Remote cloud gateways
+---------------------
+
+Any OpenAI-compatible cloud API gateway works as a named ``[[providers]]`` entry.
+This is useful when you want access to many open-weight models without running
+local hardware.
+
+**Example — DemonRoute** (1,100+ open-weight models, prepaid, no overdraft):
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "demonroute"
+    base_url = "https://api.demonroute.com/v1"
+    api_key_env = "DEMONROUTE_API_KEY"
+    default_model = "dphn/Dolphin-Mistral-24B-Venice-Edition"
+
+.. code-block:: sh
+
+    DEMONROUTE_API_KEY="your-key" gptme "hello" -m demonroute/dphn/Dolphin-Mistral-24B-Venice-Edition
+
+DemonRoute supports ``POST /v1/chat/completions`` with streaming and ``GET /v1/models``
+for discovery. It is chat/text only (no embeddings). See `demonroute.com/integrations
+<https://demonroute.com/integrations>`_ for available models and pricing.
+
+A community plugin ``gptme-provider-demonroute`` (with per-model ``ModelMeta``
+including accurate context and pricing) can be installed once published — see
+:doc:`providers-integration` for the plugin path.
+
 vLLM and OpenAI-compatible servers
 -----------------------------------
 
@@ -292,3 +321,4 @@ Community threads and issues that motivated this page:
 - `Requesty provider support <https://github.com/gptme/gptme/issues/514>`_
 - `AI/ML provider support <https://github.com/gptme/gptme/issues/548>`_
 - `Chutes provider support <https://github.com/gptme/gptme/issues/555>`_
+- `DemonRoute provider support <https://github.com/gptme/gptme/issues/4260>`_
