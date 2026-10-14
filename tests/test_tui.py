@@ -475,6 +475,42 @@ async def test_tab_quoted_directory_attaches_and_completes_children(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["see ", "see @", "/tmp/notes.md\nsee "])
+@pytest.mark.parametrize("trailing", ["", " then summarize\nwithout losing this"])
+async def test_tab_quoted_path_preserves_trailing_text(
+    tmp_path, monkeypatch, prefix, trailing
+):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "my dir"
+    directory.mkdir()
+    for name in ("child.md", "child2.md"):
+        (directory / name).write_text("child")
+    at = "@" if prefix.endswith("@") else ""
+    base = prefix.removesuffix(at)
+    start = base + f"`{at}my dir/ch"
+    suffix = "`" + trailing
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one(ChatInput)
+        inp.focus()
+        inp._set_text(start + suffix)
+        lines = start.split("\n")
+        inp.move_cursor((len(lines) - 1, len(lines[-1])))
+        await pilot.press("tab")
+        assert inp.text == start + "ild" + suffix
+        assert len(inp.document.get_text_range((0, 0), inp.cursor_location)) == len(
+            start + "ild"
+        )
+        for name in ("child.md", "child2.md", "child.md"):
+            await pilot.press("tab")
+            completed = base + f"`{at}my dir/{name}"
+            assert inp.text == completed + suffix
+            assert len(inp.document.get_text_range((0, 0), inp.cursor_location)) == len(
+                completed if trailing else completed + "`"
+            )
+
+
+@pytest.mark.asyncio
 async def test_tab_completes_command(tmp_path):
     manager = make_manager(tmp_path)
     app = GptmeApp(manager, workspace=tmp_path)

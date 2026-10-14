@@ -1031,6 +1031,7 @@ class ChatInput(TextArea):
         self._tab_candidates: list[str] = []
         self._tab_index = -1
         self._tab_last = ""
+        self._tab_suffix = ""
         self._history_file = get_pt_history_file()
         self._history: list[str] = _load_pt_history(self._history_file)
         self._history_idx = -1  # -1 = not browsing; 0 = most recent
@@ -1256,17 +1257,27 @@ class ChatInput(TextArea):
             before, after = self.text[:cursor], self.text[cursor:]
             # Complete inside a closed quoted reference without duplicating its
             # closing quote. Other input retains full-text completion behavior.
-            if before.count("`") % 2 and after.startswith("`"):
-                candidates = [
-                    candidate + after[1:] for candidate in complete_input(before)
-                ]
+            quoted = before.count("`") % 2 and after.startswith("`")
+            self._tab_suffix = after[1:] if quoted else ""
+            if quoted:
+                candidates = complete_input(before)
             else:
                 candidates = complete_input(self.text)
             if not candidates:
                 return
+            # Compute the common prefix before adding the untouched suffix:
+            # otherwise differing paths truncate the closing quote and prose.
+            prefix = os.path.commonprefix(
+                [candidate.removesuffix("`") for candidate in candidates]
+                if quoted
+                else candidates
+            )
+            if quoted:
+                prefix += "`"
+            candidates = [candidate + self._tab_suffix for candidate in candidates]
+            prefix += self._tab_suffix
             self._tab_candidates = candidates
             self._tab_index = -1
-            prefix = os.path.commonprefix(candidates)
             if len(candidates) == 1:
                 self._set_text(candidates[0])
                 self._tab_candidates = []
@@ -1275,9 +1286,21 @@ class ChatInput(TextArea):
             else:
                 self._tab_index = 0
                 self._set_text(candidates[0])
-        if self.text.endswith("/`"):
-            row, column = self.document.end
-            self.move_cursor((row, column - 1))
+        completed = (
+            self.text[: -len(self._tab_suffix)] if self._tab_suffix else self.text
+        )
+        if (
+            self._tab_suffix
+            or completed.endswith("/`")
+            or (
+                self._tab_candidates
+                and self._tab_index == -1
+                and completed.endswith("`")
+            )
+        ):
+            # Stay at the completed reference, not at the end of trailing prose.
+            lines = completed.removesuffix("`").split("\n")
+            self.move_cursor((len(lines) - 1, len(lines[-1])))
         self._tab_last = self.text
         # Notify the app to show/update the completion overlay
         if len(self._tab_candidates) > 1:
