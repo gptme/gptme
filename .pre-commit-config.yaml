@@ -25,8 +25,8 @@ repos:
 - repo: local
   hooks:
   - id: check-rst-formatting
-    name: Check RST list formatting (docs and autodoc docstrings)
-    description: Ensures RST files and autodoc-rendered docstrings have proper blank lines around lists
+    name: Check RST list and grid table formatting (docs and autodoc docstrings)
+    description: Ensures RST files and autodoc-rendered docstrings have proper blank lines around lists and aligned grid tables
     entry: python3 scripts/check_rst_formatting.py
     language: system
     files: ^(docs/.*\.rst|gptme/.*\.py|scripts/check_rst_formatting\.py)$
