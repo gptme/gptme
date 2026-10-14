@@ -26,10 +26,10 @@ import { Fragment, type FC } from 'react';
 function groupEmbeddedMenuItems(menuItems: EmbeddedMenuItem[]) {
   return menuItems.reduce<{ section?: string; items: EmbeddedMenuItem[] }[]>((groups, item) => {
     const section = item.section?.trim() || undefined;
-    const lastGroup = groups.at(-1);
+    const existingGroup = groups.find((group) => group.section === section);
 
-    if (lastGroup && lastGroup.section === section) {
-      lastGroup.items.push(item);
+    if (existingGroup) {
+      existingGroup.items.push(item);
       return groups;
     }
 
@@ -45,6 +45,10 @@ export const MenuBar: FC = () => {
   const { menuItems, sendAction, isEmbedded } = useEmbeddedContext();
   const embeddedMenuGroups = groupEmbeddedMenuItems(menuItems);
   const hasEmbeddedMenu = isEmbedded && embeddedMenuGroups.length > 0;
+  // Local shortcuts belong with General host items, without dispatching a host action.
+  if (hasEmbeddedMenu && !embeddedMenuGroups.some((group) => group.section === 'General')) {
+    embeddedMenuGroups.push({ section: 'General', items: [] });
+  }
 
   return (
     <div
@@ -134,22 +138,24 @@ export const MenuBar: FC = () => {
             <TooltipContent side="bottom">Search</TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => shortcutsDialogOpen$.set(true)}
-                aria-label="Keyboard shortcuts"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Keyboard shortcuts (?)</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        {!hasEmbeddedMenu && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => shortcutsDialogOpen$.set(true)}
+                  aria-label="Keyboard shortcuts"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Keyboard shortcuts (?)</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <ServerSelector />
         {hasEmbeddedMenu ? (
           <DropdownMenu>
@@ -194,6 +200,11 @@ export const MenuBar: FC = () => {
                         {item.label}
                       </DropdownMenuItem>
                     )
+                  )}
+                  {group.section === 'General' && (
+                    <DropdownMenuItem onSelect={() => shortcutsDialogOpen$.set(true)}>
+                      Keyboard shortcuts
+                    </DropdownMenuItem>
                   )}
                 </Fragment>
               ))}
