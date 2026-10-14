@@ -911,8 +911,8 @@ def complete_path(text: str) -> list[str]:
     Candidates are written so include_paths attaches them: directories get a
     trailing slash ("journ<Tab>" -> "journal/"; a bare "journal" is prose),
     bare cwd files without an extension get "./" ("./Makefile"), and names
-    with spaces are backtick-quoted. A directory's quote is left open, so
-    Tab keeps completing inside it.
+    with spaces are backtick-quoted. The input widget keeps the cursor inside
+    a quoted directory, so it can be submitted or completed further.
     """
     quoted = text.count("`") % 2 == 1  # completing inside an open `...
     seg = text[text.rindex("`") + 1 :] if quoted else re.split(r"\s", text)[-1]
@@ -938,11 +938,10 @@ def complete_path(text: str) -> list[str]:
         path = at + dir_part + e.name + ("/" if is_dir else "")
         if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
             path = "./" + path
-        close = "" if is_dir else "`"
         if quoted:
-            path += close
+            path += "`"
         elif any(c.isspace() for c in path):
-            path = f"`{path}{close}"
+            path = f"`{path}`"
         candidates.append(text[: len(text) - len(seg)] + path)
     return sorted(candidates)
 
@@ -971,7 +970,7 @@ def complete_input(text: str) -> list[str]:
         return [base + c for c in choices if c.startswith(partial)]
     completer = get_command_completer(parts[0][1:])
     if completer is None:
-        return []
+        return [] if parts[0] in get_user_commands() else complete_path(text)
     try:
         return sorted(
             base + candidate
@@ -1253,7 +1252,16 @@ class ChatInput(TextArea):
             self._tab_index = (self._tab_index + 1) % len(self._tab_candidates)
             self._set_text(self._tab_candidates[self._tab_index])
         else:
-            candidates = complete_input(self.text)
+            cursor = len(self.document.get_text_range((0, 0), self.cursor_location))
+            before, after = self.text[:cursor], self.text[cursor:]
+            # Complete inside a closed quoted reference without duplicating its
+            # closing quote. Other input retains full-text completion behavior.
+            if before.count("`") % 2 and after.startswith("`"):
+                candidates = [
+                    candidate + after[1:] for candidate in complete_input(before)
+                ]
+            else:
+                candidates = complete_input(self.text)
             if not candidates:
                 return
             self._tab_candidates = candidates
@@ -1267,6 +1275,9 @@ class ChatInput(TextArea):
             else:
                 self._tab_index = 0
                 self._set_text(candidates[0])
+        if self.text.endswith("/`"):
+            row, column = self.document.end
+            self.move_cursor((row, column - 1))
         self._tab_last = self.text
         # Notify the app to show/update the completion overlay
         if len(self._tab_candidates) > 1:

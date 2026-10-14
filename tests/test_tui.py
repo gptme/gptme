@@ -426,15 +426,52 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     assert complete_input("see @Mak") == ["see @Makefile"]
     assert complete_input("see my") == ["see `my notes.txt`"]
     assert complete_input("see @my") == ["see `@my notes.txt`"]
-    # a quoted directory stays open, so Tab keeps completing inside it
+    # Completed directories are valid references even when submitted immediately.
     (tmp_path / "my dir").mkdir()
     (tmp_path / "my dir" / "a b.md").write_text("x")
     assert complete_input("see my d") == []  # "d" alone is the last word
-    assert complete_input("see my") == ["see `my dir/", "see `my notes.txt`"]
+    assert complete_input("see my") == ["see `my dir/`", "see `my notes.txt`"]
     assert complete_input("see `my dir/a") == ["see `my dir/a b.md`"]
     # a symlink loop is skipped, not raised
     (tmp_path / "loop").symlink_to(tmp_path / "loop")
     assert complete_input("see lo") == []
+
+
+def test_complete_input_root_path_prompt(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "journal").mkdir()
+    assert complete_input("/tmp see ./jou") == ["/tmp see ./journal/"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["see ", "see @", "/tmp/notes.md\nsee "])
+async def test_tab_quoted_directory_attaches_and_completes_children(
+    tmp_path, monkeypatch, prefix
+):
+    from gptme.util.context import _find_potential_paths
+
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "my dir"
+    directory.mkdir()
+    (directory / "child.md").write_text("child")
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one(ChatInput)
+        inp.focus()
+        inp._set_text(prefix + "my")
+        await pilot.press("tab")
+        at = "@" if prefix.endswith("@") else ""
+        base = prefix.removesuffix(at) if at else prefix
+        assert inp.text == base + f"`{at}my dir/`"
+        assert "my dir/" in _find_potential_paths(inp.text)
+        assert (
+            len(inp.document.get_text_range((0, 0), inp.cursor_location))
+            == len(inp.text) - 1
+        )
+        await pilot.press("c", "h", "tab")
+        assert inp.text == base + f"`{at}my dir/child.md`"
+        assert "my dir/child.md" in _find_potential_paths(inp.text)
+        assert inp.cursor_location == inp.document.end
 
 
 @pytest.mark.asyncio
