@@ -92,6 +92,12 @@ from ..util.context import extract_urls, include_paths
 from ..util.cost_display import inline_cost_text
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
+from ..util.interrupt import (
+    clear_pending,
+    kill_new_children,
+    own_group_children,
+    raise_in_thread,
+)
 from ..util.tokens import len_tokens
 from .statusline import LogStats, build_payload, run_statusline
 
@@ -1814,6 +1820,11 @@ class GptmeApp(App):
         self.generating = False
         self.state = "idle"
         self._interrupt_event = threading.Event()
+        # see _interrupt_step()
+        self._generation_thread: int | None = None
+        self._step_lock = threading.Lock()
+        self._in_step = False
+        self._step_children: set[int] = set()
         self._quitting = False
         self._stream_widget: StreamingMessage | None = None
         # Streamed chunks are buffered by the worker and rendered at most
@@ -2719,6 +2730,7 @@ class GptmeApp(App):
 
     def _generation_worker(self) -> None:
         """Thread worker: run the step loop inside the captured chat context."""
+        self._generation_thread = threading.get_ident()
         self._chat_ctx.run(self._generation_body)
 
     def _generation_body(self) -> None:
@@ -2743,6 +2755,12 @@ class GptmeApp(App):
                 interrupted = False
                 declined = False
                 response: Message | None = None
+                # Ctrl+C raises KeyboardInterrupt into this thread while in
+                # step() (see action_interrupt): Textual's raw-mode Ctrl+C is a
+                # key, not SIGINT, so a running tool would never see it.
+                self._step_children = own_group_children()
+                with self._step_lock:
+                    self._in_step = True
                 try:
                     for msg in step(
                         manager.log,
@@ -2770,6 +2788,9 @@ class GptmeApp(App):
                     manager.append(msg)
                     self.call_from_thread(self._on_step_message, msg)
                 finally:
+                    with self._step_lock:
+                        self._in_step = False
+                        clear_pending(threading.get_ident())
                     # tools (e.g. ipython) may have reset the tty out of raw mode
                     self._restore_terminal()
 
@@ -3095,6 +3116,19 @@ class GptmeApp(App):
         if self.generating:
             self._interrupt_event.set()
             self._set_state("interrupting…")
+            self._interrupt_step()
+
+    def _interrupt_step(self) -> None:
+        """Stop a running tool: raise KeyboardInterrupt in the worker (the
+        shell tool then kills its command, ipython stops the cell) and kill
+        processes started during the step (unblocking e.g. subprocess.run)."""
+        with self._step_lock:
+            if not self._in_step or self._generation_thread is None:
+                return
+            raise_in_thread(self._generation_thread, KeyboardInterrupt)
+        threading.Thread(
+            target=kill_new_children, args=(self._step_children,), daemon=True
+        ).start()
 
     def action_interrupt_or_quit(self) -> None:
         if self.generating:

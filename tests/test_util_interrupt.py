@@ -205,3 +205,59 @@ class TestHandleKeyboardInterrupt:
         assert not t.is_alive()
         assert not raised.is_set()
         assert completed.is_set()
+
+
+def test_raise_in_thread_stops_interruptible_sleep():
+    """time.sleep normally ignores an exception raised from another thread
+    until it returns; within interruptible_sleep() it stops promptly."""
+    import time
+
+    from gptme.util.interrupt import interruptible_sleep, raise_in_thread
+
+    result: dict = {}
+
+    def worker() -> None:
+        start = time.monotonic()
+        try:
+            with interruptible_sleep():
+                time.sleep(30)
+        except KeyboardInterrupt:
+            result["took"] = time.monotonic() - start
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    time.sleep(0.3)
+    assert thread.ident is not None
+    assert raise_in_thread(thread.ident, KeyboardInterrupt)
+    thread.join(5)
+    assert result["took"] < 2
+    assert time.sleep.__name__ == "sleep"  # restored
+
+
+def test_clear_pending_drops_unlanded_exception():
+    import time
+
+    from gptme.util.interrupt import clear_pending, raise_in_thread
+
+    done = threading.Event()
+    errors: list[BaseException] = []
+    proceed = threading.Event()
+
+    def worker() -> None:
+        try:
+            proceed.wait()  # a C-level wait: the raise can't land yet
+            for _ in range(1000):
+                pass
+        except BaseException as e:
+            errors.append(e)
+        done.set()
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    time.sleep(0.1)
+    assert thread.ident is not None
+    raise_in_thread(thread.ident, KeyboardInterrupt)
+    clear_pending(thread.ident)
+    proceed.set()
+    done.wait(5)
+    assert errors == []

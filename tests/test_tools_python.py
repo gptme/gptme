@@ -502,3 +502,37 @@ def test_teeio_write_reports_full_length_when_truncating():
     tee = TeeIO(io.StringIO())
     data = "x" * (15 * 1024 * 1024)
     assert tee.write(data) == len(data)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process handling")
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import time\ntime.sleep(30)",
+        "from time import sleep\nsleep(30)",
+        "import subprocess\nsubprocess.run(['sleep', '30'])",
+        "while True: pass",
+    ],
+)
+def test_execute_python_times_out(code, monkeypatch):
+    """GPTME_IPYTHON_TIMEOUT interrupts a blocked cell, including one waiting
+    in time.sleep or on a subprocess (which is killed)."""
+    import time
+
+    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "1")
+    start = time.monotonic()
+    msgs = list(execute_python(code, [], None))
+    assert time.monotonic() - start < 5
+    assert "timed out after 1s" in msgs[-1].content
+    assert "print" not in code  # sanity
+    # the REPL still works afterwards
+    assert "ok" in run("print('ok')")
+
+
+def test_execute_python_timeout_disabled(monkeypatch):
+    from gptme.tools.python import _get_timeout
+
+    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "0")
+    assert _get_timeout() is None
+    monkeypatch.setenv("GPTME_IPYTHON_TIMEOUT", "nope")
+    assert _get_timeout() == 600
