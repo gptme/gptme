@@ -3,15 +3,24 @@
 # Please see the documentation for all configuration options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
+# Policy: each directory gets one minor/patch group and one catch-all majors
+# group (plus any peer-coupled majors groups, e.g. react/jest in /webui), so a
+# run opens a handful of PRs per directory instead of one per major. Fewer PRs
+# sharing a lockfile means fewer rebase-and-rerun-CI cycles (four separate
+# @wdio/* majors in /tauri/e2e kept rebasing each other and re-running the
+# full Tauri matrix, gptme/gptme#4253). If one major in a
+# group breaks, drop just that one with `@dependabot ignore <dep> major version`
+# on the PR instead of closing the group.
+#
+# Python core and webui run weekly; the rest run monthly.
+
 version: 2
 updates:
   - package-ecosystem: "uv"
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
-    # Collapse routine minor/patch bumps into a single PR per run to keep the
-    # review queue small. Major bumps still open individual PRs so breaking
-    # changes get scrutiny.
+    # One PR for routine minor/patch bumps, one for majors (reviewed by hand).
     groups:
       python-minor-patch:
         patterns:
@@ -19,24 +28,34 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      python-majors:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    # Action majors are routine (checkout v6 → v7 etc.) and CI exercises them
+    # on the PR itself, so one PR covers every update type.
     groups:
       github-actions:
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
   # npm manifests live in several independent projects; each needs its own
-  # entry. Routine minor/patch bumps are grouped per project to keep the review
-  # queue small; major bumps still open individual PRs.
+  # entry. A dependency goes to the first group it matches, so the peer-coupled
+  # groups must come before the catch-all majors group.
   - package-ecosystem: "npm"
     directory: "/webui"
     schedule:
       interval: "weekly"
+    # @types/node should track the Node major we run on (20/22 in CI), not the
+    # latest one (#4254, #4307 proposed 22 → 26).
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
     groups:
       webui-minor-patch:
         patterns:
@@ -72,21 +91,23 @@ updates:
           - "jsdom"
         update-types:
           - "major"
-  - package-ecosystem: "npm"
-    directory: "/webui/extension"
-    schedule:
-      interval: "weekly"
-    groups:
-      webui-extension-minor-patch:
+      webui-majors:
         patterns:
           - "*"
         update-types:
-          - "minor"
-          - "patch"
+          - "major"
+  - package-ecosystem: "npm"
+    directory: "/webui/extension"
+    schedule:
+      interval: "monthly"
+    groups:
+      webui-extension:
+        patterns:
+          - "*"
   - package-ecosystem: "npm"
     directory: "/tauri"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     groups:
       tauri-minor-patch:
         patterns:
@@ -94,21 +115,29 @@ updates:
         update-types:
           - "minor"
           - "patch"
-  - package-ecosystem: "npm"
-    directory: "/tauri/e2e"
-    schedule:
-      interval: "weekly"
-    groups:
-      tauri-e2e-minor-patch:
+      tauri-majors:
         patterns:
           - "*"
         update-types:
-          - "minor"
-          - "patch"
+          - "major"
+  - package-ecosystem: "npm"
+    directory: "/tauri/e2e"
+    schedule:
+      interval: "monthly"
+    groups:
+      # Test harness only (WebdriverIO packages release in lockstep), so one
+      # PR covers every update type.
+      tauri-e2e:
+        patterns:
+          - "*"
   - package-ecosystem: "npm"
     directory: "/site/next"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    ignore:  # @types/node tracks our Node runtime major; see /webui above
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
     groups:
       site-next-minor-patch:
         patterns:
@@ -126,10 +155,15 @@ updates:
           - "@types/react-dom"
         update-types:
           - "major"
+      site-next-majors:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
   - package-ecosystem: "cargo"
     directory: "/tauri/src-tauri"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     groups:
       cargo-minor-patch:
         patterns:
@@ -137,3 +171,8 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      cargo-majors:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
