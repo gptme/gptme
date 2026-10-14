@@ -652,7 +652,7 @@ workspace tasks to gptme subagents while the conversation continues.</p>
 <section id="talk-locally">
 <h2>Talk locally<a class="headerlink" href="#talk-locally" title="Link to this heading">#</a></h2>
 <p>From a gptme-contrib checkout:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>packages/gptme-voice<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>poetry<span class="w"> </span>install<span class="w"> </span>-E<span class="w"> </span><span class="nb">local</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>packages/gptme-voice<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span><span class="nb">local</span>
 gptme-voice-server<span class="w">                   </span><span class="c1"># auto-detects the agent workspace</span>
 gptme-voice-server<span class="w"> </span>--provider<span class="w"> </span>grok<span class="w">   </span><span class="c1"># use xAI instead of OpenAI</span>
 gptme-voice-client<span class="w">                   </span><span class="c1"># in another terminal: mic and speaker</span>

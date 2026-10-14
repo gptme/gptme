@@ -9596,7 +9596,7 @@ From a gptme-contrib checkout:
 
 .. code-block:: bash
 
-    cd packages/gptme-voice && poetry install -E local
+    cd packages/gptme-voice && uv sync --extra local
     gptme-voice-server                   # auto-detects the agent workspace
     gptme-voice-server --provider grok   # use xAI instead of OpenAI
     gptme-voice-client                   # in another terminal: mic and speaker
