@@ -22,6 +22,7 @@ from ..message import (
 )
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools.base import truncate_tool_description
+from ..tools.native_names import canonical_tool_name, native_tool_name
 from ._degeneration import (
     _DEGEN_WITHHOLD_MAX,
     _ENV_DEGEN_RETRY,
@@ -1354,7 +1355,7 @@ def chat(
     for tool_call in choice.message.tool_calls or []:
         assert isinstance(tool_call, ChatCompletionMessageToolCall)
         result.append(
-            f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
+            f"@{canonical_tool_name(tool_call.function.name.strip())}({tool_call.id.strip()}): {tool_call.function.arguments}"
         )
         if signature := _gemini_thought_signature(tool_call):
             thought_signatures[tool_call.id.strip()] = signature
@@ -2080,7 +2081,7 @@ def stream(
                             if isinstance(func, ChoiceDeltaToolCallFunction):
                                 if func.name:
                                     yield from _emit(
-                                        f"\n@{func.name}({tool_call.id}): "
+                                        f"\n@{canonical_tool_name(func.name)}({tool_call.id}): "
                                     )
                                 if func.arguments:
                                     yield from _emit(func.arguments)
@@ -2328,7 +2329,7 @@ def _handle_tools(
                         "function": cast(
                             ToolCallFunction,
                             {
-                                "name": tooluse.tool,
+                                "name": native_tool_name(tooluse.tool),
                                 "arguments": json.dumps(tooluse.kwargs or {}),
                             },
                         ),
@@ -2708,9 +2709,7 @@ def _transform_msgs_for_special_provider(
 
 
 def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
-    name = spec.name
-    if spec.block_types:
-        name = spec.block_types[0]
+    name = native_tool_name(spec.name)
 
     # Prefer a format-specific compact summary verbatim: get_instructions()
     # appends it to the (potentially very long) base instructions, which

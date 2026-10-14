@@ -19,6 +19,7 @@ from pydantic import BaseModel  # fmt: skip
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec, truncate_tool_description
+from ..tools.native_names import canonical_tool_name, native_tool_name
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
 from .retry_abort import backoff_wait, current_generation
@@ -997,7 +998,9 @@ def chat(
                 f"<think>\n{block.thinking}\n<!-- think-sig: {block.signature} -->\n</think>"
             )
         elif block.type == "tool_use":
-            parsed_block.append(f"\n@{block.name}({block.id}): {block.input}")
+            parsed_block.append(
+                f"\n@{canonical_tool_name(block.name)}({block.id}): {block.input}"
+            )
         else:
             logger.warning("Unknown block: %s", str(block))
 
@@ -1094,7 +1097,7 @@ def stream(
                     block = chunk.content_block
                     if isinstance(block, anthropic.types.ToolUseBlock):
                         tool_use = block
-                        yield f"\n@{tool_use.name}({tool_use.id}): "
+                        yield f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
                     elif isinstance(block, anthropic.types.ThinkingBlock):
                         yield "<think>\n"
                     elif isinstance(block, anthropic.types.RedactedThinkingBlock):
@@ -1323,7 +1326,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 {
                     "type": "tool_use",
                     "id": tooluse.call_id or "",
-                    "name": tooluse.tool,
+                    "name": native_tool_name(tooluse.tool),
                     "input": tooluse.kwargs or {},
                 }
                 for tooluse in tool_uses
@@ -1492,9 +1495,7 @@ def _transform_system_messages(
 def _spec2tool(
     spec: ToolSpec,
 ) -> "anthropic.types.ToolParam":
-    name = spec.name
-    if spec.block_types:
-        name = spec.block_types[0]
+    name = native_tool_name(spec.name)
 
     # TODO: are input_schema and parameters the same? (both JSON Schema?)
     return cast(
