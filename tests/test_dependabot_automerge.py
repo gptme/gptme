@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,8 @@ def workflow_job() -> dict[str, Any]:
 def run_gate(
     tmp_path: Path, reviews: list[str], *, same_deps: bool = False
 ) -> tuple[str, str]:
+    if os.name == "nt" or not shutil.which("bash") or not shutil.which("jq"):
+        pytest.skip("The Ubuntu workflow harness requires POSIX Bash and jq")
     job = workflow_job()
     script = next(step["run"] for step in job["steps"] if step.get("id") == "greptile")
     # Functions intercept only the external boundary. jq still runs for real,
