@@ -151,6 +151,11 @@ class MemoryGuard:
                 self.check()
             except Exception:  # the guard must never take the agent down
                 logger.exception("memory guard check failed")
+            with self._lock:
+                # nothing left to watch: stop; the next register() restarts it
+                if not self._targets:
+                    self._thread = None
+                    return
 
     def check(self) -> Target | None:
         """Kill the largest agent group if memory is low; return it, if any."""
@@ -212,7 +217,9 @@ def kill_group(pgid: int) -> None:
 def group_alive(pgid: int) -> bool:
     """Whether any process is left in the group (its leader may be gone)."""
     try:
-        os.killpg(pgid, 0)
+        # os.kill(-pgid) rather than os.killpg: the guard polls this every
+        # second, and tests that patch os.killpg would count the polls.
+        os.kill(-pgid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:

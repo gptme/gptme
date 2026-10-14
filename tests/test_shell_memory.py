@@ -174,3 +174,20 @@ def test_guard_is_created_once_under_concurrency(monkeypatch):
     for t in threads:
         t.join()
     assert len(created) == 1
+
+
+def test_guard_thread_stops_when_nothing_is_watched(monkeypatch):
+    monkeypatch.setattr(shell_memory, "INTERVAL", 0.01)
+    alive = {"value": True}
+    guard = MemoryGuard(memory=lambda: (16 * GB, 0.50, False), rss=dict)
+    guard.register(Target(1, "x", lambda: None, lambda: alive["value"], print))
+    thread = guard._thread
+    assert thread is not None and thread.is_alive()
+    alive["value"] = False
+    thread.join(2)
+    assert not thread.is_alive() and guard._thread is None
+    alive["value"] = True
+    guard.register(Target(2, "y", lambda: None, lambda: alive["value"], print))
+    assert guard._thread is not None and guard._thread is not thread
+    alive["value"] = False
+    guard._thread.join(2)
