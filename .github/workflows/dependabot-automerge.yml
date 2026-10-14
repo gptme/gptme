@@ -111,31 +111,24 @@ jobs:
           sleep 60
         done
 
-    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-      id: app-token
-      if: steps.wait.outputs.green == 'true'
-      with:
-        app-id: ${{ secrets.AUTOMERGE_APP_ID }}
-        private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
-
     - name: Check Greptile review
       id: greptile
       if: steps.wait.outputs.green == 'true'
       env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        # Read-only, and unlike an App token it outlives the 90-min wait.
+        GH_TOKEN: ${{ github.token }}
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
         SHA: ${{ github.event.pull_request.head.sha }}
         CREATED: ${{ github.event.pull_request.created_at }}
       run: |
-        hold() {
+        hold() {  # the comment needs the App token: posted by a later step
           echo "::notice::Holding: $1"
-          marker="<!-- dependabot-automerge-hold:$SHA -->"
-          if ! gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' | grep -qF "$marker"; then
-            gh pr comment "$PR" -R "$REPO" --body "Not auto-merging: $1 Merge by hand if this is fine.
-        $marker"
-          fi
+          echo "hold=$1" >> "$GITHUB_OUTPUT"
           exit 0
+        }
+        comments() {  # all PR comments as one array (--jq would run per page)
+          gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp | jq 'add // []'
         }
         deps() {  # sorted name@version pairs from Dependabot's commit message
           gh api "repos/$REPO/commits/$1" --jq .commit.message \
@@ -149,8 +142,7 @@ jobs:
         # creation so a rebase of a never-reviewed PR doesn't wait again.
         deadline=$(( $(date -d "$CREATED" +%s) + 90 * 60 ))
         while :; do
-          summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq '[.[] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
+          summary=$(comments | jq -r '[.[] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
           [ -n "$summary" ] || [ "$(date +%s)" -ge "$deadline" ] && break
           sleep 60
         done
@@ -172,6 +164,28 @@ jobs:
             || hold "Greptile reviewed ${reviewed:0:9}, and the dependency versions changed since. Comment \`@greptileai review\` to refresh."
         fi
         echo "ok=true" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      id: app-token
+      if: steps.greptile.outputs.ok == 'true' || steps.greptile.outputs.hold != ''
+      with:
+        app-id: ${{ secrets.AUTOMERGE_APP_ID }}
+        private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+    - name: Post hold comment
+      if: steps.greptile.outputs.hold != ''
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+        REASON: ${{ steps.greptile.outputs.hold }}
+      run: |
+        marker="<!-- dependabot-automerge-hold:$SHA -->"
+        if ! gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' | grep -qF "$marker"; then
+          gh pr comment "$PR" -R "$REPO" --body "Not auto-merging: $REASON Merge by hand if this is fine, or once a fresh Greptile review scores 5/5, comment \`@dependabot recreate\` to re-run this check.
+        $marker"
+        fi
 
     - name: Merge
       if: steps.greptile.outputs.ok == 'true'
