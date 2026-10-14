@@ -6,6 +6,13 @@ name: Dependabot auto-merge
 # App to hold `Workflows: write`, which is more power than this job deserves
 # for one monthly PR.
 #
+# It also needs Greptile's review to score 5/5. Anything lower means Greptile
+# found something worth a look (e.g. #4257: tailwind-merge 3 targets Tailwind
+# 4), so the PR is held with a comment. Greptile does not re-review when
+# Dependabot rebases, so a review of an older commit still counts if that
+# commit's updated-dependencies list (from Dependabot's commit message) is
+# identical to the head's; otherwise the PR is held too.
+#
 # Why it waits itself instead of using GitHub's native auto-merge: the Master
 # ruleset has no required status checks (most workflows are path-filtered, so
 # a required check would hang on PRs that skip it), and native auto-merge with
@@ -109,8 +116,55 @@ jobs:
         app-id: ${{ secrets.AUTOMERGE_APP_ID }}
         private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
 
-    - name: Merge
+    - name: Check Greptile review
+      id: greptile
       if: steps.wait.outputs.green == 'true'
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        hold() {
+          echo "::notice::Holding: $1"
+          marker="<!-- dependabot-automerge-hold:$SHA -->"
+          if ! gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body' | grep -qF "$marker"; then
+            gh pr comment "$PR" -R "$REPO" --body "Not auto-merging: $1 Merge by hand if this is fine.
+        $marker"
+          fi
+          exit 0
+        }
+        deps() {  # sorted name@version pairs from Dependabot's commit message
+          gh api "repos/$REPO/commits/$1" --jq .commit.message \
+            | awk '/^- dependency-name:/ {n=$3} /^  dependency-version:/ {print n "@" $2}' \
+            | sort
+        }
+
+        # Greptile usually finishes well before the slowest checks; give it
+        # up to 20 more minutes.
+        for _ in $(seq 20); do
+          summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '[.[] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
+          [ -n "$summary" ] && break
+          sleep 60
+        done
+        [ -n "$summary" ] || hold "no Greptile review found."
+
+        score=$(grep -oE 'Confidence Score: [0-9]/5' <<<"$summary" | grep -oE '[0-9]' | head -1 || true)
+        reviewed=$(grep -oE 'commit/[0-9a-f]{40}' <<<"$summary" | tail -1 | cut -d/ -f2 || true)
+        echo "Greptile: score=${score:-?}/5 reviewed=${reviewed:-?} head=$SHA"
+        [ "$score" = 5 ] || hold "Greptile confidence is ${score:-unknown}/5 (needs 5/5)."
+        [ -n "$reviewed" ] || hold "could not tell which commit Greptile reviewed."
+        if [ "$reviewed" != "$SHA" ]; then
+          head_deps=$(deps "$SHA")
+          [ -n "$head_deps" ] || hold "no updated-dependencies list in the head commit message."
+          [ "$(deps "$reviewed" || true)" = "$head_deps" ] \
+            || hold "Greptile reviewed ${reviewed:0:9}, and the dependency versions changed since. Comment \`@greptileai review\` to refresh."
+        fi
+        echo "ok=true" >> "$GITHUB_OUTPUT"
+
+    - name: Merge
+      if: steps.greptile.outputs.ok == 'true'
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
         PR: ${{ github.event.pull_request.number }}
