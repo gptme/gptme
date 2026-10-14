@@ -1300,7 +1300,8 @@ def test_resume_via_llm_discards_stale_result_after_unlock():
             while True:
                 results.append(next(gen))
         except StopIteration as e:
-            applied = e.value
+            rv = e.value
+            applied = rv[0] if isinstance(rv, tuple) else rv
 
     mock_manager.create_view.assert_not_called()
     mock_manager.switch_view.assert_not_called()
@@ -1737,7 +1738,7 @@ def test_autocompact_summarize_stale_does_not_throttle(monkeypatch):
             "the summary was generating.",
             hide=True,
         )
-        return False
+        return (False, "summarize")
 
     with (
         patch(
@@ -2096,7 +2097,7 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
         assert use_view_branch is False
         active_manager.log = Log([Message("system", "summary")])
         yield Message("system", "done")
-        return True
+        return (True, "summarize")
 
     monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
 
@@ -2106,6 +2107,45 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     assert len(events) == 1
     assert events[0]["trigger"] == "manual"
     assert events[0]["method"] == "summarize"
+    assert events[0]["messages"] == {"before": 2, "after": 1}
+
+
+def test_manual_summarize_writes_chunked_event_when_chunks_used(tmp_path, monkeypatch):
+    """When _resume_via_llm returns method='chunked', the event records method='chunked'."""
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import Log, LogManager
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.tools.autocompact.handlers import _compact_summarize
+
+    messages = [Message("system", "system prompt"), Message("user", "task")]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+
+    def fake_resume_chunked(
+        active_manager,
+        _msgs,
+        *,
+        use_view_branch,
+        compact_instructions=None,
+        keep_recent_tokens=20_000,
+        keep_head=0,
+    ):
+        active_manager.log = Log([Message("system", "summary")])
+        yield Message("system", "done")
+        return (True, "chunked")
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers._resume_via_llm", fake_resume_chunked
+    )
+
+    list(_compact_summarize(ctx, messages))
+
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "manual"
+    assert events[0]["method"] == "chunked"
     assert events[0]["messages"] == {"before": 2, "after": 1}
 
 
@@ -2131,7 +2171,7 @@ def test_manual_summarize_skips_event_when_resume_not_applied(tmp_path, monkeypa
         yield Message(
             "system", "Not enough conversation history to create a meaningful resume."
         )
-        return False
+        return (False, "summarize")
 
     monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
 
@@ -2566,7 +2606,7 @@ def test_checkpoint_turn_waits_for_tools_then_applies_final_response(monkeypatch
         manager.current_view = "view-1"
         if False:
             yield Message("system", "unreachable")
-        return True
+        return (True, "summarize")
 
     with (
         patch(
@@ -2628,7 +2668,7 @@ def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch)
         manager.switch_view(view)
         if False:
             yield Message("system", "unreachable")
-        return True
+        return (True, "summarize")
 
     with (
         patch.object(chat_module, "step", side_effect=fake_step),
@@ -3371,7 +3411,8 @@ def test_resume_via_llm_rejects_empty_checkpoint(
         while True:
             out.append(next(gen))
     except StopIteration as stop:
-        applied = stop.value
+        rv = stop.value
+        applied = rv[0] if isinstance(rv, tuple) else rv
 
     assert applied is False
     assert [m.content for m in manager.log.messages] == [m.content for m in messages]
@@ -4905,7 +4946,7 @@ def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
         manager.switch_view(view)
         if False:
             yield Message("system", "unreachable")
-        return True
+        return (True, "summarize")
 
     with (
         patch.object(chat_module, "step", side_effect=fake_step),
