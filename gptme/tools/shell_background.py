@@ -116,6 +116,14 @@ class BackgroundJob:
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _completion_notified: bool = field(default=False, repr=False)
     _wait_expired: bool = field(default=False, repr=False)
+    _stdout_decoder: codecs.IncrementalDecoder = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")("replace"),
+        repr=False,
+    )
+    _stderr_decoder: codecs.IncrementalDecoder = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")("replace"),
+        repr=False,
+    )
     _kill_callback: Callable[[], None] | None = field(default=None, repr=False)
     _close_callback: Callable[[], None] | None = field(default=None, repr=False)
     _output_callback: Callable[[], tuple[str, str]] | None = field(
@@ -133,8 +141,19 @@ class BackgroundJob:
         self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self._reader_thread.start()
 
-    def _append_output(self, fd: int, stdout_fd: int, text: str) -> None:
-        """Append decoded output while maintaining character offsets."""
+    def _append_output(
+        self, fd: int, stdout_fd: int, data: bytes, *, final: bool = False
+    ) -> None:
+        """Decode and append one output chunk while maintaining offsets.
+
+        Uses an incremental UTF-8 decoder so multibyte characters split across
+        pipe reads are reassembled correctly instead of replaced. Pass
+        ``final=True`` at stream EOF to flush any buffered incomplete sequence.
+        """
+        decoder = self._stdout_decoder if fd == stdout_fd else self._stderr_decoder
+        text = decoder.decode(data, final=final)
+        if not text:
+            return
         with self._buffer_lock:
             if fd == stdout_fd:
                 self._stdout_buffer_start += self._append_to_buffer_locked(
@@ -150,11 +169,6 @@ class BackgroundJob:
         stdout_fd = self.process.stdout.fileno() if self.process.stdout else -1
         stderr_fd = self.process.stderr.fileno() if self.process.stderr else -1
         open_fds = {fd for fd in (stdout_fd, stderr_fd) if fd >= 0}
-        # Pipe reads may split a UTF-8 character; each stream needs its own state.
-        decoders = {
-            fd: codecs.getincrementaldecoder("utf-8")(errors="replace")
-            for fd in open_fds
-        }
 
         if _is_windows:
             # Windows: use non-blocking reads with polling.
@@ -195,23 +209,24 @@ class BackgroundJob:
                     except BlockingIOError:
                         continue
                     except (OSError, ValueError):
-                        raw = b""
+                        open_fds.discard(fd)
+                        continue
                     if not raw:
                         open_fds.discard(fd)
-                        self._append_output(
-                            fd, stdout_fd, decoders.pop(fd).decode(b"", final=True)
-                        )
+                        self._append_output(fd, stdout_fd, b"", final=True)
                         continue
                     read_any = True
-                    self._append_output(fd, stdout_fd, decoders[fd].decode(raw))
+                    self._append_output(fd, stdout_fd, raw)
                 if _is_windows and not read_any:
                     time.sleep(0.1)
             except (OSError, ValueError):
                 break
 
-        # A stop or bounded post-exit drain may finish before inherited pipes close.
-        for fd, decoder in decoders.items():
-            self._append_output(fd, stdout_fd, decoder.decode(b"", final=True))
+        # EOF is not guaranteed: drain limits, read errors and forced stops can
+        # also end the reader. Preserve any pending bytes before publishing output.
+        for fd in (stdout_fd, stderr_fd):
+            if fd >= 0:
+                self._append_output(fd, stdout_fd, b"", final=True)
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:

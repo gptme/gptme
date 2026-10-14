@@ -48,7 +48,7 @@ Decent alternatives include:
 - Grok 4.6 via the API (``xai/grok-4.6``, ``openrouter/x-ai/grok-4.6``)
 - DeepSeek V4 Pro (``openrouter/deepseek/deepseek-v4-pro-0813``; DeepSeek's own API now serves ``deepseek-v4-pro`` requests with V4.1 Flash)
 - Kimi K3 / K2.6 (``moonshot/kimi-k3``, ``openrouter/moonshotai/kimi-k2.6``)
-- Qwen3 Max (``openrouter/qwen/qwen3-max``)
+
 - MiniMax M2 (``openrouter/minimax/minimax-m2``)
 
 Some models perform better or worse with different ``--tool-format`` options (``markdown``, ``xml``, or ``tool`` for native tool-calling); see :doc:`tool-formats`.
@@ -63,7 +63,7 @@ Pass ``--model`` (``-m``) as ``<provider>/<model>`` to choose the model for a si
 .. code-block:: sh
 
     # Quick question — small, cheap, fast
-    gptme "what does this regex match?" -m openrouter/qwen/qwen3-max
+    gptme "what does this regex match?" -m openrouter/deepseek/deepseek-v4.1-flash
 
     # Complex coding — powerful reasoning model
     gptme "refactor this module for testability" -m anthropic/claude-sonnet-5-5
@@ -136,7 +136,7 @@ If you mostly use one model, set it once in your global config
 .. code-block:: toml
 
     [models]
-    default = "openrouter/qwen/qwen3-max"
+    default = "openrouter/deepseek/deepseek-v4.1-flash"
 
 With a default configured, ``gptme "query"`` uses that model, and ``--model`` still
 overrides it per run when you need something stronger or cheaper.
@@ -155,7 +155,7 @@ without per-call flags:
 
     # router-agent/gptme.toml — cheap, fast, handles triage and dispatch
     [env]
-    MODEL = "openrouter/qwen/qwen3-max"
+    MODEL = "openrouter/deepseek/deepseek-v4.1-flash"
 
 .. code-block:: toml
 

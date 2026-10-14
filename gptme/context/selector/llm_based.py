@@ -122,18 +122,14 @@ class LLMSelector(ContextSelector):
         return "\n".join(lines)
 
     def _parse_response(self, response: str) -> list[str]:
-        """Extract selected identifiers from LLM response."""
-        identifiers = []
+        """Extract unique identifiers, raising on malformed selection blocks."""
+        _, opening, remainder = response.partition("<selected>")
+        content, closing, _ = remainder.partition("</selected>")
+        if not opening or not closing or "<selected>" in content:
+            raise ValueError(
+                "Invalid selector response: expected a complete <selected> block"
+            )
 
-        # Look for <selected>...</selected> tags
-        if "<selected>" in response and "</selected>" in response:
-            start = response.index("<selected>") + len("<selected>")
-            end = response.index("</selected>", start)  # Find closing tag after opening
-            content = response[start:end].strip()
-
-            if content:
-                identifiers = [
-                    line.strip() for line in content.split("\n") if line.strip()
-                ]
-
-        return identifiers
+        return list(
+            dict.fromkeys(line.strip() for line in content.splitlines() if line.strip())
+        )

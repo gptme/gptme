@@ -1101,7 +1101,9 @@ def _extract_failure_sections(log_text: str) -> str:
 
 
 def get_github_run_logs(
-    run_id: str, max_tokens: int = DEFAULT_LOG_MAX_TOKENS
+    run_id: str,
+    max_tokens: int = DEFAULT_LOG_MAX_TOKENS,
+    repo: str | None = None,
 ) -> str | None:
     """Get failed job logs from a GitHub Actions run.
 
@@ -1111,6 +1113,8 @@ def get_github_run_logs(
     Args:
         run_id: The workflow run ID (numeric string)
         max_tokens: Maximum tokens for the output (default: 4000)
+        repo: Optional explicit ``owner/repo`` the run belongs to. When omitted,
+            ``gh`` resolves the repository from the current checkout.
 
     Returns:
         Formatted string with run info and failure logs, or None on error
@@ -1118,6 +1122,8 @@ def get_github_run_logs(
     if not shutil.which("gh"):
         logger.debug("gh CLI not available")
         return None
+
+    repo_args = ["--repo", repo] if repo else []
 
     try:
         # Get run metadata
@@ -1129,6 +1135,7 @@ def get_github_run_logs(
                 run_id,
                 "--json",
                 "databaseId,displayTitle,event,headBranch,conclusion,status,workflowName,createdAt,updatedAt,url,jobs",
+                *repo_args,
             ],
             capture_output=True,
             text=True,
@@ -1189,7 +1196,7 @@ def get_github_run_logs(
         # Fetch all failed logs once (gh run view --log-failed returns
         # logs for ALL failed jobs in a single call)
         log_result = subprocess.run(
-            ["gh", "run", "view", run_id, "--log-failed"],
+            ["gh", "run", "view", run_id, "--log-failed", *repo_args],
             capture_output=True,
             text=True,
             check=False,
@@ -1253,17 +1260,19 @@ def get_github_run_logs(
                 # https://github.com/owner/repo/actions/runs/12345) so the
                 # jobs-logs endpoint is reachable; the URL needs the real
                 # values, not {owner}/{repo} placeholders.
-                owner, repo = "", ""
-                if url:
+                owner, repo_name = "", ""
+                if repo:
+                    owner, _, repo_name = repo.partition("/")
+                elif url:
                     parts = urllib.parse.urlparse(url).path.strip("/").split("/")
                     if len(parts) >= 2:
-                        owner, repo = parts[0], parts[1]
+                        owner, repo_name = parts[0], parts[1]
 
                 api_result = subprocess.run(
                     [
                         "gh",
                         "api",
-                        f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+                        f"/repos/{owner}/{repo_name}/actions/jobs/{job_id}/logs",
                     ],
                     capture_output=True,
                     text=True,
