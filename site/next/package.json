@@ -11,8 +11,8 @@
     "copy-assets": "node scripts/copy-assets.mjs",
     "dev": "node scripts/copy-assets.mjs && vite",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/readme.test.ts src/lib/readme-hash.test.ts src/lib/stats.test.ts",
-    "build": "node scripts/copy-assets.mjs && npm test && tsc --noEmit && vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs",
+    "test": "node --experimental-strip-types --test src/lib/readme.test.ts src/lib/readme-hash.test.ts src/lib/stats.test.ts scripts/check-assets.test.mjs",
+    "build": "node scripts/copy-assets.mjs && npm test && tsc --noEmit && vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs && node scripts/check-assets.mjs dist",
     "preview": "vite preview"
   },
   "dependencies": {
