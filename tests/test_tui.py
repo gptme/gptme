@@ -3402,3 +3402,14 @@ def test_statusline_payload_without_model():
         stats=LogStats(),
     )
     assert payload["model"] == {"id": None, "display_name": "<no model set>"}
+
+
+@pytest.mark.asyncio
+async def test_statusline_result_after_shutdown_is_ignored(tmp_path):
+    """A statusline run finishing as the app shuts down must not raise."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.screen.query_one("#status").remove()
+        app._show_statusline("late output")
+        app._show_statusline(None)

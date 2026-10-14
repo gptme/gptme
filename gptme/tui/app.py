@@ -40,6 +40,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.filter import ANSIToTruecolor
 from textual.geometry import Offset, Size
 from textual.message import Message as TextualMessage
@@ -2290,6 +2291,10 @@ class GptmeApp(App):
     def _show_statusline(self, output: str | None) -> None:
         self._statusline_running = False
         self._statusline_output = output
+        try:
+            self.query_one("#status", Static)
+        except NoMatches:  # shutting down: the screen is gone
+            return
         if output:
             self.query_one("#status", Static).update(Text.from_ansi(output))
         else:
