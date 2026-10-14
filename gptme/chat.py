@@ -1017,6 +1017,7 @@ def step(
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
     on_thinking: Callable[[bool], None] | None = None,
+    on_before_tool_execution: Callable[[Message], None] | None = None,
     logdir: Path | None = None,
     max_tokens: int | None = None,
 ) -> Generator[Message, None, None]:
@@ -1093,6 +1094,11 @@ def step(
             # Accepted for the CLI path since most tools finish quickly; the
             # server path instead persists immediately and patches timings in
             # after the fact via _attach_tool_timings().
+            # Notify caller before tool execution so UIs can update state
+            # (e.g. clear stream preview, show "running tool" indicator)
+            # before a potentially long-running tool blocks the thread.
+            if on_before_tool_execution is not None:
+                on_before_tool_execution(msg_response)
             # list() exhausts execute_msg which populates tool_timings in-place.
             tool_outputs = list(
                 execute_msg(

@@ -2981,6 +2981,9 @@ class GptmeApp(App):
                         logdir=manager.logdir,
                         on_token=self._on_token,
                         on_thinking=self._on_thinking,
+                        on_before_tool_execution=lambda m: self.call_from_thread(
+                            self._on_before_tool_execution, m
+                        ),
                     ):
                         # each yield may follow a tool execution that reset
                         # the tty (e.g. ipython init) — reassert raw mode
@@ -3194,6 +3197,24 @@ class GptmeApp(App):
         cost_text = inline_cost_text(msg)
         if cost_text:
             self._mount_in_chat(CostMessage(cost_text))
+
+    def _on_before_tool_execution(self, msg: Message) -> None:
+        """Called from the worker thread before tool execution begins.
+
+        Clears the raw stream preview and shows the "running tool" indicator so
+        long-running tools don't leave the UI looking stalled in "generating" state.
+        """
+        if not any(
+            tool_use.is_runnable
+            for tool_use in ToolUse.iter_from_content(
+                msg.content, tool_format_override=self.tool_format
+            )
+        ):
+            return
+        self._clear_stream_view()
+        self._set_state("executing tools")
+        self._show_tool_placeholder()
+        self._update_status()
 
     def _on_step_message(self, msg: Message) -> None:
         if msg.role == "assistant" and self._running_tool is not None:
