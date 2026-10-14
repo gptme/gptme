@@ -11,7 +11,9 @@ name: Dependabot auto-merge
 # 4), so the PR is held with a comment. Greptile does not re-review when
 # Dependabot rebases, so a review of an older commit still counts if that
 # commit's updated-dependencies list (from Dependabot's commit message) is
-# identical to the head's; otherwise the PR is held too.
+# identical to the head's; otherwise the PR is held too. No review at all
+# within 90 minutes of the PR opening counts as 5/5: Greptile being down or
+# skipping a PR shouldn't stall routine bumps.
 #
 # Why it waits itself instead of using GitHub's native auto-merge: the Master
 # ruleset has no required status checks (most workflows are path-filtered, so
@@ -124,6 +126,7 @@ jobs:
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
         SHA: ${{ github.event.pull_request.head.sha }}
+        CREATED: ${{ github.event.pull_request.created_at }}
       run: |
         hold() {
           echo "::notice::Holding: $1"
@@ -140,15 +143,22 @@ jobs:
             | sort
         }
 
-        # Greptile usually finishes well before the slowest checks; give it
-        # up to 20 more minutes.
-        for _ in $(seq 20); do
+        # Greptile usually finishes well before the slowest checks. Wait until
+        # 90 min after the PR opened (within the job timeout, since checks take
+        # at most ~60); no review by then is treated as 5/5. Measured from
+        # creation so a rebase of a never-reviewed PR doesn't wait again.
+        deadline=$(( $(date -d "$CREATED" +%s) + 90 * 60 ))
+        while :; do
           summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
             --jq '[.[] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
-          [ -n "$summary" ] && break
+          [ -n "$summary" ] || [ "$(date +%s)" -ge "$deadline" ] && break
           sleep 60
         done
-        [ -n "$summary" ] || hold "no Greptile review found."
+        if [ -z "$summary" ]; then
+          echo "::notice::No Greptile review within 90 min of opening; treating as 5/5."
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
 
         score=$(grep -oE 'Confidence Score: [0-9]/5' <<<"$summary" | grep -oE '[0-9]' | head -1 || true)
         reviewed=$(grep -oE 'commit/[0-9a-f]{40}' <<<"$summary" | tail -1 | cut -d/ -f2 || true)
