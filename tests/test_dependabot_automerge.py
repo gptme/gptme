@@ -116,14 +116,14 @@ def test_rebase_with_same_dependencies_accepts_old_review(tmp_path: Path) -> Non
 def test_current_low_score_holds(tmp_path: Path) -> None:
     output, comments = run_gate(tmp_path, [review(HEAD, 3)])
     assert "ok=true" not in output
-    assert "Bob confidence is 3/5" in comments
+    assert "Bob confidence is 3/5" in output
 
 
 @pytest.mark.parametrize("reviews", [[], [review(OLD)]])
 def test_missing_or_stale_review_times_out(tmp_path: Path, reviews: list[str]) -> None:
     output, comments = run_gate(tmp_path, reviews)
     assert "ok=true" not in output
-    assert "No review (Greptile or Bob) within the time window" in comments
+    assert "No review (Greptile or Bob) within the time window" in output
     assert int((tmp_path / "clock").read_text()) == 135 * 60
 
 

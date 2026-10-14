@@ -141,8 +141,9 @@ jobs:
       id: greptile
       if: steps.wait.outputs.green == 'true'
       env:
-        # Read-only, and unlike an App token it outlives the 90-min wait.
-        GH_TOKEN: ${{ github.token }}
+        # App token is needed to post the Bob trigger comment and hold notices.
+        # It is minted in the previous step and fits the 45-min polling window.
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
         SHA: ${{ github.event.pull_request.head.sha }}
