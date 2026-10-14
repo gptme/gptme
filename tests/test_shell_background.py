@@ -8,6 +8,7 @@ Covers:
 
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -314,6 +315,36 @@ class TestOutputCapture:
                 assert "bg-high-fd-safe" in stdout
             finally:
                 job.kill()
+
+    @pytest.mark.no_retry
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_invalid_utf8_pipe_output(self, stream: str) -> None:
+        """Malformed and incomplete bytes retain replacement decoding at EOF."""
+        fd = 1 if stream == "stdout" else 2
+        payload = b"before\xffafter\xe2\x82"
+        script = f"import os; os.write({fd}, {payload!r})"
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        job.process.wait(timeout=5)
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+        index = 0 if stream == "stdout" else 1
+        assert job.get_output()[index] == payload.decode("utf-8", errors="replace")
+
+    @pytest.mark.no_retry
+    def test_utf8_decoder_state_is_separate_for_each_stream(self) -> None:
+        """Bytes from stderr must not complete a pending stdout character."""
+        script = "import os; os.write(1, b'\\xe2'); os.write(2, b'\\x82\\xac')"
+        job = start_background_job(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+        )
+        job.process.wait(timeout=5)
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+        assert job.get_output() == ("\ufffd", "\ufffd\ufffd")
 
 
 # ---------------------------------------------------------------------------
