@@ -102,15 +102,23 @@ jobs:
           HEAD_SHA=$(git rev-parse HEAD)
           echo "Checking CI status for $HEAD_SHA..."
 
+          # Only count check runs from push-triggered workflow runs. On a quiet
+          # master, HEAD also collects scheduled and Dependabot runs (Model
+          # Freshness, the Dependabot updater); their failures or timeouts are
+          # not a verdict on this commit and must not block the release.
+          PUSH_SUITES=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=${HEAD_SHA}&event=push&per_page=100" \
+            --jq '[.workflow_runs[].check_suite_id]' 2>/dev/null || echo "[]")
+
           # Check individual check runs (not suites) to avoid blocking on
           # flaky/optional checks like external API tests.
           # Exclude: API tests (external, flaky), the report-only Dependency
           # Advisory Scan (continue-on-error; a coalesced/cancelled run of it
           # must not block a release), and this workflow's own runs.
-          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
-            --paginate \
-            --jq '[.check_runs[] | select(
+          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+            --paginate 2>/dev/null \
+            | jq -r --argjson suites "$PUSH_SUITES" '[.check_runs[] | select(
               .app.slug == "github-actions" and
+              (.check_suite.id as $s | $suites | index($s)) and
               (.name | test("API tests|^Dependency Advisory Scan$|^Pre-flight checks$|^Create release$|^Publish release$") | not)
             )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
 
