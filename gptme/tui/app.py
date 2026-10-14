@@ -2136,10 +2136,13 @@ class GptmeApp(App):
         self, cmd: str, before: list[Message], result: _CommandResult
     ) -> None:
         self.generating = False
+        if self._quitting:
+            return
         self._set_state("idle")
         self._finish_command(cmd, before, result)
-        if not self.generating and self.prompt_queue:
-            self.call_later(self._submit_user_input, self._pop_queued_prompt())
+        if not self.generating and not self._quitting:
+            # e.g. /skill:<name> already started a turn, which dispatches later
+            self.call_later(self._dispatch_queue)
 
     def _execute_command(self, msg: Message, cmd: str) -> _CommandResult:
         """Run a registry command, capturing output. Thread-safe: no UI calls."""
@@ -2631,6 +2634,11 @@ class GptmeApp(App):
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
         self._clear_tool_placeholder()
+        await self._dispatch_queue()
+
+    async def _dispatch_queue(self) -> None:
+        """After a turn or command: send the next queued prompt, or hand the
+        queue back to the input if the user interrupted."""
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
             text = "\n".join(_queued_prompt_text(item) for item in self.prompt_queue)

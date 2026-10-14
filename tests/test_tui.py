@@ -2597,9 +2597,11 @@ async def test_slow_command_does_not_block_ui(tmp_path, monkeypatch):
     must not freeze the UI; input typed meanwhile queues and is sent after."""
     import threading
 
+    entered = threading.Event()
     release = threading.Event()
 
     def slow_cmd(msg, manager):
+        entered.set()
         assert release.wait(5)
         print("compacted")
         return True
@@ -2614,8 +2616,9 @@ async def test_slow_command_does_not_block_ui(tmp_path, monkeypatch):
         inp.text = "/compact resume"
         await pilot.press("enter")
         await pilot.pause()
+        assert entered.wait(5)
         assert app.state == "running /compact…"
-        # the event loop is free: typing works and the prompt queues
+        # the event loop is free while the command runs: typing queues
         inp.text = "next prompt"
         await pilot.press("enter")
         await pilot.pause()
@@ -2629,3 +2632,60 @@ async def test_slow_command_does_not_block_ui(tmp_path, monkeypatch):
         assert app.prompt_queue == []
         assert started == [True]
         assert app.manager.log[-1].content == "next prompt"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_during_command_returns_queued_input(tmp_path, monkeypatch):
+    """Ctrl+C during a slow command hands queued text back to the input,
+    as after an interrupted turn, instead of sending it."""
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_cmd(msg, manager):
+        entered.set()
+        assert release.wait(5)
+        return True
+
+    monkeypatch.setattr("gptme.tui.app.execute_cmd", slow_cmd)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/compact resume"
+        await pilot.press("enter")
+        assert entered.wait(5)
+        inp.text = "draft"
+        await pilot.press("enter")
+        await pilot.pause()
+        app.action_interrupt()
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert started == []
+        assert app.prompt_queue == []
+        assert inp.text == "draft"
+
+
+@pytest.mark.asyncio
+async def test_exit_command_does_not_submit_queued_prompt(tmp_path, monkeypatch):
+    """A prompt queued behind /exit must not be sent while the app shuts down."""
+
+    def exit_cmd(msg, manager):
+        raise SystemExit
+
+    monkeypatch.setattr("gptme.tui.app.execute_cmd", exit_cmd)
+    app = GptmeApp(
+        make_manager(tmp_path), workspace=tmp_path, initial_prompts=["/exit", "hello"]
+    )
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+    assert started == []
+    assert [m.content for m in app.manager.log if m.role == "user"] == ["/exit"]
