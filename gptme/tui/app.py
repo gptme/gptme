@@ -708,9 +708,13 @@ class StreamingMessage(Vertical):
         self._buffer = ""
         self.show_thinking = show_thinking
         self._body = Static(Text("Generating…"), classes="progress-placeholder")
+        # Keep one row per thinking/prose segment, in final-render order.
+        self._segments: list[Static] = []
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
+        if not self.show_thinking:
+            self._update_hidden_segments()
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
@@ -719,12 +723,59 @@ class StreamingMessage(Vertical):
     def _visible(self) -> str:
         return self._buffer if self.show_thinking else _strip_thinking(self._buffer)
 
+    def _update_hidden_segments(self) -> None:
+        if not self.is_mounted:
+            return
+        segments = _split_thinking(self._buffer)
+        self._body.display = not segments
+        with self.app.batch_update():
+            for index, (is_thinking, text) in enumerate(segments):
+                if index == len(self._segments):
+                    row = Static(
+                        classes="thinking-stub" if is_thinking else "stream-prose"
+                    )
+                    self._segments.append(row)
+                    self.mount(row)
+                row = self._segments[index]
+                row.set_class(is_thinking, "thinking-stub")
+                if is_thinking:
+                    n = len(text.splitlines())
+                    row.update(
+                        Text(
+                            f"▸ Thinking ({n} line{'s' if n != 1 else ''})", style="dim"
+                        )
+                    )
+                else:
+                    row.update(Text(text.strip()))
+            # A split opening tag may briefly be prose before it is complete.
+            # Reuse existing rows and hide any that the parser no longer emits.
+            for index, row in enumerate(self._segments):
+                row.display = index < len(segments)
+
+    def _refresh_thinking_display(self) -> None:
+        """Sync widget visibility after show_thinking changes mid-stream."""
+        if self.show_thinking:
+            visible = self._visible().strip()
+            if visible:
+                self._body.update(Text(visible))
+            self._body.display = True
+            for row in self._segments:
+                row.display = False
+        else:
+            self._update_hidden_segments()
+
     def append_token(self, token: str) -> None:
         self._buffer += token
-        if visible := self._visible().strip():
-            self._body.update(Text(visible))
-        else:
-            self.set_thinking(bool(_THINK_OPEN_RE.search(self._buffer)))
+        visible = self._visible().strip()
+
+        if self.show_thinking:
+            if visible:
+                self._body.update(Text(visible))
+            else:
+                self.set_thinking(bool(_THINK_OPEN_RE.search(self._buffer)))
+            return
+
+        self._update_hidden_segments()
 
     def set_thinking(self, is_thinking: bool) -> None:
         """Update the placeholder when the model transitions in/out of thinking."""
@@ -2390,6 +2441,7 @@ class GptmeApp(App):
         self.show_thinking = on
         if self._stream_widget is not None:
             self._stream_widget.show_thinking = on
+            self._stream_widget._refresh_thinking_display()
         if not self.inline:
             for block in self.query(".thinking-block").results(Collapsible):
                 block.collapsed = not on
@@ -2724,13 +2776,50 @@ class GptmeApp(App):
             self._tool_placeholder.remove()
             self._tool_placeholder = None
 
+    def _finalize_stream_in_place(self, msg: Message) -> None:
+        """Mount the final AssistantMessage before the streaming widget and remove it.
+
+        Doing both inside batch_update() avoids an intermediate frame with a
+        gap: the chat scroll never sees the stream widget disappear before its
+        replacement is present.
+        """
+        assert self._stream_widget is not None
+        stream_widget = self._stream_widget
+        self._stream_text = ""
+        with self._stream_lock:
+            # a pending flush belongs to the stream being replaced
+            self._stream_pending.clear()
+        self._stream_widget = None
+
+        if msg.hide and not self.show_hidden:
+            stream_widget.remove()
+            return
+
+        am = AssistantMessage(
+            msg.content, show_thinking=self.show_thinking, highlight=self.highlight
+        )
+        chat = self.query_one("#chat", VerticalScroll)
+        stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
+        with self.batch_update():
+            chat.mount(am, before=stream_widget)
+            stream_widget.remove()
+        if stick:
+            self.call_after_refresh(chat.scroll_end, animate=False)
+        cost_text = inline_cost_text(msg)
+        if cost_text:
+            self._mount_in_chat(CostMessage(cost_text))
+
     def _on_step_message(self, msg: Message) -> None:
         if msg.role == "assistant":
-            # replace the live stream view with the final rendering
-            self._clear_stream_view()
-        # Results and hook messages mount above the tool status line, which
-        # stays until the next model step or worker completion ends the batch.
-        self._show_message(msg)
+            if not self.inline and self._stream_widget is not None:
+                # Swap streaming preview for final rendering without a DOM gap.
+                self._finalize_stream_in_place(msg)
+            else:
+                # Inline path or no stream widget: clear preview and show normally.
+                self._clear_stream_view()
+                self._show_message(msg)
+        else:
+            self._show_message(msg)
         # UI thread: the tool format lives in the chat context, so pass it
         if msg.role == "assistant" and any(
             tool_use.is_runnable
