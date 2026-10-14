@@ -4270,7 +4270,13 @@ def test_resume_via_llm_overflow_uses_chunked_summary(tmp_path, monkeypatch):
         return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
 
     monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
-    assert list(_resume_via_llm(manager, messages, keep_recent_tokens=0))
+    gen = _resume_via_llm(manager, messages, keep_recent_tokens=0)
+    outputs = []
+    with pytest.raises(StopIteration) as stopped:
+        while True:
+            outputs.append(next(gen))
+    assert outputs
+    assert stopped.value.value == (True, "chunked")
     chunk_calls = [r for r in requests if r[-1].content == _CHUNK_SUMMARY_PROMPT]
     assert chunk_calls, "overflow did not trigger chunked summarization"
     final = requests[-1]
@@ -4980,12 +4986,15 @@ def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
     assert manager.current_view is not None
 
 
-def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
+def test_autocompact_hook_tries_native_before_checkpoint(tmp_path, monkeypatch):
     """On a compaction-capable Anthropic model, native compaction must be
     attempted before queueing the generic checkpoint turn."""
     from unittest.mock import MagicMock, patch
 
     import gptme.tools.autocompact.hook as hook_module
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import native_anthropic
+    from gptme.tools.autocompact.events import read_compaction_events
 
     hook_module._last_autocompact_attempt.clear()
     hook_module._failed_summarize.clear()
@@ -4994,12 +5003,10 @@ def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
         Message("system", "System prompt"),
         Message("user", "implement the feature"),
         Message("assistant", "I am working on it"),
+        Message("user", "continue"),
+        Message("assistant", "The feature is implemented"),
     ]
-    manager = MagicMock()
-    manager.logdir = "/tmp/conv-native-first"
-    manager.current_branch = "master"
-    manager.current_view = "main"
-    manager.log.messages = messages
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
 
     anthropic_model = MagicMock()
     anthropic_model.full = "anthropic/claude-test"
@@ -5007,34 +5014,50 @@ def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
     anthropic_model.context = 200_000
     anthropic_model.max_output = 8192
 
-    def fake_native(_manager, msgs, **kwargs):
+    def fake_native(msgs, model, **kwargs):
         assert msgs[0].role == "system", "native path must receive the system head"
-        yield Message(
-            "system", "🔄 Compacting via provider-native compaction (Anthropic)..."
+        return Message(
+            "assistant",
+            "[compacted]",
+            metadata={
+                "anthropic_compaction_block": {
+                    "type": "compaction",
+                    "content": "signed checkpoint",
+                }
+            },
         )
-        return True
 
     with (
         patch(
             "gptme.tools.autocompact.hook.should_auto_compact",
             return_value="summarize",
         ),
-        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch("gptme.tools.autocompact.hook.get_project_config") as mock_config,
         patch(
             "gptme.tools.autocompact.hook.get_default_model",
             return_value=anthropic_model,
         ),
-        patch(
-            "gptme.tools.autocompact.hook._apply_native_compaction",
-            side_effect=fake_native,
+        patch.object(
+            native_anthropic, "anthropic_compaction_supported", return_value=True
+        ),
+        patch.object(
+            native_anthropic, "anthropic_native_compact", side_effect=fake_native
         ) as mock_native,
     ):
+        mock_config.return_value.context.keep_recent_tokens = 0
+        mock_config.return_value.context.compact_instructions = None
         out = _message_outputs(list(hook_module.autocompact_hook(manager)))
 
     assert mock_native.called, "native path must be attempted before the checkpoint"
     assert not any(
         m.metadata and m.metadata.get("compaction_checkpoint_view") for m in out
     ), "checkpoint turn must not be queued when native compaction applied"
+
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "budget"
+    assert events[0]["method"] == "native"
+    assert events[0]["messages"] == {"before": 5, "after": 3}
 
 
 def test_autocompact_hook_falls_back_to_checkpoint_when_native_fails(monkeypatch):
