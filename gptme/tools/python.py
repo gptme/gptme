@@ -448,6 +448,9 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
             f"Kernel error: {exc}\n\nFalling back is not automatic; set GPTME_IPYTHON_BACKEND=inprocess to use in-process mode.",
         )
         return
+    except KeyboardInterrupt:
+        backend.interrupt()
+        raise
 
     output = ""
 
@@ -538,7 +541,21 @@ def execute_python(
 
     # Kernel mode: execute in a separate Jupyter kernel process
     if _KERNEL_MODE:
-        yield from _execute_python_kernel(code)
+        cwd = Path.cwd()
+        pre_images = _snapshot_images(cwd)
+        msgs = list(_execute_python_kernel(code))
+        post_images = _snapshot_images(cwd)
+        plot_artifacts = _make_plot_artifacts(pre_images, post_images)
+        if plot_artifacts and msgs:
+            # Attach artifact descriptors to the last message (the execution result).
+            _m = msgs[-1].metadata
+            existing_meta: MessageMetadata = dict(_m) if _m else {}  # type: ignore[assignment]
+            existing_meta["artifacts"] = [
+                *existing_meta.get("artifacts", []),
+                *plot_artifacts,
+            ]
+            msgs[-1] = dataclasses.replace(msgs[-1], metadata=existing_meta)
+        yield from msgs
         return
 
     # Create an IPython instance if it doesn't exist yet

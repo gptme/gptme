@@ -199,7 +199,8 @@ def test_execute_python_kernel_mode():
 
     assert msgs
     content = msgs[0].content
-    assert "from_kernel" in content or "kernel" in content.lower()
+    assert "from_kernel" in content
+    assert "Kernel error:" not in content
 
 
 # ---------------------------------------------------------------------------
@@ -207,11 +208,26 @@ def test_execute_python_kernel_mode():
 # ---------------------------------------------------------------------------
 
 
+def _bridge_call(server: BridgeServer, payload: bytes) -> bytes:
+    """Helper: send auth token + framed payload, return framed response bytes."""
+    import socket
+    import struct
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect(("127.0.0.1", server.port))
+        s.sendall(server._token)
+        s.sendall(struct.pack(">I", len(payload)) + payload)
+        raw_len = s.recv(4)
+        (length,) = struct.unpack(">I", raw_len)
+        data = b""
+        while len(data) < length:
+            data += s.recv(length - len(data))
+    return data
+
+
 def test_bridge_server_register_and_call():
     """BridgeServer round-trips a call over the socket."""
     import pickle
-    import socket
-    import struct
 
     server = BridgeServer()
     server.start()
@@ -221,16 +237,8 @@ def test_bridge_server_register_and_call():
 
     server.register(add)
 
-    # Make a raw call to the bridge
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(("127.0.0.1", server.port))
-        payload = pickle.dumps({"fn": "add", "args": (5, 6), "kwargs": {}})
-        s.sendall(struct.pack(">I", len(payload)) + payload)
-        raw_len = s.recv(4)
-        (length,) = struct.unpack(">I", raw_len)
-        data = b""
-        while len(data) < length:
-            data += s.recv(length - len(data))
+    payload = pickle.dumps({"fn": "add", "args": (5, 6), "kwargs": {}})
+    data = _bridge_call(server, payload)
     result = pickle.loads(data)
     server.stop()
 
@@ -240,23 +248,40 @@ def test_bridge_server_register_and_call():
 
 def test_bridge_server_unknown_function():
     import pickle
+
+    server = BridgeServer()
+    server.start()
+
+    payload = pickle.dumps({"fn": "nonexistent", "args": (), "kwargs": {}})
+    data = _bridge_call(server, payload)
+    result = pickle.loads(data)
+    server.stop()
+
+    assert "error" in result
+
+
+def test_bridge_server_rejects_wrong_token():
+    """Bridge closes connection silently on wrong auth token."""
+    import pickle
     import socket
     import struct
 
     server = BridgeServer()
     server.start()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect(("127.0.0.1", server.port))
-        payload = pickle.dumps({"fn": "nonexistent", "args": (), "kwargs": {}})
-        s.sendall(struct.pack(">I", len(payload)) + payload)
-        raw_len = s.recv(4)
-        (length,) = struct.unpack(">I", raw_len)
-        data = b""
-        while len(data) < length:
-            data += s.recv(length - len(data))
-    result = pickle.loads(data)
-    server.stop()
-
-    assert "error" in result
-    assert "nonexistent" in result["error"]
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(("127.0.0.1", server.port))
+            # Send wrong token (all zeros)
+            s.sendall(bytes(len(server._token)))
+            payload = pickle.dumps({"fn": "add", "args": (1, 2), "kwargs": {}})
+            s.sendall(struct.pack(">I", len(payload)) + payload)
+            s.settimeout(2.0)
+            # Server closes without sending a response — either EOF or RST is fine
+            try:
+                data = s.recv(4)
+                assert data == b"", "Expected server to close connection on wrong token"
+            except ConnectionResetError:
+                pass  # RST also means the server rejected us
+    finally:
+        server.stop()

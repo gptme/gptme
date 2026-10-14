@@ -15,7 +15,9 @@ are not yet bridged and remain in-process.
 """
 
 import logging
+import os
 import pickle
+import secrets
 import socket
 import struct
 import subprocess
@@ -24,6 +26,12 @@ from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_MAX_BRIDGE_CONNECTIONS = 16
+_BRIDGE_HANDLER_TIMEOUT = (
+    30.0  # seconds — prevents idle connections from leaking threads
+)
+_MAX_STREAMING_OUTPUT_BYTES = 10 * 1024 * 1024  # 10 MB, matches python.py cap
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +47,11 @@ class BridgeServer:
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self.port: int = 0
+        # Per-instance auth token sent by the kernel before every request.
+        # Prevents other local processes from sending crafted pickles to the bridge.
+        self._token: bytes = secrets.token_bytes(16)
+        # Bound semaphore limits concurrent handler threads, preventing fd exhaustion.
+        self._semaphore = threading.BoundedSemaphore(_MAX_BRIDGE_CONNECTIONS)
 
     def register(self, fn: Callable) -> None:
         self._functions[fn.__name__] = fn
@@ -67,14 +80,39 @@ class BridgeServer:
                 continue
             except OSError:
                 break
-            t = threading.Thread(target=self._handle, args=(conn,), daemon=True)
+            if not self._semaphore.acquire(blocking=False):
+                # Connection limit reached — reject immediately
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                logger.warning("Bridge connection limit reached, rejecting connection")
+                continue
+            t = threading.Thread(
+                target=self._handle_with_release, args=(conn,), daemon=True
+            )
             t.start()
+
+    def _handle_with_release(self, conn: socket.socket) -> None:
+        try:
+            self._handle(conn)
+        finally:
+            self._semaphore.release()
+
+    @staticmethod
+    def _recv_exact(conn: socket.socket, n: int) -> bytes:
+        """Read exactly *n* bytes from *conn*, raising EOFError on early close."""
+        buf = bytearray()
+        while len(buf) < n:
+            chunk = conn.recv(n - len(buf))
+            if not chunk:
+                raise EOFError
+            buf.extend(chunk)
+        return bytes(buf)
 
     @staticmethod
     def _recv_framed(conn: socket.socket) -> bytes:
-        raw = conn.recv(4)
-        if not raw:
-            raise EOFError
+        raw = BridgeServer._recv_exact(conn, 4)
         (length,) = struct.unpack(">I", raw)
         buf = bytearray()
         while len(buf) < length:
@@ -89,7 +127,14 @@ class BridgeServer:
         conn.sendall(struct.pack(">I", len(data)) + data)
 
     def _handle(self, conn: socket.socket) -> None:
+        conn.settimeout(_BRIDGE_HANDLER_TIMEOUT)
         try:
+            # Verify the auth token before unpickling anything.
+            token = self._recv_exact(conn, len(self._token))
+            if token != self._token:
+                logger.warning("Bridge: rejected connection with wrong auth token")
+                return
+
             payload = self._recv_framed(conn)
             call: dict = pickle.loads(payload)
             fn_name: str = call["fn"]
@@ -137,14 +182,26 @@ import socket as _gptme_socket
 import struct as _gptme_struct
 
 _GPTME_BRIDGE_PORT = {port}
+_GPTME_BRIDGE_TOKEN = bytes.fromhex('{token_hex}')
+
+def _gptme_recv_exact(s, n):
+    '''Read exactly n bytes, handling partial reads.'''
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = s.recv(n - len(buf))
+        if not chunk:
+            break
+        buf.extend(chunk)
+    return bytes(buf)
 
 def _gptme_rpc(fn_name, *args, **kwargs):
     '''Call a function in the gptme process via the bridge socket.'''
     with _gptme_socket.socket(_gptme_socket.AF_INET, _gptme_socket.SOCK_STREAM) as _s:
         _s.connect(('127.0.0.1', _GPTME_BRIDGE_PORT))
+        _s.sendall(_GPTME_BRIDGE_TOKEN)
         _payload = _gptme_pickle.dumps({{'fn': fn_name, 'args': args, 'kwargs': kwargs}})
         _s.sendall(_gptme_struct.pack('>I', len(_payload)) + _payload)
-        _raw = _s.recv(4)
+        _raw = _gptme_recv_exact(_s, 4)
         (_length,) = _gptme_struct.unpack('>I', _raw)
         _buf = bytearray()
         while len(_buf) < _length:
@@ -200,9 +257,10 @@ class KernelBackend:
         self._started = False
         self._bridge = BridgeServer()
         self._bridge.start()
-        self._pending_stubs: list[
-            tuple[str, str]
-        ] = []  # (name, stub_code) before start
+        # All registered stub codes — retained so they can be re-pushed after a restart.
+        self._registered_stubs: list[str] = []
+        # Track last synced working directory; None forces a sync on first execute.
+        self._last_cwd: str | None = None
 
     # ------------------------------------------------------------------
     # Environment detection
@@ -243,7 +301,19 @@ class KernelBackend:
 
     def _ensure_started(self) -> None:
         if self._started:
-            return
+            if not self.is_alive():
+                # Kernel has died; clean up so we restart below.
+                logger.warning("Kernel has died; restarting")
+                self._started = False
+                self._kc = None
+                self._km = None
+                self._last_cwd = None  # force cwd re-sync after restart
+            else:
+                return
+
+        # Restart the bridge server if it was stopped (e.g. after shutdown()).
+        if self._bridge._sock is None:
+            self._bridge.start()
 
         try:
             from jupyter_client import KernelManager
@@ -293,16 +363,18 @@ class KernelBackend:
         self._started = True
         logger.info("Kernel started")
 
-        # Push bridge bootstrap
+        # Push bridge bootstrap with current port and auth token.
         self._exec_silent(
-            _BRIDGE_BOOTSTRAP.format(port=self._bridge.port),
+            _BRIDGE_BOOTSTRAP.format(
+                port=self._bridge.port,
+                token_hex=self._bridge._token.hex(),
+            ),
             timeout=10,
         )
 
-        # Push any stubs registered before start
-        for _name, stub_code in self._pending_stubs:
+        # Push all registered stubs — handles both first start and restarts.
+        for stub_code in self._registered_stubs:
             self._exec_silent(stub_code, timeout=5)
-        self._pending_stubs.clear()
 
     def is_alive(self) -> bool:
         return self._started and self._km is not None and self._km.is_alive()
@@ -322,6 +394,8 @@ class KernelBackend:
         self._started = False
         self._kc = None
         self._km = None
+        self._last_cwd = None
+        # _registered_stubs intentionally kept so they are re-pushed on the next start.
 
     # ------------------------------------------------------------------
     # Bridge function registration
@@ -331,10 +405,10 @@ class KernelBackend:
         """Register fn in the bridge; push a stub into the kernel namespace."""
         self._bridge.register(fn)
         stub_code = _STUB_TEMPLATE.format(name=fn.__name__)
+        # Retain for re-push on restart.
+        self._registered_stubs.append(stub_code)
         if self._started:
             self._exec_silent(stub_code, timeout=5)
-        else:
-            self._pending_stubs.append((fn.__name__, stub_code))
 
     # ------------------------------------------------------------------
     # Execution helpers
@@ -360,8 +434,19 @@ class KernelBackend:
         """Execute a code cell and return captured outputs."""
         self._ensure_started()
 
+        # Sync working directory so the kernel and gptme stay in the same folder.
+        cwd = os.getcwd()
+        if cwd != self._last_cwd:
+            self._exec_silent(
+                f"import os as _gptme_os; _gptme_os.chdir({cwd!r})",
+                timeout=5,
+            )
+            self._last_cwd = cwd
+
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
+        stdout_bytes = 0
+        stderr_bytes = 0
         result_text: str | None = None
         error: dict | None = None
 
@@ -399,9 +484,13 @@ class KernelBackend:
                 name = content.get("name", "")
                 text = content.get("text", "")
                 if name == "stdout":
-                    stdout_parts.append(text)
+                    if stdout_bytes < _MAX_STREAMING_OUTPUT_BYTES:
+                        stdout_parts.append(text)
+                        stdout_bytes += len(text.encode("utf-8", errors="replace"))
                 elif name == "stderr":
-                    stderr_parts.append(text)
+                    if stderr_bytes < _MAX_STREAMING_OUTPUT_BYTES:
+                        stderr_parts.append(text)
+                        stderr_bytes += len(text.encode("utf-8", errors="replace"))
 
             elif msg_type == "execute_result":
                 data = content.get("data", {})
@@ -427,6 +516,13 @@ class KernelBackend:
         # is in a clean state for the next execute() call.
         if timed_out:
             self._drain_until_idle(grace=5.0)
+            # Report the timeout explicitly so the model knows the cell did not finish.
+            if error is None:
+                error = {
+                    "ename": "ExecutionTimeout",
+                    "evalue": f"Cell execution timed out after {timeout:.0f}s and was interrupted",
+                    "traceback": [],
+                }
 
         return KernelExecResult(
             stdout="".join(stdout_parts),
