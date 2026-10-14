@@ -58,8 +58,9 @@ jobs:
       github.actor == 'dependabot[bot]' &&
       !startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/')
     runs-on: ubuntu-latest
-    # The slowest PR checks (Tauri macOS/Windows builds) take up to ~60 min.
-    timeout-minutes: 120
+    # Checks take up to ~60 min; Greptile waits until PR age 90 min, then
+    # Bob gets 45 min. Leave 15 min for setup, API calls and the merge.
+    timeout-minutes: 150
     steps:
     - name: Check for app credentials
       id: creds
@@ -110,6 +111,25 @@ jobs:
           sleep 60
         done
 
+    # Dependabot's GITHUB_TOKEN is read-only even if write is requested.
+    # Poll with it first; mint the 1-hour App token only for the remaining
+    # 45-minute Bob window and the comment/merge writes.
+    - name: Wait for Greptile
+      if: steps.wait.outputs.green == 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        CREATED: ${{ github.event.pull_request.created_at }}
+      run: |
+        deadline=$(( $(date -d "$CREATED" +%s) + 90 * 60 ))
+        while :; do
+          summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
+            --jq '[.[][] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
+          [ -n "$summary" ] || [ "$(date +%s)" -ge "$deadline" ] && break
+          sleep 60
+        done
+
     - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
       id: app-token
       if: steps.wait.outputs.green == 'true'
@@ -126,7 +146,6 @@ jobs:
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
         SHA: ${{ github.event.pull_request.head.sha }}
-        CREATED: ${{ github.event.pull_request.created_at }}
       run: |
         hold() {  # the comment needs the App token: posted by a later step
           echo "::notice::Holding: $1"
@@ -155,16 +174,9 @@ jobs:
           exit 0
         }
 
-        # Greptile usually finishes well before the slowest checks. Wait until
-        # 90 min after the PR opened (within the job timeout, since checks take
-        # at most ~60). Measured from creation so a rebase of a never-reviewed
-        # PR doesn't wait again.
-        deadline=$(( $(date -d "$CREATED" +%s) + 90 * 60 ))
-        while :; do
-          summary=$(comments | jq -r '[.[] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
-          [ -n "$summary" ] || [ "$(date +%s)" -ge "$deadline" ] && break
-          sleep 60
-        done
+        # The read-only wait already allowed Greptile until PR age 90 min.
+        summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
+          --jq '[.[][] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
         if [ -n "$summary" ]; then
           score=$(grep -oE 'Confidence Score: [0-9]/5' <<<"$summary" | grep -oE '[0-9]' | head -1 || true)
           reviewed=$(grep -oE 'commit/[0-9a-f]{40}' <<<"$summary" | tail -1 | cut -d/ -f2 || true)
@@ -182,18 +194,24 @@ jobs:
           gh pr comment "$PR" -R "$REPO" --body "@TimeToBuildBob review
         $bob_trigger"
         fi
-        # Poll for Bob's verdict for up to 45 min (fits within the 120-min job
-        # timeout; the sweep runs frequently on gptme/gptme so Bob is usually
-        # done within one cycle).
+        # Poll for Bob's verdict for up to 45 min, within the 150-min job
+        # budget. Ignore stale verdicts while the requested review is pending.
         bob_deadline=$(( $(date +%s) + 45 * 60 ))
         while :; do
-          bob_body=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq '[.[] | select(.user.login == "TimeToBuildBob" and (.body | contains("<!-- bob-ai-review ")))] | last | .body // empty')
+          bob_body=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
+            --jq '[.[][] | select(.user.login == "TimeToBuildBob" and (.body | contains("<!-- bob-ai-review ")))] | last | .body // empty')
           if [ -n "$bob_body" ]; then
             bob_score=$(grep -oE '"score": *[0-9]+' <<<"$bob_body" | grep -oE '[0-9]+$' | head -1 || true)
             bob_sha=$(grep -oE '"sha": *"[0-9a-f]{40}"' <<<"$bob_body" | grep -oE '"[0-9a-f]{40}"' | tr -d '"' | head -1 || true)
             [ -n "$bob_sha" ] || hold "could not parse commit SHA from Bob's review."
-            pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+            if [ "$bob_sha" = "$SHA" ]; then
+              pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+            fi
+            head_deps=$(deps "$SHA")
+            if [ -n "$head_deps" ] && [ "$(deps "$bob_sha" || true)" = "$head_deps" ]; then
+              pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+            fi
+            echo "Ignoring Bob review of ${bob_sha:0:9}: dependency versions changed."
           fi
           [ "$(date +%s)" -lt "$bob_deadline" ] || break
           sleep 60
