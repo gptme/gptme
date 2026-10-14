@@ -73,6 +73,12 @@ jest.mock('@/stores/conversations', () => {
 
 const mockSaveDefaultModel = jest.fn();
 let mockDefaultModel = '';
+let mockModelsLoading = false;
+
+beforeEach(() => {
+  mockDefaultModel = '';
+  mockModelsLoading = false;
+});
 
 jest.mock('@/hooks/useModels', () => ({
   useModels: () => ({
@@ -80,7 +86,7 @@ jest.mock('@/hooks/useModels', () => ({
     defaultModel: mockDefaultModel,
     availableModels: [],
     recommendedModels: [],
-    isLoading: false,
+    isLoading: mockModelsLoading,
     error: null,
     saveDefaultModel: mockSaveDefaultModel,
   }),
@@ -301,6 +307,53 @@ describe('Model selector (gptme#3440)', () => {
       executingTool: null,
       chatConfig: { chat: {} },
     });
+  });
+
+  it('shows the fallback pill on the home page while models are loading (gptme#4112)', () => {
+    mockModelsLoading = true;
+    const autoFocus$ = observable(false);
+    const onSend = jest.fn();
+    const { rerender } = render(<ChatInput onSend={onSend} autoFocus$={autoFocus$} />);
+
+    const badge = screen.getByTestId('model-selector');
+    expect(badge).not.toHaveAttribute('aria-label', 'Loading model...');
+    expect(badge).toHaveTextContent('claude-sonnet-4-6');
+    expect(badge).toBeEnabled();
+
+    mockModelsLoading = false;
+    mockDefaultModel = 'openai/gpt-4o';
+    rerender(<ChatInput onSend={onSend} autoFocus$={autoFocus$} />);
+
+    expect(screen.getByTestId('model-selector')).toHaveTextContent('gpt-4o');
+    expect(screen.getByTestId('model-selector')).not.toHaveAttribute(
+      'aria-label',
+      'Loading model...'
+    );
+  });
+
+  it('keeps the skeleton for an active conversation until models resolve', () => {
+    // Config has resolved without a model, so only the models-loading condition
+    // can show the skeleton (not the separate chatConfig-loading condition).
+    mockModelsLoading = true;
+    const autoFocus$ = observable(false);
+    const onSend = jest.fn();
+    const { rerender } = render(
+      <ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={autoFocus$} />
+    );
+
+    const badge = screen.getByTestId('model-selector');
+    expect(badge).toHaveAttribute('aria-label', 'Loading model...');
+    expect(badge).toHaveTextContent(/^$/);
+
+    mockModelsLoading = false;
+    mockDefaultModel = 'openai/gpt-4o';
+    rerender(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={autoFocus$} />);
+
+    expect(screen.getByTestId('model-selector')).toHaveTextContent('gpt-4o');
+    expect(screen.getByTestId('model-selector')).not.toHaveAttribute(
+      'aria-label',
+      'Loading model...'
+    );
   });
 
   it('displays the conversation model when chatConfig is populated', () => {
