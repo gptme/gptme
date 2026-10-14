@@ -1992,6 +1992,9 @@ class GptmeApp(App):
         # assistant message rendered from the stream when its tools started,
         # replaced by the final message once they finish
         self._provisional_assistant: Widget | None = None
+        # True when _on_before_tool_execution has already rendered the reply so
+        # _on_step_message must not render the same message again.
+        self._message_pre_rendered = False
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
         self.show_hidden = _show_hidden_default()
@@ -2994,6 +2997,9 @@ class GptmeApp(App):
                         logdir=manager.logdir,
                         on_token=self._on_token,
                         on_thinking=self._on_thinking,
+                        on_before_tool_execution=lambda m: self.call_from_thread(
+                            self._on_before_tool_execution, m
+                        ),
                     ):
                         # each yield may follow a tool execution that reset
                         # the tty (e.g. ipython init) — reassert raw mode
@@ -3114,6 +3120,7 @@ class GptmeApp(App):
     def _begin_stream(self) -> None:
         # A new model step starts only after the previous tool batch finished.
         self._clear_tool_placeholder()
+        self._message_pre_rendered = False
         self._set_state("generating")
         if self.inline:
             self.query_one("#live", Static).update(Text("Generating…", style="dim"))
@@ -3208,6 +3215,33 @@ class GptmeApp(App):
         if cost_text:
             self._mount_in_chat(CostMessage(cost_text))
 
+    def _on_before_tool_execution(self, msg: Message) -> None:
+        """Called before tool execution: show the completed message, then the tool indicator.
+
+        Replaces the streaming preview with the final reply so the user can
+        read it while tools run. Sets _message_pre_rendered so
+        _on_step_message skips the re-render when it fires after tools complete.
+        """
+        if not any(
+            tool_use.is_runnable
+            for tool_use in ToolUse.iter_from_content(
+                msg.content, tool_format_override=self.tool_format
+            )
+        ):
+            return
+        if not self.inline and self._stream_widget is not None:
+            # Swap stream preview for the final rendered message in one DOM update.
+            self._finalize_stream_in_place(msg)
+        else:
+            # Clear pending tokens before printing the inline reply or rendering
+            # a response that completed before its stream widget was mounted.
+            self._clear_stream_view()
+            self._show_message(msg)
+        self._message_pre_rendered = True
+        self._set_state("executing tools")
+        self._show_tool_placeholder()
+        self._update_status()
+
     def _on_step_message(self, msg: Message) -> None:
         if msg.role == "assistant" and self._running_tool is not None:
             # step() yields the assistant message once all its tools finished
@@ -3220,6 +3254,10 @@ class GptmeApp(App):
             if not self.inline and self._stream_widget is not None:
                 # Swap streaming preview for final rendering without a DOM gap.
                 self._finalize_stream_in_place(msg)
+            elif self._message_pre_rendered:
+                # _on_before_tool_execution already rendered the reply (including
+                # inline scrollback) — skip re-render to avoid a duplicate.
+                self._message_pre_rendered = False
             else:
                 # Inline path or no stream widget: clear preview and show normally.
                 self._clear_stream_view()
