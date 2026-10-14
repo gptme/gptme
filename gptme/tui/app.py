@@ -2696,6 +2696,9 @@ class GptmeApp(App):
         assert self._stream_widget is not None
         stream_widget = self._stream_widget
         self._stream_text = ""
+        with self._stream_lock:
+            # a pending flush belongs to the stream being replaced
+            self._stream_pending.clear()
         self._stream_widget = None
 
         if msg.hide and not self.show_hidden:
@@ -2726,10 +2729,6 @@ class GptmeApp(App):
                 self._clear_stream_view()
                 self._show_message(msg)
         else:
-            if msg.role == "system":
-                # Keep the indicator at the bottom while results and hook messages
-                # arrive. The next model step or worker completion ends the batch.
-                self._clear_tool_placeholder()
             self._show_message(msg)
         # UI thread: the tool format lives in the chat context, so pass it
         if msg.role == "assistant" and any(
