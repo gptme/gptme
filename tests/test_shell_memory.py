@@ -191,3 +191,55 @@ def test_guard_thread_stops_when_nothing_is_watched(monkeypatch):
     assert guard._thread is not None and guard._thread is not thread
     alive["value"] = False
     guard._thread.join(2)
+
+
+def test_worker_killed_after_completion_gets_its_own_notice(fake_low_memory):
+    """A worker that outlives its job's main process is still reported."""
+    from gptme.tools.shell_background import (
+        _completion_queue,
+        reset_background_jobs,
+        start_background_job,
+    )
+    from gptme.tools.shell_background import (
+        background_job_completion_hook as hook,
+    )
+
+    class Manager:
+        chat_id = None
+
+    job = start_background_job("(trap '' HUP; exec sleep 300) & exit 0")
+    try:
+        deadline = time.monotonic() + 10
+        while not job._completion_notified and time.monotonic() < deadline:
+            time.sleep(0.1)
+        [completion] = list(hook(Manager()))
+        assert "finished" in completion.content
+        assert fake_low_memory.check() is not None
+        [late] = list(hook(Manager()))
+        assert f"left over from background shell job #{job.id}" in late.content
+        assert "system memory was nearly exhausted" in late.content
+        assert _completion_queue.empty()
+    finally:
+        reset_background_jobs()
+
+
+def test_command_that_execs_is_killed_and_shell_restarts(fake_low_memory):
+    """`exec` replaces the shell with the command: the guard must stop it."""
+    from gptme.tools.shell import ShellSession
+
+    shell = ShellSession()
+    try:
+        result: dict = {}
+        runner = threading.Thread(
+            target=lambda: result.update(value=shell.run("exec sleep 30", output=False))
+        )
+        runner.start()
+        time.sleep(0.5)
+        assert fake_low_memory.check() is not None
+        runner.join(10)
+        assert not runner.is_alive()
+        notice = shell.consume_restart_notice()
+        assert notice and "Killed the running shell command" in notice
+        assert shell.run("echo still here", output=False)[1].strip() == "still here"
+    finally:
+        shell.close()

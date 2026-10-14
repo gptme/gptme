@@ -117,7 +117,7 @@ from .shell_background import (
     start_background_job as start_background_job,
 )
 from .shell_memory import Target as MemoryTarget
-from .shell_memory import kill_tree
+from .shell_memory import kill_group, kill_tree, process_rss
 from .shell_memory import watch as watch_memory
 from .shell_validation import (
     _find_first_unquoted_pipe,
@@ -748,11 +748,22 @@ class ShellSession:
         # The running command shares the shell's process group; on low memory
         # the guard kills the command (not the shell) and says why in its output.
         process = self.process
+
+        def kill_command() -> None:
+            children = _descendant_pids(process.pid)
+            rss = process_rss([process.pid, *children])
+            if rss.get(process.pid, 0) > sum(rss.get(pid, 0) for pid in children):
+                # the command replaced the shell (`exec`): stop the shell too;
+                # run() sees it die and starts a fresh one
+                kill_group(process.pid)
+            else:
+                kill_tree(children)
+
         watch_memory(
             MemoryTarget(
                 pgid=process.pid,
                 label="the running shell command",
-                kill=lambda: kill_tree(_descendant_pids(process.pid)),
+                kill=kill_command,
                 alive=lambda: process.poll() is None,
                 on_killed=self._queue_restart_notice,
             )
