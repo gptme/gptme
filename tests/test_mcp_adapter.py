@@ -746,6 +746,9 @@ def test_restart_mcp_client_failed_reconnect_clears_stale_registry_entry(
     # AttributeError guard.
     old_client.stack = MagicMock()
     old_client.loop = MagicMock()
+    # Consume the __aexit__ awaitable like a real loop would (avoids the
+    # "coroutine was never awaited" warning from MagicMock's async magic).
+    old_client.loop.run_until_complete.side_effect = lambda coro: coro.close()
     _mcp_clients["test-server"] = old_client
 
     replacement = MagicMock(spec=MCPClient)
