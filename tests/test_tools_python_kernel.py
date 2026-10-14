@@ -498,3 +498,38 @@ def test_bridge_preserves_each_cell_session_context(backend):
     result = copy_context().run(execute_restricted, "blocked.example")
     assert result.error is None
     assert result.result_text == "'allowed'"
+
+
+def test_bridge_rejects_oversized_frame_before_reading_payload():
+    import socket
+    import struct
+
+    sender, receiver = socket.socketpair()
+    with sender, receiver:
+        sender.sendall(struct.pack(">I", 0xFFFFFFFF))
+        sender.shutdown(socket.SHUT_WR)
+        with pytest.raises(ValueError, match="frame too large"):
+            BridgeServer._recv_framed(receiver)
+
+
+def test_silent_setup_timeout_stops_kernel(backend):
+    from unittest.mock import Mock
+
+    backend._kc = Mock()
+    backend._km = Mock()
+    with pytest.raises(RuntimeError, match="setup timed out"):
+        backend._exec_silent("pass", timeout=0)
+    backend._km.interrupt_kernel.assert_called_once()
+
+
+def test_silent_setup_error_is_not_ignored(backend):
+    from unittest.mock import Mock
+
+    backend._kc = Mock()
+    backend._kc.execute.return_value = "setup"
+    backend._kc.get_shell_msg.return_value = {
+        "parent_header": {"msg_id": "setup"},
+        "content": {"status": "error", "ename": "OSError", "evalue": "bad cwd"},
+    }
+    with pytest.raises(RuntimeError, match="bad cwd"):
+        backend._exec_silent("pass")

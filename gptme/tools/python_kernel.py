@@ -29,6 +29,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _MAX_BRIDGE_CONNECTIONS = 16
+_MAX_BRIDGE_MESSAGE_BYTES = 64 * 1024 * 1024  # bound host memory per RPC frame
 _BRIDGE_HANDLER_TIMEOUT = (
     30.0  # seconds — prevents idle connections from leaking threads
 )
@@ -130,6 +131,8 @@ class BridgeServer:
     def _recv_framed(conn: socket.socket) -> bytes:
         raw = BridgeServer._recv_exact(conn, 4)
         (length,) = struct.unpack(">I", raw)
+        if length > _MAX_BRIDGE_MESSAGE_BYTES:
+            raise ValueError("Bridge frame too large")
         buf = bytearray()
         while len(buf) < length:
             chunk = conn.recv(length - len(buf))
@@ -426,18 +429,22 @@ class KernelBackend:
         self._started = True
         logger.info("Kernel started")
 
-        # Push bridge bootstrap with current port and auth token.
-        self._exec_silent(
-            _BRIDGE_BOOTSTRAP.format(
-                port=self._bridge.port,
-                token_hex=self._bridge._token.hex(),
-            ),
-            timeout=10,
-        )
+        try:
+            # Push bridge bootstrap with current port and auth token.
+            self._exec_silent(
+                _BRIDGE_BOOTSTRAP.format(
+                    port=self._bridge.port,
+                    token_hex=self._bridge._token.hex(),
+                ),
+                timeout=10,
+            )
 
-        # Push all registered stubs — handles both first start and restarts.
-        for stub_code in self._registered_stubs:
-            self._exec_silent(stub_code, timeout=5)
+            # Push all registered stubs — handles both first start and restarts.
+            for stub_code in self._registered_stubs:
+                self._exec_silent(stub_code, timeout=5)
+        except RuntimeError:
+            self.shutdown()
+            raise
 
     def is_alive(self) -> bool:
         return self._started and self._km is not None and self._km.is_alive()
@@ -484,13 +491,19 @@ class KernelBackend:
         while True:
             remaining = deadline - _monotonic()
             if remaining <= 0:
-                logger.warning("Silent exec timed out: %.60s", code)
-                return
+                self.interrupt()
+                raise RuntimeError("Kernel setup timed out; cell was not executed")
             try:
                 msg = self._kc.get_shell_msg(timeout=min(remaining, 1.0))
             except Exception:
                 continue
             if msg["parent_header"].get("msg_id") == msg_id:
+                content = msg.get("content", {})
+                if content.get("status") == "error":
+                    raise RuntimeError(
+                        f"Kernel setup failed: {content.get('ename')}: "
+                        f"{content.get('evalue')}"
+                    )
                 return
 
     def execute(self, code: str, timeout: float = 120) -> KernelExecResult:
