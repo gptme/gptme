@@ -3546,3 +3546,93 @@ async def test_markdown_headers_are_compact_bold_and_left_aligned(tmp_path):
         assert first_paragraph.region.y == h1.region.bottom
         # one blank line between a paragraph and the next header
         assert h2.region.y == first_paragraph.region.bottom + 1
+
+
+@pytest.mark.asyncio
+async def test_take_steer_prompts(tmp_path):
+    """Queued prompts join the running turn in order, up to the first one
+    that must wait for the turn to end (command, URL, skill invocation)."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        for prompt in ["first", "second", "/compact", "after command"]:
+            app._enqueue_prompt(prompt)
+        taken = app._take_steer_prompts()
+        await pilot.pause()
+        assert [m.content for m in taken] == ["first", "second"]
+        assert app.prompt_queue == ["/compact", "after command"]
+        assert len(app._queued_widgets) == 2
+        assert [
+            str(w.content) for w in app.query(UserMessage) if not w.has_class("queued")
+        ] == [
+            "first",
+            "second",
+        ]
+
+        # URLs not yet confirmed (e.g. initial prompts) wait; queued ones were
+        # confirmed when queued and join with exactly the confirmed URLs
+        app.prompt_queue = ["see https://example.com"]
+        assert app._take_steer_prompts() == []
+        confirmed = Message("user", "see https://example.com", quiet=True)
+        app._confirmed_urls[id(confirmed)] = []
+        app.prompt_queue = [confirmed]
+        assert [m.content for m in app._take_steer_prompts()] == [
+            "see https://example.com"
+        ]
+        assert app._confirmed_urls == {}
+        app.prompt_queue = [Message("user", "skill prompt")]
+        assert app._take_steer_prompts() == []
+        app.prompt_queue = ["after interrupt"]
+        app._interrupt_event.set()
+        assert app._take_steer_prompts() == []
+
+
+@pytest.mark.asyncio
+async def test_queued_prompts_are_sent_together_after_a_turn(tmp_path, monkeypatch):
+    """Prompts still queued when a turn ends go in one new turn, not one per
+    turn; command-line prompts keep running one turn each."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._enqueue_prompt("first")
+        app._enqueue_prompt("second")
+        await app._dispatch_queue()
+        await pilot.pause()
+        assert [m.content for m in app.manager.log if m.role == "user"] == [
+            "first",
+            "second",
+        ]
+        assert started == [True]
+        assert app.prompt_queue == []
+
+
+@pytest.mark.asyncio
+async def test_command_line_prompts_are_not_steered(tmp_path, monkeypatch):
+    app = GptmeApp(
+        make_manager(tmp_path), workspace=tmp_path, initial_prompts=["one", "two"]
+    )
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        assert app.prompt_queue == ["two"]
+        assert app._take_steer_prompts() == []
+
+
+@pytest.mark.asyncio
+async def test_url_dialog_answered_after_interrupt_returns_text(tmp_path, monkeypatch):
+    """A URL dialog left open when the turn was interrupted must not start a
+    new turn once answered: the text goes back to the input."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._interrupt_event.set()  # interrupted while the dialog was open
+        app._enqueue_confirmed("see https://example.com", [])
+        await pilot.pause()
+        assert started == []
+        assert app.query_one("#input", ChatInput).text == "see https://example.com"
+        assert app._confirmed_urls == {}

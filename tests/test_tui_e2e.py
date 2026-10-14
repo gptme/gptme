@@ -252,6 +252,105 @@ async def test_e2e_running_tool_is_shown(mock_app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_e2e_queued_prompt_steers_running_turn(mock_app, monkeypatch):
+    """A prompt queued while a tool runs joins the turn at the next step,
+    instead of waiting for the whole turn to finish."""
+    monkeypatch.setenv("GPTME_MAX_STEPS", "3")
+    app = mock_app
+    generations: list[bool] = []
+    real_start = app._start_generation
+
+    def counting_start() -> None:
+        generations.append(True)
+        real_start()
+
+    monkeypatch.setattr(app, "_start_generation", counting_start)
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        # the tool runs until the test releases it, after queuing
+        release = Path(app.workspace) / f"release-{uuid.uuid4().hex[:8]}"
+        inp.text = (
+            f"run this:\n```shell\nwhile [ ! -e {release} ]; do sleep 0.1; done\n```"
+        )
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+            what="confirmation dialog",
+        )
+        await pilot.press("y")
+        await pilot.pause()
+        inp.text = "steer this way"
+        await pilot.press("enter")
+        inp.text = "and this too"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.prompt_queue == ["steer this way", "and this too"]
+        release.touch()
+        await wait_for(
+            pilot,
+            lambda: not app.generating and app.state == "idle",
+            what="generation to finish",
+        )
+        roles = [(m.role, m.content) for m in app.manager.log if not m.hide]
+        users = [c for r, c in roles if r == "user"]
+        # both joined the same next step, in order
+        assert users[-2:] == ["steer this way", "and this too"]
+        # which answered them (mock/echo echoes the last one back)
+        assert roles[-1][0] == "assistant" and "and this too" in roles[-1][1]
+        assert app.prompt_queue == []
+        assert len(generations) == 1  # one turn, not a second one after it
+
+
+@pytest.mark.asyncio
+async def test_e2e_queued_url_prompt_confirms_at_queue_time(mock_app, monkeypatch):
+    """Queuing a prompt with URLs asks about fetching right away; the prompt
+    then steers the running turn like any other."""
+    from gptme.tui.app import UrlConfirmScreen
+
+    monkeypatch.setenv("GPTME_MAX_STEPS", "3")
+    app = mock_app
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        # the tool runs until the test releases it, after queuing
+        release = Path(app.workspace) / f"release-{uuid.uuid4().hex[:8]}"
+        inp.text = (
+            f"run this:\n```shell\nwhile [ ! -e {release} ]; do sleep 0.1; done\n```"
+        )
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+            what="confirmation dialog",
+        )
+        await pilot.press("y")
+        await pilot.pause()
+        inp.text = "also see https://example.invalid/page"
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], UrlConfirmScreen),
+            what="URL dialog at queue time",
+        )
+        assert app.generating
+        await pilot.press("n")  # don't fetch
+        await pilot.pause()
+        assert len(app.prompt_queue) == 1
+        release.touch()
+        await wait_for(
+            pilot,
+            lambda: not app.generating and app.state == "idle",
+            what="generation to finish",
+        )
+        users = [m.content for m in app.manager.log if m.role == "user"]
+        assert users[-1] == "also see https://example.invalid/page"
+        assert app.prompt_queue == []
+        assert not isinstance(app.screen_stack[-1], UrlConfirmScreen)  # asked once
+
+
+@pytest.mark.asyncio
 async def test_e2e_tool_skip(mock_app, tmp_path):
     """Declining the confirm dialog skips execution and returns to idle."""
     app = mock_app

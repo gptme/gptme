@@ -1701,6 +1701,11 @@ STATUSLINE_REFRESH = 10
 STREAM_FPS = 20
 
 
+class _SequentialPrompt(str):
+    """A queued command-line prompt: sent when the previous turn ends (like
+    the CLI), never joined into a running turn."""
+
+
 class GptmeApp(App):
     """gptme TUI: streaming chat with live input, queueing and collapsible output."""
 
@@ -1968,6 +1973,8 @@ class GptmeApp(App):
         self._statusline_output: str | None = None
         self._started = time.monotonic()
         self.prompt_queue: list[str | Message] = []
+        # URLs confirmed for fetching when a prompt was queued, by id(Message)
+        self._confirmed_urls: dict[int, list[str]] = {}
         self._queued_widgets: list[Widget] = []
         self.generating = False
         self.state = "idle"
@@ -2112,6 +2119,38 @@ class GptmeApp(App):
             self.query_one("#chat", VerticalScroll).mount(widget)
         self._update_status()
 
+    def _take_steer_prompts(self) -> list[Message]:
+        """Queued prompts that can join the running turn at its next step.
+
+        Taken in order, stopping at the first that must wait for the turn to
+        end: a slash-command, a prompt with unconfirmed URLs, a queued skill
+        invocation (it starts its own turn), or a command-line prompt (those
+        run one turn each, like the CLI).
+        """
+        taken: list[Message] = []
+        while self.prompt_queue and not self._interrupt_event.is_set():
+            prompt = self.prompt_queue[0]
+            if isinstance(prompt, Message):
+                # queued with its URLs confirmed, or a skill invocation
+                if id(prompt) not in self._confirmed_urls:
+                    break
+                urls = self._confirmed_urls.pop(id(prompt))
+            elif (
+                isinstance(prompt, _SequentialPrompt)
+                or is_message_command(prompt)
+                or extract_urls(prompt)
+            ):
+                break
+            else:
+                prompt, urls = Message("user", prompt, quiet=True), []
+            self._pop_queued_prompt()
+            msg = include_paths(prompt, self.workspace, pre_confirmed_urls=urls)
+            self._show_message(msg)
+            taken.append(msg)
+        if taken:
+            self._update_status()
+        return taken
+
     def _pop_queued_prompt(self) -> str | Message:
         prompt = self.prompt_queue.pop(0)
         if self._queued_widgets:
@@ -2134,7 +2173,9 @@ class GptmeApp(App):
         first, *rest = self._initial_prompts
         self._initial_prompts = []
         for prompt in rest:
-            self._enqueue_prompt(prompt)
+            self._enqueue_prompt(
+                _SequentialPrompt(prompt) if isinstance(prompt, str) else prompt
+            )
         await self._submit_user_input(first)
 
     async def on_event(self, event: events.Event) -> None:
@@ -2544,10 +2585,32 @@ class GptmeApp(App):
             # which attaches file contents via include_paths
             self._handle_command(text)
             return
-        if self.generating:
+        if self.generating and extract_urls(text):
+            # confirm URL fetching now, not when the queued prompt is sent
+            self.push_screen(
+                UrlConfirmScreen(extract_urls(text)),
+                callback=lambda confirmed: self._enqueue_confirmed(text, confirmed),
+            )
+        elif self.generating:
             self._enqueue_prompt(text)
         else:
             await self._submit(text)
+
+    def _enqueue_confirmed(self, text: str, confirmed: list[str] | None) -> None:
+        """Queue a prompt whose URLs were confirmed (or declined) at queue time."""
+        msg = Message("user", text, quiet=True)
+        self._confirmed_urls[id(msg)] = confirmed or []
+        if self.generating:
+            self._enqueue_prompt(msg)
+        elif self._interrupt_event.is_set():
+            # the turn was interrupted meanwhile: hand the text back, as for
+            # the rest of the queue, instead of starting a new turn
+            self._confirmed_urls.pop(id(msg))
+            chat_input = self.query_one("#input", ChatInput)
+            existing = chat_input.text.strip()
+            chat_input._set_text(f"{existing}\n{text}" if existing else text)
+        else:  # the turn ended while the dialog was open
+            self.call_later(self._submit, msg)
 
     def _can_resume(self) -> bool:
         last = next((m for m in reversed(self.manager.log) if not m.hide), None)
@@ -2835,7 +2898,10 @@ class GptmeApp(App):
         # use prompt_toolkit's sync dialog inside the running event loop).
         # A callback, not push_screen_wait: callers aren't workers (#3351).
         urls = extract_urls(text)
-        if urls:
+        if isinstance(prompt, Message) and id(prompt) in self._confirmed_urls:
+            # confirmed when it was queued
+            self._send(msg, self._confirmed_urls.pop(id(prompt)))
+        elif urls:
             self.push_screen(
                 UrlConfirmScreen(urls),
                 callback=lambda confirmed: self._send(msg, confirmed),
@@ -3053,6 +3119,10 @@ class GptmeApp(App):
                     if response.content.strip():
                         outcome = "completed"
                     break
+                # Steering: prompts queued meanwhile join the turn now, so the
+                # next step sees them instead of waiting for the turn to end.
+                for msg in self.call_from_thread(self._take_steer_prompts):
+                    manager.append(msg)
         except SessionCompleteException:
             # complete tool is filtered out in interactive TUI mode, but a
             # resumed autonomous conversation may still have it loaded
@@ -3326,11 +3396,18 @@ class GptmeApp(App):
                         "abandoned",
                     )
             self.prompt_queue.clear()
+            self._confirmed_urls.clear()
             for w in self._queued_widgets:
                 w.remove()
             self._queued_widgets.clear()
             self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
+            # everything you queued goes in one turn, not one per turn
+            if steer := self._take_steer_prompts():
+                for msg in steer:
+                    self.manager.append(msg)
+                self._start_generation()
+                return
             prompt = self._pop_queued_prompt()
             self._set_state("idle")
             await self._submit_user_input(prompt)
