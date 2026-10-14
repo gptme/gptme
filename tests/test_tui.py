@@ -2565,3 +2565,27 @@ async def test_url_prompt_asks_before_fetching(tmp_path, monkeypatch, key, expec
         assert not isinstance(app.screen, UrlConfirmScreen)
     assert seen == [expected]
     assert app.manager.log[-1].content == "look at https://example.com"
+
+
+@pytest.mark.asyncio
+async def test_click_on_just_removed_widget_does_not_crash(tmp_path, monkeypatch):
+    """A click can hit a widget removed since the last frame (e.g. the
+    "Generating…" placeholder dropped on interrupt): Textual then starts a
+    text selection in its parent, which is None, and crashes the app."""
+    from textual import events
+    from textual.geometry import Offset
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detached = Static("Generating…", classes="progress-placeholder")
+        assert detached.parent is None
+        monkeypatch.setattr(
+            app.screen,
+            "get_widget_and_offset_at",
+            lambda x, y: (detached, Offset(0, 0)),
+        )
+        # post like the driver does: Pilot.click bypasses App.on_event
+        app.post_message(events.MouseDown(None, 5, 5, 0, 0, 1, False, False, False))
+        await pilot.pause()
+        assert app.is_running
