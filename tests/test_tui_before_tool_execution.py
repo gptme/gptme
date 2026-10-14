@@ -11,18 +11,22 @@ from textual.widgets import Static
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
-from gptme.tools import init_tools
+from gptme.tools import ToolUse, init_tools
 from gptme.tui.app import (
     AssistantMessage,
     GptmeApp,
     StreamingMessage,
     ToolPlaceholder,
+    _RunningTool,
 )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("streamed", [True, False])
-async def test_reply_visible_before_tools_and_not_duplicated(tmp_path, streamed):
+@pytest.mark.parametrize("tool_hook", [True, False])
+async def test_reply_visible_before_tools_and_not_duplicated(
+    tmp_path: Path, streamed: bool, tool_hook: bool
+) -> None:
     """The completed reply remains mounted until and after the step yields it."""
     init_tools()
     manager = LogManager([], logdir=tmp_path / "conversation", lock=False)
@@ -54,12 +58,24 @@ async def test_reply_visible_before_tools_and_not_duplicated(tmp_path, streamed)
         assert len(app.query(StreamingMessage)) == 0
         assert app.query_one(AssistantMessage) is reply
 
+        if tool_hook:
+            # The per-tool hook from #4344 follows the pre-execution callback.
+            app._on_tool_start(
+                _RunningTool.from_tool_use(ToolUse("shell", [], "echo hello"))
+            )
+            await pilot.pause()
+            assert app.state == "running shell"
+            assert app._provisional_assistant is None
+            assert app.query_one(AssistantMessage) is reply
+
         # The same assistant message is yielded after tool execution finishes.
         app._on_step_message(msg)
         await pilot.pause()
         assert len(app.query(AssistantMessage)) == 1
         assert app.query_one(AssistantMessage) is reply
-        assert len(app.query(ToolPlaceholder)) == 1
+        assert len(app.query(ToolPlaceholder)) == (0 if tool_hook else 1)
+        assert app._running_tool is None
+        assert app._running_tool_timer is None
 
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
         app._begin_stream()
@@ -72,8 +88,9 @@ async def test_reply_visible_before_tools_and_not_duplicated(tmp_path, streamed)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("streamed", [True, False])
+@pytest.mark.parametrize("tool_hook", [True, False])
 async def test_inline_reply_visible_before_tools_and_not_duplicated(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, streamed: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, streamed: bool, tool_hook: bool
 ) -> None:
     """Print the reply before tools and keep pending tokens off the indicator."""
     init_tools()
@@ -104,10 +121,21 @@ async def test_inline_reply_visible_before_tools_and_not_duplicated(
         assert str(live.render()) == "Running tool…"
         assert console.export_text(clear=False) == before_tools
 
+        if tool_hook:
+            app._on_tool_start(
+                _RunningTool.from_tool_use(ToolUse("shell", [], "echo hello"))
+            )
+            await pilot.pause()
+            assert app.state == "running shell"
+            assert "echo hello" in str(live.render())
+            assert console.export_text(clear=False) == before_tools
+
         app._on_step_message(msg)
         await pilot.pause()
         assert console.export_text(clear=False) == before_tools
-        assert str(live.render()) == "Running tool…"
+        assert str(live.render()) == ("" if tool_hook else "Running tool…")
+        assert app._running_tool is None
+        assert app._running_tool_timer is None
 
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
         app._begin_stream()
