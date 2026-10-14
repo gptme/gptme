@@ -692,7 +692,7 @@ and renamed.</p>
 <p><strong>Start or resume a named conversation</strong></p>
 <p>Give a conversation an explicit name so you can return to it later:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start a new named conversation</span>
-gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor<span class="w"> </span><span class="s2">&quot;let&#39;s refactor the auth module&quot;</span>
+gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor<span class="w"> </span><span class="s2">"let's refactor the auth module"</span>
 
 <span class="c1"># Resume that same conversation in a future session</span>
 gptme<span class="w"> </span>--name<span class="w"> </span>my-refactor
@@ -719,7 +719,7 @@ gptme<span class="w"> </span>chats<span class="w"> </span>list
 gptme<span class="w"> </span>chats<span class="w"> </span>list<span class="w"> </span>--metadata
 
 <span class="c1"># Search conversation content</span>
-gptme<span class="w"> </span>chats<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;auth module refactor&quot;</span>
+gptme<span class="w"> </span>chats<span class="w"> </span>search<span class="w"> </span><span class="s2">"auth module refactor"</span>
 
 <span class="c1"># Machine-readable JSON output</span>
 gptme<span class="w"> </span>chats<span class="w"> </span>list<span class="w"> </span>--json
@@ -807,7 +807,7 @@ from matplotlib.animation import FuncAnimation
 <section id="making-changes">
 <h3>Making Changes<a class="headerlink" href="#making-changes" title="Link to this heading">#</a></h3>
 <p>You can start chats and request changes directly from the command line. The contents of any mentioned text files will be included as context, and the assistant will generate patches to apply the requested changes:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;make improvements to life.py so dead cells fade out over time&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'make improvements to life.py so dead cells fade out over time'</span>
 </pre></div>
 </div>
 <table style="width: 100%; margin-bottom: 1em">
@@ -842,7 +842,7 @@ from matplotlib.animation import FuncAnimation
 <section id="multiprompt-syntax">
 <h3>Multiprompt syntax<a class="headerlink" href="#multiprompt-syntax" title="Link to this heading">#</a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">-</span></code> separator allows you to chain multiple prompts together, letting the assistant finish running tools for one prompt before moving on to the next:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;create a project&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;add tests&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit changes&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'create a project'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'add tests'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'commit changes'</span>
 </pre></div>
 </div>
 <p>This is particularly useful for breaking down complex tasks into steps and creating <a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> workflows.</p>
@@ -852,7 +852,7 @@ from matplotlib.animation import FuncAnimation
 <p>If another <code class="docutils literal notranslate"><span class="pre">gptme</span></code> process is already busy in a conversation, queue the next
 user turn from a second terminal instead of waiting for the current step to
 finish:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>chats<span class="w"> </span>send<span class="w"> </span>chat-123<span class="w"> </span><span class="s2">&quot;once the tests finish, summarize the failures&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>chats<span class="w"> </span>send<span class="w"> </span>chat-123<span class="w"> </span><span class="s2">"once the tests finish, summarize the failures"</span>
 </pre></div>
 </div>
 <p>The running conversation will drain the queued prompt on its next turn. Use
@@ -866,21 +866,21 @@ finish:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">+computer</span></code> adds the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool on top of defaults.</p></li>
 </ul>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Add computer use while keeping the standard default tools</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s2">&quot;take a screenshot and summarize what you see&quot;</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s2">"take a screenshot and summarize what you see"</span>
 </pre></div>
 </div>
 <p>For long visual tasks, use a subagent profile to avoid bloating parent context
 with repeated screenshots:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Desktop interaction (mouse, keyboard, screenshots)</span>
 <span class="n">subagent</span><span class="p">(</span>
-    <span class="s2">&quot;computer-use&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Click the Submit button, wait for the modal, and screenshot the result&quot;</span><span class="p">,</span>
+    <span class="s2">"computer-use"</span><span class="p">,</span>
+    <span class="s2">"Click the Submit button, wait for the modal, and screenshot the result"</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="c1"># Web browsing and testing</span>
 <span class="n">subagent</span><span class="p">(</span>
-    <span class="s2">&quot;browser-use&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;Navigate web app UI, capture evidence, and return a concise bug report&quot;</span><span class="p">,</span>
+    <span class="s2">"browser-use"</span><span class="p">,</span>
+    <span class="s2">"Navigate web app UI, capture evidence, and return a concise bug report"</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -893,13 +893,13 @@ with repeated screenshots:</p>
 <h3>Minimal context mode<a class="headerlink" href="#minimal-context-mode" title="Link to this heading">#</a></h3>
 <p>When you want a tighter startup prompt for a specialized task, combine a short
 system prompt, a narrow tool set, and selective context:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span>--context<span class="w"> </span>files<span class="w"> </span><span class="s2">&quot;fix the failing test&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span>--context<span class="w"> </span>files<span class="w"> </span><span class="s2">"fix the failing test"</span>
 </pre></div>
 </div>
 <p>Use <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code> to skip all project-specific context (prompt files and
 <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output) in one flag — tools and the core prompt are still
 included:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-workspace<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="s2">&quot;apply this patch&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-workspace<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="s2">"apply this patch"</span>
 </pre></div>
 </div>
 <p>Measure the prompt before and after with:</p>
@@ -914,7 +914,7 @@ prompt files, or dynamic <code class="docutils literal notranslate"><span class=
 <section id="skip-confirmation-prompts">
 <h3>Skip confirmation prompts<a class="headerlink" href="#skip-confirmation-prompts" title="Link to this heading">#</a></h3>
 <p>You can skip confirmation prompts using the <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code> flag. This is useful when you are confident the LLM will do what you want, so you don’t want to have to confirm actions:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-confirm<span class="w"> </span><span class="s1">&#39;create a snake game using curses in snake.py, dont run it&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-confirm<span class="w"> </span><span class="s1">'create a snake game using curses in snake.py, dont run it'</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="security.html"><span class="doc">Security</span></a> for the trade-offs, and how to contain the risk when running without confirmations.</p>
@@ -922,7 +922,7 @@ prompt files, or dynamic <code class="docutils literal notranslate"><span class=
 <section id="non-interactive-mode">
 <h3>Non-interactive mode<a class="headerlink" href="#non-interactive-mode" title="Link to this heading">#</a></h3>
 <p>The <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> flag runs gptme in a mode that terminates after completing all prompts. This is useful for scripting and automation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s1">&#39;create a snake game using curses in snake.py, dont run it&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;make the snake green and the apple red&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s1">'create a snake game using curses in snake.py, dont run it'</span><span class="w"> </span><span class="s1">'-'</span><span class="w"> </span><span class="s1">'make the snake green and the apple red'</span>
 </pre></div>
 </div>
 <p>Note: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> implies <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code>, so you don’t need to specify both.</p>
@@ -932,7 +932,7 @@ prompt files, or dynamic <code class="docutils literal notranslate"><span class=
 <p>Pair <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> with <code class="docutils literal notranslate"><span class="pre">--output-format</span> <span class="pre">json</span></code> when stdout needs to
 be consumed by another program. In JSON mode, gptme emits one JSON object per
 line on stdout (JSONL):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--output-format<span class="w"> </span>json<span class="w"> </span><span class="s1">&#39;summarize this repository&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--output-format<span class="w"> </span>json<span class="w"> </span><span class="s1">'summarize this repository'</span>
 </pre></div>
 </div>
 <p>Use <code class="docutils literal notranslate"><span class="pre">--resume</span></code> to continue an existing automated conversation without

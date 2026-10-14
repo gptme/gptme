@@ -689,8 +689,8 @@ LLM providers.  Both folder-based plugins (discovered from filesystem
 paths) and entry-point plugins (installed packages) produce instances
 of this class.</p>
 <p>For entry-point plugins, register via <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">project</span><span class="o">.</span><span class="n">entry</span><span class="o">-</span><span class="n">points</span><span class="o">.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="p">]</span>
-<span class="n">my_plugin</span> <span class="o">=</span> <span class="s2">&quot;my_package:plugin&quot;</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">project</span><span class="o">.</span><span class="n">entry</span><span class="o">-</span><span class="n">points</span><span class="o">.</span><span class="s2">"gptme.plugins"</span><span class="p">]</span>
+<span class="n">my_plugin</span> <span class="o">=</span> <span class="s2">"my_package:plugin"</span>
 </pre></div>
 </div>
 <p>Where <code class="docutils literal notranslate"><span class="pre">plugin</span></code> is a <a class="reference internal" href="#gptme.plugins.GptmePlugin" title="gptme.plugins.GptmePlugin"><code class="xref py py-class docutils literal notranslate"><span class="pre">GptmePlugin</span></code></a> instance.</p>
@@ -706,8 +706,8 @@ of this class.</p>
 with the full <a class="reference internal" href="config.html#gptme.config.Config" title="gptme.config.Config"><code class="xref py py-class docutils literal notranslate"><span class="pre">Config</span></code></a>, before subsystem init.
 Plugin-specific config is stored under <code class="docutils literal notranslate"><span class="pre">[plugin.&lt;name&gt;]</span></code> in the TOML
 config files and is accessible via:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">user_cfg</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">plugin</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;&lt;name&gt;&quot;</span><span class="p">,</span> <span class="p">{})</span>
-<span class="n">project_cfg</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">project</span><span class="o">.</span><span class="n">plugin</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;&lt;name&gt;&quot;</span><span class="p">,</span> <span class="p">{})</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">project</span> <span class="k">else</span> <span class="p">{}</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">user_cfg</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">plugin</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"&lt;name&gt;"</span><span class="p">,</span> <span class="p">{})</span>
+<span class="n">project_cfg</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">project</span><span class="o">.</span><span class="n">plugin</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"&lt;name&gt;"</span><span class="p">,</span> <span class="p">{})</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">project</span> <span class="k">else</span> <span class="p">{}</span>
 </pre></div>
 </div>
 <p>Note that <code class="docutils literal notranslate"><span class="pre">config.project</span></code> may be <code class="docutils literal notranslate"><span class="pre">None</span></code> when no project config is

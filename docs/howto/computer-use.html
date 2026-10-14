@@ -666,7 +666,7 @@ with the computer and browser tools.</p>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">#</a></h2>
 <p>Install the required system tools before using computer control:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check what&#39;s missing and see fix suggestions</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check what's missing and see fix suggestions</span>
 gptme-doctor
 
 <span class="c1"># Linux/X11</span>
@@ -680,8 +680,8 @@ brew<span class="w"> </span>install<span class="w"> </span>cliclick
 </div>
 <p>The computer-use tool does not need Full Disk Access on macOS. Grant your terminal Screen Recording and Accessibility permissions; accessibility-first actions (<code class="docutils literal notranslate"><span class="pre">accessibility_tree</span></code>, <code class="docutils literal notranslate"><span class="pre">click_accessible_element</span></code>) drive System Events through AppleScript and may additionally prompt for Automation access.</p>
 <p>For web automation (structured ARIA snapshots), install Playwright:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install gptme with browser support (provides the &#39;playwright&#39; CLI)</span>
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[browser]&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install gptme with browser support (provides the 'playwright' CLI)</span>
+pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"gptme[browser]"</span>
 <span class="c1"># Install Playwright system browsers (required for snapshot_url, open_page, etc.)</span>
 playwright<span class="w"> </span>install<span class="w"> </span>chromium
 </pre></div>
@@ -735,11 +735,11 @@ gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span c
 <section id="start-a-computer-use-session">
 <h2>Start a computer-use session<a class="headerlink" href="#start-a-computer-use-session" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">computer-use</span></code> profile sets the right tool access and backend selection policy:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">&#39;take a screenshot and describe what you see&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">'take a screenshot and describe what you see'</span>
 </pre></div>
 </div>
 <p>Or enable the computer tool for a one-off task:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;open Firefox, navigate to github.com, and take a screenshot&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">'open Firefox, navigate to github.com, and take a screenshot'</span>
 </pre></div>
 </div>
 </section>
@@ -747,7 +747,7 @@ gptme-util<span class="w"> </span>computer<span class="w"> </span>latency<span c
 <h2>Web automation (structured-first)<a class="headerlink" href="#web-automation-structured-first" title="Link to this heading">#</a></h2>
 <p>For web targets, prefer structured ARIA snapshots over raw screenshots — they’re faster,
 cheaper, and more reliable when the page has a DOM you can address:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">&#39;go to https://news.ycombinator.com, find the top story, and summarize it&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">'go to https://news.ycombinator.com, find the top story, and summarize it'</span>
 </pre></div>
 </div>
 <p>gptme will automatically:</p>
@@ -758,12 +758,12 @@ cheaper, and more reliable when the page has a DOM you can address:</p>
 </ol>
 <p>Use <code class="docutils literal notranslate"><span class="pre">observe_web(url)</span></code> as a single-call shortcut — it calls <code class="docutils literal notranslate"><span class="pre">snapshot_url()</span></code> internally
 and optionally appends a screenshot in one call:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">&#39;use observe_web() to read https://news.ycombinator.com and summarize the top story&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">'use observe_web() to read https://news.ycombinator.com and summarize the top story'</span>
 </pre></div>
 </div>
 <p>Fill a form without screenshots:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;go to the login form at http://localhost:3000/login, fill username &quot;alice&quot; and password &quot;hunter2&quot;, click submit&#39;</span>
+<span class="w">  </span><span class="s1">'go to the login form at http://localhost:3000/login, fill username "alice" and password "hunter2", click submit'</span>
 </pre></div>
 </div>
 </section>
@@ -773,21 +773,21 @@ and optionally appends a screenshot in one call:</p>
 save the session so future runs start already authenticated.</p>
 <p><strong>Step 1: Log in and save the session</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;open https://x.com/login, fill username and password, click Log in, then call save_browser_state(&quot;~/.config/gptme/twitter-session.json&quot;)&#39;</span>
+<span class="w">  </span><span class="s1">'open https://x.com/login, fill username and password, click Log in, then call save_browser_state("~/.config/gptme/twitter-session.json")'</span>
 </pre></div>
 </div>
 <p>Or interactively from IPython inside a gptme session:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/login&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;yourhandle&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Next&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[name=&#39;password&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;yourpassword&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
-<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://x.com/login"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"#username"</span><span class="p">,</span> <span class="s2">"yourhandle"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Next"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"[name='password']"</span><span class="p">,</span> <span class="s2">"yourpassword"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Log in"</span><span class="p">)</span>
+<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">"~/.config/gptme/twitter-session.json"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Step 2: Load the session in future runs</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_STORAGE_STATE</span><span class="o">=</span>~/.config/gptme/twitter-session.json
-gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">&#39;go to https://x.com/compose/tweet, type &quot;Hello from gptme!&quot;, and click Post&#39;</span>
+gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="s1">'go to https://x.com/compose/tweet, type "Hello from gptme!", and click Post'</span>
 </pre></div>
 </div>
 <p>Every <code class="docutils literal notranslate"><span class="pre">open_page()</span></code>, <code class="docutils literal notranslate"><span class="pre">snapshot_url()</span></code>, and <code class="docutils literal notranslate"><span class="pre">read_url()</span></code> call will now start with
@@ -801,7 +801,7 @@ version control.</p>
 <section id="desktop-native-app-control">
 <h2>Desktop / native app control<a class="headerlink" href="#desktop-native-app-control" title="Link to this heading">#</a></h2>
 <p>For native apps or anything not reachable via a URL, the <code class="docutils literal notranslate"><span class="pre">computer</span></code> tool takes over:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;open the calculator app, compute 137 * 42, and tell me the result&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">'open the calculator app, compute 137 * 42, and tell me the result'</span>
 </pre></div>
 </div>
 <section id="accessibility-first-linux-at-spi2-macos">
@@ -809,30 +809,30 @@ version control.</p>
 <p>On Linux (with <code class="docutils literal notranslate"><span class="pre">python3-pyatspi</span></code> installed) and macOS, prefer accessibility-first
 interaction over pixel coordinates — it’s robust against window position and size changes:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Inspect the native accessibility tree of all open apps (no screenshot needed)</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;use computer(&quot;accessibility_tree&quot;) to list the interactive elements in the open dialog&#39;</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">'use computer("accessibility_tree") to list the interactive elements in the open dialog'</span>
 
 <span class="c1"># Click an element by role and name — no coordinates needed</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">&#39;click the Save button using click_accessible_element&#39;</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="s1">'click the Save button using click_accessible_element'</span>
 </pre></div>
 </div>
 <p>In IPython inside a gptme session:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Linux: role names like &quot;push button&quot;, &quot;entry&quot;, &quot;check box&quot;</span>
-<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;accessibility_tree&#39;</span><span class="p">)</span>
-<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;click_accessible_element&#39;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s1">&#39;push button:Save&#39;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Linux: role names like "push button", "entry", "check box"</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">'accessibility_tree'</span><span class="p">)</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">'click_accessible_element'</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s1">'push button:Save'</span><span class="p">)</span>
 
 <span class="c1"># macOS: role names use AX prefix</span>
-<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;accessibility_tree&#39;</span><span class="p">)</span>
-<span class="n">computer</span><span class="p">(</span><span class="s1">&#39;click_accessible_element&#39;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s1">&#39;AXButton:Save&#39;</span><span class="p">)</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">'accessibility_tree'</span><span class="p">)</span>
+<span class="n">computer</span><span class="p">(</span><span class="s1">'click_accessible_element'</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s1">'AXButton:Save'</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Fall back to coordinate-based <code class="docutils literal notranslate"><span class="pre">left_click</span></code> only for apps without accessibility support
 (games, canvas UIs, some Electron apps).</p>
 <p>The observe-act-verify loop:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;take a screenshot to see the current state&#39;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-<span class="w"> </span><span class="s1">&#39;click the &quot;New File&quot; button at the top-left&#39;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-<span class="w"> </span><span class="s1">&#39;type &quot;hello world&quot; then press Control+S&#39;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-<span class="w"> </span><span class="s1">&#39;take a screenshot and confirm the file was saved&#39;</span>
+<span class="w">  </span><span class="s1">'take a screenshot to see the current state'</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s1">'click the "New File" button at the top-left'</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s1">'type "hello world" then press Control+S'</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s1">'take a screenshot and confirm the file was saved'</span>
 </pre></div>
 </div>
 </section>
@@ -847,12 +847,12 @@ explicit observation intent — equivalent to <code class="docutils literal notr
 </pre></div>
 </div>
 <p>Take a screenshot and analyse what’s on screen:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer,+vision<span class="w"> </span><span class="s1">&#39;screenshot the screen and describe any UI errors you see&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer,+vision<span class="w"> </span><span class="s1">'screenshot the screen and describe any UI errors you see'</span>
 </pre></div>
 </div>
 <p>Verify a web page renders correctly:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>computer-use<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;open http://localhost:5173, take a screenshot, and check that the login button is visible&#39;</span>
+<span class="w">  </span><span class="s1">'open http://localhost:5173, take a screenshot, and check that the login button is visible'</span>
 </pre></div>
 </div>
 </section>
@@ -861,20 +861,20 @@ explicit observation intent — equivalent to <code class="docutils literal notr
 <p>Use <code class="docutils literal notranslate"><span class="pre">act_and_observe(action,</span> <span class="pre">...)</span></code> to perform an action and automatically get a screenshot
 once the screen settles — one call instead of separate action + wait + screenshot:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># From IPython inside a gptme session</span>
-<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>   <span class="c1"># click then observe</span>
-<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;window_focus&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;Terminal&quot;</span><span class="p">)</span>        <span class="c1"># focus then observe</span>
-<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">&quot;type&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ls -la</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>               <span class="c1"># type then observe</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">"left_click"</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>   <span class="c1"># click then observe</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">"window_focus"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Terminal"</span><span class="p">)</span>        <span class="c1"># focus then observe</span>
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">act_and_observe</span><span class="p">(</span><span class="s2">"type"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"ls -la</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>               <span class="c1"># type then observe</span>
 </pre></div>
 </div>
 <p>Use <code class="docutils literal notranslate"><span class="pre">wait_for_change</span></code> after triggering actions when you need a longer timeout or more
 control than <code class="docutils literal notranslate"><span class="pre">act_and_observe</span></code>’s 3-second default:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;click the submit button, then wait for the screen to change and describe the result&#39;</span>
+<span class="w">  </span><span class="s1">'click the submit button, then wait for the screen to change and describe the result'</span>
 </pre></div>
 </div>
 <p>Use <code class="docutils literal notranslate"><span class="pre">window_focus</span></code> when opening new windows so input goes to the right app:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;open a new terminal window, wait for it to appear, then run &quot;ls -la&quot;&#39;</span>
+<span class="w">  </span><span class="s1">'open a new terminal window, wait for it to appear, then run "ls -la"'</span>
 </pre></div>
 </div>
 </section>
@@ -886,11 +886,11 @@ the whole task to a subagent. All intermediate screenshots stay inside the subag
 context; only a text summary comes back to the parent:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># From IPython inside a gptme session with the computer tool enabled</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">computer_task</span><span class="p">(</span>
-    <span class="s2">&quot;Open Firefox, go to https://x.com/compose/tweet, &quot;</span>
-    <span class="s2">&quot;type &#39;Hello from gptme!&#39;, and click Tweet.&quot;</span><span class="p">,</span>
+    <span class="s2">"Open Firefox, go to https://x.com/compose/tweet, "</span>
+    <span class="s2">"type 'Hello from gptme!', and click Tweet."</span><span class="p">,</span>
     <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">"status"</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">"result"</span><span class="p">])</span>
 </pre></div>
 </div>
 <p>This is the “context-efficient tool-use loop until goal is achieved” pattern: rather
@@ -898,7 +898,7 @@ than having the parent accumulate dozens of screenshots and intermediate steps, 
 subagent runs the full loop internally and reports back a brief summary.</p>
 <p>If the task fails or you need the full step-by-step transcript:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">subagent_read_log</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">subagent_read_log</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;agent_id&quot;</span><span class="p">]))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">subagent_read_log</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">"agent_id"</span><span class="p">]))</span>
 </pre></div>
 </div>
 </section>
@@ -918,19 +918,19 @@ gptme-util<span class="w"> </span>computer<span class="w"> </span>video-frames<s
 </div>
 <p>From IPython inside a gptme session, use <code class="docutils literal notranslate"><span class="pre">start_recording()</span></code> for async control:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start recording, interact, then stop</span>
-<span class="n">rec</span> <span class="o">=</span> <span class="n">start_recording</span><span class="p">(</span><span class="s2">&quot;demo.mp4&quot;</span><span class="p">)</span>
-<span class="n">computer_task</span><span class="p">(</span><span class="s2">&quot;open Firefox, go to https://example.com, and describe the page&quot;</span><span class="p">)</span>
+<span class="n">rec</span> <span class="o">=</span> <span class="n">start_recording</span><span class="p">(</span><span class="s2">"demo.mp4"</span><span class="p">)</span>
+<span class="n">computer_task</span><span class="p">(</span><span class="s2">"open Firefox, go to https://example.com, and describe the page"</span><span class="p">)</span>
 <span class="n">path</span> <span class="o">=</span> <span class="n">rec</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>     <span class="c1"># saves the MP4</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved to </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Saved to </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="c1"># Or as a context manager:</span>
-<span class="k">with</span> <span class="n">start_recording</span><span class="p">(</span><span class="s2">&quot;demo.mp4&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">rec</span><span class="p">:</span>
-    <span class="n">computer_task</span><span class="p">(</span><span class="s2">&quot;open Firefox, navigate to https://x.com/compose/tweet, &quot;</span>
-                  <span class="s2">&quot;type &#39;Hello from gptme!&#39;, and click Tweet.&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">start_recording</span><span class="p">(</span><span class="s2">"demo.mp4"</span><span class="p">)</span> <span class="k">as</span> <span class="n">rec</span><span class="p">:</span>
+    <span class="n">computer_task</span><span class="p">(</span><span class="s2">"open Firefox, navigate to https://x.com/compose/tweet, "</span>
+                  <span class="s2">"type 'Hello from gptme!', and click Tweet."</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">output_path</span><span class="p">)</span>
 
 <span class="c1"># Fixed-duration, synchronous:</span>
-<span class="n">path</span> <span class="o">=</span> <span class="n">record_screen</span><span class="p">(</span><span class="s2">&quot;demo.mp4&quot;</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="n">path</span> <span class="o">=</span> <span class="n">record_screen</span><span class="p">(</span><span class="s2">"demo.mp4"</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Recordings use H.264 with fast-start so they play directly in any browser.

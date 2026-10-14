@@ -699,8 +699,8 @@ syntax.</p>
 <h2>Copy-paste starting points<a class="headerlink" href="#copy-paste-starting-points" title="Link to this heading">#</a></h2>
 <section id="low-stakes-answer">
 <h3>Low-stakes answer<a class="headerlink" href="#low-stakes-answer" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;Explain the difference between a process and a thread in five bullets.&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">""</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"Explain the difference between a process and a thread in five bullets."</span>
 </pre></div>
 </div>
 <p>Use this for explanations, brainstorming, and rewriting that need no current
@@ -709,8 +709,8 @@ production behavior, it is no longer low-stakes: ask for evidence and verify it.
 </section>
 <section id="research">
 <h3>Research<a class="headerlink" href="#research" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;browser,rag,chats,read&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;Compare three maintained Python task queues. Cite primary sources, state the tradeoffs, and save nothing. Use the browser only to read and search; do not interact with pages.&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">"browser,rag,chats,read"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">"Compare three maintained Python task queues. Cite primary sources, state the tradeoffs, and save nothing. Use the browser only to read and search; do not interact with pages."</span>
 </pre></div>
 </div>
 <p>The browser tool also exposes page interactions such as clicks and form entry;
@@ -728,7 +728,7 @@ use a stronger model to challenge the synthesis and identify missing evidence.</
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>output
 <span class="nb">cd</span><span class="w"> </span>output
 gptme<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;Create report.md comparing the supplied options. Include a decision table and a sources section. Do not publish or send it.&quot;</span>
+<span class="w">  </span><span class="s2">"Create report.md comparing the supplied options. Include a decision table and a sources section. Do not publish or send it."</span>
 </pre></div>
 </div>
 <p>An artifact-oriented task has a named deliverable and acceptance criteria. A
@@ -741,7 +741,7 @@ outweighs the cost of uploading the inputs, and never upload secrets by default.
 <h3>Inspectable code<a class="headerlink" href="#inspectable-code" title="Link to this heading">#</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>/path/to/version-controlled-project
 gptme<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;Inspect the failing tests, make the smallest fix, rerun the targeted tests, and show me the diff. Do not commit or push.&quot;</span>
+<span class="w">  </span><span class="s2">"Inspect the failing tests, make the smallest fix, rerun the targeted tests, and show me the diff. Do not commit or push."</span>
 </pre></div>
 </div>
 <p>A local checkout gives you a strong review surface: version control, tests, and

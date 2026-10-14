@@ -757,17 +757,17 @@ semantics and are not exposed through the shell adapter.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">on_file_save</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook function called after a file is saved.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">==</span> <span class="s2">&quot;.py&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Hook function called after a file is saved."""</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">==</span> <span class="s2">".py"</span><span class="p">:</span>
         <span class="c1"># Run linting on Python files</span>
-        <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Linted </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Linted </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
     <span class="k">return</span> <span class="kc">None</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;linter&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic linting tool&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"linter"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Automatic linting tool"</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-         <span class="s2">&quot;file_save&quot;</span><span class="p">:</span> <span class="p">(</span>
+         <span class="s2">"file_save"</span><span class="p">:</span> <span class="p">(</span>
             <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># Hook type</span>
             <span class="n">on_file_save</span><span class="p">,</span>                    <span class="c1"># Hook function</span>
             <span class="mi">10</span>                               <span class="c1"># Priority (higher = runs first)</span>
@@ -784,12 +784,12 @@ semantics and are not exposed through the shell adapter.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks.confirm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfirmationResult</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">my_hook_function</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom hook function.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Custom hook function."""</span>
     <span class="c1"># Do something</span>
-    <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Hook executed!&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"Hook executed!"</span><span class="p">)</span>
 
 <span class="n">register_hook</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_hook&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_custom_hook"</span><span class="p">,</span>
     <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TURN_PRE</span><span class="p">,</span>
     <span class="n">func</span><span class="o">=</span><span class="n">my_hook_function</span><span class="p">,</span>
     <span class="n">priority</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
@@ -817,10 +817,10 @@ semantics and are not exposed through the shell adapter.</p>
 <span class="k">def</span><span class="w"> </span><span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
     <span class="k">pass</span>
 
-<span class="c1"># Confirmation hooks (see &quot;Confirmation Hooks and Deny Decisions&quot; below)</span>
+<span class="c1"># Confirmation hooks (see "Confirmation Hooks and Deny Decisions" below)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">confirm_hook</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">is_dangerous</span><span class="p">(</span><span class="n">tool_use</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="s2">&quot;Blocked: destructive path&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="s2">"Blocked: destructive path"</span><span class="p">)</span>
     <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># fall through to the next confirmation hook</span>
 </pre></div>
 </div>
@@ -842,14 +842,14 @@ runs before a tool executes and can <strong>deny</strong> execution outright.</p
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks.confirm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfirmationResult</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">block_secret_reads</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Deny any shell command that reads private keys.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">==</span> <span class="s2">&quot;shell&quot;</span> <span class="ow">and</span> <span class="s2">&quot;id_rsa&quot;</span> <span class="ow">in</span> <span class="p">(</span><span class="n">tool_use</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="s2">&quot;Blocked: secret file access&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Deny any shell command that reads private keys."""</span>
+    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">==</span> <span class="s2">"shell"</span> <span class="ow">and</span> <span class="s2">"id_rsa"</span> <span class="ow">in</span> <span class="p">(</span><span class="n">tool_use</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="s2">"Blocked: secret file access"</span><span class="p">)</span>
     <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># not our decision — fall through</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
     <span class="n">register_hook</span><span class="p">(</span>
-        <span class="s2">&quot;guardrail.secrets&quot;</span><span class="p">,</span>
+        <span class="s2">"guardrail.secrets"</span><span class="p">,</span>
         <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
         <span class="n">block_secret_reads</span><span class="p">,</span>
         <span class="n">priority</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span>  <span class="c1"># must exceed every built-in confirmation hook</span>
@@ -911,10 +911,10 @@ guardrail rather than a prompt.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">enable_hook</span><span class="p">,</span> <span class="n">disable_hook</span>
 
 <span class="c1"># Disable a hook</span>
-<span class="n">disable_hook</span><span class="p">(</span><span class="s2">&quot;linter.file_save&quot;</span><span class="p">)</span>
+<span class="n">disable_hook</span><span class="p">(</span><span class="s2">"linter.file_save"</span><span class="p">)</span>
 
 <span class="c1"># Re-enable it</span>
-<span class="n">enable_hook</span><span class="p">(</span><span class="s2">&quot;linter.file_save&quot;</span><span class="p">)</span>
+<span class="n">enable_hook</span><span class="p">(</span><span class="s2">"linter.file_save"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -923,10 +923,10 @@ guardrail rather than a prompt.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">unregister_hook</span><span class="p">,</span> <span class="n">HookType</span>
 
 <span class="c1"># Unregister from specific type</span>
-<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="p">)</span>
+<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">"my_hook"</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="p">)</span>
 
 <span class="c1"># Unregister from all types</span>
-<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">)</span>
+<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">"my_hook"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -943,26 +943,26 @@ guardrail rather than a prompt.</p>
 <span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">run_precommit</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run pre-commit on saved file.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Run pre-commit on saved file."""</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-            <span class="p">[</span><span class="s2">&quot;pre-commit&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;--files&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
+            <span class="p">[</span><span class="s2">"pre-commit"</span><span class="p">,</span> <span class="s2">"run"</span><span class="p">,</span> <span class="s2">"--files"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
             <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
             <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
             <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Pre-commit checks failed:</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Pre-commit checks failed:</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Pre-commit checks passed&quot;</span><span class="p">,</span> <span class="n">hide</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"Pre-commit checks passed"</span><span class="p">,</span> <span class="n">hide</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Pre-commit checks timed out&quot;</span><span class="p">,</span> <span class="n">hide</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"Pre-commit checks timed out"</span><span class="p">,</span> <span class="n">hide</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic pre-commit checks&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"precommit"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Automatic pre-commit checks"</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;precommit_check&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"precommit_check"</span><span class="p">:</span> <span class="p">(</span>
             <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
             <span class="n">run_precommit</span><span class="p">,</span>
             <span class="mi">5</span>  <span class="c1"># Run after other hooks</span>
@@ -976,16 +976,16 @@ guardrail rather than a prompt.</p>
 <h3>Memory/Context Hook<a class="headerlink" href="#memory-context-hook" title="Link to this heading">#</a></h3>
 <p>Automatically add context at session start:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">add_context</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Add relevant context at session start.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Add relevant context at session start."""</span>
     <span class="n">context</span> <span class="o">=</span> <span class="n">load_relevant_context</span><span class="p">(</span><span class="n">workspace</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">context</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Loaded context:</span><span class="se">\n</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">pinned</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Loaded context:</span><span class="se">\n</span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">pinned</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic context loading&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"memory"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Automatic context loading"</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;load_context&quot;</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"load_context"</span><span class="p">:</span> <span class="p">(</span>
             <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
             <span class="n">add_context</span><span class="p">,</span>
             <span class="mi">10</span>
@@ -999,25 +999,25 @@ guardrail rather than a prompt.</p>
 <h3>Linting Hook<a class="headerlink" href="#linting-hook" title="Link to this heading">#</a></h3>
 <p>Automatically lint files after saving:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">lint_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">created</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Lint Python files.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">!=</span> <span class="s2">&quot;.py&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Lint Python files."""</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">!=</span> <span class="s2">".py"</span><span class="p">:</span>
         <span class="k">return</span>
 
     <span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
     <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-        <span class="p">[</span><span class="s2">&quot;ruff&quot;</span><span class="p">,</span> <span class="s2">&quot;check&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
+        <span class="p">[</span><span class="s2">"ruff"</span><span class="p">,</span> <span class="s2">"check"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)],</span>
         <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">text</span><span class="o">=</span><span class="kc">True</span>
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Linting issues:</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Linting issues:</span><span class="se">\n</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;linter&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic Python linting&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"linter"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Automatic Python linting"</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;lint&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">lint_file</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="s2">"lint"</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">lint_file</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
     <span class="p">}</span>
 <span class="p">)</span>
 </pre></div>
@@ -1082,8 +1082,8 @@ skipping files inside other agents’ workspaces (see <a class="reference intern
 Global hooks go in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code> and project hooks in
 <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>; the lists are additive and run in descending <code class="docutils literal notranslate"><span class="pre">priority</span></code> order:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[hooks.scripts]]</span>
-<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;session.end&quot;</span>
-<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/bin/save-agent-context&quot;</span>
+<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"session.end"</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"~/bin/save-agent-context"</span>
 <span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
 <span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
 </pre></div>
@@ -1092,7 +1092,7 @@ Global hooks go in <code class="docutils literal notranslate"><span class="pre">
 registry, not through environment variables:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">disable_hook</span><span class="p">,</span> <span class="n">enable_hook</span>
 
-<span class="n">disable_hook</span><span class="p">(</span><span class="s2">&quot;precommit.precommit_check&quot;</span><span class="p">)</span>
+<span class="n">disable_hook</span><span class="p">(</span><span class="s2">"precommit.precommit_check"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> and <a class="reference internal" href="config.html#project-config"><span class="std std-ref">Project config</span></a> for the full configuration
@@ -1125,9 +1125,9 @@ reference.</p>
         <span class="n">run_precommit_checks</span><span class="p">()</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"precommit"</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;check&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">TURN_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">precommit_hook</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="s2">"check"</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">TURN_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">precommit_hook</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
     <span class="p">}</span>
 <span class="p">)</span>
 </pre></div>

@@ -679,10 +679,10 @@ content, take screenshots, and interact with web pages.</p>
 <div><ul>
 <li><p>Full browser automation with screenshots</p></li>
 <li><p>Installation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[browser]&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">'gptme[browser]'</span>
 <span class="c1"># We need to use the same version of Playwright as the one installed by gptme</span>
 <span class="c1"># when downloading the browser binaries. gptme will attempt this automatically</span>
-<span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">&#39; &#39;</span><span class="w"> </span>-f2<span class="k">)</span>
+<span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f2<span class="k">)</span>
 pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>chromium-headless-shell
 </pre></div>
 </div>
@@ -1191,9 +1191,9 @@ the browser ended up.</p>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com/login&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;alice&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://example.com/login"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"#username"</span><span class="p">,</span> <span class="s2">"alice"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Log in"</span><span class="p">)</span>
 <span class="n">url</span> <span class="o">=</span> <span class="n">get_current_url</span><span class="p">()</span>   <span class="c1"># confirm redirect to /dashboard</span>
 </pre></div>
 </div>
@@ -1228,9 +1228,9 @@ menu item that only appears on hover.</p>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
-<span class="n">hover_element</span><span class="p">(</span><span class="s2">&quot;text=Products&quot;</span><span class="p">)</span>   <span class="c1"># reveal dropdown</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Pricing&quot;</span><span class="p">)</span>    <span class="c1"># click item that appeared</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://example.com"</span><span class="p">)</span>
+<span class="n">hover_element</span><span class="p">(</span><span class="s2">"text=Products"</span><span class="p">)</span>   <span class="c1"># reveal dropdown</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Pricing"</span><span class="p">)</span>    <span class="c1"># click item that appeared</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1246,18 +1246,18 @@ state without requiring a process restart or setting the
 the restored cookies and localStorage.</p>
 <p>Typical workflow:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># First session — log in and save state:</span>
-<span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/login&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;you@example.com&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#password&quot;</span><span class="p">,</span> <span class="s2">&quot;hunter2&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
-<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+<span class="n">open_page</span><span class="p">(</span><span class="s2">"https://x.com/login"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"#username"</span><span class="p">,</span> <span class="s2">"you@example.com"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"#password"</span><span class="p">,</span> <span class="s2">"hunter2"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Log in"</span><span class="p">)</span>
+<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">"~/.config/gptme/twitter-session.json"</span><span class="p">)</span>
 
 <span class="c1"># Later in the same session (or a new one):</span>
-<span class="n">load_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
-<span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com&quot;</span><span class="p">)</span>           <span class="c1"># opens already logged in</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=What is happening?!&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s1">&#39;[data-testid=&quot;tweetTextarea_0&quot;]&#39;</span><span class="p">,</span> <span class="s2">&quot;hello from gptme!&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s1">&#39;[data-testid=&quot;tweetButtonInline&quot;]&#39;</span><span class="p">)</span>
+<span class="n">load_browser_state</span><span class="p">(</span><span class="s2">"~/.config/gptme/twitter-session.json"</span><span class="p">)</span>
+<span class="n">open_page</span><span class="p">(</span><span class="s2">"https://x.com"</span><span class="p">)</span>           <span class="c1"># opens already logged in</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=What is happening?!"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s1">'[data-testid="tweetTextarea_0"]'</span><span class="p">,</span> <span class="s2">"hello from gptme!"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s1">'[data-testid="tweetButtonInline"]'</span><span class="p">)</span>
 </pre></div>
 </div>
 <dl class="field-list simple">
@@ -1310,7 +1310,7 @@ If None, converts all pages.</p></li>
 </dd>
 </dl>
 <p class="rubric">Example</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">images</span> <span class="o">=</span> <span class="n">pdf_to_images</span><span class="p">(</span><span class="s2">&quot;https://example.com/doc.pdf&quot;</span><span class="p">)</span>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">images</span> <span class="o">=</span> <span class="n">pdf_to_images</span><span class="p">(</span><span class="s2">"https://example.com/doc.pdf"</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">img</span> <span class="ow">in</span> <span class="n">images</span><span class="p">:</span>
 <span class="gp">... </span>    <span class="n">view_image</span><span class="p">(</span><span class="n">img</span><span class="p">)</span>  <span class="c1"># Analyze with vision tool</span>
 </pre></div>
@@ -1335,9 +1335,9 @@ dialogs (<code class="docutils literal notranslate"><span class="pre">Escape</sp
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com/search&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[name=&#39;q&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;gptme&quot;</span><span class="p">)</span>
-<span class="n">press_key</span><span class="p">(</span><span class="s2">&quot;Enter&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://example.com/search"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"[name='q']"</span><span class="p">,</span> <span class="s2">"gptme"</span><span class="p">)</span>
+<span class="n">press_key</span><span class="p">(</span><span class="s2">"Enter"</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1383,11 +1383,11 @@ it can be restored in a future session via <code class="docutils literal notrans
 <p>Call this after logging in to a site with open_page() + fill_element() +
 click_element() so you don’t have to re-authenticate next time.</p>
 <p>Typical workflow:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/login&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#username&quot;</span><span class="p">,</span> <span class="s2">&quot;you@example.com&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;#password&quot;</span><span class="p">,</span> <span class="s2">&quot;hunter2&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Log in&quot;</span><span class="p">)</span>
-<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">&quot;~/.config/gptme/twitter-session.json&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://x.com/login"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"#username"</span><span class="p">,</span> <span class="s2">"you@example.com"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"#password"</span><span class="p">,</span> <span class="s2">"hunter2"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Log in"</span><span class="p">)</span>
+<span class="n">save_browser_state</span><span class="p">(</span><span class="s2">"~/.config/gptme/twitter-session.json"</span><span class="p">)</span>
 <span class="c1"># Next session: export GPTME_BROWSER_STORAGE_STATE=~/.config/gptme/twitter-session.json</span>
 </pre></div>
 </div>
@@ -1454,9 +1454,9 @@ and falls back to the next usable backend on failure.</p>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com/order&quot;</span><span class="p">)</span>
-<span class="n">select_option</span><span class="p">(</span><span class="s2">&quot;[name=&#39;size&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;large&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Add to cart&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://example.com/order"</span><span class="p">)</span>
+<span class="n">select_option</span><span class="p">(</span><span class="s2">"[name='size']"</span><span class="p">,</span> <span class="s2">"large"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Add to cart"</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1477,10 +1477,10 @@ the current page state without triggering any action.</p>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://example.com/form&quot;</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[name=&#39;email&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;user@example.com&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://example.com/form"</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"[name='email']"</span><span class="p">,</span> <span class="s2">"user@example.com"</span><span class="p">)</span>
 <span class="n">state</span> <span class="o">=</span> <span class="n">snapshot_page</span><span class="p">()</span>   <span class="c1"># verify the field was filled before submitting</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;text=Submit&quot;</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"text=Submit"</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1516,10 +1516,10 @@ loading (modals, async renders, redirects).</p>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">&quot;https://x.com/compose/tweet&quot;</span><span class="p">)</span>
-<span class="n">wait_for_element</span><span class="p">(</span><span class="s2">&quot;[data-testid=&#39;tweetTextarea_0&#39;]&quot;</span><span class="p">,</span> <span class="n">timeout_ms</span><span class="o">=</span><span class="mi">8000</span><span class="p">)</span>
-<span class="n">fill_element</span><span class="p">(</span><span class="s2">&quot;[data-testid=&#39;tweetTextarea_0&#39;]&quot;</span><span class="p">,</span> <span class="s2">&quot;Hello from gptme!&quot;</span><span class="p">)</span>
-<span class="n">click_element</span><span class="p">(</span><span class="s2">&quot;[data-testid=&#39;tweetButtonInline&#39;]&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">open_page</span><span class="p">(</span><span class="s2">"https://x.com/compose/tweet"</span><span class="p">)</span>
+<span class="n">wait_for_element</span><span class="p">(</span><span class="s2">"[data-testid='tweetTextarea_0']"</span><span class="p">,</span> <span class="n">timeout_ms</span><span class="o">=</span><span class="mi">8000</span><span class="p">)</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s2">"[data-testid='tweetTextarea_0']"</span><span class="p">,</span> <span class="s2">"Hello from gptme!"</span><span class="p">)</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s2">"[data-testid='tweetButtonInline']"</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1531,8 +1531,8 @@ loading (modals, async renders, redirects).</p>
 <p>Full browser automation with screenshots, ARIA snapshots, clicking, form
 filling, and scrolling.</p>
 <p><strong>Installation:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[browser]&#39;</span>
-<span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">&#39; &#39;</span><span class="w"> </span>-f2<span class="k">)</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">'gptme[browser]'</span>
+<span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f2<span class="k">)</span>
 pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>chromium-headless-shell
 </pre></div>
 </div>
@@ -1579,10 +1579,10 @@ engine so they receive the same Playwright browser-context options.</p>
 <section id="use-firefox-instead-of-chromium">
 <h3>Use Firefox instead of Chromium<a class="headerlink" href="#use-firefox-instead-of-chromium" title="Link to this heading">#</a></h3>
 <p>Useful for pages that detect and block headless Chromium.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">&#39; &#39;</span><span class="w"> </span>-f2<span class="k">)</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f2<span class="k">)</span>
 pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>firefox
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>firefox
-gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">"read https://example.com"</span>
 </pre></div>
 </div>
 </section>
@@ -1594,13 +1594,13 @@ A patched build such as <a class="reference external" href="https://camoufox.com
 is a drop-in replacement that passes most fingerprint checks.</p>
 <p><strong>By absolute path:</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>/usr/local/bin/camoufox-runner
-gptme<span class="w"> </span><span class="s2">&quot;read https://bot-detection-test.vercel.app&quot;</span>
+gptme<span class="w"> </span><span class="s2">"read https://bot-detection-test.vercel.app"</span>
 </pre></div>
 </div>
 <p><strong>By executable name on $PATH:</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Assuming camoufox is on your PATH</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>camoufox
-gptme<span class="w"> </span><span class="s2">&quot;screenshot https://example.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">"screenshot https://example.com"</span>
 </pre></div>
 </div>
 <p>gptme detects that the value is not a named engine, resolves it via
@@ -1613,7 +1613,7 @@ python<span class="w"> </span>-m<span class="w"> </span>camoufox<span class="w">
 
 <span class="c1"># Point gptme at it</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span><span class="k">$(</span>python<span class="w"> </span>-m<span class="w"> </span>camoufox<span class="w"> </span>path<span class="k">)</span>
-gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">"read https://example.com"</span>
 </pre></div>
 </div>
 </section>
@@ -1624,12 +1624,12 @@ independently of engine selection. This is useful when you have a cached or
 pre-built browser binary that you want to use with a specific engine.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use a custom Chromium binary with the default engine</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_EXECUTABLE_PATH</span><span class="o">=</span>/path/to/chromium
-gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">"read https://example.com"</span>
 
 <span class="c1"># Use a custom Firefox binary</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>firefox
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_EXECUTABLE_PATH</span><span class="o">=</span>/path/to/firefox
-gptme<span class="w"> </span><span class="s2">&quot;screenshot https://example.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">"screenshot https://example.com"</span>
 </pre></div>
 </div>
 <p><strong>Precedence:</strong> Explicit constructor arguments take priority over environment
@@ -1655,7 +1655,7 @@ chromium<span class="w"> </span>--remote-debugging-port<span class="o">=</span><
 
 <span class="c1"># Connect gptme to it</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_CDP_URL</span><span class="o">=</span>http://127.0.0.1:9222
-gptme<span class="w"> </span><span class="s2">&quot;read https://example.com&quot;</span>
+gptme<span class="w"> </span><span class="s2">"read https://example.com"</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -1669,11 +1669,11 @@ is ignored in CDP mode.</p>
 <p>Save login cookies and local storage so authenticated sessions persist across
 restarts.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Log in once and save state</span>
-gptme<span class="w"> </span><span class="s2">&quot;open https://x.com/login and log in with user@example.com / hunter2, then save_browser_state ~/.config/gptme/twitter.json&quot;</span>
+gptme<span class="w"> </span><span class="s2">"open https://x.com/login and log in with user@example.com / hunter2, then save_browser_state ~/.config/gptme/twitter.json"</span>
 
 <span class="c1"># Reuse in the next session</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_STORAGE_STATE</span><span class="o">=</span>~/.config/gptme/twitter.json
-gptme<span class="w"> </span><span class="s2">&quot;tweet &#39;hello from gptme&#39;&quot;</span>
+gptme<span class="w"> </span><span class="s2">"tweet 'hello from gptme'"</span>
 </pre></div>
 </div>
 </section>

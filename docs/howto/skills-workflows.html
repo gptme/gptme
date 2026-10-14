@@ -661,7 +661,7 @@ skill and to compose skills into multi-step workflows.</p>
 under <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/</span></code> for user-global skills. For example, a skill for
 your project’s database migration convention:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span>skills/db-migration
-cat<span class="w"> </span>&gt;<span class="w"> </span>skills/db-migration/SKILL.md<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+cat<span class="w"> </span>&gt;<span class="w"> </span>skills/db-migration/SKILL.md<span class="w"> </span><span class="s">&lt;&lt; 'EOF'</span>
 <span class="s">---</span>
 <span class="s">name: db-migration</span>
 <span class="s">description: Django migration conventions and pre-migration checklist</span>
@@ -695,7 +695,7 @@ configuration needed.</p>
 <section id="use-a-skill">
 <h2>Use a skill<a class="headerlink" href="#use-a-skill" title="Link to this heading">#</a></h2>
 <p>Skills are loaded by name. Request one explicitly in your prompt:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;Using the db-migration skill, help me add a nullable email field to the User model&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"Using the db-migration skill, help me add a nullable email field to the User model"</span>
 </pre></div>
 </div>
 </section>
@@ -741,7 +741,7 @@ name: release-tag-and-push
 
 Create an annotated tag:
 
-    git tag -a v$VERSION -m &quot;Release v$VERSION&quot; &amp;&amp; git push origin master --tags
+    git tag -a v$VERSION -m "Release v$VERSION" &amp;&amp; git push origin master --tags
 
 Do not push without a passing CI run on master.
 </pre></div>
@@ -757,13 +757,13 @@ name: release-workflow
 Steps in order:
 <span class="k">1.</span> Run <span class="sb">`make test`</span> (stop on failure)
 <span class="k">2.</span> Update CHANGELOG.md with the new version
-<span class="k">3.</span> Commit the changelog: <span class="sb">`git commit CHANGELOG.md -m &quot;chore: update changelog for vX.Y.Z&quot;`</span>
-<span class="k">4.</span> Create the annotated tag and push: <span class="sb">`git tag -a v$VERSION -m &quot;Release v$VERSION&quot; &amp;&amp; git push origin master --tags`</span>
+<span class="k">3.</span> Commit the changelog: <span class="sb">`git commit CHANGELOG.md -m "chore: update changelog for vX.Y.Z"`</span>
+<span class="k">4.</span> Create the annotated tag and push: <span class="sb">`git tag -a v$VERSION -m "Release v$VERSION" &amp;&amp; git push origin master --tags`</span>
 </pre></div>
 </div>
 <p>Name the workflow <strong>and</strong> every sub-skill you want loaded — mentioning the
 workflow alone does not recursively load the skills it references:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;Using the release-workflow, release-check-tests, release-update-changelog, and release-tag-and-push skills, do a release for v1.4.2&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"Using the release-workflow, release-check-tests, release-update-changelog, and release-tag-and-push skills, do a release for v1.4.2"</span>
 </pre></div>
 </div>
 </section>

@@ -661,7 +661,7 @@
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can create, check status, wait for, and read logs from subagents.
 
-Subagents support a &quot;fire-and-forget-then-get-alerted&quot; pattern:
+Subagents support a "fire-and-forget-then-get-alerted" pattern:
 <span class="k">-</span><span class="w"> </span>Call subagent() to start an async task (returns immediately)
 <span class="k">-</span><span class="w"> </span>Continue with other work
 <span class="k">-</span><span class="w"> </span>Receive completion messages via the LOOP_CONTINUE hook
@@ -669,21 +669,21 @@ Subagents support a &quot;fire-and-forget-then-get-alerted&quot; pattern:
 
 Key features:
 <span class="k">-</span><span class="w"> </span>Agent profiles: Use profile names as agent_id for automatic profile detection
-<span class="k">-</span><span class="w"> </span>model=&quot;provider/model&quot;: Override parent&#39;s model (route cheap tasks to faster models)
+<span class="k">-</span><span class="w"> </span>model="provider/model": Override parent's model (route cheap tasks to faster models)
 <span class="k">-</span><span class="w"> </span>use_subprocess=True: Run subagent in subprocess for output isolation
 <span class="k">-</span><span class="w"> </span>use_acp=True: Run subagent via ACP protocol (supports any ACP-compatible agent)
-<span class="k">-</span><span class="w"> </span>acp_command=&quot;claude-code-acp&quot;: Use a different ACP agent (default: gptme-acp)
-<span class="k">-</span><span class="w"> </span>isolation=&quot;worktree&quot;: Run subagent in a git worktree for filesystem isolation (preferred over isolated=True)
-<span class="k">-</span><span class="w"> </span>workdir=&quot;/path/to/dir&quot;: Set the working directory for the subagent (defaults to cwd)
+<span class="k">-</span><span class="w"> </span>acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
+<span class="k">-</span><span class="w"> </span>isolation="worktree": Run subagent in a git worktree for filesystem isolation (preferred over isolated=True)
+<span class="k">-</span><span class="w"> </span>workdir="/path/to/dir": Set the working directory for the subagent (defaults to cwd)
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 <span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 <span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
 <span class="k">-</span><span class="w"> </span>subagent_parallel(tasks, timeout, max_concurrent=N, budget=SubagentBudget(...)): Fan out N subagents and wait for all — returns ordered list of results. Use max_concurrent to cap simultaneous agents (extras queue). Use budget= to gate new spawns once a token ceiling is hit.
-<span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage&#39;s prompt
+<span class="k">-</span><span class="w"> </span>subagent_pipeline(items, *stages, timeout): Multi-stage fan-out with no barrier between stages — item A advances to stage 2 while item B is still in stage 1; each stage callable receives (item_prompt, prev_result) and returns the next stage's prompt
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents and return a BatchJob for explicit synchronization
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
-<span class="k">-</span><span class="w"> </span>subagent_continue(agent_id, message): Reuse a finished non-isolated child for related follow-up work. Prefer this over spawning a new child when its prior findings or decisions matter: the child keeps its full conversation/session context, avoiding a repeated briefing and improving continuity (thread, subprocess, or ACP). Registry metadata is persisted in the child&#39;s logdir so status/wait/continue still work after a gptme restart.
-<span class="k">-</span><span class="w"> </span>subagent_steer(agent_id, message): Inject a steering message into a RUNNING subagent&#39;s conversation — redirect, clarify, or course-correct mid-run without restarting. Works for thread-mode and subprocess-mode subagents. Distinct from subagent_reply() which only works on finished clarification_needed subagents.
+<span class="k">-</span><span class="w"> </span>subagent_continue(agent_id, message): Reuse a finished non-isolated child for related follow-up work. Prefer this over spawning a new child when its prior findings or decisions matter: the child keeps its full conversation/session context, avoiding a repeated briefing and improving continuity (thread, subprocess, or ACP). Registry metadata is persisted in the child's logdir so status/wait/continue still work after a gptme restart.
+<span class="k">-</span><span class="w"> </span>subagent_steer(agent_id, message): Inject a steering message into a RUNNING subagent's conversation — redirect, clarify, or course-correct mid-run without restarting. Works for thread-mode and subprocess-mode subagents. Distinct from subagent_reply() which only works on finished clarification_needed subagents.
 <span class="k">-</span><span class="w"> </span>subagent_wait_any(agent_ids, timeout): Wait for the first of N subagents to complete — returns (agent_id, result). Useful for race/hedging patterns.
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent (for subagents that already stopped with clarification_needed status)
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
@@ -702,8 +702,8 @@ accumulates spend across iterations — the canonical dynamic fan-out loop:
     <span class="k">if</span> <span class="ow">not</span> <span class="n">batch</span><span class="p">:</span>
         <span class="k">break</span>
     <span class="n">batch_results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">,</span> <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
-    <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">)</span>
-    <span class="c1"># items skipped after budget exhaustion have status=&quot;budget_exceeded&quot;</span>
+    <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"success"</span><span class="p">)</span>
+    <span class="c1"># items skipped after budget exhaustion have status="budget_exceeded"</span>
 <span class="sb">```</span>
 
 Each result dict has ``input_tokens`` / ``output_tokens`` fields so you can
@@ -717,8 +717,8 @@ both caps are enforced.
 
 <span class="gu">## Context Isolation</span>
 
-Subagents do NOT inherit the parent&#39;s conversation history — they always start
-with a fresh context. What subagents DO inherit (in context_mode=&quot;full&quot;):
+Subagents do NOT inherit the parent's conversation history — they always start
+with a fresh context. What subagents DO inherit (in context_mode="full"):
 
 <span class="k">-</span><span class="w"> </span>Workspace files listed in gptme.toml [prompt] files (e.g. AGENTS.md, README)
 <span class="k">-</span><span class="w"> </span>Dynamic context_cmd output (if configured in gptme.toml)
@@ -745,7 +745,7 @@ you need tighter control over what the subagent sees:
   the default is too bloated but you still want the subagent to see some workspace
   history — trim without fully isolating.
 
-<span class="sb">`context_window=0`</span> is equivalent to <span class="sb">`context_mode=&quot;selective&quot;, context_include=[&quot;agent&quot;, &quot;tools&quot;]`</span>
+<span class="sb">`context_window=0`</span> is equivalent to <span class="sb">`context_mode="selective", context_include=["agent", "tools"]`</span>
 but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
 
 <span class="gu">## Agent Profiles for Subagents</span>
@@ -760,12 +760,12 @@ When agent_id matches a profile name, the profile is auto-applied:
 <span class="k">-</span><span class="w"> </span>computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
 <span class="k">-</span><span class="w"> </span>browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell) — supports interactive browsing (open_page, click, fill, scroll) and one-shot reads
 
-Example: <span class="sb">`subagent(&quot;explorer&quot;, &quot;Explore codebase&quot;)`</span>
-With model override: <span class="sb">`subagent(&quot;researcher&quot;, &quot;Find docs&quot;, model=&quot;openai/gpt-4o-mini&quot;)`</span>
-Computer-use example: <span class="sb">`subagent(&quot;computer-use&quot;, &quot;Click the Submit button, wait for the modal, and screenshot the result&quot;)`</span>
-Browser-use example: <span class="sb">`subagent(&quot;browser-use&quot;, &quot;Open localhost:5173, fill the chat input, click send, and report the result&quot;)`</span>
+Example: <span class="sb">`subagent("explorer", "Explore codebase")`</span>
+With model override: <span class="sb">`subagent("researcher", "Find docs", model="openai/gpt-4o-mini")`</span>
+Computer-use example: <span class="sb">`subagent("computer-use", "Click the Submit button, wait for the modal, and screenshot the result")`</span>
+Browser-use example: <span class="sb">`subagent("browser-use", "Open localhost:5173, fill the chat input, click send, and report the result")`</span>
 
-Use subagent_read_log() to inspect a subagent&#39;s conversation log for debugging.
+Use subagent_read_log() to inspect a subagent's conversation log for debugging.
 
 <span class="gu">## Structured Delegation Template</span>
 
@@ -780,7 +780,7 @@ MUST NOT DO: [Explicit constraints and forbidden actions]
 CONTEXT: [Background info, dependencies, related work]
 
 Example prompt using the template:
-&#39;&#39;&#39;
+'''
 TASK: Implement the user authentication feature
 EXPECTED OUTCOME: auth.py with login/logout endpoints, passing tests
 REQUIRED SKILLS: Python, FastAPI, JWT tokens
@@ -788,7 +788,7 @@ REQUIRED TOOLS: save, shell (for pytest)
 MUST DO: Use bcrypt for password hashing, return proper HTTP status codes
 MUST NOT DO: Store plaintext passwords, skip input validation
 CONTEXT: This is for the gptme server API, see existing endpoints in server.py
-&#39;&#39;&#39;
+'''
 
 <span class="gu">## Clarification Requests</span>
 
@@ -800,8 +800,8 @@ information from the parent before it can continue:
 <span class="sb">```</span>
 
 The parent receives a hook notification:
-  ❓ Subagent &#39;X&#39; needs clarification: Which output format should I use: JSON or CSV?
-  Call subagent_reply(&#39;X&#39;, &#39;&lt;your answer&gt;&#39;) to continue.
+  ❓ Subagent 'X' needs clarification: Which output format should I use: JSON or CSV?
+  Call subagent_reply('X', '&lt;your answer&gt;') to continue.
 
 Use ``subagent_reply(agent_id, reply)`` to answer and re-spawn the subagent.
 The re-spawned subagent receives the original prompt plus the Q&amp;A so it can
@@ -1432,10 +1432,10 @@ usage metadata was found in any completed subagent’s log.</p>
 </dd>
 </dl>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;task A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">,</span> <span class="s2">&quot;task B&quot;</span><span class="p">)])</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([(</span><span class="s2">"a"</span><span class="p">,</span> <span class="s2">"task A"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"b"</span><span class="p">,</span> <span class="s2">"task B"</span><span class="p">)])</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">()</span>
 <span class="n">stats</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">total_tokens</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Tokens used: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;input_tokens&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> in / </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;output_tokens&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> out&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Tokens used: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">'input_tokens'</span><span class="p">]</span><span class="si">}</span><span class="s2"> in / </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">'output_tokens'</span><span class="p">]</span><span class="si">}</span><span class="s2"> out"</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -1498,11 +1498,11 @@ result is automatically parsed.</p>
 </dl>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">&quot;attempt-fast&quot;</span><span class="p">,</span> <span class="s2">&quot;Try the quick approach for task X&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;attempt-thorough&quot;</span><span class="p">,</span> <span class="s2">&quot;Try the thorough approach for task X&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"attempt-fast"</span><span class="p">,</span> <span class="s2">"Try the quick approach for task X"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"attempt-thorough"</span><span class="p">,</span> <span class="s2">"Try the thorough approach for task X"</span><span class="p">),</span>
 <span class="p">])</span>
 <span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_any</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> finished first: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> finished first: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="c1"># Cancel the remaining agent</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">subagent_cancel</span>
 <span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="n">job</span><span class="o">.</span><span class="n">agent_ids</span><span class="p">:</span>
@@ -1569,7 +1569,7 @@ Claude Code Workflow <code class="docutils literal notranslate"><span class="pre
 
 <span class="n">budget</span> <span class="o">=</span> <span class="n">SubagentBudget</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="mi">200_000</span><span class="p">)</span>   <span class="c1"># 200k output tokens</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">)</span>
-<span class="c1"># Items spawned after the budget was exhausted have status=&quot;budget_exceeded&quot;</span>
+<span class="c1"># Items spawned after the budget was exhausted have status="budget_exceeded"</span>
 </pre></div>
 </div>
 <p>Dynamic loop pattern (accumulate until budget runs out):</p>
@@ -1577,7 +1577,7 @@ Claude Code Workflow <code class="docutils literal notranslate"><span class="pre
 <span class="n">findings</span> <span class="o">=</span> <span class="p">[]</span>
 <span class="k">while</span> <span class="ow">not</span> <span class="n">budget</span><span class="o">.</span><span class="n">exhausted</span><span class="p">():</span>
     <span class="n">batch_results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">next_batch</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">)</span>
-    <span class="n">findings</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">)</span>
+    <span class="n">findings</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">"result"</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">batch_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"success"</span><span class="p">)</span>
 </pre></div>
 </div>
 <dl class="py method">
@@ -1791,7 +1791,7 @@ working directory (<code class="docutils literal notranslate"><span class="pre">
 directory — for example, when a <code class="docutils literal notranslate"><span class="pre">cd</span></code> into a project with a
 <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> triggers workspace detection and you want the
 subagent to load that workspace’s config:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Add feature X&quot;</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">,</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">"impl"</span><span class="p">,</span> <span class="s2">"Add feature X"</span><span class="p">,</span> <span class="n">workdir</span><span class="o">=</span><span class="s2">"/path/to/project"</span><span class="p">,</span>
          <span class="n">use_subprocess</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -1879,14 +1879,14 @@ is_complete() to check status, and get_completed() for partial results.</p>
 </dl>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">&quot;impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement feature X&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">,</span> <span class="s2">&quot;Write tests for feature X&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;docs&quot;</span><span class="p">,</span> <span class="s2">&quot;Document feature X&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"impl"</span><span class="p">,</span> <span class="s2">"Implement feature X"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"test"</span><span class="p">,</span> <span class="s2">"Write tests for feature X"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"docs"</span><span class="p">,</span> <span class="s2">"Document feature X"</span><span class="p">),</span>
 <span class="p">])</span>
 <span class="c1"># Orchestrator continues with other work...</span>
 <span class="c1"># Completion messages delivered via LOOP_CONTINUE hook:</span>
-<span class="c1">#   &quot;✅ Subagent &#39;impl&#39; completed: Feature implemented&quot;</span>
-<span class="c1">#   &quot;✅ Subagent &#39;test&#39; completed: 5 tests added&quot;</span>
+<span class="c1">#   "✅ Subagent 'impl' completed: Feature implemented"</span>
+<span class="c1">#   "✅ Subagent 'test' completed: 5 tests added"</span>
 <span class="c1">#</span>
 <span class="c1"># Or explicitly wait for all if needed:</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
@@ -2039,26 +2039,26 @@ multiple <code class="docutils literal notranslate"><span class="pre">subagent_p
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Process three independent tasks in parallel</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research the top 5 Python async frameworks&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;coder&quot;</span><span class="p">,</span>      <span class="s2">&quot;Implement a basic async HTTP client&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;tester&quot;</span><span class="p">,</span>     <span class="s2">&quot;Write pytest tests for an async HTTP client&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"researcher"</span><span class="p">,</span> <span class="s2">"Research the top 5 Python async frameworks"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"coder"</span><span class="p">,</span>      <span class="s2">"Implement a basic async HTTP client"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"tester"</span><span class="p">,</span>     <span class="s2">"Write pytest tests for an async HTTP client"</span><span class="p">),</span>
 <span class="p">])</span>
 <span class="k">for</span> <span class="p">(</span><span class="n">agent_id</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">tasks</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">agent_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">agent_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'result'</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="c1"># With worktree isolation for concurrent file edits (string API)</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;fix-a&quot;</span><span class="p">,</span> <span class="s2">&quot;Fix bug in module A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;fix-b&quot;</span><span class="p">,</span> <span class="s2">&quot;Fix bug in module B&quot;</span><span class="p">)],</span>
-    <span class="n">isolation</span><span class="o">=</span><span class="s2">&quot;worktree&quot;</span><span class="p">,</span>
+    <span class="p">[(</span><span class="s2">"fix-a"</span><span class="p">,</span> <span class="s2">"Fix bug in module A"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"fix-b"</span><span class="p">,</span> <span class="s2">"Fix bug in module B"</span><span class="p">)],</span>
+    <span class="n">isolation</span><span class="o">=</span><span class="s2">"worktree"</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="c1"># Fail-fast: cancel the fleet when the first subagent fails</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;verifier-a&quot;</span><span class="p">,</span> <span class="s2">&quot;Verify output A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;verifier-b&quot;</span><span class="p">,</span> <span class="s2">&quot;Verify output B&quot;</span><span class="p">)],</span>
+    <span class="p">[(</span><span class="s2">"verifier-a"</span><span class="p">,</span> <span class="s2">"Verify output A"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"verifier-b"</span><span class="p">,</span> <span class="s2">"Verify output B"</span><span class="p">)],</span>
     <span class="n">cancel_on_failure</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;failure&quot;</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Verification failed — remaining agents were cancelled&quot;</span><span class="p">)</span>
+<span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"failure"</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Verification failed — remaining agents were cancelled"</span><span class="p">)</span>
 
 <span class="c1"># With structured output (Pydantic model)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
@@ -2069,25 +2069,25 @@ multiple <code class="docutils literal notranslate"><span class="pre">subagent_p
     <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
 
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze module A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze module B&quot;</span><span class="p">)],</span>
+    <span class="p">[(</span><span class="s2">"a1"</span><span class="p">,</span> <span class="s2">"Analyze module A"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"a2"</span><span class="p">,</span> <span class="s2">"Analyze module B"</span><span class="p">)],</span>
     <span class="n">output_schema</span><span class="o">=</span><span class="n">AnalysisResult</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">:</span>
-        <span class="n">analysis</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">]</span>  <span class="c1"># already a validated dict</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">, Issues: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;issues&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"success"</span><span class="p">:</span>
+        <span class="n">analysis</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">"result"</span><span class="p">]</span>  <span class="c1"># already a validated dict</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Score: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">'score'</span><span class="p">]</span><span class="si">}</span><span class="s2">, Issues: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">'issues'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="c1"># Budget-aware dynamic loop (spawn until budget runs out)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.subagent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SubagentBudget</span>
 <span class="n">budget</span> <span class="o">=</span> <span class="n">SubagentBudget</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="mi">200_000</span><span class="p">)</span>
 <span class="k">while</span> <span class="ow">not</span> <span class="n">budget</span><span class="o">.</span><span class="n">exhausted</span><span class="p">():</span>
     <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span><span class="n">next_batch</span><span class="p">,</span> <span class="n">budget</span><span class="o">=</span><span class="n">budget</span><span class="p">)</span>
-    <span class="c1"># items skipped after budget exhaustion have status=&quot;budget_exceeded&quot;</span>
+    <span class="c1"># items skipped after budget exhaustion have status="budget_exceeded"</span>
 
 <span class="c1"># Fleet cap: run at most 4 agents at a time, queueing the rest</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;task-1&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;task-2&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;task-3&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;task-4&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span>
-     <span class="p">(</span><span class="s2">&quot;task-5&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;task-6&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">)],</span>
+    <span class="p">[(</span><span class="s2">"task-1"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span> <span class="p">(</span><span class="s2">"task-2"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span> <span class="p">(</span><span class="s2">"task-3"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span> <span class="p">(</span><span class="s2">"task-4"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span>
+     <span class="p">(</span><span class="s2">"task-5"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span> <span class="p">(</span><span class="s2">"task-6"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">)],</span>
     <span class="n">max_concurrent</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="c1"># task-5 and task-6 start only after earlier slots free up</span>
@@ -2145,26 +2145,26 @@ parsed/validated object rather than a raw JSON string.</p>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Two-stage review pipeline: find issues, then verify each finding</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;file-auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Review auth.py&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;file-db&quot;</span><span class="p">,</span> <span class="s2">&quot;Review db.py&quot;</span><span class="p">)],</span>
+    <span class="p">[(</span><span class="s2">"file-auth"</span><span class="p">,</span> <span class="s2">"Review auth.py"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"file-db"</span><span class="p">,</span> <span class="s2">"Review db.py"</span><span class="p">)],</span>
     <span class="c1"># Stage 0: review</span>
-    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Review this file for bugs: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Review this file for bugs: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
     <span class="c1"># Stage 1: verify each review finding</span>
     <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">&quot;Adversarially verify each finding in this review:</span><span class="se">\n</span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
-        <span class="sa">f</span><span class="s2">&quot;Original file to review: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="sa">f</span><span class="s2">"Adversarially verify each finding in this review:</span><span class="se">\n</span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span>
+        <span class="sa">f</span><span class="s2">"Original file to review: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">"</span>
     <span class="p">),</span>
 <span class="p">)</span>
 <span class="c1"># file-auth advances to stage 1 as soon as its stage 0 completes,</span>
 <span class="c1"># while file-db may still be in stage 0.</span>
 <span class="k">for</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">stage_results</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
     <span class="n">final</span> <span class="o">=</span> <span class="n">stage_results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">final</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">final</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">final</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2"> — </span><span class="si">{</span><span class="n">final</span><span class="p">[</span><span class="s1">'result'</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
-<span class="c1"># With isolated worktrees so concurrent file edits don&#39;t conflict</span>
+<span class="c1"># With isolated worktrees so concurrent file edits don't conflict</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;impl-a&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement feature A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;impl-b&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement feature B&quot;</span><span class="p">)],</span>
+    <span class="p">[(</span><span class="s2">"impl-a"</span><span class="p">,</span> <span class="s2">"Implement feature A"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"impl-b"</span><span class="p">,</span> <span class="s2">"Implement feature B"</span><span class="p">)],</span>
     <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="n">item</span><span class="p">,</span>
-    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Write tests for: </span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Write tests for: </span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
     <span class="n">isolated</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
@@ -2265,9 +2265,9 @@ boundary precisely.  The parent-side <code class="docutils literal notranslate">
 <code class="docutils literal notranslate"><span class="pre">ValueError</span></code>.</p>
 </div>
 <p>Example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research Python async frameworks&quot;</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">"researcher"</span><span class="p">,</span> <span class="s2">"Research Python async frameworks"</span><span class="p">)</span>
 <span class="c1"># ... the researcher is going off-track ...</span>
-<span class="n">subagent_steer</span><span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Focus only on frameworks with &gt;5k GitHub stars&quot;</span><span class="p">)</span>
+<span class="n">subagent_steer</span><span class="p">(</span><span class="s2">"researcher"</span><span class="p">,</span> <span class="s2">"Focus only on frameworks with &gt;5k GitHub stars"</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -2319,12 +2319,12 @@ completes. <code class="docutils literal notranslate"><span class="pre">result_d
 </dl>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Race pattern: take whichever approach finishes first</span>
-<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;Quick attempt at task X&quot;</span><span class="p">)</span>
-<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;thorough&quot;</span><span class="p">,</span> <span class="s2">&quot;Thorough attempt at task X&quot;</span><span class="p">)</span>
-<span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait_any</span><span class="p">([</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;thorough&quot;</span><span class="p">],</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> won the race: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">"fast"</span><span class="p">,</span> <span class="s2">"Quick attempt at task X"</span><span class="p">)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">"thorough"</span><span class="p">,</span> <span class="s2">"Thorough attempt at task X"</span><span class="p">)</span>
+<span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait_any</span><span class="p">([</span><span class="s2">"fast"</span><span class="p">,</span> <span class="s2">"thorough"</span><span class="p">],</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> won the race: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="c1"># Cancel the slower agent</span>
-<span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;thorough&quot;</span><span class="p">):</span>
+<span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"fast"</span><span class="p">,</span> <span class="s2">"thorough"</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">aid</span> <span class="o">!=</span> <span class="n">first_id</span><span class="p">:</span>
         <span class="n">subagent_cancel</span><span class="p">(</span><span class="n">aid</span><span class="p">)</span>
 </pre></div>
@@ -2431,9 +2431,9 @@ in the same order as the input tasks. Wall-clock time is bounded by the
 slowest agent, not their sum. Use this for straightforward parallel delegation
 where the parent needs all results before continuing:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span> <span class="s2">&quot;Research async Python frameworks&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;coder&quot;</span><span class="p">,</span>      <span class="s2">&quot;Implement a basic async HTTP client&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;tester&quot;</span><span class="p">,</span>     <span class="s2">&quot;Write pytest tests for an async HTTP client&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"researcher"</span><span class="p">,</span> <span class="s2">"Research async Python frameworks"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"coder"</span><span class="p">,</span>      <span class="s2">"Implement a basic async HTTP client"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"tester"</span><span class="p">,</span>     <span class="s2">"Write pytest tests for an async HTTP client"</span><span class="p">),</span>
 <span class="p">])</span>
 </pre></div>
 </div>
@@ -2446,8 +2446,8 @@ object immediately so the parent can continue working while agents run.
 Call <code class="docutils literal notranslate"><span class="pre">job.wait_all()</span></code> later to collect results. Useful when the parent
 has its own work to interleave:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">job</span> <span class="o">=</span> <span class="n">subagent_batch</span><span class="p">([</span>
-    <span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span>
-    <span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">,</span> <span class="s2">&quot;...&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"a"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"b"</span><span class="p">,</span> <span class="s2">"..."</span><span class="p">),</span>
 <span class="p">])</span>
 <span class="c1"># ... parent does other work ...</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">()</span>
@@ -2462,17 +2462,17 @@ single-item chain, not the sum of the slowest per stage.</p>
 <p>This is more efficient than repeated <code class="docutils literal notranslate"><span class="pre">subagent_parallel()</span></code> calls (which add
 a full synchronisation barrier between stages) when items are independent.
 Each stage is a callable <code class="docutils literal notranslate"><span class="pre">stage(item_prompt,</span> <span class="pre">prev_result)</span> <span class="pre">-&gt;</span> <span class="pre">next_prompt</span></code>:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">&quot;auth&quot;</span><span class="p">,</span> <span class="s2">&quot;Review auth.py&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="s2">&quot;Review db.py&quot;</span><span class="p">)]</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">"auth"</span><span class="p">,</span> <span class="s2">"Review auth.py"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"db"</span><span class="p">,</span> <span class="s2">"Review db.py"</span><span class="p">)]</span>
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_pipeline</span><span class="p">(</span>
     <span class="n">items</span><span class="p">,</span>
     <span class="c1"># Stage 0: review</span>
-    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Find bugs in this file: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">_</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Find bugs in this file: </span><span class="si">{</span><span class="n">item</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
     <span class="c1"># Stage 1: verify — runs on auth while db is still in stage 0</span>
-    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Adversarially verify these findings:</span><span class="se">\n</span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="k">lambda</span> <span class="n">item</span><span class="p">,</span> <span class="n">prev</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Adversarially verify these findings:</span><span class="se">\n</span><span class="si">{</span><span class="n">prev</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="c1"># results[i][j] — result for item i at stage j</span>
 <span class="k">for</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">stage_results</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">stage_results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">&#39;result&#39;</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">stage_results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s1">'result'</span><span class="p">][:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Set <code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> so concurrent file-editing subagents each get their own
@@ -2481,11 +2481,11 @@ git worktree.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">subagent_wait_any(agent_ids,</span> <span class="pre">...)</span></code></dt><dd><p>Return the first of the given subagents to complete. Useful for
 <strong>speculative / hedging patterns</strong>: spawn N subagents racing on the same
 task and take whichever finishes first, then cancel the rest:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span>     <span class="s2">&quot;Quick attempt at task X&quot;</span><span class="p">)</span>
-<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;thorough&quot;</span><span class="p">,</span> <span class="s2">&quot;Thorough attempt at task X&quot;</span><span class="p">)</span>
-<span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait_any</span><span class="p">([</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;thorough&quot;</span><span class="p">],</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> won: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;status&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;fast&quot;</span><span class="p">,</span> <span class="s2">&quot;thorough&quot;</span><span class="p">):</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">"fast"</span><span class="p">,</span>     <span class="s2">"Quick attempt at task X"</span><span class="p">)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">"thorough"</span><span class="p">,</span> <span class="s2">"Thorough attempt at task X"</span><span class="p">)</span>
+<span class="n">first_id</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait_any</span><span class="p">([</span><span class="s2">"fast"</span><span class="p">,</span> <span class="s2">"thorough"</span><span class="p">],</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">120</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">first_id</span><span class="si">}</span><span class="s2"> won: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'status'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">aid</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"fast"</span><span class="p">,</span> <span class="s2">"thorough"</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">aid</span> <span class="o">!=</span> <span class="n">first_id</span><span class="p">:</span>
         <span class="n">subagent_cancel</span><span class="p">(</span><span class="n">aid</span><span class="p">)</span>
 </pre></div>
@@ -2510,13 +2510,13 @@ in each result dict is the parsed/validated object rather than a raw string:</p>
     <span class="n">issues</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
 
 <span class="n">results</span> <span class="o">=</span> <span class="n">subagent_parallel</span><span class="p">(</span>
-    <span class="p">[(</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze module A&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="s2">&quot;Analyze module B&quot;</span><span class="p">)],</span>
+    <span class="p">[(</span><span class="s2">"a1"</span><span class="p">,</span> <span class="s2">"Analyze module A"</span><span class="p">),</span> <span class="p">(</span><span class="s2">"a2"</span><span class="p">,</span> <span class="s2">"Analyze module B"</span><span class="p">)],</span>
     <span class="n">output_schema</span><span class="o">=</span><span class="n">AnalysisResult</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;success&quot;</span><span class="p">:</span>
-        <span class="n">analysis</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">&quot;result&quot;</span><span class="p">]</span>  <span class="c1"># already a validated dict</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"success"</span><span class="p">:</span>
+        <span class="n">analysis</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s2">"result"</span><span class="p">]</span>  <span class="c1"># already a validated dict</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Score: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">'score'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">output_schema</span></code> parameter is also available on the low-level
@@ -2526,9 +2526,9 @@ in each result dict is the parsed/validated object rather than a raw string:</p>
 <h2>Token Budget Tracking<a class="headerlink" href="#token-budget-tracking" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">subagent_wait()</span></code> and <code class="docutils literal notranslate"><span class="pre">BatchJob.wait_all()</span></code> include token usage in their
 result dicts:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait</span><span class="p">(</span><span class="s2">&quot;my-agent&quot;</span><span class="p">)</span>
-<span class="c1"># result[&quot;input_tokens&quot;]  — tokens consumed by the subagent&#39;s prompts</span>
-<span class="c1"># result[&quot;output_tokens&quot;] — tokens generated by the subagent</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">subagent_wait</span><span class="p">(</span><span class="s2">"my-agent"</span><span class="p">)</span>
+<span class="c1"># result["input_tokens"]  — tokens consumed by the subagent's prompts</span>
+<span class="c1"># result["output_tokens"] — tokens generated by the subagent</span>
 </pre></div>
 </div>
 <p>This lets the parent track cumulative cost across a fleet of delegated tasks

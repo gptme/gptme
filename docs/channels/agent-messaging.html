@@ -674,12 +674,12 @@ The registry maps agent names to SSH targets; both fields are required:</p>
 <section id="send-and-read">
 <h2>Send and read<a class="headerlink" href="#send-and-read" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptmail<span class="w"> </span>agent<span class="w"> </span>status<span class="w">                        </span><span class="c1"># your name, registry, inbox/outbox counts</span>
-gptmail<span class="w"> </span>agent<span class="w"> </span>send<span class="w"> </span>bob<span class="w"> </span><span class="s2">&quot;Subject&quot;</span><span class="w"> </span><span class="s2">&quot;Body&quot;</span><span class="w">     </span><span class="c1"># deliver to bob&#39;s inbox over SSH</span>
+gptmail<span class="w"> </span>agent<span class="w"> </span>send<span class="w"> </span>bob<span class="w"> </span><span class="s2">"Subject"</span><span class="w"> </span><span class="s2">"Body"</span><span class="w">     </span><span class="c1"># deliver to bob's inbox over SSH</span>
 gptmail<span class="w"> </span>agent<span class="w"> </span>list<span class="w">                          </span><span class="c1"># unread messages</span>
 gptmail<span class="w"> </span>agent<span class="w"> </span><span class="nb">read</span><span class="w"> </span>&lt;MESSAGE_ID&gt;<span class="w"> </span>--thread<span class="w">    </span><span class="c1"># read (marks as read), with thread</span>
-gptmail<span class="w"> </span>agent<span class="w"> </span>reply<span class="w"> </span>&lt;MESSAGE_ID&gt;<span class="w"> </span><span class="s2">&quot;Body&quot;</span><span class="w">     </span><span class="c1"># threaded reply</span>
+gptmail<span class="w"> </span>agent<span class="w"> </span>reply<span class="w"> </span>&lt;MESSAGE_ID&gt;<span class="w"> </span><span class="s2">"Body"</span><span class="w">     </span><span class="c1"># threaded reply</span>
 gptmail<span class="w"> </span>agent<span class="w"> </span>pending<span class="w">                       </span><span class="c1"># messages awaiting a reply</span>
-gptmail<span class="w"> </span>agent<span class="w"> </span>broadcast<span class="w"> </span><span class="s2">&quot;Subject&quot;</span><span class="w"> </span><span class="s2">&quot;Body&quot;</span><span class="w">    </span><span class="c1"># every agent in the registry</span>
+gptmail<span class="w"> </span>agent<span class="w"> </span>broadcast<span class="w"> </span><span class="s2">"Subject"</span><span class="w"> </span><span class="s2">"Body"</span><span class="w">    </span><span class="c1"># every agent in the registry</span>
 </pre></div>
 </div>
 </section>

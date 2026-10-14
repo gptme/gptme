@@ -826,7 +826,7 @@ model call.</p>
 </div>
 <p>Or set project-wide via <code class="docutils literal notranslate"><span class="pre">[context]</span> <span class="pre">compact_instructions</span></code> in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">context</span><span class="p">]</span>
-<span class="n">compact_instructions</span> <span class="o">=</span> <span class="s2">&quot;Always note the current task ID and git branch.&quot;</span>
+<span class="n">compact_instructions</span> <span class="o">=</span> <span class="s2">"Always note the current task ID and git branch."</span>
 <span class="n">keep_recent_tokens</span> <span class="o">=</span> <span class="mi">15000</span>   <span class="c1"># tokens of history to keep after checkpoint</span>
 </pre></div>
 </div>
@@ -856,24 +856,24 @@ model call.</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyContextProvider</span><span class="p">(</span><span class="n">ContextProvider</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom context compression provider.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Custom context compression provider."""</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return a unique identifier for this provider.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="s2">&quot;my-compressor&quot;</span>
+<span class="w">        </span><span class="sd">"""Return a unique identifier for this provider."""</span>
+        <span class="k">return</span> <span class="s2">"my-compressor"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Decide whether compression should be applied.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Decide whether compression should be applied."""</span>
         <span class="c1"># Your logic here</span>
         <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">50</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Apply compression and return a CompactionResult.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Apply compression and return a CompactionResult."""</span>
         <span class="c1"># Your compression logic here — return a CompactionResult, not a generator</span>
         <span class="n">source_digest</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_digest</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
         <span class="n">compacted</span> <span class="o">=</span> <span class="n">messages</span><span class="p">[</span><span class="o">-</span><span class="mi">50</span><span class="p">:]</span>  <span class="c1"># keep last 50 messages</span>
@@ -894,7 +894,7 @@ model call.</p>
 <p>Returns a unique identifier for this provider (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;my-compressor&quot;</span></code>).</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@property</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-    <span class="k">return</span> <span class="s2">&quot;my-compressor&quot;</span>
+    <span class="k">return</span> <span class="s2">"my-compressor"</span>
 </pre></div>
 </div>
 </section>
@@ -904,14 +904,14 @@ model call.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Args:</span>
 <span class="sd">        messages: List of messages in the conversation</span>
 <span class="sd">        config: Compression configuration (see CompressionConfig below)</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        True if compression should be applied, False otherwise</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 </pre></div>
 </div>
 <p>This allows intelligent decisions: some providers might always compress when close to the limit, others only when detecting redundancy exceeds a threshold.</p>
@@ -922,7 +922,7 @@ model call.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Message</span><span class="p">],</span> <span class="n">config</span><span class="p">:</span> <span class="n">CompressionConfig</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Args:</span>
 <span class="sd">        messages: List of messages to compress</span>
 <span class="sd">        config: Compression configuration</span>
@@ -935,7 +935,7 @@ model call.</p>
 <span class="sd">        - Preserve message structure (role, timestamp, tool_calls, etc.)</span>
 <span class="sd">        - Do NOT return a generator — the caller accesses .messages directly</span>
 <span class="sd">        - May optionally set covered_through for partial-context tracking</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 </pre></div>
 </div>
 </section>
@@ -970,8 +970,8 @@ model call.</p>
 <section id="entry-points-recommended">
 <h3>Entry Points (Recommended)<a class="headerlink" href="#entry-points-recommended" title="Link to this heading">#</a></h3>
 <p>Add your provider to your package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.context_providers&quot;</span><span class="k">]</span>
-<span class="n">my-compressor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package.providers:MyContextProvider&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">"gptme.context_providers"</span><span class="k">]</span>
+<span class="n">my-compressor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my_package.providers:MyContextProvider"</span>
 </pre></div>
 </div>
 <p>When gptme starts, it will automatically discover and load your provider via entry-points.</p>
@@ -982,7 +982,7 @@ model call.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_provider</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">my_package.providers</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyContextProvider</span>
 
-<span class="n">register_provider</span><span class="p">(</span><span class="s2">&quot;my-compressor&quot;</span><span class="p">,</span> <span class="n">MyContextProvider</span><span class="p">)</span>
+<span class="n">register_provider</span><span class="p">(</span><span class="s2">"my-compressor"</span><span class="p">,</span> <span class="n">MyContextProvider</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -992,7 +992,7 @@ model call.</p>
 <p>Once registered, use your provider by name:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_context_provider</span>
 
-<span class="n">provider</span> <span class="o">=</span> <span class="n">get_context_provider</span><span class="p">(</span><span class="s2">&quot;my-compressor&quot;</span><span class="p">)</span>
+<span class="n">provider</span> <span class="o">=</span> <span class="n">get_context_provider</span><span class="p">(</span><span class="s2">"my-compressor"</span><span class="p">)</span>
 <span class="n">config</span> <span class="o">=</span> <span class="n">CompressionConfig</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">4000</span><span class="p">)</span>
 
 <span class="c1"># Check if compression is needed</span>
@@ -1007,7 +1007,7 @@ model call.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.autocompact.context_provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">list_providers</span>
 
 <span class="n">providers</span> <span class="o">=</span> <span class="n">list_providers</span><span class="p">()</span>
-<span class="c1"># Returns: [&#39;default&#39;, &#39;my-compressor&#39;, ...]</span>
+<span class="c1"># Returns: ['default', 'my-compressor', ...]</span>
 </pre></div>
 </div>
 </section>
@@ -1064,7 +1064,7 @@ lazily to avoid allocating unnecessary copies:</p>
 <span class="k">class</span><span class="w"> </span><span class="nc">CodeAwareProvider</span><span class="p">(</span><span class="n">ContextProvider</span><span class="p">):</span>
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;code-aware&quot;</span>
+        <span class="k">return</span> <span class="s2">"code-aware"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="c1"># Only compress when close to limit</span>
@@ -1075,7 +1075,7 @@ lazily to avoid allocating unnecessary copies:</p>
     <span class="k">def</span><span class="w"> </span><span class="nf">compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CompactionResult</span><span class="p">:</span>
         <span class="n">compacted</span> <span class="o">=</span> <span class="p">[</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_compress_code_message</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;assistant&quot;</span> <span class="ow">and</span> <span class="s2">&quot;```&quot;</span> <span class="ow">in</span> <span class="n">msg</span><span class="o">.</span><span class="n">content</span>
+            <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="s2">"assistant"</span> <span class="ow">and</span> <span class="s2">"```"</span> <span class="ow">in</span> <span class="n">msg</span><span class="o">.</span><span class="n">content</span>
             <span class="k">else</span> <span class="n">msg</span>
             <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="n">messages</span>
         <span class="p">]</span>
@@ -1092,7 +1092,7 @@ lazily to avoid allocating unnecessary copies:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">StatisticalProvider</span><span class="p">(</span><span class="n">ContextProvider</span><span class="p">):</span>
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;statistical&quot;</span>
+        <span class="k">return</span> <span class="s2">"statistical"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">should_compress</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="c1"># Analyze redundancy before deciding</span>

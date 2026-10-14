@@ -707,19 +707,19 @@
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
 <span class="c1"># Paths to search for plugins (supports ~ expansion and relative paths)</span>
 <span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;~/.local/share/gptme/plugins&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;./plugins&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1"># Project-local plugins</span>
+<span class="w">    </span><span class="s2">"~/.config/gptme/plugins"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"~/.local/share/gptme/plugins"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"./plugins"</span><span class="p">,</span><span class="w">  </span><span class="c1"># Project-local plugins</span>
 <span class="p">]</span>
 
 <span class="c1"># Optional: only enable specific plugins (empty = all discovered)</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;another_plugin&quot;</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"my_plugin"</span><span class="p">,</span><span class="w"> </span><span class="s2">"another_plugin"</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>Project-level plugin paths are relative to the workspace root.</p>
 <p>Plugin-owned config lives under <code class="docutils literal notranslate"><span class="pre">[plugin.&lt;name&gt;]</span></code>. For example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugin.my_plugin]</span>
-<span class="n">api_base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://example.com&quot;</span>
+<span class="n">api_base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://example.com"</span>
 <span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
 </pre></div>
 </div>
@@ -794,15 +794,15 @@ touch<span class="w"> </span>~/.config/gptme/plugins/my_plugin/tools/__init__.py
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">hello_world</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Say hello to the world.&quot;&quot;&quot;</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello from my plugin!&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="s2">&quot;Hello, World!&quot;</span>
+<span class="w">    </span><span class="sd">"""Say hello to the world."""</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Hello from my plugin!"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s2">"Hello, World!"</span>
 
 <span class="c1"># Tool specification that gptme will discover</span>
 <span class="n">hello_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Say hello&quot;</span><span class="p">,</span>
-    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to greet the world.&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"hello"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Say hello"</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">"Use this tool to greet the world."</span><span class="p">,</span>
     <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">hello_world</span><span class="p">],</span>
 <span class="p">)</span>
 </pre></div>
@@ -811,7 +811,7 @@ touch<span class="w"> </span>~/.config/gptme/plugins/my_plugin/tools/__init__.py
 <section id="use-your-plugin">
 <h3>3. Use Your Plugin<a class="headerlink" href="#use-your-plugin" title="Link to this heading">#</a></h3>
 <p>Start gptme and your plugin tools will be automatically discovered and available:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;use the hello tool&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s2">"use the hello tool"</span>
 &gt;<span class="w"> </span>Using<span class="w"> </span>tool:<span class="w"> </span>hello
 Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </span>plugin!
 </pre></div>
@@ -881,13 +881,13 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">my_session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook called at session start.&quot;&quot;&quot;</span>
-    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Plugin initialized in workspace: </span><span class="si">{</span><span class="n">workspace</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Hook called at session start."""</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Plugin initialized in workspace: </span><span class="si">{</span><span class="n">workspace</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all hooks from this module.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Register all hooks from this module."""</span>
     <span class="n">register_hook</span><span class="p">(</span>
-        <span class="s2">&quot;my_plugin.session_start&quot;</span><span class="p">,</span>
+        <span class="s2">"my_plugin.session_start"</span><span class="p">,</span>
         <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span>
         <span class="n">my_session_hook</span><span class="p">,</span>
         <span class="n">priority</span><span class="o">=</span><span class="mi">0</span>
@@ -903,14 +903,14 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">log_tool_execution</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log tool executions.&quot;&quot;&quot;</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Log tool executions."""</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
     <span class="k">yield</span>  <span class="c1"># Hooks must be generators</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register hooks from this module.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Register hooks from this module."""</span>
     <span class="n">register_hook</span><span class="p">(</span>
-        <span class="s2">&quot;my_plugin.log_tool&quot;</span><span class="p">,</span>
+        <span class="s2">"my_plugin.log_tool"</span><span class="p">,</span>
         <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_PRE</span><span class="p">,</span>
         <span class="n">log_tool_execution</span><span class="p">,</span>
         <span class="n">priority</span><span class="o">=</span><span class="mi">0</span>
@@ -950,14 +950,14 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">weather_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /weather command.&quot;&quot;&quot;</span>
-    <span class="n">location</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">full_args</span> <span class="ow">or</span> <span class="s2">&quot;Stockholm&quot;</span>
+<span class="w">    </span><span class="sd">"""Handle the /weather command."""</span>
+    <span class="n">location</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">full_args</span> <span class="ow">or</span> <span class="s2">"Stockholm"</span>
     <span class="c1"># Your weather logic here</span>
-    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 20°C&quot;</span><span class="p">)</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 20°C"</span><span class="p">)</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register all commands from this module.&quot;&quot;&quot;</span>
-    <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;weather&quot;</span><span class="p">,</span> <span class="n">weather_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;w&quot;</span><span class="p">])</span>
+<span class="w">    </span><span class="sd">"""Register all commands from this module."""</span>
+    <span class="n">register_command</span><span class="p">(</span><span class="s2">"weather"</span><span class="p">,</span> <span class="n">weather_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"w"</span><span class="p">])</span>
 </pre></div>
 </div>
 </section>
@@ -969,17 +969,17 @@ Hello<span class="w"> </span>from<span class="w"> </span>my<span class="w"> </sp
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">joke_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tell a random joke.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Tell a random joke."""</span>
     <span class="n">jokes</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="s2">&quot;Why did the AI cross the road? To optimize the other side!&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;What&#39;s an AI&#39;s favorite snack? Microchips!&quot;</span><span class="p">,</span>
+        <span class="s2">"Why did the AI cross the road? To optimize the other side!"</span><span class="p">,</span>
+        <span class="s2">"What's an AI's favorite snack? Microchips!"</span><span class="p">,</span>
     <span class="p">]</span>
     <span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
-    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">jokes</span><span class="p">))</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">jokes</span><span class="p">))</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register command.&quot;&quot;&quot;</span>
-    <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;joke&quot;</span><span class="p">,</span> <span class="n">joke_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;j&quot;</span><span class="p">])</span>
+<span class="w">    </span><span class="sd">"""Register command."""</span>
+    <span class="n">register_command</span><span class="p">(</span><span class="s2">"joke"</span><span class="p">,</span> <span class="n">joke_handler</span><span class="p">,</span> <span class="n">aliases</span><span class="o">=</span><span class="p">[</span><span class="s2">"j"</span><span class="p">])</span>
 </pre></div>
 </div>
 </section>
@@ -1022,18 +1022,18 @@ Why<span class="w"> </span>did<span class="w"> </span>the<span class="w"> </span
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">log_tool_pre</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log before tool execution.&quot;&quot;&quot;</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> with args: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Log before tool execution."""</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Executing tool: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> with args: </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
     <span class="k">yield</span>  <span class="c1"># Hooks must be generators</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">log_tool_post</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log after tool execution.&quot;&quot;&quot;</span>
-    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Tool </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> completed&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Log after tool execution."""</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Tool </span><span class="si">{</span><span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2"> completed"</span><span class="p">)</span>
     <span class="k">yield</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
-    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.pre&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_PRE</span><span class="p">,</span> <span class="n">log_tool_pre</span><span class="p">)</span>
-    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;tool_logger.post&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_POST</span><span class="p">,</span> <span class="n">log_tool_post</span><span class="p">)</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">"tool_logger.pre"</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_PRE</span><span class="p">,</span> <span class="n">log_tool_pre</span><span class="p">)</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">"tool_logger.post"</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_POST</span><span class="p">,</span> <span class="n">log_tool_post</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -1053,31 +1053,31 @@ This is the right hook for deterministic, below-the-model guardrails.</p>
 
 <span class="c1"># Patterns to block regardless of prompt justification</span>
 <span class="n">_DESTRUCTIVE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
-    <span class="sa">r</span><span class="s2">&quot;rm\s+-[a-z]*(?:rf|fr)[a-z]*|&quot;</span>  <span class="c1"># rm -rf/-fr/-Rf/-RF variants</span>
-    <span class="sa">r</span><span class="s2">&quot;DROP\s+TABLE|&quot;</span>            <span class="c1"># SQL destructive</span>
-    <span class="sa">r</span><span class="s2">&quot;chmod\s+-R\s+0</span><span class="si">{3}</span><span class="s2">|&quot;</span>      <span class="c1"># remove all permissions</span>
-    <span class="sa">r</span><span class="s2">&quot;:\s*\(\s*\)\s*\{.*\}\s*;&quot;</span> <span class="c1"># fork bomb</span>
+    <span class="sa">r</span><span class="s2">"rm\s+-[a-z]*(?:rf|fr)[a-z]*|"</span>  <span class="c1"># rm -rf/-fr/-Rf/-RF variants</span>
+    <span class="sa">r</span><span class="s2">"DROP\s+TABLE|"</span>            <span class="c1"># SQL destructive</span>
+    <span class="sa">r</span><span class="s2">"chmod\s+-R\s+0</span><span class="si">{3}</span><span class="s2">|"</span>      <span class="c1"># remove all permissions</span>
+    <span class="sa">r</span><span class="s2">":\s*\(\s*\)\s*\{.*\}\s*;"</span> <span class="c1"># fork bomb</span>
     <span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span>
 <span class="p">)</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">shell_guard</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Block destructive shell commands before execution.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">!=</span> <span class="s2">&quot;shell&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Block destructive shell commands before execution."""</span>
+    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">!=</span> <span class="s2">"shell"</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Not a shell tool — pass to next hook</span>
 
     <span class="c1"># Shell commands are passed as content, not args</span>
-    <span class="n">command</span> <span class="o">=</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">command</span> <span class="o">=</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">""</span>
     <span class="k">if</span> <span class="n">_DESTRUCTIVE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">command</span><span class="p">):</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Guardrail blocked: </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">command</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"Guardrail blocked: </span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">command</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;Blocked by guardrail: destructive pattern detected in: </span><span class="si">{</span><span class="n">command</span><span class="si">!r}</span><span class="s2">&quot;</span>
+            <span class="sa">f</span><span class="s2">"Blocked by guardrail: destructive pattern detected in: </span><span class="si">{</span><span class="n">command</span><span class="si">!r}</span><span class="s2">"</span>
         <span class="p">)</span>
 
     <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Not blocked — pass to next hook (e.g. user confirmation)</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">():</span>
     <span class="n">register_hook</span><span class="p">(</span>
-        <span class="s2">&quot;my_guardrail.shell_guard&quot;</span><span class="p">,</span>
+        <span class="s2">"my_guardrail.shell_guard"</span><span class="p">,</span>
         <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
         <span class="n">shell_guard</span><span class="p">,</span>
         <span class="n">priority</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>  <span class="c1"># Must be &gt; 100 to run before server_confirm</span>
@@ -1104,25 +1104,25 @@ entirely. The hook is <strong>blocking</strong> — gptme waits for the result b
 <span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">location</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get weather for a location.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Get weather for a location."""</span>
     <span class="c1"># Implementation</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 72°F&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"Weather in </span><span class="si">{</span><span class="n">location</span><span class="si">}</span><span class="s2">: Sunny, 72°F"</span>
 
 <span class="n">weather_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;weather&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Get current weather information&quot;</span><span class="p">,</span>
-    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to get weather for a location.&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"weather"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Get current weather information"</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">"Use this tool to get weather for a location."</span><span class="p">,</span>
     <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">get_weather</span><span class="p">],</span>
 <span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Configuration (~/.config/gptme/config.toml):</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
-<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"~/.config/gptme/plugins"</span><span class="p">]</span>
 </pre></div>
 </div>
 <p><strong>Usage:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;what&#39;s the weather in San Francisco?&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s2">"what's the weather in San Francisco?"</span>
 &gt;<span class="w"> </span>Using<span class="w"> </span>tool:<span class="w"> </span>weather
 Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>San<span class="w"> </span>Francisco:<span class="w"> </span>Sunny,<span class="w"> </span><span class="m">72</span>°F
 </pre></div>
@@ -1180,9 +1180,9 @@ set is in the <a class="reference internal" href="skills-gallery.html"><span cla
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
 
 <span class="n">GptmePlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">,</span>           <span class="c1"># Unique plugin name</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_plugin"</span><span class="p">,</span>           <span class="c1"># Unique plugin name</span>
     <span class="n">provider</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>              <span class="c1"># ProviderPlugin for LLM providers (optional)</span>
-    <span class="n">tool_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;...&quot;</span><span class="p">],</span>       <span class="c1"># Module names containing ToolSpec instances (optional)</span>
+    <span class="n">tool_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">"..."</span><span class="p">],</span>       <span class="c1"># Module names containing ToolSpec instances (optional)</span>
     <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>                <span class="c1"># Direct ToolSpec instances (optional)</span>
     <span class="n">register_hooks</span><span class="o">=</span><span class="n">fn</span><span class="p">,</span>          <span class="c1"># Callable that registers hooks (optional)</span>
     <span class="n">register_commands</span><span class="o">=</span><span class="n">fn</span><span class="p">,</span>       <span class="c1"># Callable that registers commands (optional)</span>
@@ -1199,19 +1199,19 @@ set is in the <a class="reference internal" href="skills-gallery.html"><span cla
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.plugins.plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">GptmePlugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">greet</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;World&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Greet someone.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!&quot;</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">greet</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"World"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Greet someone."""</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!"</span>
 
 <span class="n">greet_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;greet&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Greet someone by name&quot;</span><span class="p">,</span>
-    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to greet people.&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"greet"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Greet someone by name"</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">"Use this tool to greet people."</span><span class="p">,</span>
     <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">greet</span><span class="p">],</span>
 <span class="p">)</span>
 
 <span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_gptme_plugin&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_gptme_plugin"</span><span class="p">,</span>
     <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">greet_tool</span><span class="p">],</span>
 <span class="p">)</span>
 </pre></div>
@@ -1220,19 +1220,19 @@ set is in the <a class="reference internal" href="skills-gallery.html"><span cla
 <li><p>Register the entry point in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p></li>
 </ol>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-gptme-plugin&quot;</span>
-<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
-<span class="n">dependencies</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gptme&quot;</span><span class="p">]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my-gptme-plugin"</span>
+<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.1.0"</span>
+<span class="n">dependencies</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"gptme"</span><span class="p">]</span>
 
-<span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
-<span class="n">my_gptme_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_gptme_plugin:plugin&quot;</span>
+<span class="k">[project.entry-points.</span><span class="s2">"gptme.plugins"</span><span class="k">]</span>
+<span class="n">my_gptme_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my_gptme_plugin:plugin"</span>
 </pre></div>
 </div>
 <ol class="arabic simple" start="3">
 <li><p>Install and use:</p></li>
 </ol>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>my-gptme-plugin
-gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say hello to Alice&quot;</span>
+gptme<span class="w"> </span><span class="s2">"use the greet tool to say hello to Alice"</span>
 </pre></div>
 </div>
 <p class="rubric">Full-Featured Plugin Example</p>
@@ -1244,13 +1244,13 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 
 <span class="c1"># Tool</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Look up information.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Result for: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">    </span><span class="sd">"""Look up information."""</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"Result for: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">"</span>
 
 <span class="n">lookup_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;lookup&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Look up information&quot;</span><span class="p">,</span>
-    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to search for information.&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"lookup"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Look up information"</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">"Use this tool to search for information."</span><span class="p">,</span>
     <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">lookup</span><span class="p">],</span>
 <span class="p">)</span>
 
@@ -1260,9 +1260,9 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
     <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">on_session_start</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;My plugin initialized!&quot;</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"My plugin initialized!"</span><span class="p">)</span>
 
-    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;my_plugin.start&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span> <span class="n">on_session_start</span><span class="p">)</span>
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">"my_plugin.start"</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span> <span class="n">on_session_start</span><span class="p">)</span>
 
 <span class="c1"># Command registration</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_register_commands</span><span class="p">():</span>
@@ -1270,35 +1270,35 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
     <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">status_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;My plugin is running!&quot;</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"My plugin is running!"</span><span class="p">)</span>
 
-    <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;my-status&quot;</span><span class="p">,</span> <span class="n">status_handler</span><span class="p">)</span>
+    <span class="n">register_command</span><span class="p">(</span><span class="s2">"my-status"</span><span class="p">,</span> <span class="n">status_handler</span><span class="p">)</span>
 
 <span class="c1"># LLM provider (optional)</span>
 <span class="n">my_provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_llm&quot;</span><span class="p">,</span>
-    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.example.com/v1&quot;</span><span class="p">,</span>
-    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MY_LLM_API_KEY&quot;</span><span class="p">,</span>
-    <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;my_llm/fast&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)],</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_llm"</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">"https://api.example.com/v1"</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">"MY_LLM_API_KEY"</span><span class="p">,</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">"my_llm/fast"</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)],</span>
 <span class="p">)</span>
 
 <span class="c1"># Keyless provider — omit api_key_env for payment-based or custom-auth endpoints</span>
 <span class="c1"># my_provider = ProviderPlugin(</span>
-<span class="c1">#     name=&quot;my_llm&quot;,</span>
-<span class="c1">#     base_url=&quot;https://api.example.com/v1&quot;,</span>
+<span class="c1">#     name="my_llm",</span>
+<span class="c1">#     base_url="https://api.example.com/v1",</span>
 <span class="c1">#     # api_key_env omitted — this provider authenticates per-request</span>
 <span class="c1">#     models=[...],</span>
 <span class="c1"># )</span>
 
 <span class="c1"># Plugin initialization (optional)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Called once at startup with the full gptme Config.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Called once at startup with the full gptme Config."""</span>
     <span class="c1"># Access plugin-specific config via:</span>
-    <span class="c1">#   config.user.plugin.get(&quot;my_full_plugin&quot;, {})</span>
+    <span class="c1">#   config.user.plugin.get("my_full_plugin", {})</span>
     <span class="k">pass</span>
 
 <span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_full_plugin&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_full_plugin"</span><span class="p">,</span>
     <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">lookup_tool</span><span class="p">],</span>
     <span class="n">register_hooks</span><span class="o">=</span><span class="n">_register_hooks</span><span class="p">,</span>
     <span class="n">register_commands</span><span class="o">=</span><span class="n">_register_commands</span><span class="p">,</span>
@@ -1317,11 +1317,11 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 <p>If the same plugin name appears in multiple sources, folder plugins take precedence over entry-point plugins (to support editable installs where both are present). The <code class="docutils literal notranslate"><span class="pre">plugins.enabled</span></code> allowlist in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> can filter which plugins are loaded.</p>
 <p class="rubric">Factory Functions</p>
 <p>Entry points can reference either a <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> instance directly, or a callable (factory) that returns one:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">"gptme.plugins"</span><span class="k">]</span>
 <span class="c1"># Direct instance</span>
-<span class="n">my_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package:plugin&quot;</span>
+<span class="n">my_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my_package:plugin"</span>
 <span class="c1"># Factory function</span>
-<span class="n">my_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package:create_plugin&quot;</span>
+<span class="n">my_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my_package:create_plugin"</span>
 </pre></div>
 </div>
 <p class="rubric">Legacy Provider Entry Points</p>
@@ -1331,14 +1331,14 @@ gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say he
 <h2>Migration from TOOL_MODULES<a class="headerlink" href="#migration-from-tool-modules" title="Link to this heading">#</a></h2>
 <p>The plugin system is compatible with the existing <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> environment variable.</p>
 <p><strong>Old approach:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MODULES</span><span class="o">=</span><span class="s2">&quot;gptme.tools,my_custom_tools&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MODULES</span><span class="o">=</span><span class="s2">"gptme.tools,my_custom_tools"</span>
 gptme
 </pre></div>
 </div>
 <p><strong>New approach (gptme.toml):</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
-<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">]</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"~/.config/gptme/plugins"</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"my_plugin"</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>Both approaches work and can coexist. The plugin system provides better organization and discoverability for complex tool collections.</p>

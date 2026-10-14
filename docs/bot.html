@@ -682,7 +682,7 @@
 <span class="w">  </span><span class="nt">run-bot</span><span class="p">:</span>
 <span class="w">    </span><span class="c1"># Only run when a comment explicitly @-mentions the bot.</span>
 <span class="w">    </span><span class="c1"># Without this filter, CI spins up on every comment to immediately fail the allowlist check.</span>
-<span class="w">    </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">contains(github.event.comment.body, &#39;@gptme&#39;)</span>
+<span class="w">    </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">contains(github.event.comment.body, '@gptme')</span>
 <span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
 <span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
@@ -691,7 +691,7 @@
 <span class="w">          </span><span class="nt">openai_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.OPENAI_API_KEY }}</span>
 <span class="w">          </span><span class="nt">anthropic_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.ANTHROPIC_API_KEY }}</span>
 <span class="w">          </span><span class="nt">github_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
-<span class="w">          </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-username&quot;</span>
+<span class="w">          </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">"your-username"</span>
 </pre></div>
 </div>
 <p>Then comment <code class="docutils literal notranslate"><span class="pre">&#64;gptme</span> <span class="pre">&lt;prompt&gt;</span></code> on any issue or PR!</p>
@@ -737,8 +737,8 @@ Only users on the <code class="docutils literal notranslate"><span class="pre">a
 
 <span class="nt">jobs</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">resolve</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github.event.label.name == &#39;bot:resolve&#39;</span>
-<span class="w">    </span><span class="c1"># one resolver run per issue; job-level so other labels can&#39;t replace it</span>
+<span class="w">    </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github.event.label.name == 'bot:resolve'</span>
+<span class="w">    </span><span class="c1"># one resolver run per issue; job-level so other labels can't replace it</span>
 <span class="w">    </span><span class="nt">concurrency</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gptme-bot-${{ github.event.issue.number }}</span>
 <span class="w">      </span><span class="nt">cancel-in-progress</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
@@ -751,7 +751,7 @@ Only users on the <code class="docutils literal notranslate"><span class="pre">a
 <span class="w">          </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">resolve</span>
 <span class="w">          </span><span class="nt">anthropic_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.ANTHROPIC_API_KEY }}</span>
 <span class="w">          </span><span class="nt">github_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
-<span class="w">          </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-username&quot;</span>
+<span class="w">          </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">"your-username"</span>
 </pre></div>
 </div>
 <p>A label trigger is cheaper than a comment trigger: GitHub can’t filter
@@ -805,8 +805,8 @@ repository itself uses only the label trigger.</p>
 <span class="w">  </span><span class="nt">with</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">openai_api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.OPENAI_API_KEY }}</span>
 <span class="w">    </span><span class="nt">github_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
-<span class="w">    </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user1,user2,user3&quot;</span>
-<span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;openai/gpt-4o&quot;</span>
+<span class="w">    </span><span class="nt">allowlist</span><span class="p">:</span><span class="w"> </span><span class="s">"user1,user2,user3"</span>
+<span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openai/gpt-4o"</span>
 </pre></div>
 </div>
 </section>
@@ -896,7 +896,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/your-
 <span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>your_key<span class="w"> </span><span class="se">\</span>
 python<span class="w"> </span>scripts/github_bot.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--issue<span class="w"> </span><span class="m">123</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--comment-body<span class="w"> </span><span class="s2">&quot;@gptme What is this project?&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--comment-body<span class="w"> </span><span class="s2">"@gptme What is this project?"</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--dry-run
 
 <span class="c1"># Test with changes</span>
@@ -905,7 +905,7 @@ python<span class="w"> </span>scripts/github_bot.py<span class="w"> </span><span
 <span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>your_key<span class="w"> </span><span class="se">\</span>
 python<span class="w"> </span>scripts/github_bot.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--pr<span class="w"> </span><span class="m">456</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--comment-body<span class="w"> </span><span class="s2">&quot;@gptme Fix the typo&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--comment-body<span class="w"> </span><span class="s2">"@gptme Fix the typo"</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--workspace<span class="w"> </span>.<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--dry-run
 </pre></div>

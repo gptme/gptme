@@ -666,33 +666,33 @@ in its Python (<code class="docutils literal notranslate"><span class="pre">ipyt
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">query_db</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sql</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute a read-only SQL query against a local SQLite database.</span>
+<span class="w">    </span><span class="sd">"""Execute a read-only SQL query against a local SQLite database.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        db_path: Path to the SQLite database file.</span>
 <span class="sd">        sql: SELECT statement to run.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        Query results as a Markdown table, or &quot;(no results)&quot; when no rows match.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">con</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;file:</span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">?mode=ro&quot;</span><span class="p">,</span> <span class="n">uri</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="sd">        Query results as a Markdown table, or "(no results)" when no rows match.</span>
+<span class="sd">    """</span>
+    <span class="n">con</span> <span class="o">=</span> <span class="n">sqlite3</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="sa">f</span><span class="s2">"file:</span><span class="si">{</span><span class="n">db_path</span><span class="si">}</span><span class="s2">?mode=ro"</span><span class="p">,</span> <span class="n">uri</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="n">cur</span> <span class="o">=</span> <span class="n">con</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span>
     <span class="n">rows</span> <span class="o">=</span> <span class="n">cur</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span>
     <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">d</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">cur</span><span class="o">.</span><span class="n">description</span><span class="p">]</span> <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">description</span> <span class="k">else</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">cols</span><span class="p">:</span>
-        <span class="k">return</span> <span class="s2">&quot;(no results)&quot;</span>
-    <span class="n">header</span> <span class="o">=</span> <span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cols</span><span class="p">)</span>
-    <span class="n">sep</span> <span class="o">=</span> <span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;---&quot;</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">cols</span><span class="p">)</span>
-    <span class="n">body</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot; | &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">row</span><span class="p">)</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">)</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">header</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">sep</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="s2">"(no results)"</span>
+    <span class="n">header</span> <span class="o">=</span> <span class="s2">" | "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cols</span><span class="p">)</span>
+    <span class="n">sep</span> <span class="o">=</span> <span class="s2">" | "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">"---"</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">cols</span><span class="p">)</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">" | "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">row</span><span class="p">)</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">)</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">header</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">sep</span><span class="si">}</span><span class="se">\n</span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">"</span>
 
 
 <span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"sqlite"</span><span class="p">,</span>
     <span class="n">tools</span><span class="o">=</span><span class="p">[</span>
         <span class="n">ToolSpec</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;query_db&quot;</span><span class="p">,</span>
-            <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Run a read-only SQL query against a local SQLite database and return results as a Markdown table.&quot;</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"query_db"</span><span class="p">,</span>
+            <span class="n">desc</span><span class="o">=</span><span class="s2">"Run a read-only SQL query against a local SQLite database and return results as a Markdown table."</span><span class="p">,</span>
             <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">query_db</span><span class="p">],</span>
         <span class="p">)</span>
     <span class="p">],</span>
@@ -704,11 +704,11 @@ in its Python (<code class="docutils literal notranslate"><span class="pre">ipyt
 <h2>Register the entry point<a class="headerlink" href="#register-the-entry-point" title="Link to this heading">#</a></h2>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># pyproject.toml (in the plugin package)</span>
 <span class="k">[project]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-gptme-plugin&quot;</span>
-<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my-gptme-plugin"</span>
+<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.1.0"</span>
 
-<span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
-<span class="n">sqlite</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_gptme_plugin:plugin&quot;</span>
+<span class="k">[project.entry-points.</span><span class="s2">"gptme.plugins"</span><span class="k">]</span>
+<span class="n">sqlite</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my_gptme_plugin:plugin"</span>
 </pre></div>
 </div>
 </section>
@@ -720,7 +720,7 @@ in its Python (<code class="docutils literal notranslate"><span class="pre">ipyt
 gptme-util<span class="w"> </span>tools<span class="w"> </span>list
 
 <span class="c1"># Use it in a session</span>
-gptme<span class="w"> </span><span class="s2">&quot;Query the users table in /var/app/prod.db and find accounts created in the last 7 days&quot;</span>
+gptme<span class="w"> </span><span class="s2">"Query the users table in /var/app/prod.db and find accounts created in the last 7 days"</span>
 </pre></div>
 </div>
 <p>gptme calls <code class="docutils literal notranslate"><span class="pre">query_db</span></code> with the right arguments and shows you the results inline,

@@ -656,51 +656,51 @@ without writing the script yourself.</p>
 <section id="automate-a-git-workflow">
 <h2>Automate a git workflow<a class="headerlink" href="#automate-a-git-workflow" title="Link to this heading">#</a></h2>
 <p>Tell gptme the full workflow and let it script it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;write a shell script that: (1) fetches origin, (2) rebases master, (3) runs tests, (4) pushes if tests pass&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'write a shell script that: (1) fetches origin, (2) rebases master, (3) runs tests, (4) pushes if tests pass'</span>
 </pre></div>
 </div>
 <p>Or run it interactively without a script:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;fetch origin, rebase master, run tests, and push if everything is green&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'fetch origin, rebase master, run tests, and push if everything is green'</span>
 </pre></div>
 </div>
 </section>
 <section id="batch-process-files">
 <h2>Batch process files<a class="headerlink" href="#batch-process-files" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;for every .md file in docs/, check if the frontmatter has a &quot;date&quot; field; print a list of files that are missing it&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'for every .md file in docs/, check if the frontmatter has a "date" field; print a list of files that are missing it'</span>
 </pre></div>
 </div>
 <p>Or make changes:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;add &quot;last_updated: $(date +%Y-%m-%d)&quot; to the frontmatter of every .md file in docs/ that is missing it&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add "last_updated: $(date +%Y-%m-%d)" to the frontmatter of every .md file in docs/ that is missing it'</span>
 </pre></div>
 </div>
 </section>
 <section id="automate-a-release-checklist">
 <h2>Automate a release checklist<a class="headerlink" href="#automate-a-release-checklist" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;run the release checklist: (1) bump version in pyproject.toml to 1.2.3, (2) update CHANGELOG.md, (3) commit, (4) tag v1.2.3, (5) push tag&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'run the release checklist: (1) bump version in pyproject.toml to 1.2.3, (2) update CHANGELOG.md, (3) commit, (4) tag v1.2.3, (5) push tag'</span>
 </pre></div>
 </div>
 </section>
 <section id="clean-up-a-directory">
 <h2>Clean up a directory<a class="headerlink" href="#clean-up-a-directory" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;find all .pyc files and __pycache__ directories in this project and delete them&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'find all .pyc files and __pycache__ directories in this project and delete them'</span>
 </pre></div>
 </div>
 </section>
 <section id="generate-a-report-from-logs">
 <h2>Generate a report from logs<a class="headerlink" href="#generate-a-report-from-logs" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cat<span class="w"> </span>logs/app.log<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;summarize: how many errors per hour today? output as a markdown table&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cat<span class="w"> </span>logs/app.log<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'summarize: how many errors per hour today? output as a markdown table'</span>
 </pre></div>
 </div>
 </section>
 <section id="write-a-cron-style-automation-script">
 <h2>Write a cron-style automation script<a class="headerlink" href="#write-a-cron-style-automation-script" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;write a Python script I can run daily that: checks disk usage on /, emails me if it exceeds 80%, and logs the result to /var/log/disk-check.log&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'write a Python script I can run daily that: checks disk usage on /, emails me if it exceeds 80%, and logs the result to /var/log/disk-check.log'</span>
 </pre></div>
 </div>
 </section>
 <section id="set-up-a-project-scaffold">
 <h2>Set up a project scaffold<a class="headerlink" href="#set-up-a-project-scaffold" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;scaffold a new Python package called &quot;mylib&quot; with: src layout, pyproject.toml, ruff config, GitHub Actions CI, and a basic README&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'scaffold a new Python package called "mylib" with: src layout, pyproject.toml, ruff config, GitHub Actions CI, and a basic README'</span>
 </pre></div>
 </div>
 </section>

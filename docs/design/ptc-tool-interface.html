@@ -683,7 +683,7 @@ long-context regime where JSON-schema approaches are most likely to degrade.</p>
 <h3>Primary: Markdown code blocks (PTC)<a class="headerlink" href="#primary-markdown-code-blocks-ptc" title="Link to this heading">#</a></h3>
 <p>The default and primary tool format is <code class="docutils literal notranslate"><span class="pre">&quot;markdown&quot;</span></code>. The model writes:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>```python
-print(&quot;hello&quot;)
+print("hello")
 ```
 </pre></div>
 </div>
@@ -699,7 +699,7 @@ code.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">&quot;xml&quot;</span></code> format wraps the same code in XML tags:</p>
 <div class="highlight-xml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;tool-use&gt;</span>
 <span class="nt">&lt;python&gt;</span>
-print(&quot;hello&quot;)
+print("hello")
 <span class="nt">&lt;/python&gt;</span>
 <span class="nt">&lt;/tool-use&gt;</span>
 </pre></div>
@@ -740,8 +740,8 @@ responses. gptme’s own tools are never dispatched via JSON schema.</p>
 <h2>Audit: No JSON-Schema Dispatch Paths in <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code><a class="headerlink" href="#audit-no-json-schema-dispatch-paths-in-gptme-tools" title="Link to this heading">#</a></h2>
 <p>Audit run 2026-08-16, commit <code class="docutils literal notranslate"><span class="pre">66057c6e8</span></code>, all Python files recursively under
 <code class="docutils literal notranslate"><span class="pre">gptme/tools/</span></code>.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>-r<span class="w"> </span><span class="s2">&quot;json\|schema\|Json\|Schema&quot;</span><span class="w"> </span>gptme/tools/<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--include<span class="o">=</span><span class="s2">&quot;*.py&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span>__pycache__<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span><span class="nb">test</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>-r<span class="w"> </span><span class="s2">"json\|schema\|Json\|Schema"</span><span class="w"> </span>gptme/tools/<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--include<span class="o">=</span><span class="s2">"*.py"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span>__pycache__<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span><span class="nb">test</span>
 </pre></div>
 </div>
 <p><strong>Findings by file</strong>:</p>

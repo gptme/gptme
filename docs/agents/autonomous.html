@@ -656,9 +656,9 @@ containing what a run can break.</p>
 <p><code class="docutils literal notranslate"><span class="pre">gptme-agent</span> <span class="pre">install</span></code> sets up a systemd service and timer (Linux) or a launchd
 plist (macOS) that runs the agent in its workspace on a schedule:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-agent<span class="w"> </span>install<span class="w">                          </span><span class="c1"># every 30 minutes (default)</span>
-gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">&quot;*:00&quot;</span><span class="w">        </span><span class="c1"># every hour</span>
-gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">&quot;*-*-* 06:00&quot;</span><span class="w"> </span><span class="c1"># daily at 06:00</span>
-gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">&quot;Mon *:00&quot;</span><span class="w">    </span><span class="c1"># hourly on Mondays</span>
+gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">"*:00"</span><span class="w">        </span><span class="c1"># every hour</span>
+gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">"*-*-* 06:00"</span><span class="w"> </span><span class="c1"># daily at 06:00</span>
+gptme-agent<span class="w"> </span>install<span class="w"> </span>--schedule<span class="w"> </span><span class="s2">"Mon *:00"</span><span class="w">    </span><span class="c1"># hourly on Mondays</span>
 </pre></div>
 </div>
 <p>Schedules use the systemd <code class="docutils literal notranslate"><span class="pre">OnCalendar</span></code> format on both platforms; the launchd

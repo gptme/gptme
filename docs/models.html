@@ -676,8 +676,8 @@ subscriptions, local servers — see <a class="reference internal" href="provide
 <li><p><strong>GLM 5.3 Flash</strong> (<code class="docutils literal notranslate"><span class="pre">openrouter/z-ai/glm-5.3-flash</span></code>)</p></li>
 </ul>
 <p>DeepSeek V4.1 Flash is not limited to DeepSeek’s own API: OpenRouter routes it to around 30 third-party hosts as well (Together, Fireworks, DeepInfra, and others). Pin one host, or an ordered list that falls back within itself, by appending <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> and OpenRouter provider slugs to the model:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash@together&quot;</span>
-gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash@together,fireworks,deepinfra&quot;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">"openrouter/deepseek/deepseek-v4.1-flash@together"</span>
+gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">"openrouter/deepseek/deepseek-v4.1-flash@together,fireworks,deepinfra"</span>
 </pre></div>
 </div>
 <p>Without a pin, OpenRouter picks among all hosts that pass gptme’s privacy defaults (see <a class="reference internal" href="#models-data-policy"><span class="std std-ref">Data policy</span></a>). Hosts differ in reliability, speed, cache pricing, and data policy; see <a class="reference internal" href="providers-supported.html#openrouter-hosts"><span class="std std-ref">Choosing a subprovider</span></a> before picking one. The earlier <code class="docutils literal notranslate"><span class="pre">deepseek-v4-flash-0731</span></code> is still served by third-party hosts on OpenRouter, but DeepSeek’s own API has retired it.</p>
@@ -698,17 +698,17 @@ gptme<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;op
 <h2>Pick a model per session<a class="headerlink" href="#pick-a-model-per-session" title="Link to this heading">#</a></h2>
 <p>Pass <code class="docutils literal notranslate"><span class="pre">--model</span></code> (<code class="docutils literal notranslate"><span class="pre">-m</span></code>) as <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code> to choose the model for a single run:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Quick question — small, cheap, fast</span>
-gptme<span class="w"> </span><span class="s2">&quot;what does this regex match?&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4.1-flash
+gptme<span class="w"> </span><span class="s2">"what does this regex match?"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4.1-flash
 
 <span class="c1"># Complex coding — powerful reasoning model</span>
-gptme<span class="w"> </span><span class="s2">&quot;refactor this module for testability&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-5-5
+gptme<span class="w"> </span><span class="s2">"refactor this module for testability"</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-5-5
 
 <span class="c1"># Use a provider default (no model specified)</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>anthropic
 </pre></div>
 </div>
 <p>List the models gptme knows about at any time:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;/models&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;/exit&#39;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'/models'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'/exit'</span>
 </pre></div>
 </div>
 <p>The rule of thumb: <strong>match the model to the job.</strong> Triage, summarization, and
@@ -721,9 +721,9 @@ from a frontier model. Picking per task keeps cost down without capping capabili
 without managing a separate API key for each provider. With one
 <code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code> you can route to 100+ models from Anthropic, OpenAI, Google,
 DeepSeek, xAI, and more:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/anthropic/claude-sonnet-5.5
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4.1-flash
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4.6
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/anthropic/claude-sonnet-5.5
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4.1-flash
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4.6
 </pre></div>
 </div>
 <p>gptme applies privacy-first defaults for OpenRouter (data collection denied,
@@ -759,7 +759,7 @@ training on API inputs.</p></li>
 <p>If you mostly use one model, set it once in your global config
 (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>) instead of passing <code class="docutils literal notranslate"><span class="pre">--model</span></code> every time:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
-<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash&quot;</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"openrouter/deepseek/deepseek-v4.1-flash"</span>
 </pre></div>
 </div>
 <p>With a default configured, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">&quot;query&quot;</span></code> uses that model, and <code class="docutils literal notranslate"><span class="pre">--model</span></code> still
@@ -774,12 +774,12 @@ config so a fast routing agent and a reasoning-heavy coding agent can coexist
 without per-call flags:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># router-agent/gptme.toml — cheap, fast, handles triage and dispatch</span>
 <span class="k">[env]</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/deepseek/deepseek-v4.1-flash&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"openrouter/deepseek/deepseek-v4.1-flash"</span>
 </pre></div>
 </div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># coder-agent/gptme.toml — frontier model for complex implementation</span>
 <span class="k">[env]</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-5-5&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"anthropic/claude-sonnet-5-5"</span>
 </pre></div>
 </div>
 <p>A model set this way wins over a global <code class="docutils literal notranslate"><span class="pre">[models].default</span></code>: the project’s

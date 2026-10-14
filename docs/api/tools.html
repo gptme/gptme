@@ -765,8 +765,8 @@ mirrors the MCP tool naming convention (e.g. <code class="docutils literal notra
 tool is not loaded.</p>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">sub</span> <span class="ow">in</span> <span class="n">browser_tool</span><span class="o">.</span><span class="n">as_function_subtoolspecs</span><span class="p">():</span>
-    <span class="k">if</span> <span class="n">sub</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;browser.view_image&quot;</span><span class="p">:</span>
-        <span class="nb">list</span><span class="p">(</span><span class="n">sub</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="s2">&quot;screenshot.png&quot;</span><span class="p">}))</span>
+    <span class="k">if</span> <span class="n">sub</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"browser.view_image"</span><span class="p">:</span>
+        <span class="nb">list</span><span class="p">(</span><span class="n">sub</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">"path"</span><span class="p">:</span> <span class="s2">"screenshot.png"</span><span class="p">}))</span>
 </pre></div>
 </div>
 </dd></dl>

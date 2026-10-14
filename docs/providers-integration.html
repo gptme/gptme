@@ -712,10 +712,10 @@ it lets you iterate quickly without waiting for a core PR review.</p>
 <p>For a personal or team endpoint (Ollama, vLLM, a private proxy), add a
 <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> block to <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mycompany&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://llm.mycompany.internal/v1&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;MYCOMPANY_API_KEY&quot;</span><span class="w">        </span><span class="c1"># env var holding the key</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama3.1-8b&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"mycompany"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://llm.mycompany.internal/v1"</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"MYCOMPANY_API_KEY"</span><span class="w">        </span><span class="c1"># env var holding the key</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"llama3.1-8b"</span>
 </pre></div>
 </div>
 <p>Then use it with <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'hello'</span> <span class="pre">-m</span> <span class="pre">mycompany/llama3.1-8b</span></code>.</p>
@@ -738,13 +738,13 @@ example and an OAuth flow example.  Clone it instead of starting from scratch.</
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
 
 <span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span>
-    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;ACME_API_KEY&quot;</span><span class="p">,</span>
-    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.acme.ai/v1&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"acme"</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">"ACME_API_KEY"</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">"https://api.acme.ai/v1"</span><span class="p">,</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span>
         <span class="n">ModelMeta</span><span class="p">(</span>
-            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
-            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">"acme/turbo-v1"</span><span class="p">,</span>
             <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">,</span>
             <span class="n">max_output</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span>
             <span class="n">price_input</span><span class="o">=</span><span class="mf">0.10</span><span class="p">,</span>   <span class="c1"># USD per 1M input tokens</span>
@@ -752,8 +752,8 @@ example and an OAuth flow example.  Clone it instead of starting from scratch.</
             <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="p">),</span>
         <span class="n">ModelMeta</span><span class="p">(</span>
-            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
-            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/mini-v1&quot;</span><span class="p">,</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">"acme/mini-v1"</span><span class="p">,</span>
             <span class="n">context</span><span class="o">=</span><span class="mi">32_000</span><span class="p">,</span>
             <span class="n">max_output</span><span class="o">=</span><span class="mi">2_048</span><span class="p">,</span>
             <span class="n">price_input</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
@@ -764,12 +764,12 @@ example and an OAuth flow example.  Clone it instead of starting from scratch.</
 </pre></div>
 </div>
 <p>Declare the entry point in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.providers&quot;</span><span class="k">]</span>
-<span class="n">acme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme_provider_acme:provider&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">"gptme.providers"</span><span class="k">]</span>
+<span class="n">acme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"gptme_provider_acme:provider"</span>
 </pre></div>
 </div>
 <p>After <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">gptme-provider-acme</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ACME_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-...&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>acme/turbo-v1
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ACME_API_KEY</span><span class="o">=</span><span class="s2">"sk-..."</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </span>-m<span class="w"> </span>acme/turbo-v1
 </pre></div>
 </div>
 </section>
@@ -878,15 +878,15 @@ gptme uses them to route requests correctly and render UI hints.</p>
     <span class="n">token</span> <span class="o">=</span> <span class="n">load_my_token</span><span class="p">()</span>   <span class="c1"># read from ~/.myapp/auth.json, etc.</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.llm_openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">_init_openai_client</span>
     <span class="n">_init_openai_client</span><span class="p">(</span>
-        <span class="s2">&quot;myprovider&quot;</span><span class="p">,</span>
+        <span class="s2">"myprovider"</span><span class="p">,</span>
         <span class="n">api_key</span><span class="o">=</span><span class="n">token</span><span class="p">,</span>
-        <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.myprovider.ai/v1&quot;</span><span class="p">,</span>
+        <span class="n">base_url</span><span class="o">=</span><span class="s2">"https://api.myprovider.ai/v1"</span><span class="p">,</span>
     <span class="p">)</span>
 
 <span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;myprovider&quot;</span><span class="p">,</span>
-    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MYPROVIDER_API_KEY&quot;</span><span class="p">,</span>   <span class="c1"># keep as fallback even with custom init</span>
-    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.myprovider.ai/v1&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"myprovider"</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">"MYPROVIDER_API_KEY"</span><span class="p">,</span>   <span class="c1"># keep as fallback even with custom init</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">"https://api.myprovider.ai/v1"</span><span class="p">,</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
     <span class="n">init</span><span class="o">=</span><span class="n">_init</span><span class="p">,</span>
 <span class="p">)</span>
@@ -898,9 +898,9 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 <section id="testing-your-plugin">
 <span id="id1"></span><h3>Testing Your Plugin<a class="headerlink" href="#testing-your-plugin" title="Link to this heading">#</a></h3>
 <p>Copy this test scaffold into your package’s <code class="docutils literal notranslate"><span class="pre">tests/</span></code> directory and adapt it:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">&quot;&quot;&quot;Test scaffold for gptme provider plugins.</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""Test scaffold for gptme provider plugins.</span>
 
-<span class="sd">Copy this file into your plugin package&#39;s ``tests/`` directory and adapt it:</span>
+<span class="sd">Copy this file into your plugin package's ``tests/`` directory and adapt it:</span>
 
 <span class="sd">    cp provider_test_scaffold.py tests/test_my_provider.py</span>
 
@@ -913,13 +913,13 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 <span class="sd">All tests here run *without* hitting the real API — they mock the OpenAI client</span>
 <span class="sd">layer.  Before publishing, also run a live smoke test::</span>
 
-<span class="sd">    ACME_API_KEY=&quot;sk-...&quot; GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v</span>
+<span class="sd">    ACME_API_KEY="sk-..." GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v</span>
 
 <span class="sd">Usage with pytest::</span>
 
 <span class="sd">    pytest tests/test_my_provider.py -v</span>
 <span class="sd">    GPTME_RUN_LIVE_TESTS=1 pytest tests/test_my_provider.py -m live -v   # requires real API key</span>
-<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">"""</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
@@ -929,12 +929,12 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 <span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
 
 <span class="c1"># ── Adapt these to your provider ─────────────────────────────────────────────</span>
-<span class="n">PROVIDER_NAME</span> <span class="o">=</span> <span class="s2">&quot;acme&quot;</span>
-<span class="n">API_KEY_ENV</span> <span class="o">=</span> <span class="s2">&quot;ACME_API_KEY&quot;</span>
-<span class="n">BASE_URL</span> <span class="o">=</span> <span class="s2">&quot;https://api.acme.ai/v1&quot;</span>
-<span class="n">MODEL_IDS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span> <span class="s2">&quot;acme/mini-v1&quot;</span><span class="p">]</span>
+<span class="n">PROVIDER_NAME</span> <span class="o">=</span> <span class="s2">"acme"</span>
+<span class="n">API_KEY_ENV</span> <span class="o">=</span> <span class="s2">"ACME_API_KEY"</span>
+<span class="n">BASE_URL</span> <span class="o">=</span> <span class="s2">"https://api.acme.ai/v1"</span>
+<span class="n">MODEL_IDS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"acme/turbo-v1"</span><span class="p">,</span> <span class="s2">"acme/mini-v1"</span><span class="p">]</span>
 
-<span class="c1"># Import your plugin&#39;s ProviderPlugin instance here:</span>
+<span class="c1"># Import your plugin's ProviderPlugin instance here:</span>
 <span class="c1">#   from gptme_provider_acme import provider as PROVIDER</span>
 <span class="c1"># For this scaffold we build a synthetic one so it runs without installation:</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
@@ -945,7 +945,7 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
     <span class="n">base_url</span><span class="o">=</span><span class="n">BASE_URL</span><span class="p">,</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span>
         <span class="n">ModelMeta</span><span class="p">(</span>
-            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
             <span class="n">model</span><span class="o">=</span><span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
             <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">,</span>
             <span class="n">max_output</span><span class="o">=</span><span class="mi">4_096</span><span class="p">,</span>
@@ -954,7 +954,7 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
             <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="p">),</span>
         <span class="n">ModelMeta</span><span class="p">(</span>
-            <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
             <span class="n">model</span><span class="o">=</span><span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
             <span class="n">context</span><span class="o">=</span><span class="mi">32_000</span><span class="p">,</span>
             <span class="n">max_output</span><span class="o">=</span><span class="mi">2_048</span><span class="p">,</span>
@@ -967,13 +967,13 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_make_entry_point</span><span class="p">(</span><span class="n">plugin</span><span class="p">:</span> <span class="n">ProviderPlugin</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MagicMock</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a mock entry point that loads *plugin*.</span>
+<span class="w">    </span><span class="sd">"""Return a mock entry point that loads *plugin*.</span>
 
 <span class="sd">    Note: this validates the in-memory plugin wiring only. It does NOT verify</span>
 <span class="sd">    that the entry-point name or import target declared in your pyproject.toml</span>
 <span class="sd">    match the installed package. Test that separately by installing the package</span>
-<span class="sd">    and running ``importlib.metadata.entry_points(group=&quot;gptme.providers&quot;)``.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    and running ``importlib.metadata.entry_points(group="gptme.providers")``.</span>
+<span class="sd">    """</span>
     <span class="n">ep</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="n">importlib</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">EntryPoint</span><span class="p">)</span>
     <span class="n">ep</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">plugin</span><span class="o">.</span><span class="n">name</span>
     <span class="n">ep</span><span class="o">.</span><span class="n">load</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="n">plugin</span>
@@ -991,9 +991,9 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">installed_provider</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Patch entry-point discovery so tests see your plugin as if it were installed.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Patch entry-point discovery so tests see your plugin as if it were installed."""</span>
     <span class="n">ep</span> <span class="o">=</span> <span class="n">_make_entry_point</span><span class="p">(</span><span class="n">PROVIDER</span><span class="p">)</span>
-    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;importlib.metadata.entry_points&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="p">[</span><span class="n">ep</span><span class="p">]):</span>
+    <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"importlib.metadata.entry_points"</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="p">[</span><span class="n">ep</span><span class="p">]):</span>
         <span class="k">yield</span> <span class="n">PROVIDER</span>
 
 
@@ -1001,7 +1001,7 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestPluginMetadata</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify the ProviderPlugin declaration is correct.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Verify the ProviderPlugin declaration is correct."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_name</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">PROVIDER_NAME</span>
@@ -1012,35 +1012,35 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
     <span class="k">def</span><span class="w"> </span><span class="nf">test_base_url</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">base_url</span> <span class="o">==</span> <span class="n">BASE_URL</span>
         <span class="c1"># Must be a valid URL (no trailing slash is fine; leading scheme required)</span>
-        <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">base_url</span><span class="o">.</span><span class="n">startswith</span><span class="p">((</span><span class="s2">&quot;https://&quot;</span><span class="p">,</span> <span class="s2">&quot;http://&quot;</span><span class="p">))</span>
+        <span class="k">assert</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">base_url</span><span class="o">.</span><span class="n">startswith</span><span class="p">((</span><span class="s2">"https://"</span><span class="p">,</span> <span class="s2">"http://"</span><span class="p">))</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_models_not_empty</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span>
-            <span class="s2">&quot;Provide at least one ModelMeta so users know what models exist&quot;</span>
+            <span class="s2">"Provide at least one ModelMeta so users know what models exist"</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_model_ids_fully_qualified</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/&quot;</span><span class="p">),</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Model &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; must start with &#39;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/&#39; &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;(e.g. &#39;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/my-model&#39;)&quot;</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/"</span><span class="p">),</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"Model '</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">' must start with '</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/' "</span>
+                <span class="sa">f</span><span class="s2">"(e.g. '</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/my-model')"</span>
             <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_model_context_positive</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">context</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Model &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; context must be &gt; 0&quot;</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">context</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Model '</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">' context must be &gt; 0"</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_pricing_non_negative</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">PROVIDER</span><span class="o">.</span><span class="n">models</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">price_input</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;price_input for &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; must be &gt;= 0&quot;</span>
-            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">price_output</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;price_output for &#39;</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">&#39; must be &gt;= 0&quot;</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">price_input</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"price_input for '</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">' must be &gt;= 0"</span>
+            <span class="k">assert</span> <span class="n">m</span><span class="o">.</span><span class="n">price_output</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"price_output for '</span><span class="si">{</span><span class="n">m</span><span class="o">.</span><span class="n">model</span><span class="si">}</span><span class="s2">' must be &gt;= 0"</span>
 
 
 <span class="c1"># ── 2. Plugin discovery ───────────────────────────────────────────────────────</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestPluginDiscovery</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify gptme can discover and load your plugin.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Verify gptme can discover and load your plugin."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_discovered_by_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.provider_plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_provider_plugin</span>
@@ -1058,8 +1058,8 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">PROVIDERS</span>
 
         <span class="k">assert</span> <span class="n">PROVIDER_NAME</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">PROVIDERS</span><span class="p">,</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">&#39; is registered as a built-in provider. &quot;</span>
-            <span class="s2">&quot;Plugin providers must use a name not already in PROVIDERS.&quot;</span>
+            <span class="sa">f</span><span class="s2">"'</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">' is registered as a built-in provider. "</span>
+            <span class="s2">"Plugin providers must use a name not already in PROVIDERS."</span>
         <span class="p">)</span>
 
 
@@ -1067,9 +1067,9 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestModelResolution</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify model IDs resolve to the right ModelMeta.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Verify model IDs resolve to the right ModelMeta."""</span>
 
-    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">&quot;model_id&quot;</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">)</span>
+    <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">parametrize</span><span class="p">(</span><span class="s2">"model_id"</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">)</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">test_get_model_resolves</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">,</span> <span class="n">model_id</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.resolution</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span>
 
@@ -1080,7 +1080,7 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
     <span class="k">def</span><span class="w"> </span><span class="nf">test_unknown_model_falls_back</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models.resolution</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span>
 
-        <span class="n">result</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/nonexistent-model-xyz&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">get_model</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PROVIDER_NAME</span><span class="si">}</span><span class="s2">/nonexistent-model-xyz"</span><span class="p">)</span>
         <span class="c1"># Should fall back to 128k default, not raise</span>
         <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">context</span> <span class="o">==</span> <span class="mi">128_000</span>
 
@@ -1090,23 +1090,23 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
         <span class="n">models</span> <span class="o">=</span> <span class="n">get_model_list</span><span class="p">(</span><span class="n">dynamic_fetch</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="n">listed</span> <span class="o">=</span> <span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">model</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">models</span><span class="p">]</span>
         <span class="k">for</span> <span class="n">mid</span> <span class="ow">in</span> <span class="n">MODEL_IDS</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="n">mid</span> <span class="ow">in</span> <span class="n">listed</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Model &#39;</span><span class="si">{</span><span class="n">mid</span><span class="si">}</span><span class="s2">&#39; not in get_model_list() output&quot;</span>
+            <span class="k">assert</span> <span class="n">mid</span> <span class="ow">in</span> <span class="n">listed</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Model '</span><span class="si">{</span><span class="n">mid</span><span class="si">}</span><span class="s2">' not in get_model_list() output"</span>
 
 
 <span class="c1"># ── 4. Request routing ────────────────────────────────────────────────────────</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestRequestRouting</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify that chat/stream calls are routed to the OpenAI client path.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Verify that chat/stream calls are routed to the OpenAI client path."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_chat_routed_through_openai</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">installed_provider</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">_chat_complete</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;ping&quot;</span><span class="p">)]</span>
-        <span class="n">fake_result</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;pong&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]})</span>
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">"user"</span><span class="p">,</span> <span class="s2">"ping"</span><span class="p">)]</span>
+        <span class="n">fake_result</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"pong"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"model"</span><span class="p">:</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]})</span>
 
-        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;gptme.llm.llm_openai.chat&quot;</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">fake_result</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"gptme.llm.llm_openai.chat"</span><span class="p">,</span> <span class="n">return_value</span><span class="o">=</span><span class="n">fake_result</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock</span><span class="p">:</span>
             <span class="n">result</span> <span class="o">=</span> <span class="n">_chat_complete</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="kc">None</span><span class="p">)</span>
 
         <span class="k">assert</span> <span class="n">result</span> <span class="o">==</span> <span class="n">fake_result</span>
@@ -1118,17 +1118,17 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">_stream</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
-        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;ping&quot;</span><span class="p">)]</span>
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">"user"</span><span class="p">,</span> <span class="s2">"ping"</span><span class="p">)]</span>
 
         <span class="k">def</span><span class="w"> </span><span class="nf">_fake_stream</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-            <span class="k">yield</span> <span class="s2">&quot;pong&quot;</span>
-            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span>
+            <span class="k">yield</span> <span class="s2">"pong"</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">"model"</span><span class="p">:</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span>
 
-        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">&quot;gptme.llm.llm_openai.stream&quot;</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">_fake_stream</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">patch</span><span class="p">(</span><span class="s2">"gptme.llm.llm_openai.stream"</span><span class="p">,</span> <span class="n">side_effect</span><span class="o">=</span><span class="n">_fake_stream</span><span class="p">)</span> <span class="k">as</span> <span class="n">mock</span><span class="p">:</span>
             <span class="n">gen</span> <span class="o">=</span> <span class="n">_stream</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="kc">None</span><span class="p">)</span>
             <span class="n">chunks</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>
 
-        <span class="k">assert</span> <span class="n">chunks</span> <span class="o">==</span> <span class="p">[</span><span class="s2">&quot;pong&quot;</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="n">chunks</span> <span class="o">==</span> <span class="p">[</span><span class="s2">"pong"</span><span class="p">]</span>
         <span class="n">mock</span><span class="o">.</span><span class="n">assert_called_once</span><span class="p">()</span>
 
 
@@ -1148,13 +1148,13 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 <span class="c1">#             client_registered = True</span>
 <span class="c1">#</span>
 <span class="c1">#         with (</span>
-<span class="c1">#             patch(&quot;gptme.llm.llm_openai._init_openai_client&quot;, side_effect=_patched_init_openai_client),</span>
-<span class="c1">#             patch(&quot;gptme.llm.llm_openai.has_client&quot;, side_effect=lambda _: client_registered),</span>
-<span class="c1">#             patch.dict(&quot;os.environ&quot;, {API_KEY_ENV: &quot;test-key&quot;}),</span>
+<span class="c1">#             patch("gptme.llm.llm_openai._init_openai_client", side_effect=_patched_init_openai_client),</span>
+<span class="c1">#             patch("gptme.llm.llm_openai.has_client", side_effect=lambda _: client_registered),</span>
+<span class="c1">#             patch.dict("os.environ", {API_KEY_ENV: "test-key"}),</span>
 <span class="c1">#         ):</span>
 <span class="c1">#             init_llm(CustomProvider(PROVIDER_NAME))</span>
 <span class="c1">#</span>
-<span class="c1">#         assert client_registered, &quot;init() must register an OpenAI-compatible client&quot;</span>
+<span class="c1">#         assert client_registered, "init() must register an OpenAI-compatible client"</span>
 
 
 <span class="c1"># ── 6. Live smoke test (skipped unless --live flag / env var set) ─────────────</span>
@@ -1163,33 +1163,33 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">live</span>
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">skipif</span><span class="p">(</span>
     <span class="ow">not</span> <span class="p">(</span>
-        <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="n">API_KEY_ENV</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="nb">__import__</span><span class="p">(</span><span class="s2">&quot;os&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;GPTME_RUN_LIVE_TESTS&quot;</span><span class="p">)</span>
+        <span class="nb">__import__</span><span class="p">(</span><span class="s2">"os"</span><span class="p">)</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="n">API_KEY_ENV</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="nb">__import__</span><span class="p">(</span><span class="s2">"os"</span><span class="p">)</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">"GPTME_RUN_LIVE_TESTS"</span><span class="p">)</span>
     <span class="p">),</span>
-    <span class="n">reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Set </span><span class="si">{</span><span class="n">API_KEY_ENV</span><span class="si">}</span><span class="s2"> and GPTME_RUN_LIVE_TESTS=1 to run live API tests&quot;</span><span class="p">,</span>
+    <span class="n">reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Set </span><span class="si">{</span><span class="n">API_KEY_ENV</span><span class="si">}</span><span class="s2"> and GPTME_RUN_LIVE_TESTS=1 to run live API tests"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">TestLiveAPI</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Optional smoke test that hits the real API.</span>
+<span class="w">    </span><span class="sd">"""Optional smoke test that hits the real API.</span>
 
 <span class="sd">    Requires BOTH the API key AND explicit opt-in to avoid unexpected charges::</span>
 
-<span class="sd">        {API_KEY_ENV}=&quot;sk-...&quot; GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v</span>
+<span class="sd">        {API_KEY_ENV}="sk-..." GPTME_RUN_LIVE_TESTS=1 pytest tests/ -m live -v</span>
 
 <span class="sd">    These tests are skipped automatically unless both env vars are set.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">test_live_completion</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;A real completion returns non-empty content.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""A real completion returns non-empty content."""</span>
         <span class="kn">import</span><span class="w"> </span><span class="nn">gptme.llm</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">llm</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.llm.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">CustomProvider</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
         <span class="n">model</span> <span class="o">=</span> <span class="n">MODEL_IDS</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
         <span class="n">llm</span><span class="o">.</span><span class="n">init_llm</span><span class="p">(</span><span class="n">CustomProvider</span><span class="p">(</span><span class="n">PROVIDER_NAME</span><span class="p">))</span>
-        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s1">&#39;Reply with the single word &quot;pong&quot;.&#39;</span><span class="p">)]</span>
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="s2">"user"</span><span class="p">,</span> <span class="s1">'Reply with the single word "pong".'</span><span class="p">)]</span>
         <span class="c1"># _chat_complete returns (response_str, metadata_dict)</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">_chat_complete</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="nb">str</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="s2">&quot;Expected non-empty response from live API&quot;</span>
+        <span class="k">assert</span> <span class="nb">str</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="s2">"Expected non-empty response from live API"</span>
 </pre></div>
 </div>
 <p>Run with:</p>
@@ -1199,7 +1199,7 @@ See <code class="docutils literal notranslate"><span class="pre">gptme/llm/llm_g
 <p>All tests in the scaffold run <strong>without</strong> hitting the real API — they mock the
 OpenAI client layer.  Before publishing, also run a live smoke test.  Two env
 vars are required to prevent accidental API charges:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ACME_API_KEY</span><span class="o">=</span><span class="s2">&quot;sk-...&quot;</span><span class="w"> </span><span class="nv">GPTME_RUN_LIVE_TESTS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-m<span class="w"> </span>live<span class="w"> </span>-v
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ACME_API_KEY</span><span class="o">=</span><span class="s2">"sk-..."</span><span class="w"> </span><span class="nv">GPTME_RUN_LIVE_TESTS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>-m<span class="w"> </span>live<span class="w"> </span>-v
 </pre></div>
 </div>
 </section>
@@ -1213,14 +1213,14 @@ entry-point group instead, which lets a single package provide everything:</p>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.provider</span><span class="w"> </span><span class="kn">import</span> <span class="n">provider</span>
 
 <span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;acme&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"acme"</span><span class="p">,</span>
     <span class="n">provider</span><span class="o">=</span><span class="n">provider</span><span class="p">,</span>      <span class="c1"># the ProviderPlugin from above</span>
     <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>            <span class="c1"># optional</span>
 <span class="p">)</span>
 </pre></div>
 </div>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
-<span class="n">acme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme_plugin_acme.plugin:plugin&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">"gptme.plugins"</span><span class="k">]</span>
+<span class="n">acme</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"gptme_plugin_acme.plugin:plugin"</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for the full unified plugin reference.</p>
@@ -1252,7 +1252,7 @@ flow (e.g. OAuth PKCE, subscription tokens)</p></li>
 <li><p><strong>Register</strong> the provider name in <code class="docutils literal notranslate"><span class="pre">gptme/llm/models/types.py</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">BuiltinProvider</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span>
     <span class="o">...</span><span class="p">,</span>
-    <span class="s2">&quot;myprovider&quot;</span><span class="p">,</span>   <span class="c1"># ← add here</span>
+    <span class="s2">"myprovider"</span><span class="p">,</span>   <span class="c1"># ← add here</span>
 <span class="p">]</span>
 </pre></div>
 </div>
@@ -1289,10 +1289,10 @@ make<span class="w"> </span>lint
 <h3>Model IDs<a class="headerlink" href="#model-ids" title="Link to this heading">#</a></h3>
 <p>Use the provider-prefixed form in <code class="docutils literal notranslate"><span class="pre">ModelMeta.model</span></code> — not bare model names:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># ✅ Correct</span>
-<span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;acme/turbo-v1&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
+<span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">"acme/turbo-v1"</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
 
 <span class="c1"># ❌ Wrong — provider prefix missing</span>
-<span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;turbo-v1&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
+<span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">"turbo-v1"</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>The prefix must match your <code class="docutils literal notranslate"><span class="pre">ProviderPlugin.name</span></code> so that

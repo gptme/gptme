@@ -797,12 +797,12 @@ handled in <code class="docutils literal notranslate"><span class="pre">gptme/mc
 <h3>Request Types<a class="headerlink" href="#request-types" title="Link to this heading">#</a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">ElicitationRequest</span><span class="p">:</span>
-    <span class="nb">type</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;choice&quot;</span><span class="p">,</span> <span class="s2">&quot;multi_choice&quot;</span><span class="p">,</span> <span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="s2">&quot;confirmation&quot;</span><span class="p">,</span> <span class="s2">&quot;form&quot;</span><span class="p">]</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">"text"</span><span class="p">,</span> <span class="s2">"choice"</span><span class="p">,</span> <span class="s2">"multi_choice"</span><span class="p">,</span> <span class="s2">"secret"</span><span class="p">,</span> <span class="s2">"confirmation"</span><span class="p">,</span> <span class="s2">"form"</span><span class="p">]</span>
     <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span>
     <span class="n">options</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>    <span class="c1"># for choice/multi_choice</span>
     <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FormField</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># for form</span>
     <span class="n">default</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>             <span class="c1"># always True for &quot;secret&quot;</span>
+    <span class="n">sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>             <span class="c1"># always True for "secret"</span>
     <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </pre></div>
 </div>
@@ -814,7 +814,7 @@ handled in <code class="docutils literal notranslate"><span class="pre">gptme/mc
     <span class="n">value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>       <span class="c1"># for text/secret/confirmation/form(JSON)</span>
     <span class="n">values</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># for multi_choice</span>
     <span class="n">cancelled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-    <span class="n">sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>        <span class="c1"># if True, don&#39;t add to LLM context</span>
+    <span class="n">sensitive</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>        <span class="c1"># if True, don't add to LLM context</span>
 </pre></div>
 </div>
 </section>
@@ -844,10 +844,10 @@ yields a <code class="docutils literal notranslate"><span class="pre">&quot;User
 value. The agent receives the secret via the response and must handle it explicitly
 (e.g. write to an env file, pass to a tool that stores credentials).</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Agent workflow for API key setup:</span>
-<span class="n">response</span> <span class="o">=</span> <span class="n">elicit</span><span class="p">(</span><span class="n">ElicitationRequest</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">&quot;secret&quot;</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="s2">&quot;Enter your OpenAI API key:&quot;</span><span class="p">))</span>
-<span class="c1"># response.value contains the key, but conversation message says &quot;(not shown)&quot;</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">elicit</span><span class="p">(</span><span class="n">ElicitationRequest</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"secret"</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="s2">"Enter your OpenAI API key:"</span><span class="p">))</span>
+<span class="c1"># response.value contains the key, but conversation message says "(not shown)"</span>
 <span class="c1"># Agent stores it securely:</span>
-<span class="n">write_to_env_file</span><span class="p">(</span><span class="s2">&quot;OPENAI_API_KEY&quot;</span><span class="p">,</span> <span class="n">response</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+<span class="n">write_to_env_file</span><span class="p">(</span><span class="s2">"OPENAI_API_KEY"</span><span class="p">,</span> <span class="n">response</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -887,27 +887,27 @@ value. The agent receives the secret via the response and must handle it explici
 <p>The agent uses the <code class="docutils literal notranslate"><span class="pre">elicit</span></code> tool with a JSON spec:</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="sb">```elicit</span>
 <span class="s">{</span>
-<span class="s">  &quot;type&quot;: &quot;secret&quot;,</span>
-<span class="s">  &quot;prompt&quot;: &quot;Enter your OpenAI API key:&quot;,</span>
-<span class="s">  &quot;description&quot;: &quot;Required for the OpenAI integration. Will not be logged.&quot;</span>
+<span class="s">  "type": "secret",</span>
+<span class="s">  "prompt": "Enter your OpenAI API key:",</span>
+<span class="s">  "description": "Required for the OpenAI integration. Will not be logged."</span>
 <span class="s">}</span>
 <span class="sb">```</span>
 </pre></div>
 </div>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;choice&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Which framework should we use?&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;FastAPI&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Django&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Flask&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"choice"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Which framework should we use?"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"options"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"FastAPI"</span><span class="p">,</span><span class="w"> </span><span class="s2">"Django"</span><span class="p">,</span><span class="w"> </span><span class="s2">"Flask"</span><span class="p">]</span>
 <span class="p">}</span>
 </pre></div>
 </div>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;form&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;New project setup:&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;fields&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;name&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Project name?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;language&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Language?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;choice&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;options&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;typescript&quot;</span><span class="p">]},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tests&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;prompt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Include tests?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;boolean&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"form"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"New project setup:"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"fields"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"name"</span><span class="p">,</span><span class="w"> </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Project name?"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"language"</span><span class="p">,</span><span class="w"> </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Language?"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"choice"</span><span class="p">,</span><span class="w"> </span><span class="nt">"options"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"python"</span><span class="p">,</span><span class="w"> </span><span class="s2">"typescript"</span><span class="p">]},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"tests"</span><span class="p">,</span><span class="w"> </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Include tests?"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"boolean"</span><span class="p">}</span>
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
 </pre></div>
@@ -932,11 +932,11 @@ value. The agent receives the secret via the response and must handle it explici
     <span class="n">elicit_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
     <span class="n">pending</span> <span class="o">=</span> <span class="n">register_pending_elicitation</span><span class="p">(</span><span class="n">elicit_id</span><span class="p">,</span> <span class="n">request</span><span class="p">)</span>
 
-    <span class="n">emit_sse_event</span><span class="p">(</span><span class="s2">&quot;elicitation_requested&quot;</span><span class="p">,</span> <span class="p">{</span>
-        <span class="s2">&quot;elicit_id&quot;</span><span class="p">:</span> <span class="n">elicit_id</span><span class="p">,</span>
-        <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
-        <span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span>
-        <span class="s2">&quot;options&quot;</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">options</span><span class="p">,</span>
+    <span class="n">emit_sse_event</span><span class="p">(</span><span class="s2">"elicitation_requested"</span><span class="p">,</span> <span class="p">{</span>
+        <span class="s2">"elicit_id"</span><span class="p">:</span> <span class="n">elicit_id</span><span class="p">,</span>
+        <span class="s2">"type"</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+        <span class="s2">"prompt"</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span>
+        <span class="s2">"options"</span><span class="p">:</span> <span class="n">request</span><span class="o">.</span><span class="n">options</span><span class="p">,</span>
     <span class="p">})</span>
 
     <span class="c1"># Block until client responds</span>

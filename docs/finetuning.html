@@ -717,7 +717,7 @@ artifact. Match both:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">find_json_end</span><span class="p">,</span> <span class="n">toolcall_re</span>
 
 <span class="c1"># fence form (markdown tool format):  ```shell\n&lt;code&gt;\n```</span>
-<span class="c1"># native form:                        @shell(abc123): {&quot;command&quot;: &quot;ls&quot;}</span>
+<span class="c1"># native form:                        @shell(abc123): {"command": "ls"}</span>
 <span class="c1"># toolcall_re only finds the START of a call. Its `{.*` capture is DOTALL and</span>
 <span class="c1"># greedy, so group(3) is not JSON and finditer() swallows later parallel</span>
 <span class="c1"># calls in the same message. Resume from find_json_end after each match.</span>
@@ -743,7 +743,7 @@ match.</p>
 <section id="the-export-format">
 <h3>The export format<a class="headerlink" href="#the-export-format" title="Link to this heading">#</a></h3>
 <p>Target <a class="reference external" href="https://docs.axolotl.ai/">Axolotl</a>’s <code class="docutils literal notranslate"><span class="pre">chat_template</span></code> dataset type. One JSON object per line:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>{&quot;messages&quot;: [...], &quot;tools&quot;: [...]}
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>{"messages": [...], "tools": [...]}
 </pre></div>
 </div>
 <ul class="simple">
@@ -891,7 +891,7 @@ either of the first two.</p></li>
 <span class="nt">lora_dropout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 <span class="nt">lora_target_modules</span><span class="p">:</span><span class="w">         </span><span class="c1"># all projections, listed explicitly:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">q_proj</span><span class="w">                   </span><span class="c1"># lora_target_linear: true would sweep the</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k_proj</span><span class="w">                   </span><span class="c1"># vision tower&#39;s linears in too</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k_proj</span><span class="w">                   </span><span class="c1"># vision tower's linears in too</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v_proj</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">o_proj</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gate_proj</span>
@@ -904,7 +904,7 @@ either of the first two.</p></li>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chat_template</span>
 <span class="w">    </span><span class="nt">field_messages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">messages</span>
 <span class="w">    </span><span class="nt">field_tools</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tools</span>
-<span class="w">    </span><span class="nt">roles_to_train</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;assistant&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">roles_to_train</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"assistant"</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">train_on_eos</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">turn</span>
 <span class="nt">test_datasets</span><span class="p">:</span><span class="w">               </span><span class="c1"># a real time-based holdout, not a random slice</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/holdout.jsonl</span>
@@ -913,7 +913,7 @@ either of the first two.</p></li>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chat_template</span>
 <span class="w">    </span><span class="nt">field_messages</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">messages</span>
 <span class="w">    </span><span class="nt">field_tools</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tools</span>
-<span class="w">    </span><span class="nt">roles_to_train</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;assistant&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">roles_to_train</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"assistant"</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">train_on_eos</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">turn</span>
 <span class="nt">val_set_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span><span class="w">              </span><span class="c1"># required when test_datasets is set</span>
 
@@ -1033,7 +1033,7 @@ checkpoints</strong>, so merge the adapter into the base first. Then:</p>
 <span class="w">    </span>--enable-auto-tool-choice<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--tool-call-parser<span class="w"> </span>qwen3_xml<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--structured-outputs-config.backend<span class="w"> </span>xgrammar<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--default-chat-template-kwargs<span class="w"> </span><span class="s1">&#39;{&quot;enable_thinking&quot;: false}&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--default-chat-template-kwargs<span class="w"> </span><span class="s1">'{"enable_thinking": false}'</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--chat-template<span class="w"> </span>/path/to/qwen3_5_midsystem.jinja<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--max-model-len<span class="w"> </span><span class="m">32768</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--port<span class="w"> </span><span class="m">8000</span>
@@ -1088,9 +1088,9 @@ table below, keep the template copy; to eval a Qwen3.5 on current
 gptme, use the fold.</p>
 <p>The template patch, for the historical serve path. In the message loop,
 replace the <code class="docutils literal notranslate"><span class="pre">raise_exception</span></code> branch with:</p>
-<div class="highlight-jinja notranslate"><div class="highlight"><pre><span></span><span class="cp">{%</span>- <span class="k">if</span> <span class="nv">message.role</span> <span class="o">==</span> <span class="s2">&quot;system&quot;</span> <span class="cp">%}</span>
+<div class="highlight-jinja notranslate"><div class="highlight"><pre><span></span><span class="cp">{%</span>- <span class="k">if</span> <span class="nv">message.role</span> <span class="o">==</span> <span class="s2">"system"</span> <span class="cp">%}</span>
 <span class="x">    </span><span class="cp">{%</span>- <span class="k">if</span> <span class="k">not</span> <span class="nb">loop</span><span class="nv">.first</span> <span class="cp">%}</span>
-<span class="x">        </span><span class="cp">{{</span><span class="o">-</span> <span class="s1">&#39;&lt;|im_start|&gt;system\n&#39;</span> <span class="o">+</span> <span class="nv">content</span> <span class="o">+</span> <span class="s1">&#39;&lt;|im_end|&gt;&#39;</span> <span class="o">+</span> <span class="s1">&#39;\n&#39;</span> <span class="cp">}}</span>
+<span class="x">        </span><span class="cp">{{</span><span class="o">-</span> <span class="s1">'&lt;|im_start|&gt;system\n'</span> <span class="o">+</span> <span class="nv">content</span> <span class="o">+</span> <span class="s1">'&lt;|im_end|&gt;'</span> <span class="o">+</span> <span class="s1">'\n'</span> <span class="cp">}}</span>
 <span class="x">    </span><span class="cp">{%</span>- <span class="k">endif</span> <span class="cp">%}</span>
 <span class="cp">{%</span>- <span class="k">endif</span> <span class="cp">%}</span>
 </pre></div>
@@ -1298,10 +1298,10 @@ until step 3.</p>
 
 <span class="c1"># 2. Validate before renting anything: this is where a bad `arguments` column</span>
 <span class="c1">#    or a null-then-float field fails, and it costs nothing on your own box.</span>
-python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
 <span class="s2">from datasets import load_dataset</span>
-<span class="s2">d = load_dataset(&#39;json&#39;, data_files=&#39;</span><span class="nv">$HOME</span><span class="s2">/data/sft/run.markdown.train.jsonl&#39;)</span>
-<span class="s2">print(d)&quot;</span>
+<span class="s2">d = load_dataset('json', data_files='</span><span class="nv">$HOME</span><span class="s2">/data/sft/run.markdown.train.jsonl')</span>
+<span class="s2">print(d)"</span>
 
 <span class="c1"># 3. Train (on the rented box; ~20 min on one H100 for ~33M tokens).</span>
 axolotl<span class="w"> </span>preprocess<span class="w"> </span>qwen3.5-0.8b-lora.yaml
@@ -1312,14 +1312,14 @@ axolotl<span class="w"> </span>train<span class="w"> </span>qwen3.5-0.8b-lora.ya
 <span class="c1">#    path (stock Qwen3.5 400s every gptme request without it). On gptme with</span>
 <span class="c1">#    #3780, drop --chat-template and export GPTME_FOLD_SYSTEM_MESSAGES=1 (this</span>
 <span class="c1">#    served name does not contain qwen3.5, so name inference will not fire).</span>
-python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"</span>
 <span class="s2">from peft import AutoPeftModelForCausalLM</span>
 <span class="s2">from transformers import AutoTokenizer</span>
-<span class="s2">AutoPeftModelForCausalLM.from_pretrained(&#39;/out&#39;).merge_and_unload().save_pretrained(&#39;/merged&#39;)</span>
-<span class="s2">AutoTokenizer.from_pretrained(&#39;Qwen/Qwen3.5-0.8B&#39;).save_pretrained(&#39;/merged&#39;)&quot;</span>
+<span class="s2">AutoPeftModelForCausalLM.from_pretrained('/out').merge_and_unload().save_pretrained('/merged')</span>
+<span class="s2">AutoTokenizer.from_pretrained('Qwen/Qwen3.5-0.8B').save_pretrained('/merged')"</span>
 vllm<span class="w"> </span>serve<span class="w"> </span>/merged<span class="w"> </span>--served-model-name<span class="w"> </span>sft<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--enable-auto-tool-choice<span class="w"> </span>--tool-call-parser<span class="w"> </span>qwen3_xml<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--default-chat-template-kwargs<span class="w"> </span><span class="s1">&#39;{&quot;enable_thinking&quot;: false}&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--default-chat-template-kwargs<span class="w"> </span><span class="s1">'{"enable_thinking": false}'</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--chat-template<span class="w"> </span>./qwen3_5_midsystem.jinja<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span>
 
 <span class="c1"># 5. Score it — and score the *base* model the same way, or you have one number</span>

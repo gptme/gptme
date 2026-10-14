@@ -693,11 +693,8 @@ built-in provider PRs.</p></li>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme.git
 <span class="nb">cd</span><span class="w"> </span>gptme
 
-<span class="c1"># install poetry (if not installed)</span>
-pipx<span class="w"> </span>install<span class="w"> </span>poetry
-
-<span class="c1"># activate the virtualenv</span>
-poetry<span class="w"> </span>shell
+<span class="c1"># install uv (if not installed)</span>
+pipx<span class="w"> </span>install<span class="w"> </span>uv
 
 <span class="c1"># build the project</span>
 make<span class="w"> </span>build
@@ -709,8 +706,8 @@ make<span class="w"> </span>build
 <h3>Verify your development setup<a class="headerlink" href="#verify-your-development-setup" title="Link to this heading">#</a></h3>
 <p>Before making changes, run this smoke test from the repository root:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>build
-poetry<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span>--version
-poetry<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_cli.py::test_version<span class="w"> </span>-q
+uv<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span>--version
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_cli.py::test_version<span class="w"> </span>-q
 </pre></div>
 </div>
 <p>The install must finish without errors, the CLI command must print a version,
@@ -721,7 +718,7 @@ send a one-token Anthropic quota probe before the selected test runs.</p>
 </section>
 <section id="keeping-your-environment-in-sync">
 <h3>Keeping your environment in sync<a class="headerlink" href="#keeping-your-environment-in-sync" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">poetry.lock</span></code> pins the toolchain, and <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> pins the
+<p><code class="docutils literal notranslate"><span class="pre">uv.lock</span></code> pins the toolchain, and <code class="docutils literal notranslate"><span class="pre">.pre-commit-config.yaml</span></code> pins the
 hook versions separately. A virtualenv that has drifted from the lockfile will
 disagree with CI, usually in confusing ways:</p>
 <ul class="simple">
@@ -730,11 +727,11 @@ most often a lint rule that was added or removed between versions.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pre-commit</span></code> keeps reformatting a file you just formatted, and the commit
 aborts every time with “files were modified by this hook”.</p></li>
 </ul>
-<p>Run <code class="docutils literal notranslate"><span class="pre">poetry</span> <span class="pre">install</span></code> before concluding that a lint or test result is a
+<p>Run <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span> <span class="pre">--frozen</span></code> before concluding that a lint or test result is a
 problem with the repository, and check the version you are actually reasoning
 about:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install
-poetry<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>--version<span class="w">   </span><span class="c1"># must match poetry.lock</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--frozen
+uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>--version<span class="w">   </span><span class="c1"># must match uv.lock</span>
 </pre></div>
 </div>
 <p>Two things worth knowing when this happens:</p>
@@ -843,7 +840,7 @@ duplicate headings, and content-heavy pages with a lone subpage.</p>
 <p>To enable telemetry during development:</p>
 <ol class="arabic">
 <li><p>Install telemetry dependencies:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install<span class="w"> </span>-E<span class="w"> </span>telemetry
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>telemetry<span class="w"> </span>--frozen
 </pre></div>
 </div>
 </li>
@@ -874,9 +871,9 @@ duplicate headings, and content-heavy pages with a lone subpage.</p>
 </div>
 </li>
 <li><p>Run gptme:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>--extra<span class="w"> </span>telemetry<span class="w"> </span>gptme<span class="w"> </span><span class="s1">'hello'</span>
 <span class="c1"># or gptme-server (use --host 0.0.0.0 so the Prometheus container can reach it)</span>
-poetry<span class="w"> </span>run<span class="w"> </span>gptme-server<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0
+uv<span class="w"> </span>run<span class="w"> </span>--extra<span class="w"> </span>telemetry<span class="w"> </span>--extra<span class="w"> </span>server<span class="w"> </span>gptme-server<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0
 </pre></div>
 </div>
 </li>
@@ -936,7 +933,7 @@ poetry<span class="w"> </span>run<span class="w"> </span>gptme-server<span class
 <span class="k">topk</span><span class="o">(</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_tool_calls_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">))</span>
 
 <span class="c1"># LLM request success rate</span>
-<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">{</span><span class="nl">success</span><span class="o">=</span><span class="p">&quot;</span><span class="s">true</span><span class="p">&quot;}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+<span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">{</span><span class="nl">success</span><span class="o">=</span><span class="p">"</span><span class="s">true</span><span class="p">"}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">gptme_llm_requests_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
 
 <span class="c1"># LLM spend per hour by model (USD)</span>
 <span class="k">sum</span><span class="w"> </span><span class="k">by</span><span class="w"> </span><span class="o">(</span><span class="nv">model</span><span class="o">)</span><span class="w"> </span><span class="o">(</span><span class="kr">increase</span><span class="o">(</span><span class="nv">gptme_llm_cost_usd_total</span><span class="p">[</span><span class="s">1h</span><span class="p">]</span><span class="o">))</span>
@@ -998,7 +995,7 @@ signing certificate’s SHA-256 fingerprint. Generate a key and obtain that valu
 with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>keytool<span class="w"> </span>-genkeypair<span class="w"> </span>-keystore<span class="w"> </span>release.jks<span class="w"> </span>-alias<span class="w"> </span>gptme-release<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-keyalg<span class="w"> </span>RSA<span class="w"> </span>-keysize<span class="w"> </span><span class="m">4096</span><span class="w"> </span>-validity<span class="w"> </span><span class="m">10000</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-dname<span class="w"> </span><span class="s2">&quot;CN=gptme, OU=release, O=gptme, C=SE&quot;</span>
+<span class="w">  </span>-dname<span class="w"> </span><span class="s2">"CN=gptme, OU=release, O=gptme, C=SE"</span>
 keytool<span class="w"> </span>-list<span class="w"> </span>-v<span class="w"> </span>-keystore<span class="w"> </span>release.jks<span class="w"> </span>-alias<span class="w"> </span>gptme-release
 </pre></div>
 </div>

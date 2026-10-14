@@ -656,7 +656,7 @@
 <p>Use gptme to rename symbols, extract functions, and restructure code across multiple files.</p>
 <section id="rename-a-function-or-variable-everywhere">
 <h2>Rename a function or variable everywhere<a class="headerlink" href="#rename-a-function-or-variable-everywhere" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;rename the function `parse_config` to `load_config` across all Python files in src/&#39;</span><span class="w"> </span>src/
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'rename the function `parse_config` to `load_config` across all Python files in src/'</span><span class="w"> </span>src/
 </pre></div>
 </div>
 <p>gptme will search, edit, and verify the rename is consistent.</p>
@@ -664,52 +664,52 @@
 <section id="rename-with-a-different-signature">
 <h2>Rename with a different signature<a class="headerlink" href="#rename-with-a-different-signature" title="Link to this heading">#</a></h2>
 <p>When the rename comes with a signature change:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;rename UserRecord to User and change its constructor to take keyword arguments only&#39;</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'rename UserRecord to User and change its constructor to take keyword arguments only'</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>src/models.py<span class="w"> </span>src/api.py<span class="w"> </span>tests/test_models.py
 </pre></div>
 </div>
 </section>
 <section id="extract-a-helper-function">
 <h2>Extract a helper function<a class="headerlink" href="#extract-a-helper-function" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;the validation logic in process_order() is repeated; extract it into a validate_order() function&#39;</span><span class="w"> </span>src/orders.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'the validation logic in process_order() is repeated; extract it into a validate_order() function'</span><span class="w"> </span>src/orders.py
 </pre></div>
 </div>
 </section>
 <section id="split-a-large-module">
 <h2>Split a large module<a class="headerlink" href="#split-a-large-module" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)&#39;</span><span class="w"> </span>src/monolith.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)'</span><span class="w"> </span>src/monolith.py
 </pre></div>
 </div>
 </section>
 <section id="change-an-api-s-interface">
 <h2>Change an API’s interface<a class="headerlink" href="#change-an-api-s-interface" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;change the Database.query() method to be async; update all callers&#39;</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'change the Database.query() method to be async; update all callers'</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>src/db.py<span class="w"> </span>src/api.py<span class="w"> </span>src/worker.py<span class="w"> </span>tests/
 </pre></div>
 </div>
 </section>
 <section id="remove-deprecated-code">
 <h2>Remove deprecated code<a class="headerlink" href="#remove-deprecated-code" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;remove all code marked with the TODO: deprecated comment and update callers accordingly&#39;</span><span class="w"> </span>src/
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'remove all code marked with the TODO: deprecated comment and update callers accordingly'</span><span class="w"> </span>src/
 </pre></div>
 </div>
 </section>
 <section id="add-a-new-parameter-to-a-function-with-a-default">
 <h2>Add a new parameter to a function with a default<a class="headerlink" href="#add-a-new-parameter-to-a-function-with-a-default" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;add a timeout parameter (default 30s) to the http_get() function and thread it through all callers&#39;</span><span class="w"> </span>src/http.py<span class="w"> </span>src/client.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers'</span><span class="w"> </span>src/http.py<span class="w"> </span>src/client.py
 </pre></div>
 </div>
 </section>
 <section id="restructure-a-directory">
 <h2>Restructure a directory<a class="headerlink" href="#restructure-a-directory" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;move all test fixtures from tests/fixtures.py into individual files under tests/fixtures/; update imports&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'move all test fixtures from tests/fixtures.py into individual files under tests/fixtures/; update imports'</span>
 </pre></div>
 </div>
 </section>
 <section id="check-nothing-broke-after-refactoring">
 <h2>Check nothing broke after refactoring<a class="headerlink" href="#check-nothing-broke-after-refactoring" title="Link to this heading">#</a></h2>
 <p>Always end a refactor session with a test run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;rename parse_config to load_config across src/&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;run tests and fix any failures&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'rename parse_config to load_config across src/'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'run tests and fix any failures'</span>
 </pre></div>
 </div>
 </section>

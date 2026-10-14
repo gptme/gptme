@@ -728,7 +728,7 @@ gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderb
 <p>However, we recommend running it in Docker to improve isolation and reproducibility:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>build-docker
 docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;ANTHROPIC_API_KEY=&lt;your api key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-e<span class="w"> </span><span class="s2">"ANTHROPIC_API_KEY=&lt;your api key&gt;"</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/eval_results:/app/eval_results<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>

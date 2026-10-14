@@ -654,54 +654,54 @@
 <p>Use gptme to review a diff, a PR, or a file — with enough context to give meaningful feedback.</p>
 <section id="review-your-uncommitted-changes">
 <h2>Review your uncommitted changes<a class="headerlink" href="#review-your-uncommitted-changes" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;review this diff for bugs, missing error handling, and style issues&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'review this diff for bugs, missing error handling, and style issues'</span>
 </pre></div>
 </div>
 <p>Add context by including related files:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;review this diff&#39;</span><span class="w"> </span>src/api.py<span class="w"> </span>src/models.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'review this diff'</span><span class="w"> </span>src/api.py<span class="w"> </span>src/models.py
 </pre></div>
 </div>
 </section>
 <section id="review-a-specific-commit">
 <h2>Review a specific commit<a class="headerlink" href="#review-a-specific-commit" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>show<span class="w"> </span>HEAD<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;review this commit&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>show<span class="w"> </span>HEAD<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'review this commit'</span>
 </pre></div>
 </div>
 </section>
 <section id="review-a-github-pr">
 <h2>Review a GitHub PR<a class="headerlink" href="#review-a-github-pr" title="Link to this heading">#</a></h2>
 <p>Pass the PR URL directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;review this PR for correctness and suggest improvements&#39;</span><span class="w"> </span>https://github.com/owner/repo/pull/42
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this PR for correctness and suggest improvements'</span><span class="w"> </span>https://github.com/owner/repo/pull/42
 </pre></div>
 </div>
 <p>Or let gptme fetch the PR URL itself:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;review this PR&#39;</span><span class="w"> </span>https://github.com/owner/repo/pull/42
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this PR'</span><span class="w"> </span>https://github.com/owner/repo/pull/42
 </pre></div>
 </div>
 </section>
 <section id="review-a-single-file-for-issues">
 <h2>Review a single file for issues<a class="headerlink" href="#review-a-single-file-for-issues" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;review this file for bugs, security issues, and opportunities to simplify&#39;</span><span class="w"> </span>src/auth.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this file for bugs, security issues, and opportunities to simplify'</span><span class="w"> </span>src/auth.py
 </pre></div>
 </div>
 </section>
 <section id="review-with-a-checklist">
 <h2>Review with a checklist<a class="headerlink" href="#review-with-a-checklist" title="Link to this heading">#</a></h2>
 <p>Give gptme a specific checklist so the review is consistent:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets&#39;</span><span class="w"> </span>src/db.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets'</span><span class="w"> </span>src/db.py
 </pre></div>
 </div>
 </section>
 <section id="ask-follow-up-questions">
 <h2>Ask follow-up questions<a class="headerlink" href="#ask-follow-up-questions" title="Link to this heading">#</a></h2>
 <p>gptme maintains conversation context, so you can drill in:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;review this diff&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;which of those issues is highest severity?&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;show me a fix for that one&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'review this diff'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'which of those issues is highest severity?'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'show me a fix for that one'</span>
 </pre></div>
 </div>
 </section>
 <section id="write-the-review-as-a-github-comment">
 <h2>Write the review as a GitHub comment<a class="headerlink" href="#write-the-review-as-a-github-comment" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span>main..feature<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;write a concise PR review comment in Markdown&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span>main..feature<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'write a concise PR review comment in Markdown'</span>
 </pre></div>
 </div>
 <p>Then copy-paste it, or wire up <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">comment</span></code>.</p>

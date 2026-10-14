@@ -663,35 +663,35 @@
 <h2>Quick examples<a class="headerlink" href="#quick-examples" title="Link to this heading">#</a></h2>
 <p>Everyday prompts that work well with gptme out of the box. gptme picks the right <a class="reference internal" href="tools.html"><span class="doc">tools</span></a> (shell, file editing, Python, browser, …) on its own — you describe the outcome, not the steps.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># ask questions about files</span>
-gptme<span class="w"> </span><span class="s1">&#39;summarize this&#39;</span><span class="w"> </span>README.md
-gptme<span class="w"> </span><span class="s1">&#39;refactor this&#39;</span><span class="w"> </span>main.py
-gptme<span class="w"> </span><span class="s1">&#39;what do you see?&#39;</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
+gptme<span class="w"> </span><span class="s1">'summarize this'</span><span class="w"> </span>README.md
+gptme<span class="w"> </span><span class="s1">'refactor this'</span><span class="w"> </span>main.py
+gptme<span class="w"> </span><span class="s1">'what do you see?'</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
 
 <span class="c1"># compound questions that need several tools</span>
-gptme<span class="w"> </span><span class="s2">&quot;Read README.md, list the project&#39;s dependencies from pyproject.toml, and tell me if any are pinned to an old major version&quot;</span>
+gptme<span class="w"> </span><span class="s2">"Read README.md, list the project's dependencies from pyproject.toml, and tell me if any are pinned to an old major version"</span>
 
 <span class="c1"># pipe stdin for context</span>
-git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix TODOs&#39;</span>
-git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;commit&#39;</span>
-make<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix the failing tests&#39;</span>
+git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'fix TODOs'</span>
+git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'commit'</span>
+make<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'fix the failing tests'</span>
 
 <span class="c1"># explore the workspace</span>
-gptme<span class="w"> </span><span class="s1">&#39;explore&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;take a screenshot and tell me what you see&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;suggest improvements to my vimrc&#39;</span>
+gptme<span class="w"> </span><span class="s1">'explore'</span>
+gptme<span class="w"> </span><span class="s1">'take a screenshot and tell me what you see'</span>
+gptme<span class="w"> </span><span class="s1">'suggest improvements to my vimrc'</span>
 
 <span class="c1"># read URLs and GitHub issues</span>
-gptme<span class="w"> </span><span class="s1">&#39;implement this&#39;</span><span class="w"> </span>https://github.com/gptme/gptme/issues/286
-gptme<span class="w"> </span><span class="s1">&#39;implement gptme/gptme/issues/286&#39;</span><span class="w">  </span><span class="c1"># uses `gh` shell tool</span>
+gptme<span class="w"> </span><span class="s1">'implement this'</span><span class="w"> </span>https://github.com/gptme/gptme/issues/286
+gptme<span class="w"> </span><span class="s1">'implement gptme/gptme/issues/286'</span><span class="w">  </span><span class="c1"># uses `gh` shell tool</span>
 
 <span class="c1"># create new projects</span>
-gptme<span class="w"> </span><span class="s1">&#39;create a performant n-body simulation in rust&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;render mandelbrot set to mandelbrot.png&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;write a web app to particles.html which shows off an impressive and colorful particle effect using three.js&#39;</span>
+gptme<span class="w"> </span><span class="s1">'create a performant n-body simulation in rust'</span>
+gptme<span class="w"> </span><span class="s1">'render mandelbrot set to mandelbrot.png'</span>
+gptme<span class="w"> </span><span class="s1">'write a web app to particles.html which shows off an impressive and colorful particle effect using three.js'</span>
 
 <span class="c1"># chaining prompts</span>
-gptme<span class="w"> </span><span class="s1">&#39;make a change&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;test it&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit it&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;show me something cool in the python repl&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;something cooler&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;something even cooler&#39;</span>
+gptme<span class="w"> </span><span class="s1">'make a change'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'test it'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'commit it'</span>
+gptme<span class="w"> </span><span class="s1">'show me something cool in the python repl'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'something cooler'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'something even cooler'</span>
 
 <span class="c1"># resume the last conversation</span>
 gptme<span class="w"> </span>-r
@@ -746,7 +746,7 @@ gptme<span class="w"> </span>-r
 <h3>Subagents<a class="headerlink" href="#subagents" title="Link to this heading">#</a></h3>
 <p>Use subagents to research and plan before coding, or to split independent work across clean contexts:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;Plan and implement a CLI tool that monitors CPU/memory usage and alerts when thresholds are exceeded&#39;</span>
+<span class="w">  </span><span class="s1">'Plan and implement a CLI tool that monitors CPU/memory usage and alerts when thresholds are exceeded'</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="howto/parallel-research.html"><span class="doc">How to Run Parallel Research with Subagents</span></a> for a fan-out/synthesize pattern, and the <a class="reference internal" href="tools/subagent.html"><span class="doc">subagent tool reference</span></a> for isolation, budgets, and structured output.</p>
@@ -755,7 +755,7 @@ gptme<span class="w"> </span>-r
 <h3>Computer use<a class="headerlink" href="#computer-use" title="Link to this heading">#</a></h3>
 <p>Let gptme interact with your desktop — take screenshots, move the mouse, click buttons, and type:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;Take a screenshot of my browser, identify any UI issues, and write a bug report to bugs.md&#39;</span>
+<span class="w">  </span><span class="s1">'Take a screenshot of my browser, identify any UI issues, and write a bug report to bugs.md'</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="howto/computer-use.html"><span class="doc">How to Automate GUIs with Computer Use</span></a> for prerequisites and recipes.</p>
@@ -765,11 +765,11 @@ gptme<span class="w"> </span>-r
 <p>Enable several tools together for autonomous plan → execute → verify workflows:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Plan, implement, and visually verify — all in one session</span>
 gptme<span class="w"> </span>--tools<span class="w"> </span>+computer,+subagent<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;Research the top Python testing frameworks, implement a comparison benchmark, run it, and take a screenshot of the results&#39;</span>
+<span class="w">  </span><span class="s1">'Research the top Python testing frameworks, implement a comparison benchmark, run it, and take a screenshot of the results'</span>
 
 <span class="c1"># Plan first, then execute with full tool access</span>
 gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent,+computer,+browser<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s1">&#39;Find my most-starred GitHub repo, write a blog post about it, and open the draft in my browser&#39;</span>
+<span class="w">  </span><span class="s1">'Find my most-starred GitHub repo, write a blog post about it, and open the draft in my browser'</span>
 </pre></div>
 </div>
 </section>
@@ -781,13 +781,13 @@ gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent,+computer,
 <span class="n">auto_start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
 
 <span class="k">[[mcp.servers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;filesystem&quot;</span>
-<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;npx&quot;</span>
-<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-y&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;@modelcontextprotocol/server-filesystem&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;/projects&quot;</span><span class="p">]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"filesystem"</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"npx"</span>
+<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"-y"</span><span class="p">,</span><span class="w"> </span><span class="s2">"@modelcontextprotocol/server-filesystem"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/projects"</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>Then use gptme as usual — the server starts automatically:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;Refactor all my unused imports across all projects under /projects&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'Refactor all my unused imports across all projects under /projects'</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></a> for all configuration options.</p>
@@ -800,7 +800,7 @@ gptme-agent<span class="w"> </span>create<span class="w"> </span>~/ada<span clas
 
 <span class="c1"># Bootstrap it</span>
 <span class="nb">cd</span><span class="w"> </span>~/ada
-gptme<span class="w"> </span><span class="s1">&#39;explore the workspace, read my identity files, and tell me what I am&#39;</span>
+gptme<span class="w"> </span><span class="s1">'explore the workspace, read my identity files, and tell me what I am'</span>
 
 <span class="c1"># Run it autonomously on a schedule</span>
 gptme-agent<span class="w"> </span>install
@@ -813,8 +813,8 @@ gptme-agent<span class="w"> </span>run
 <section id="automation">
 <h2>Automation<a class="headerlink" href="#automation" title="Link to this heading">#</a></h2>
 <p>gptme runs in scripts, cron jobs, and CI/CD pipelines with <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s1">&#39;review this diff for bugs and security issues&#39;</span>
-gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--model<span class="w"> </span><span class="s1">&#39;sonnet&#39;</span><span class="w"> </span><span class="s1">&#39;generate a changelog to CHANGELOG.md from these commits&#39;</span><span class="w"> </span><span class="o">&lt;&lt;&lt;</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>log<span class="w"> </span>--oneline<span class="w"> </span>v1.0..HEAD<span class="k">)</span><span class="s2">&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s1">'review this diff for bugs and security issues'</span>
+gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--model<span class="w"> </span><span class="s1">'sonnet'</span><span class="w"> </span><span class="s1">'generate a changelog to CHANGELOG.md from these commits'</span><span class="w"> </span><span class="o">&lt;&lt;&lt;</span><span class="w"> </span><span class="s2">"</span><span class="k">$(</span>git<span class="w"> </span>log<span class="w"> </span>--oneline<span class="w"> </span>v1.0..HEAD<span class="k">)</span><span class="s2">"</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> for code review bots, scheduled summaries, and composable shell pipelines, and <a class="reference internal" href="bot.html"><span class="doc">GitHub Bot</span></a> to run gptme from GitHub issues and pull requests.</p>
@@ -826,22 +826,22 @@ gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--model<sp
 </pre></div>
 </div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
-<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/gptme/contrib/plugins&quot;</span><span class="p">]</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gptme_imagen&quot;</span><span class="p">]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"~/.config/gptme/contrib/plugins"</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"gptme_imagen"</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">gptme-imagen</span></code> plugin adds multi-provider image generation (DALL-E, Gemini Imagen):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;generate an image of a futuristic city at night, save to city.png&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;render the mandelbrot set as an image using matplotlib and compare it with an AI-generated version&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'generate an image of a futuristic city at night, save to city.png'</span>
+gptme<span class="w"> </span><span class="s1">'render the mandelbrot set as an image using matplotlib and compare it with an AI-generated version'</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">gptme-retrieval</span></code> plugin automatically injects relevant context from your codebase before each step — useful on large projects:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gptme_retrieval&quot;</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"gptme_retrieval"</span><span class="p">]</span>
 
 <span class="k">[plugin.retrieval]</span>
-<span class="n">backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;qmd&quot;</span><span class="w">     </span><span class="c1"># semantic search (requires: cargo install qmd)</span>
-<span class="n">mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vsearch&quot;</span><span class="w">    </span><span class="c1"># vector search</span>
+<span class="n">backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"qmd"</span><span class="w">     </span><span class="c1"># semantic search (requires: cargo install qmd)</span>
+<span class="n">mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"vsearch"</span><span class="w">    </span><span class="c1"># vector search</span>
 <span class="n">max_results</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
 </pre></div>
 </div>

@@ -656,7 +656,7 @@
 <span class="nv">diff</span><span class="o">=</span><span class="k">$(</span>gh<span class="w"> </span>pr<span class="w"> </span>view<span class="w"> </span><span class="nv">$pr_number</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$repo</span><span class="w"> </span>--json<span class="w"> </span>diffUrl<span class="w"> </span>-q<span class="w"> </span>.diffUrl<span class="w"> </span><span class="p">|</span><span class="w"> </span>xargs<span class="w"> </span>curl<span class="w"> </span>-s<span class="k">)</span>
 
 <span class="c1"># Generate review using gptme</span>
-<span class="nv">review</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">&quot;Review this pull request diff and provide constructive feedback:</span>
+<span class="nv">review</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">"Review this pull request diff and provide constructive feedback:</span>
 <span class="s2">1. Identify potential bugs or issues.</span>
 <span class="s2">2. Suggest improvements for code quality and readability.</span>
 <span class="s2">3. Check for adherence to best practices.</span>
@@ -665,14 +665,14 @@
 <span class="s2">Pull Request Diff:</span>
 <span class="nv">$diff</span>
 
-<span class="s2">Format your review as a markdown list with clear, concise points.&quot;</span><span class="k">)</span>
+<span class="s2">Format your review as a markdown list with clear, concise points."</span><span class="k">)</span>
 
 <span class="c1"># Post review comment</span>
-gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </span><span class="nv">$pr_number</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$repo</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;## Automated Code Review</span>
+gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </span><span class="nv">$pr_number</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$repo</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">"## Automated Code Review</span>
 
 <span class="nv">$review</span>
 
-<span class="s2">*This review was generated automatically by gptme.*&quot;</span>
+<span class="s2">*This review was generated automatically by gptme.*"</span>
 </pre></div>
 </div>
 </li>
@@ -695,7 +695,7 @@ gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </sp
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install gptme and GitHub CLI</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
 <span class="w">          </span><span class="no">pip install gptme</span>
-<span class="w">          </span><span class="no">gh auth login --with-token &lt;&lt;&lt; &quot;${{ secrets.GITHUB_TOKEN }}&quot;</span>
+<span class="w">          </span><span class="no">gh auth login --with-token &lt;&lt;&lt; "${{ secrets.GITHUB_TOKEN }}"</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run code review</span>
 <span class="w">        </span><span class="nt">env</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">GITHUB_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>

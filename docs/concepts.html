@@ -1072,8 +1072,8 @@ When writing Python code:
 Example:
 <span class="sb">```python</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">greet</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Greet a person by name.&quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!&quot;</span>
+<span class="w">    </span><span class="sd">"""Greet a person by name."""</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!"</span>
 <span class="sb">```</span>
 </pre></div>
 </div>
@@ -1096,14 +1096,14 @@ Example:
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolSpec</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">analyze_code</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Analyze code quality and suggest improvements.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Analyze code quality and suggest improvements."""</span>
     <span class="c1"># Implementation</span>
-    <span class="k">return</span> <span class="s2">&quot;Analysis results...&quot;</span>
+    <span class="k">return</span> <span class="s2">"Analysis results..."</span>
 
 <span class="n">analyze_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;analyze&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Analyze code quality&quot;</span><span class="p">,</span>
-    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this to check code quality.&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"analyze"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Analyze code quality"</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">"Use this to check code quality."</span><span class="p">,</span>
     <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">analyze_code</span><span class="p">],</span>
 <span class="p">)</span>
 </pre></div>
@@ -1138,8 +1138,8 @@ Example:
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">lint_before_save</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run linter on code before saving.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.py&#39;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Run linter on code before saving."""</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">'.py'</span><span class="p">):</span>
         <span class="c1"># Run linting logic</span>
         <span class="k">return</span> <span class="n">content</span>  <span class="c1"># TODO: implement linting logic</span>
     <span class="k">return</span> <span class="n">content</span>
@@ -1173,11 +1173,11 @@ Example:
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">gptme.commands</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_command</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">status_command</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Show project status.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Show project status."""</span>
     <span class="c1"># Implementation</span>
-    <span class="k">return</span> <span class="s2">&quot;Status: All systems operational&quot;</span>
+    <span class="k">return</span> <span class="s2">"Status: All systems operational"</span>
 
-<span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">,</span> <span class="n">status_command</span><span class="p">)</span>
+<span class="n">register_command</span><span class="p">(</span><span class="s2">"status"</span><span class="p">,</span> <span class="n">status_command</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>When to use</strong>:</p>
@@ -1235,7 +1235,7 @@ Always run linting before committing code.
 </li>
 <li><p><strong>Tool</strong>: Execute linter</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">lint</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run linter on code.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Run linter on code."""</span>
     <span class="c1"># Implementation</span>
 </pre></div>
 </div>
@@ -1246,7 +1246,7 @@ Always run linting before committing code.
 </div>
 </li>
 <li><p><strong>Command</strong>: Manual lint trigger</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;lint&quot;</span><span class="p">,</span> <span class="n">lint_command</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">register_command</span><span class="p">(</span><span class="s2">"lint"</span><span class="p">,</span> <span class="n">lint_command</span><span class="p">)</span>
 </pre></div>
 </div>
 </li>

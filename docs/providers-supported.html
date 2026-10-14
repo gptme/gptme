@@ -678,16 +678,16 @@ their key — see the table in <a class="reference internal" href="providers.htm
 <section id="openai-platform">
 <span id="id2"></span><h3>OpenAI Platform<a class="headerlink" href="#openai-platform" title="Link to this heading">#</a></h3>
 <p>Use the direct OpenAI Platform provider with <code class="docutils literal notranslate"><span class="pre">openai/&lt;model&gt;</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-4o
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
-gptme<span class="w"> </span><span class="s2">&quot;fix this bug&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-4o
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+gptme<span class="w"> </span><span class="s2">"fix this bug"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
 </pre></div>
 </div>
 <p>GPT-5-class <code class="docutils literal notranslate"><span class="pre">openai/*</span></code> models (<code class="docutils literal notranslate"><span class="pre">gpt-5</span></code>, <code class="docutils literal notranslate"><span class="pre">gpt-5.5</span></code>, <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code>) and o-series models automatically use the OpenAI Responses API.
 gptme routes these models through <code class="docutils literal notranslate"><span class="pre">/v1/responses</span></code> by default:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span>
+gptme<span class="w"> </span><span class="s2">"solve this problem"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
 </pre></div>
 </div>
 <p>Non-GPT-5 models, proxy providers such as OpenRouter, and other
@@ -695,7 +695,7 @@ OpenAI-compatible backends continue using the chat-completions path.</p>
 <p>To force the legacy chat-completions path for debugging or comparison, set
 <code class="docutils literal notranslate"><span class="pre">GPTME_OPENAI_RESPONSES_API=0</span></code>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OPENAI_RESPONSES_API</span><span class="o">=</span><span class="m">0</span>
-gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+gptme<span class="w"> </span><span class="s2">"solve this problem"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
 </pre></div>
 </div>
 <p>In addition to <code class="docutils literal notranslate"><span class="pre">0</span></code>, the flag also accepts <code class="docutils literal notranslate"><span class="pre">false</span></code>, <code class="docutils literal notranslate"><span class="pre">no</span></code>, and <code class="docutils literal notranslate"><span class="pre">off</span></code> as
@@ -712,8 +712,8 @@ default.</p>
 <p>Use Claude models through Anthropic’s native API with <code class="docutils literal notranslate"><span class="pre">anthropic/&lt;model&gt;</span></code>. gptme
 applies prompt caching automatically, which substantially reduces costs in long
 conversations.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup anthropic&#39;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span><span class="w">   </span><span class="c1"># or: gptme '/account setup anthropic'</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>
 </div>
 <p>Set <code class="docutils literal notranslate"><span class="pre">GPTME_ANTHROPIC_WEB_SEARCH=true</span></code> to let Claude use Anthropic’s native web
@@ -725,8 +725,8 @@ search. A Claude Max subscription can’t be used from gptme; see
 <p>Use Gemini models with <code class="docutils literal notranslate"><span class="pre">gemini/&lt;model&gt;</span></code>, through Google’s OpenAI-compatible
 endpoint. Get an API key at <a class="reference external" href="https://aistudio.google.com/apikey">Google AI Studio</a>;
 a free tier is available.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup gemini&#39;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-3.1-pro-preview
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span><span class="w">   </span><span class="c1"># or: gptme '/account setup gemini'</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-3.1-pro-preview
 </pre></div>
 </div>
 </section>
@@ -735,16 +735,16 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <p>Use Grok models with an xAI API key via <code class="docutils literal notranslate"><span class="pre">xai/&lt;model&gt;</span></code>. Get a key at
 <a class="reference external" href="https://console.x.ai">console.x.ai</a>, or use a SuperGrok plan instead with
 <a class="reference internal" href="#grok-subscription"><span class="std std-ref">Grok Subscription</span></a>.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">XAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup xai&#39;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4.6
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">XAI_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span><span class="w">   </span><span class="c1"># or: gptme '/account setup xai'</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4.6
 </pre></div>
 </div>
 </section>
 <section id="deepseek">
 <span id="id5"></span><h3>DeepSeek<a class="headerlink" href="#deepseek" title="Link to this heading">#</a></h3>
 <p>Use DeepSeek’s official API with <code class="docutils literal notranslate"><span class="pre">deepseek/&lt;model&gt;</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DEEPSEEK_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="w">   </span><span class="c1"># or: gptme &#39;/account setup deepseek&#39;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-v4-flash
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DEEPSEEK_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span><span class="w">   </span><span class="c1"># or: gptme '/account setup deepseek'</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-v4-flash
 </pre></div>
 </div>
 <p>DeepSeek models are also available through <a class="reference internal" href="#openrouter"><span class="std std-ref">OpenRouter</span></a>, where hosts differ
@@ -754,8 +754,8 @@ in reliability and data policy; see <a class="reference internal" href="#openrou
 <span id="id6"></span><h3>Moonshot<a class="headerlink" href="#moonshot" title="Link to this heading">#</a></h3>
 <p>Use Moonshot’s Kimi models with <code class="docutils literal notranslate"><span class="pre">moonshot/&lt;model&gt;</span></code>, such as <code class="docutils literal notranslate"><span class="pre">kimi-k3</span></code>,
 <code class="docutils literal notranslate"><span class="pre">kimi-k2.6</span></code>, or <code class="docutils literal notranslate"><span class="pre">kimi-k2</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">MOONSHOT_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>moonshot/kimi-k3
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">MOONSHOT_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>moonshot/kimi-k3
 </pre></div>
 </div>
 <p>Kimi K3 accepts the <code class="docutils literal notranslate"><span class="pre">low</span></code>, <code class="docutils literal notranslate"><span class="pre">high</span></code>, and <code class="docutils literal notranslate"><span class="pre">max</span></code> levels of
@@ -765,8 +765,8 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <span id="id7"></span><h3>NVIDIA<a class="headerlink" href="#nvidia" title="Link to this heading">#</a></h3>
 <p>Use models from the <a class="reference external" href="https://build.nvidia.com/">NVIDIA API catalog</a> with
 <code class="docutils literal notranslate"><span class="pre">nvidia/&lt;model-id&gt;</span></code>, where <code class="docutils literal notranslate"><span class="pre">&lt;model-id&gt;</span></code> is the ID shown in the catalog:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">NVIDIA_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>nvidia/&lt;model-id&gt;
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">NVIDIA_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>nvidia/&lt;model-id&gt;
 </pre></div>
 </div>
 <p>gptme has no built-in model metadata for NVIDIA, so it uses generic defaults for
@@ -776,9 +776,9 @@ context size and pricing.</p>
 <span id="azure"></span><h3>Azure OpenAI<a class="headerlink" href="#azure-openai" title="Link to this heading">#</a></h3>
 <p>Use OpenAI models deployed on Azure with <code class="docutils literal notranslate"><span class="pre">azure/&lt;deployment-name&gt;</span></code>. Both an API
 key and your resource endpoint are required:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_OPENAI_ENDPOINT</span><span class="o">=</span><span class="s2">&quot;https://&lt;resource&gt;.openai.azure.com&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>azure/&lt;deployment-name&gt;
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_OPENAI_API_KEY</span><span class="o">=</span><span class="s2">"your-api-key"</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">AZURE_OPENAI_ENDPOINT</span><span class="o">=</span><span class="s2">"https://&lt;resource&gt;.openai.azure.com"</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>azure/&lt;deployment-name&gt;
 </pre></div>
 </div>
 <p>As with NVIDIA, gptme has no built-in model metadata for Azure deployments.</p>
@@ -796,19 +796,19 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <p><strong>Configuration:</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
 <span class="k">[env]</span>
-<span class="n">OPENROUTER_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span>
+<span class="n">OPENROUTER_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"your-api-key"</span>
 
-<span class="c1"># Override data collection preference (default: &quot;deny&quot;)</span>
-<span class="c1"># Set to &quot;allow&quot; if you need providers that require data collection consent</span>
-<span class="n">OPENROUTER_DATA_COLLECTION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span>
+<span class="c1"># Override data collection preference (default: "deny")</span>
+<span class="c1"># Set to "allow" if you need providers that require data collection consent</span>
+<span class="n">OPENROUTER_DATA_COLLECTION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"allow"</span>
 
 <span class="c1"># Default ordered provider allowlist for requests without a model@provider pin.</span>
-<span class="c1"># Slugs are the OpenRouter provider ids shown on each model&#39;s Providers tab.</span>
-<span class="n">OPENROUTER_PROVIDER_ORDER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;together,fireworks&quot;</span>
+<span class="c1"># Slugs are the OpenRouter provider ids shown on each model's Providers tab.</span>
+<span class="n">OPENROUTER_PROVIDER_ORDER</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"together,fireworks"</span>
 
 <span class="c1"># Restrict to specific quantization levels (optional)</span>
 <span class="c1"># Common values: fp16, bf16, fp8, int8, int4, unknown</span>
-<span class="n">OPENROUTER_QUANTIZATION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fp16,bf16&quot;</span>
+<span class="n">OPENROUTER_QUANTIZATION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"fp16,bf16"</span>
 </pre></div>
 </div>
 <section id="choosing-a-subprovider">
@@ -846,7 +846,7 @@ generally cannot verify which weights or precision a host actually served, and
 </ul>
 <p>With account-wide ZDR enabled, a DeepSeek setup pinned to hosts currently listed
 as no-training and zero-retention looks like:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">-</span><span class="n">m</span> <span class="s2">&quot;openrouter/deepseek/deepseek-v4-flash-0731@together,fireworks,inceptron&quot;</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span> <span class="o">-</span><span class="n">m</span> <span class="s2">"openrouter/deepseek/deepseek-v4-flash-0731@together,fireworks,inceptron"</span>
 </pre></div>
 </div>
 <p>while GLM 5.3 Flash can simply use its official endpoint:</p>
@@ -862,7 +862,7 @@ as no-training and zero-retention looks like:</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
 <span class="k">[env]</span>
-<span class="n">REQUESTY_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span>
+<span class="n">REQUESTY_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"your-api-key"</span>
 </pre></div>
 </div>
 <p>Get an API key at <a class="reference external" href="https://app.requesty.ai/">https://app.requesty.ai/</a> (navigate to API Keys). See <a class="reference external" href="https://docs.requesty.ai">https://docs.requesty.ai</a> for details.</p>
@@ -871,17 +871,17 @@ as no-training and zero-retention looks like:</p>
 <span id="id10"></span><h3>Groq<a class="headerlink" href="#groq" title="Link to this heading">#</a></h3>
 <p><a class="reference external" href="https://groq.com/">Groq</a> provides fast inference for open-source models via its own API key — <strong>not</strong> through the <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> / <code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY</span></code> pattern.</p>
 <p><strong>Configuration:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;gsk_...&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">"gsk_..."</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 </pre></div>
 </div>
 <p>Or store the key via the interactive setup:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;/account setup groq&#39;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'/account setup groq'</span>
 </pre></div>
 </div>
 <p>Or in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
-<span class="n">GROQ_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gsk_...&quot;</span>
+<span class="n">GROQ_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"gsk_..."</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -911,12 +911,12 @@ The <code class="docutils literal notranslate"><span class="pre">groq/&lt;model&
 <p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/openai_subscription.json</span></code>.
 Access tokens are automatically refreshed before expiry, so you only need to authenticate once.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6.1-sol
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6.1-sol
 </pre></div>
 </div>
 <p>You can also append reasoning levels: <code class="docutils literal notranslate"><span class="pre">:low</span></code>, <code class="docutils literal notranslate"><span class="pre">:medium</span></code>, <code class="docutils literal notranslate"><span class="pre">:high</span></code>, or <code class="docutils literal notranslate"><span class="pre">:xhigh</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra:high
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"solve this problem"</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra:high
 </pre></div>
 </div>
 <p><strong>Available Models:</strong></p>
@@ -954,8 +954,8 @@ OAuth credentials are stored locally and access tokens are refreshed automatical
 <p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/grok_subscription.json</span></code>.
 Access tokens are automatically refreshed before expiry, and refreshed tokens are synced back to the grok CLI’s auth file when present.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.5
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.5
 </pre></div>
 </div>
 <p><strong>Available Models:</strong></p>
@@ -981,8 +981,8 @@ For production or multi-user applications, use the xAI Platform API (<code class
 </div>
 <p>This opens your browser to approve access, then stores a token locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/auth/gptme-cloud-&lt;hash&gt;.json</span></code>. Tokens are refreshed automatically.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme<span class="w">                    </span><span class="c1"># uses default model</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>gptme<span class="w">                    </span><span class="c1"># uses default model</span>
 </pre></div>
 </div>
 <p>Models are pass-through: <code class="docutils literal notranslate"><span class="pre">gptme/&lt;model&gt;</span></code> proxies to the corresponding backend provider.</p>
@@ -1005,7 +1005,7 @@ gptme-auth<span class="w"> </span><span class="nb">logout</span><span class="w">
 <p>To achieve that with <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, install it then run:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:1b
 ollama<span class="w"> </span>serve
-<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://127.0.0.1:11434/v1"</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
 </pre></div>
 </div>
 <div class="admonition note">

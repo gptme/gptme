@@ -672,55 +672,55 @@
 <p>The file is located at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>.</p>
 <p>Here is an example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[user]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Erik&quot;</span>
-<span class="n">about</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;I am a curious human programmer.&quot;</span>
-<span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Basic concepts don&#39;t need to be explained.&quot;</span>
-<span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/Pictures/avatar.jpg&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (or URL)</span>
-<span class="n">color</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;magenta&quot;</span><span class="w">  </span><span class="c1"># Color for your name in the CLI and TUI</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Erik"</span>
+<span class="n">about</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"I am a curious human programmer."</span>
+<span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Basic concepts don't need to be explained."</span>
+<span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"~/Pictures/avatar.jpg"</span><span class="w">  </span><span class="c1"># Path to avatar image (or URL)</span>
+<span class="n">color</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"magenta"</span><span class="w">  </span><span class="c1"># Color for your name in the CLI and TUI</span>
 
 <span class="k">[prompt]</span>
 <span class="c1"># Additional files to always include in context</span>
-<span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/notes/llm-tips.md&quot;</span><span class="p">]</span>
+<span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"~/notes/llm-tips.md"</span><span class="p">]</span>
 
 <span class="c1"># Project descriptions (optional)</span>
 <span class="c1">#[prompt.project]</span>
-<span class="c1">#myproject = &quot;A description of my project.&quot;</span>
+<span class="c1">#myproject = "A description of my project."</span>
 
 <span class="k">[[hooks.scripts]]</span>
 <span class="c1"># Global hooks run in every project. Higher priorities run first.</span>
-<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;session.end&quot;</span>
-<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/bin/save-agent-context&quot;</span>
+<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"session.end"</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"~/bin/save-agent-context"</span>
 <span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
 <span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
 
 <span class="k">[env]</span>
 <span class="c1"># Uncomment to use Claude Sonnet 4.6 by default</span>
-<span class="c1">#MODEL = &quot;anthropic/claude-sonnet-4-6&quot;</span>
+<span class="c1">#MODEL = "anthropic/claude-sonnet-4-6"</span>
 
 <span class="c1"># One of these need to be set</span>
 <span class="c1"># If none of them are, they will be prompted for on first start</span>
-<span class="n">OPENAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="n">ANTHROPIC_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="n">OPENROUTER_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="n">XAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="n">GEMINI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="n">GROQ_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="n">DEEPSEEK_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
+<span class="n">OPENAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
+<span class="n">ANTHROPIC_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
+<span class="n">OPENROUTER_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
+<span class="n">XAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
+<span class="n">GEMINI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
+<span class="n">GROQ_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
+<span class="n">DEEPSEEK_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span>
 
 <span class="c1"># Uncomment to use with Ollama</span>
-<span class="c1">#MODEL = &quot;local/&lt;model-name&gt;&quot;</span>
-<span class="c1">#OPENAI_BASE_URL = &quot;http://localhost:11434/v1&quot;</span>
+<span class="c1">#MODEL = "local/&lt;model-name&gt;"</span>
+<span class="c1">#OPENAI_BASE_URL = "http://localhost:11434/v1"</span>
 
 <span class="c1"># Uncomment to change tool configuration</span>
-<span class="c1">#TOOL_FORMAT = &quot;markdown&quot; # Select the tool format. One of `markdown`, `xml`, `tool` (see docs: Tool Formats)</span>
-<span class="c1">#TOOL_ALLOWLIST = &quot;save,append,patch,ipython,shell,browser&quot;  # Comma separated list of allowed tools</span>
-<span class="c1">#TOOL_MODULES = &quot;gptme.tools,custom.tools&quot; # List of python comma separated python module path</span>
+<span class="c1">#TOOL_FORMAT = "markdown" # Select the tool format. One of `markdown`, `xml`, `tool` (see docs: Tool Formats)</span>
+<span class="c1">#TOOL_ALLOWLIST = "save,append,patch,ipython,shell,browser"  # Comma separated list of allowed tools</span>
+<span class="c1">#TOOL_MODULES = "gptme.tools,custom.tools" # List of python comma separated python module path</span>
 
 <span class="k">[models]</span>
 <span class="c1"># Optional: set a default model (formal alternative to the MODEL env var)</span>
-<span class="c1">#default = &quot;anthropic/claude-sonnet-4-6&quot;</span>
+<span class="c1">#default = "anthropic/claude-sonnet-4-6"</span>
 <span class="c1"># Optional: curate favorites shown prominently in model pickers (e.g. web UI)</span>
-<span class="c1">#favorites = [&quot;anthropic/claude-sonnet-4-6&quot;, &quot;openai/gpt-4o&quot;, &quot;openrouter/google/gemini-2.0-flash&quot;]</span>
+<span class="c1">#favorites = ["anthropic/claude-sonnet-4-6", "openai/gpt-4o", "openrouter/google/gemini-2.0-flash"]</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">user</span></code> section configures user identity:</p>
@@ -770,7 +770,7 @@ wins over <code class="docutils literal notranslate"><span class="pre">[env].MOD
 <p><strong>Setting a permanent default model:</strong></p>
 <p>The recommended approach is to use <code class="docutils literal notranslate"><span class="pre">[models].default</span></code> in your config:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
-<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"anthropic/claude-sonnet-4-6"</span>
 </pre></div>
 </div>
 <p>Alternatively, set <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> once in the <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section — but do <strong>not</strong> add it twice, since TOML does not allow duplicate keys within the same table.</p>
@@ -821,10 +821,10 @@ See <a class="reference internal" href="providers.html"><span class="doc">Provid
 command line to select a specific model for a session, or set <code class="docutils literal notranslate"><span class="pre">[models].default</span></code>
 in your config to change the permanent default:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use Groq for a specific session, regardless of default</span>
-gptme<span class="w"> </span><span class="s2">&quot;explain this&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+gptme<span class="w"> </span><span class="s2">"explain this"</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 
-<span class="c1"># Use OpenRouter&#39;s model picker syntax</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/google/gemini-2.5-flash
+<span class="c1"># Use OpenRouter's model picker syntax</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/google/gemini-2.5-flash
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model-name&gt;</span></code> prefix determines which API key is used —
@@ -834,8 +834,8 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 local server. The <code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> setting <strong>only applies</strong> to models with
 the <code class="docutils literal notranslate"><span class="pre">local/</span></code> prefix — it does not affect OpenAI, Anthropic, or other providers:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
-<span class="n">OPENAI_BASE_URL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:11434/v1&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"local/llama3.2:3b"</span>
+<span class="n">OPENAI_BASE_URL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://localhost:11434/v1"</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">models</span></code> section configures model selection preferences:</p>
@@ -851,13 +851,13 @@ the <code class="docutils literal notranslate"><span class="pre">local/</span></
 <p>You can create a <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> in the same directory (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/</span></code>) to override or extend values from <code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. This is useful for keeping secrets (API keys, MCP server credentials) separate from preferences you might commit to your dotfiles.</p>
 <p>Example <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
-<span class="n">OPENAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sk-...&quot;</span>
-<span class="n">ANTHROPIC_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sk-ant-...&quot;</span>
+<span class="n">OPENAI_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"sk-..."</span>
+<span class="n">ANTHROPIC_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"sk-ant-..."</span>
 
 <span class="c1"># Add secret env vars to an MCP server defined in config.toml</span>
 <span class="k">[[mcp.servers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-server&quot;</span>
-<span class="n">env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;secret-key&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"my-server"</span>
+<span class="n">env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">API_KEY</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">"secret-key"</span><span class="w"> </span><span class="p">}</span>
 </pre></div>
 </div>
 <p>Values in <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code> are merged into the main config: dictionary sections are merged recursively, and MCP servers are merged by name (so you can define the server command/args in <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> and add secrets in <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>). Scalar values in the local file override the main file.</p>
@@ -886,15 +886,15 @@ to a user’s file list.</p>
 <p>For additive instructions, use named fragments instead:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.runtime.toml, written by the deployment</span>
 <span class="k">[prompt.fragments]</span>
-<span class="n">deployment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;This environment provides an authenticated app preview.&quot;</span>
+<span class="n">deployment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"This environment provides an authenticated app preview."</span>
 </pre></div>
 </div>
 <p>Other keys in the user’s <code class="docutils literal notranslate"><span class="pre">[prompt.fragments]</span></code> coexist with that fragment.
 To override or disable just the deployment fragment, set the same key in
 <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> or <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[prompt.fragments]</span>
-<span class="n">deployment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="w">  </span><span class="c1"># Disable this fragment, without changing the runtime file</span>
-<span class="n">personal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Keep explanations concise.&quot;</span>
+<span class="n">deployment</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span><span class="w">  </span><span class="c1"># Disable this fragment, without changing the runtime file</span>
+<span class="n">personal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Keep explanations concise."</span>
 </pre></div>
 </div>
 <p>Fragment values must be strings; names must match
@@ -946,8 +946,8 @@ instructions already in a conversation.</p>
 </div>
 <p>gptme will look for a <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> file in the workspace root (this is the working directory if not overridden by the <code class="docutils literal notranslate"><span class="pre">--workspace</span></code> option). This file contains project-specific configuration options.</p>
 <p>Example <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;README.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Makefile&quot;</span><span class="p">]</span>
-<span class="n">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;This is gptme.&quot;</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"README.md"</span><span class="p">,</span><span class="w"> </span><span class="s2">"Makefile"</span><span class="p">]</span>
+<span class="n">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"This is gptme."</span>
 </pre></div>
 </div>
 <p>This file currently supports a few options:</p>
@@ -963,10 +963,10 @@ present, <code class="docutils literal notranslate"><span class="pre">files</spa
 nested inside it too. A top-level <code class="docutils literal notranslate"><span class="pre">files</span></code> alongside a <code class="docutils literal notranslate"><span class="pre">[prompt]</span></code> table is
 ignored with an “Unknown keys” warning.</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[prompt]</span>
-<span class="n">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;This is gptme.&quot;</span>
-<span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;README.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;docs/**/*.rst&quot;</span><span class="p">]</span>
-<span class="n">exclude</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;CHANGELOG.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;docs/releases/*&quot;</span><span class="p">]</span>
-<span class="n">system</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;short&quot;</span>
+<span class="n">prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"This is gptme."</span>
+<span class="n">files</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"README.md"</span><span class="p">,</span><span class="w"> </span><span class="s2">"docs/**/*.rst"</span><span class="p">]</span>
+<span class="n">exclude</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"CHANGELOG.md"</span><span class="p">,</span><span class="w"> </span><span class="s2">"docs/releases/*"</span><span class="p">]</span>
+<span class="n">system</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"short"</span>
 </pre></div>
 </div>
 </li>
@@ -982,8 +982,8 @@ lifecycle event returns. The initial event allowlist is <code class="docutils li
 <code class="docutils literal notranslate"><span class="pre">session.end</span></code>; events with structured inputs or control-flow results are not
 exposed through this shell adapter. Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[hooks.scripts]]</span>
-<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;session.end&quot;</span>
-<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;scripts/save-context.sh&quot;</span>
+<span class="n">event</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"session.end"</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"scripts/save-context.sh"</span>
 <span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
 <span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span>
 </pre></div>
@@ -1001,16 +1001,16 @@ repositories. See <a class="reference internal" href="security.html"><span class
 <li><p><code class="docutils literal notranslate"><span class="pre">rag</span></code>, a dictionary to configure the RAG tool. See <a class="reference internal" href="tools/rag.html#rag"><span class="std std-ref">RAG</span></a> for more information.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">plugins</span></code>, a dictionary to configure plugins for this project. See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for more information. Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
-<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;./plugins&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;~/.config/gptme/plugins&quot;</span><span class="p">]</span>
-<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my_project_plugin&quot;</span><span class="p">]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"./plugins"</span><span class="p">,</span><span class="w"> </span><span class="s2">"~/.config/gptme/plugins"</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"my_project_plugin"</span><span class="p">]</span>
 </pre></div>
 </div>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">agent</span></code>, a dictionary for agent-specific settings. This is primarily used by autonomous agents like gptme-bob. Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[agent]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Bob&quot;</span>
-<span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;assets/avatar.png&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (relative to workspace)</span>
-<span class="n">color</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;#e5a50a&quot;</span><span class="w">  </span><span class="c1"># Color for the agent&#39;s name in the CLI and TUI</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Bob"</span>
+<span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"assets/avatar.png"</span><span class="w">  </span><span class="c1"># Path to avatar image (relative to workspace)</span>
+<span class="n">color</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"#e5a50a"</span><span class="w">  </span><span class="c1"># Color for the agent's name in the CLI and TUI</span>
 </pre></div>
 </div>
 <p>Options:</p>
@@ -1024,7 +1024,7 @@ repositories. See <a class="reference internal" href="security.html"><span class
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code>, MCP server configuration for this project. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lessons</span></code>, extra lesson directories for this project. Relative paths are resolved against the directory gptme is started from (normally the workspace root). <code class="docutils literal notranslate"><span class="pre">~</span></code> is not expanded here, and missing directories are skipped silently. See <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> for the lesson format. Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[lessons]</span>
-<span class="n">dirs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;lessons&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;/opt/shared-lessons&quot;</span><span class="p">]</span>
+<span class="n">dirs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"lessons"</span><span class="p">,</span><span class="w"> </span><span class="s2">"/opt/shared-lessons"</span><span class="p">]</span>
 </pre></div>
 </div>
 </li>
@@ -1038,10 +1038,10 @@ repositories. See <a class="reference internal" href="security.html"><span class
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[context]</span>
 <span class="n">budget</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.85</span>
 <span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<span class="n">scout_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openai/gpt-4.1-mini&quot;</span>
+<span class="n">scout_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"openai/gpt-4.1-mini"</span>
 
 <span class="k">[context.selector]</span>
-<span class="n">strategy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;hybrid&quot;</span><span class="w">  </span><span class="c1"># &quot;rule&quot;, &quot;llm&quot; or &quot;hybrid&quot;</span>
+<span class="n">strategy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"hybrid"</span><span class="w">  </span><span class="c1"># "rule", "llm" or "hybrid"</span>
 <span class="n">max_candidates</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span>
 <span class="n">max_selected</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
 </pre></div>
@@ -1049,7 +1049,7 @@ repositories. See <a class="reference internal" href="security.html"><span class
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">plugin</span></code>, per-plugin configuration under <code class="docutils literal notranslate"><span class="pre">[plugin.&lt;name&gt;]</span></code> tables. gptme passes these through without validation; each plugin reads its own table from <code class="docutils literal notranslate"><span class="pre">config.project.plugin</span></code> (and <code class="docutils literal notranslate"><span class="pre">config.user.plugin</span></code> for the global config). Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugin.my_project_plugin]</span>
-<span class="n">api_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8080&quot;</span>
+<span class="n">api_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://localhost:8080"</span>
 </pre></div>
 </div>
 </li>
@@ -1082,8 +1082,8 @@ is a directory whose <code class="docutils literal notranslate"><span class="pre
 <code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code> usually defines that agent’s identity. Loading it because of a
 <code class="docutils literal notranslate"><span class="pre">cd</span></code> would hand the session another agent’s persona and rules. Instead, gptme
 adds a short notice, once per workspace:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Entered ~/alice, which is agent workspace &#39;Alice&#39;; its instructions were not
-loaded (it defines a different agent identity than this session&#39;s &#39;Bob&#39;). ...
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Entered ~/alice, which is agent workspace 'Alice'; its instructions were not
+loaded (it defines a different agent identity than this session's 'Bob'). ...
 </pre></div>
 </div>
 <p>The rule:</p>

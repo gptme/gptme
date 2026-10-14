@@ -661,7 +661,7 @@ running and hosting it; see <a class="reference internal" href="webui.html"><spa
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <p>To use gptme’s server capabilities, install with server extras:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[server]&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">'gptme[server]'</span>
 </pre></div>
 </div>
 <p>Start the server, then open <a class="reference external" href="http://localhost:5700">http://localhost:5700</a>:</p>
@@ -688,13 +688,13 @@ preview routes and interface.</p>
 <p>The following example assumes the webui and instance server share an origin
 and the instance is mounted at the origin root:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[prompt.fragments]</span>
-<span class="n">live_app_preview</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;&#39;&#39;</span>
+<span class="n">live_app_preview</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'''</span>
 <span class="s1">This deployment exposes authenticated live app previews in the webui.</span>
 <span class="s1">Bind development apps to 127.0.0.1 on ports 1024-65535 except 5700/5900.</span>
 <span class="s1">They are reachable at /preview/{port}/ relative to the instance server URL.</span>
 <span class="s1">Configure absolute asset paths and HMR for the public preview base, e.g.</span>
 <span class="s1">vite --host 127.0.0.1 --port 5173 --strictPort --base=/preview/5173/</span>
-<span class="s1">WebSockets are supported by this deployment&#39;s proxy transport.</span>
+<span class="s1">WebSockets are supported by this deployment's proxy transport.</span>
 <span class="s1">If noVNC is running on 6080, use the computer preview panel; its</span>
 <span class="s1">/preview/6080/vnc.html URL includes the proxied websockify path parameter.</span>
 <span class="s1">Verify the app is responding before describing it as running.</span>
@@ -702,20 +702,20 @@ and the instance is mounted at the origin root:</p>
 <span class="s1">the final expression (do not print JSON) to register a live_app panel:</span>
 <span class="s1">```ipython</span>
 <span class="s1">from gptme.message import Message</span>
-<span class="s1">Message(&quot;system&quot;, &quot;App preview ready.&quot;, metadata={&quot;panel_hints&quot;: [{</span>
-<span class="s1">    &quot;id&quot;: &quot;app-preview-5173&quot;,</span>
-<span class="s1">    &quot;kind&quot;: &quot;live_app&quot;,</span>
-<span class="s1">    &quot;title&quot;: &quot;App preview&quot;,</span>
-<span class="s1">    &quot;url&quot;: &quot;/preview/5173/&quot;,</span>
-<span class="s1">    &quot;status&quot;: &quot;running&quot;,</span>
-<span class="s1">    &quot;sandbox&quot;: [&quot;allow-scripts&quot;, &quot;allow-forms&quot;]</span>
+<span class="s1">Message("system", "App preview ready.", metadata={"panel_hints": [{</span>
+<span class="s1">    "id": "app-preview-5173",</span>
+<span class="s1">    "kind": "live_app",</span>
+<span class="s1">    "title": "App preview",</span>
+<span class="s1">    "url": "/preview/5173/",</span>
+<span class="s1">    "status": "running",</span>
+<span class="s1">    "sandbox": ["allow-scripts", "allow-forms"]</span>
 <span class="s1">}]})</span>
 <span class="s1">```</span>
 <span class="s1">Use a new ID for a new declaration; duplicate IDs do not update status.</span>
 <span class="s1">Tell the user to open/refresh the Panels sidebar. If Message passthrough</span>
 <span class="s1">or the webui is unavailable, give the preview link without claiming panel</span>
 <span class="s1">registration. Never disable sandboxing just to register a panel.</span>
-<span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">'''</span>
 </pre></div>
 </div>
 <p>The panel convention is <code class="docutils literal notranslate"><span class="pre">Message.metadata.panel_hints</span></code>; <code class="docutils literal notranslate"><span class="pre">live_app</span></code> entries
@@ -793,7 +793,7 @@ example below uses nginx with a Let’s Encrypt certificate.</p>
 port to loopback so only the proxy can reach it. In <code class="docutils literal notranslate"><span class="pre">.env</span></code> (or
 <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code>) set the publish address to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;127.0.0.1:5700:5700&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"127.0.0.1:5700:5700"</span>
 </pre></div>
 </div>
 <p>Also set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> to a strong value — the proxy handles TLS,
@@ -826,7 +826,7 @@ when nginx is already running).</p>
 <span class="w">    </span><span class="kn">ssl_certificate</span><span class="w">     </span><span class="s">/etc/letsencrypt/live/gptme.example.com/fullchain.pem</span><span class="p">;</span>
 <span class="w">    </span><span class="kn">ssl_certificate_key</span><span class="w"> </span><span class="s">/etc/letsencrypt/live/gptme.example.com/privkey.pem</span><span class="p">;</span>
 
-<span class="w">    </span><span class="c1"># Restrict to TLS 1.2/1.3 with strong ciphers (Mozilla &quot;intermediate&quot; profile)</span>
+<span class="w">    </span><span class="c1"># Restrict to TLS 1.2/1.3 with strong ciphers (Mozilla "intermediate" profile)</span>
 <span class="w">    </span><span class="kn">ssl_protocols</span><span class="w"> </span><span class="s">TLSv1.2</span><span class="w"> </span><span class="s">TLSv1.3</span><span class="p">;</span>
 <span class="w">    </span><span class="kn">ssl_ciphers</span><span class="w"> </span><span class="s">ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384</span><span class="p">;</span>
 <span class="w">    </span><span class="kn">ssl_prefer_server_ciphers</span><span class="w"> </span><span class="no">off</span><span class="p">;</span>
@@ -845,7 +845,7 @@ when nginx is already running).</p>
 <span class="w">        </span><span class="kn">proxy_buffering</span><span class="w">    </span><span class="no">off</span><span class="p">;</span>
 <span class="w">        </span><span class="kn">proxy_cache</span><span class="w">        </span><span class="no">off</span><span class="p">;</span>
 <span class="w">        </span><span class="kn">proxy_read_timeout</span><span class="w"> </span><span class="s">3600s</span><span class="p">;</span>
-<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w">   </span><span class="s">Connection</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w">   </span><span class="s">Connection</span><span class="w"> </span><span class="s">""</span><span class="p">;</span>
 <span class="w">        </span><span class="kn">proxy_http_version</span><span class="w"> </span><span class="mi">1</span><span class="s">.1</span><span class="p">;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
@@ -883,7 +883,7 @@ A ready-to-edit unit template ships at <a class="reference external" href="https
 (<code class="docutils literal notranslate"><span class="pre">ProtectSystem=strict</span></code>, <code class="docutils literal notranslate"><span class="pre">NoNewPrivileges</span></code>, etc.). Install it with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Dedicated service user + pipx install of the entrypoint</span>
 sudo<span class="w"> </span>useradd<span class="w"> </span>--system<span class="w"> </span>--create-home<span class="w"> </span>--shell<span class="w"> </span>/usr/sbin/nologin<span class="w"> </span>gptme
-sudo<span class="w"> </span>-u<span class="w"> </span>gptme<span class="w"> </span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[server]&#39;</span>
+sudo<span class="w"> </span>-u<span class="w"> </span>gptme<span class="w"> </span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">'gptme[server]'</span>
 
 <span class="c1"># Pre-create config/data dirs (required: ProtectHome=read-only only bind-mounts</span>
 <span class="c1"># paths that already exist; gptme initialises them at import time, which fails</span>

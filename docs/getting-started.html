@@ -708,21 +708,21 @@ free quota metadata, doctor warns when that quota is exhausted. Piped and
 <h2>Quick Examples<a class="headerlink" href="#quick-examples" title="Link to this heading">#</a></h2>
 <p>Here are some compelling examples to get you started:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Create applications and games</span>
-gptme<span class="w"> </span><span class="s1">&#39;write a web app to particles.html which shows off an impressive and colorful particle effect using three.js&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;create a performant n-body simulation in rust&#39;</span>
+gptme<span class="w"> </span><span class="s1">'write a web app to particles.html which shows off an impressive and colorful particle effect using three.js'</span>
+gptme<span class="w"> </span><span class="s1">'create a performant n-body simulation in rust'</span>
 
 <span class="c1"># Work with files and code</span>
-gptme<span class="w"> </span><span class="s1">&#39;summarize this&#39;</span><span class="w"> </span>README.md
-gptme<span class="w"> </span><span class="s1">&#39;refactor this&#39;</span><span class="w"> </span>main.py
-gptme<span class="w"> </span><span class="s1">&#39;what do you see?&#39;</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
+gptme<span class="w"> </span><span class="s1">'summarize this'</span><span class="w"> </span>README.md
+gptme<span class="w"> </span><span class="s1">'refactor this'</span><span class="w"> </span>main.py
+gptme<span class="w"> </span><span class="s1">'what do you see?'</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
 
 <span class="c1"># Development workflows</span>
-git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;commit&#39;</span>
-make<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix the failing tests&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;implement this&#39;</span><span class="w"> </span>https://github.com/gptme/gptme/issues/286
+git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'commit'</span>
+make<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'fix the failing tests'</span>
+gptme<span class="w"> </span><span class="s1">'implement this'</span><span class="w"> </span>https://github.com/gptme/gptme/issues/286
 
 <span class="c1"># Chain multiple tasks</span>
-gptme<span class="w"> </span><span class="s1">&#39;make a change&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;test it&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit it&#39;</span>
+gptme<span class="w"> </span><span class="s1">'make a change'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'test it'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'commit it'</span>
 
 <span class="c1"># Resume conversations</span>
 gptme<span class="w"> </span>-r
@@ -759,13 +759,13 @@ ollama<span class="w"> </span>serve<span class="w">  </span><span class="c1"># r
 gptme<span class="w"> </span>providers<span class="w"> </span>list
 
 <span class="c1"># Use with gptme (OPENAI_BASE_URL is required by the local provider)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
+<span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://127.0.0.1:11434/v1"</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b
 </pre></div>
 </div>
 <p>For better results on coding tasks, use a larger model:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>pull<span class="w"> </span>llama3.1:8b
-<span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://127.0.0.1:11434/v1"</span>
 gptme<span class="w"> </span>-m<span class="w"> </span>local/llama3.1:8b
 </pre></div>
 </div>
@@ -793,10 +793,10 @@ On an already configured installation, you can instead run
 <code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">openrouter</span></code> inside a session.</p>
 <p>Then use the default free router:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># OpenRouter model id is openrouter/free</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/openrouter/free
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/openrouter/free
 
 <span class="c1"># Pin a currently listed free model (catalog rotates)</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/cohere/north-mini-code:free
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/cohere/north-mini-code:free
 </pre></div>
 </div>
 <p>The doubled <code class="docutils literal notranslate"><span class="pre">openrouter/openrouter/free</span></code> is intentional: gptme’s
@@ -813,14 +813,14 @@ same probe). Retry, pick another listed model, or add your own provider key at
 inference. Current catalog: <a class="reference external" href="https://openrouter.ai/models?max_price=0">https://openrouter.ai/models?max_price=0</a></p>
 <p><strong>Google Gemini</strong> (generous free quota, 1 M token context)</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get a free API key at https://aistudio.google.com/apikey (no credit card)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
+<span class="nb">export</span><span class="w"> </span><span class="nv">GEMINI_API_KEY</span><span class="o">=</span><span class="s2">"your-key"</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
 </pre></div>
 </div>
 <p><strong>Groq</strong> (fast inference, free tier)</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get a free API key at https://console.groq.com (no credit card)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+<span class="nb">export</span><span class="w"> </span><span class="nv">GROQ_API_KEY</span><span class="o">=</span><span class="s2">"your-key"</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 </pre></div>
 </div>
 <div class="admonition tip">

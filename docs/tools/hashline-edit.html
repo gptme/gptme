@@ -723,12 +723,12 @@ Re-read the file with ``read`` to get a new tag and restate your operations.
 ``class``, ``if``, ``for``, ``while``, or ``try`` line and the system finds the
 closing line for you, including any ``elif``/``else``/``except``/``finally``
 clauses attached to that same statement.  Use it instead of ``PUT N.=M:`` when
-you want to replace an entire function/block and don&#39;t want to count lines by
+you want to replace an entire function/block and don't want to count lines by
 hand.
 
 Point N at the actual header line (e.g. the ``def`` line, not a decorator or a
-comment above it) — the block is resolved from that line&#39;s indentation.
-Constructs the heuristic can&#39;t reliably reproduce: blocks that mix tabs and
+comment above it) — the block is resolved from that line's indentation.
+Constructs the heuristic can't reliably reproduce: blocks that mix tabs and
 spaces, or a header followed by a same-indentation line that is <span class="ge">*not*</span> a
 continuation clause (e.g. a one-line ``if x: y`` body) — for those, fall back to
 ``PUT N.=M:`` with an explicit line range.
@@ -750,7 +750,7 @@ shown by ``read``.
 <span class="sb">```</span>
 <span class="sb">[greet.py#A1B2C3D4]</span>
 <span class="sb">PUT 2.=3:</span>
-<span class="sb">+    print(f&quot;Hi, {name}&quot;)</span>
+<span class="sb">+    print(f"Hi, {name}")</span>
 <span class="sb">CUT 4.=4</span>
 <span class="sb">PUT &gt;5:</span>
 <span class="sb">+    return name</span>

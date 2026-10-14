@@ -674,13 +674,13 @@ and scheduling strategies.</p>
 <h2>Non-Interactive Mode<a class="headerlink" href="#non-interactive-mode" title="Link to this heading">#</a></h2>
 <p>The simplest way to automate gptme is with the <code class="docutils literal notranslate"><span class="pre">-n</span></code>/<code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> flag,
 which runs a prompt non-interactively and exits:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;summarize this&quot;</span><span class="w"> </span>README.md
-gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;what bugs can you spot?&quot;</span><span class="w"> </span>src/main.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"summarize this"</span><span class="w"> </span>README.md
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"what bugs can you spot?"</span><span class="w"> </span>src/main.py
 </pre></div>
 </div>
 <p>For longer tasks that involve multiple files or steps, chain prompts with <code class="docutils literal notranslate"><span class="pre">-</span></code>
 separators (each <code class="docutils literal notranslate"><span class="pre">-</span></code> starts a new turn that triggers another assistant response):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;read the failing test&quot;</span><span class="w"> </span>-<span class="w"> </span><span class="s2">&quot;fix the implementation&quot;</span><span class="w"> </span>-<span class="w"> </span><span class="s2">&quot;run the tests&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"read the failing test"</span><span class="w"> </span>-<span class="w"> </span><span class="s2">"fix the implementation"</span><span class="w"> </span>-<span class="w"> </span><span class="s2">"run the tests"</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -693,19 +693,19 @@ omit <code class="docutils literal notranslate"><span class="pre">-n</span></cod
 <h3>Capturing Output<a class="headerlink" href="#capturing-output" title="Link to this heading">#</a></h3>
 <p>gptme’s non-interactive mode writes assistant responses to stdout:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Save the output to a file</span>
-gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;summarize this codebase in 3 bullet points&quot;</span><span class="w"> </span>README.md<span class="w"> </span>&gt;<span class="w"> </span>summary.txt
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"summarize this codebase in 3 bullet points"</span><span class="w"> </span>README.md<span class="w"> </span>&gt;<span class="w"> </span>summary.txt
 
 <span class="c1"># Use in a pipeline (mapfile avoids word-splitting on paths with spaces)</span>
-mapfile<span class="w"> </span>-t<span class="w"> </span>pyfiles<span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>find<span class="w"> </span>.<span class="w"> </span>-name<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="o">)</span>
-gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;extract all TODO comments&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">pyfiles</span><span class="p">[@]</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>todos.txt
+mapfile<span class="w"> </span>-t<span class="w"> </span>pyfiles<span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>find<span class="w"> </span>.<span class="w"> </span>-name<span class="w"> </span><span class="s2">"*.py"</span><span class="o">)</span>
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"extract all TODO comments"</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">pyfiles</span><span class="p">[@]</span><span class="si">}</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>todos.txt
 
 <span class="c1"># Exit code reflects success (0) or failure (non-zero)</span>
-<span class="k">if</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;run the tests and report pass/fail&quot;</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Tests passed&quot;</span>
+<span class="k">if</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"run the tests and report pass/fail"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Tests passed"</span>
 <span class="k">fi</span>
 
 <span class="c1"># --output-format json gives structured output (one JSON object per message)</span>
-gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;check the logs&quot;</span><span class="w"> </span>app.log<span class="w"> </span>--output-format<span class="w"> </span>json
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"check the logs"</span><span class="w"> </span>app.log<span class="w"> </span>--output-format<span class="w"> </span>json
 </pre></div>
 </div>
 </section>
@@ -748,9 +748,9 @@ requests, see the <a class="reference internal" href="bot.html"><span class="doc
 <span class="w">          </span><span class="nt">GH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
 <span class="w">          </span><span class="no">diff=$(gh pr diff ${{ github.event.pull_request.number }})</span>
-<span class="w">          </span><span class="no">review=$(echo &quot;$diff&quot; | gptme -n &quot;Review this PR diff for bugs, code quality issues, and security concerns. Be concise.&quot;)</span>
-<span class="w">          </span><span class="no">body=&quot;## AI Code Review&quot;$&#39;\n&#39;&quot;$review&quot;$&#39;\n&#39;&quot;*Generated by gptme*&quot;</span>
-<span class="w">          </span><span class="no">gh pr comment ${{ github.event.pull_request.number }} --body &quot;$body&quot;</span>
+<span class="w">          </span><span class="no">review=$(echo "$diff" | gptme -n "Review this PR diff for bugs, code quality issues, and security concerns. Be concise.")</span>
+<span class="w">          </span><span class="no">body="## AI Code Review"$'\n'"$review"$'\n'"*Generated by gptme*"</span>
+<span class="w">          </span><span class="no">gh pr comment ${{ github.event.pull_request.number }} --body "$body"</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -767,17 +767,17 @@ Never hard-code keys in workflow files.</p>
 <span class="nb">set</span><span class="w"> </span>-e
 
 <span class="c1"># Only run on staged Python files</span>
-mapfile<span class="w"> </span>-t<span class="w"> </span>staged<span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>git<span class="w"> </span>diff<span class="w"> </span>--cached<span class="w"> </span>--name-only<span class="w"> </span>--diff-filter<span class="o">=</span>ACM<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;\.py$&#39;</span><span class="o">)</span>
+mapfile<span class="w"> </span>-t<span class="w"> </span>staged<span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>git<span class="w"> </span>diff<span class="w"> </span>--cached<span class="w"> </span>--name-only<span class="w"> </span>--diff-filter<span class="o">=</span>ACM<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">'\.py$'</span><span class="o">)</span>
 <span class="o">[</span><span class="w"> </span><span class="si">${#</span><span class="nv">staged</span><span class="p">[@]</span><span class="si">}</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">0</span>
 
-<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Running AI review on staged files...&quot;</span>
-<span class="nv">issues</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;List any bugs or serious issues in these files. Output nothing if clean.&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">staged</span><span class="p">[@]</span><span class="si">}</span><span class="s2">&quot;</span><span class="k">)</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"Running AI review on staged files..."</span>
+<span class="nv">issues</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"List any bugs or serious issues in these files. Output nothing if clean."</span><span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">staged</span><span class="p">[@]</span><span class="si">}</span><span class="s2">"</span><span class="k">)</span>
 
-<span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$issues</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;⚠️  Potential issues found:&quot;</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$issues</span><span class="s2">&quot;</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Review and fix before committing, or use git commit --no-verify to skip.&quot;</span>
+<span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="nv">$issues</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"⚠️  Potential issues found:"</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$issues</span><span class="s2">"</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">""</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Review and fix before committing, or use git commit --no-verify to skip."</span>
 <span class="w">    </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 <span class="k">fi</span>
 </pre></div>
@@ -794,14 +794,14 @@ feature, runs tests, and creates a pull request:</p>
 <span class="nb">set</span><span class="w"> </span>-e
 
 <span class="nv">issue_url</span><span class="o">=</span><span class="nv">$1</span>
-<span class="nv">issue_number</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$issue_url</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-oE<span class="w"> </span><span class="s1">&#39;[0-9]+$&#39;</span><span class="k">)</span>
+<span class="nv">issue_number</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$issue_url</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-oE<span class="w"> </span><span class="s1">'[0-9]+$'</span><span class="k">)</span>
 
-gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;Read this GitHub issue: </span><span class="nv">$issue_url</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Create a new branch called fix/issue-</span><span class="nv">$issue_number</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Look up the relevant source files for this issue&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Implement the fix described in the issue&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Run the tests to make sure nothing is broken&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Create a pull request that closes issue #</span><span class="nv">$issue_number</span><span class="s2">&quot;</span>
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"Read this GitHub issue: </span><span class="nv">$issue_url</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">"Create a new branch called fix/issue-</span><span class="nv">$issue_number</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">"Look up the relevant source files for this issue"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">"Implement the fix described in the issue"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">"Run the tests to make sure nothing is broken"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">"Create a pull request that closes issue #</span><span class="nv">$issue_number</span><span class="s2">"</span>
 </pre></div>
 </div>
 <p class="rubric">Example: Automated Code Review</p>
@@ -818,7 +818,7 @@ gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;Re
 <span class="nv">diff</span><span class="o">=</span><span class="k">$(</span>gh<span class="w"> </span>pr<span class="w"> </span>view<span class="w"> </span><span class="nv">$pr_number</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$repo</span><span class="w"> </span>--json<span class="w"> </span>diffUrl<span class="w"> </span>-q<span class="w"> </span>.diffUrl<span class="w"> </span><span class="p">|</span><span class="w"> </span>xargs<span class="w"> </span>curl<span class="w"> </span>-s<span class="k">)</span>
 
 <span class="c1"># Generate review using gptme</span>
-<span class="nv">review</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">&quot;Review this pull request diff and provide constructive feedback:</span>
+<span class="nv">review</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">"Review this pull request diff and provide constructive feedback:</span>
 <span class="s2">1. Identify potential bugs or issues.</span>
 <span class="s2">2. Suggest improvements for code quality and readability.</span>
 <span class="s2">3. Check for adherence to best practices.</span>
@@ -827,14 +827,14 @@ gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;Re
 <span class="s2">Pull Request Diff:</span>
 <span class="nv">$diff</span>
 
-<span class="s2">Format your review as a markdown list with clear, concise points.&quot;</span><span class="k">)</span>
+<span class="s2">Format your review as a markdown list with clear, concise points."</span><span class="k">)</span>
 
 <span class="c1"># Post review comment</span>
-gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </span><span class="nv">$pr_number</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$repo</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;## Automated Code Review</span>
+gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </span><span class="nv">$pr_number</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$repo</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">"## Automated Code Review</span>
 
 <span class="nv">$review</span>
 
-<span class="s2">*This review was generated automatically by gptme.*&quot;</span>
+<span class="s2">*This review was generated automatically by gptme.*"</span>
 </pre></div>
 </div>
 </li>
@@ -857,7 +857,7 @@ gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </sp
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install gptme and GitHub CLI</span>
 <span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
 <span class="w">          </span><span class="no">pip install gptme</span>
-<span class="w">          </span><span class="no">gh auth login --with-token &lt;&lt;&lt; &quot;${{ secrets.GITHUB_TOKEN }}&quot;</span>
+<span class="w">          </span><span class="no">gh auth login --with-token &lt;&lt;&lt; "${{ secrets.GITHUB_TOKEN }}"</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Run code review</span>
 <span class="w">        </span><span class="nt">env</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">GITHUB_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
@@ -893,15 +893,15 @@ gh<span class="w"> </span>pr<span class="w"> </span>comment<span class="w"> </sp
 <p>Here’s an example of how to use gptme to generate a daily summary based on ActivityWatch data using a shell script:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
 
-<span class="c1"># Function to get yesterday&#39;s date in YYYY-MM-DD format</span>
+<span class="c1"># Function to get yesterday's date in YYYY-MM-DD format</span>
 get_yesterday<span class="o">()</span><span class="w"> </span><span class="o">{</span>
-<span class="w">    </span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;yesterday&quot;</span><span class="w"> </span>+%Y-%m-%d
+<span class="w">    </span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">"yesterday"</span><span class="w"> </span>+%Y-%m-%d
 <span class="o">}</span>
 
 <span class="c1"># Function to get ActivityWatch report</span>
 get_aw_report<span class="o">()</span><span class="w"> </span><span class="o">{</span>
 <span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">date</span><span class="o">=</span><span class="nv">$1</span>
-<span class="w">    </span>aw-client<span class="w"> </span>report<span class="w"> </span><span class="k">$(</span>hostname<span class="k">)</span><span class="w"> </span>--start<span class="w"> </span><span class="nv">$date</span><span class="w"> </span>--stop<span class="w"> </span><span class="k">$(</span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$date</span><span class="s2"> + 1 day&quot;</span><span class="w"> </span>+%Y-%m-%d<span class="k">)</span>
+<span class="w">    </span>aw-client<span class="w"> </span>report<span class="w"> </span><span class="k">$(</span>hostname<span class="k">)</span><span class="w"> </span>--start<span class="w"> </span><span class="nv">$date</span><span class="w"> </span>--stop<span class="w"> </span><span class="k">$(</span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">"</span><span class="nv">$date</span><span class="s2"> + 1 day"</span><span class="w"> </span>+%Y-%m-%d<span class="k">)</span>
 <span class="o">}</span>
 
 <span class="c1"># Generate daily summary</span>
@@ -913,7 +913,7 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
 <span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">summary_file</span><span class="o">=</span><span class="k">$(</span>mktemp<span class="k">)</span>
 
 <span class="w">    </span><span class="c1"># Generate summary using gptme</span>
-<span class="w">    </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">&quot;Based on the following ActivityWatch report for </span><span class="nv">$yesterday</span><span class="s2">, provide a concise summary of yesterday&#39;s activities.</span>
+<span class="w">    </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">"Based on the following ActivityWatch report for </span><span class="nv">$yesterday</span><span class="s2">, provide a concise summary of yesterday's activities.</span>
 <span class="s2">    Include insights on productivity, time spent on different categories, and any notable patterns.</span>
 <span class="s2">    Suggest areas for improvement if applicable.</span>
 
@@ -921,17 +921,17 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
 <span class="s2">    </span><span class="nv">$aw_report</span>
 
 <span class="s2">    Please format the summary in a clear, easy-to-read structure.</span>
-<span class="s2">    Save the summary to this file: </span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="s2">    Save the summary to this file: </span><span class="nv">$summary_file</span><span class="s2">"</span>
 
 <span class="w">    </span><span class="c1"># Return the path to the summary file</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$summary_file</span><span class="s2">"</span>
 <span class="o">}</span>
 
 <span class="c1"># Run the summary generation and get the file path</span>
 <span class="nv">summary_file</span><span class="o">=</span><span class="k">$(</span>generate_daily_summary<span class="k">)</span>
 
 <span class="c1"># Output the file path (you can use this in other scripts or log it)</span>
-<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Daily summary saved to: </span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"Daily summary saved to: </span><span class="nv">$summary_file</span><span class="s2">"</span>
 </pre></div>
 </div>
 <p>To automate this process to run every day at 8 AM, you could set up a cron job. Here’s an example cron entry:</p>
@@ -949,10 +949,10 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
 crontab<span class="w"> </span>-e
 
 <span class="c1"># Run a daily summary every day at 8 AM</span>
-<span class="m">0</span><span class="w"> </span><span class="m">8</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/path/to/project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;summarize yesterday&#39;s git activity and open issues&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme-daily.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
+<span class="m">0</span><span class="w"> </span><span class="m">8</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/path/to/project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"summarize yesterday's git activity and open issues"</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme-daily.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
 
 <span class="c1"># Weekly dependency audit every Monday at 9 AM</span>
-<span class="m">0</span><span class="w"> </span><span class="m">9</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/path/to/project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;check for outdated dependencies and security advisories. Output a summary.&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme-weekly.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
+<span class="m">0</span><span class="w"> </span><span class="m">9</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/path/to/project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"check for outdated dependencies and security advisories. Output a summary."</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme-weekly.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
 </pre></div>
 </div>
 </section>
@@ -967,7 +967,7 @@ crontab<span class="w"> </span>-e
 <span class="na">Type</span><span class="o">=</span><span class="s">oneshot</span>
 <span class="na">WorkingDirectory</span><span class="o">=</span><span class="s">%h/myproject</span>
 <span class="na">Environment</span><span class="o">=</span><span class="s">ANTHROPIC_API_KEY=&lt;your-key&gt;</span>
-<span class="na">ExecStart</span><span class="o">=</span><span class="s">gptme -n &quot;summarize today&#39;s commits and open issues&quot;</span>
+<span class="na">ExecStart</span><span class="o">=</span><span class="s">gptme -n "summarize today's commits and open issues"</span>
 <span class="na">StandardOutput</span><span class="o">=</span><span class="s">append:%h/logs/gptme-daily.log</span>
 </pre></div>
 </div>
@@ -1001,22 +1001,22 @@ crontab<span class="w"> </span>-e
 
 <span class="k">while</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="nv">$attempt</span><span class="w"> </span>-lt<span class="w"> </span><span class="nv">$MAX_ATTEMPTS</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
 <span class="w">    </span><span class="nv">attempt</span><span class="o">=</span><span class="k">$((</span><span class="nv">attempt</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="m">1</span><span class="k">))</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Attempt </span><span class="nv">$attempt</span><span class="s2">/</span><span class="nv">$MAX_ATTEMPTS</span><span class="s2">&quot;</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Attempt </span><span class="nv">$attempt</span><span class="s2">/</span><span class="nv">$MAX_ATTEMPTS</span><span class="s2">"</span>
 
 <span class="w">    </span><span class="c1"># Run tests, capture failures</span>
 <span class="w">    </span><span class="nv">test_output</span><span class="o">=</span><span class="k">$(</span>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>--tb<span class="o">=</span>short<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span><span class="k">)</span>
 
 <span class="w">    </span><span class="c1"># Check if tests passed</span>
-<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$test_output</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;passed&quot;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>!<span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$test_output</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;failed&quot;</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
-<span class="w">        </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;✅ All tests pass&quot;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$test_output</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">"passed"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>!<span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$test_output</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">"failed"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">        </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"✅ All tests pass"</span>
 <span class="w">        </span><span class="nb">exit</span><span class="w"> </span><span class="m">0</span>
 <span class="w">    </span><span class="k">fi</span>
 
 <span class="w">    </span><span class="c1"># Let gptme diagnose and fix (|| true prevents set -e from aborting the loop on gptme failure)</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$test_output</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;These tests are failing. Diagnose the root cause and fix it.&quot;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$test_output</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"These tests are failing. Diagnose the root cause and fix it."</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
 <span class="k">done</span>
 
-<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;❌ Could not fix tests after </span><span class="nv">$MAX_ATTEMPTS</span><span class="s2"> attempts&quot;</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"❌ Could not fix tests after </span><span class="nv">$MAX_ATTEMPTS</span><span class="s2"> attempts"</span>
 <span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 </pre></div>
 </div>
@@ -1029,8 +1029,8 @@ crontab<span class="w"> </span>-e
 
 <span class="c1"># Run gptme non-interactively and capture structured output</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
-    <span class="p">[</span><span class="s2">&quot;gptme&quot;</span><span class="p">,</span> <span class="s2">&quot;-n&quot;</span><span class="p">,</span> <span class="s2">&quot;--output-format&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">,</span>
-     <span class="s2">&quot;List the files in the current directory&quot;</span><span class="p">],</span>
+    <span class="p">[</span><span class="s2">"gptme"</span><span class="p">,</span> <span class="s2">"-n"</span><span class="p">,</span> <span class="s2">"--output-format"</span><span class="p">,</span> <span class="s2">"json"</span><span class="p">,</span>
+     <span class="s2">"List the files in the current directory"</span><span class="p">],</span>
     <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
     <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
@@ -1038,8 +1038,8 @@ crontab<span class="w"> </span>-e
     <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
         <span class="k">continue</span>
     <span class="n">msg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;assistant&quot;</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;content&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"role"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"assistant"</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"content"</span><span class="p">,</span> <span class="s2">""</span><span class="p">))</span>
 </pre></div>
 </div>
 <p>See the <a class="reference internal" href="api.html"><span class="doc">API Reference</span></a> reference for the full Python interface.</p>
@@ -1071,10 +1071,10 @@ git<span class="w"> </span>worktree<span class="w"> </span>add<span class="w"> <
 
 <span class="c1"># 2. Let gptme work autonomously — no confirmations needed</span>
 gptme<span class="w"> </span>-n<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;Read the issue at https://github.com/myorg/myrepo/issues/42&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-<span class="w"> </span><span class="s2">&quot;Implement the requested feature&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-<span class="w"> </span><span class="s2">&quot;Run the tests and fix any failures&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-<span class="w"> </span><span class="s2">&quot;Summarize what you changed&quot;</span>
+<span class="w">  </span><span class="s2">"Read the issue at https://github.com/myorg/myrepo/issues/42"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s2">"Implement the requested feature"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s2">"Run the tests and fix any failures"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-<span class="w"> </span><span class="s2">"Summarize what you changed"</span>
 
 <span class="c1"># 3. Review every change, including newly created files</span>
 git<span class="w"> </span>status<span class="w"> </span>--short
@@ -1085,13 +1085,13 @@ git<span class="w"> </span>add<span class="w"> </span>path/to/changed-file<span 
 git<span class="w"> </span>diff<span class="w"> </span>--cached<span class="w"> </span>origin/master
 
 <span class="c1"># 4. Commit exactly what you reviewed</span>
-git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: implement issue #42&quot;</span>
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">"feat: implement issue #42"</span>
 
 <span class="c1"># 5. Push to a branch (never directly to master)</span>
 git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>feat/my-task
 
 <span class="c1"># 6. Open a PR — CI runs, human reviews, then merges</span>
-gh<span class="w"> </span>pr<span class="w"> </span>create<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;feat: implement issue #42&quot;</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;Closes #42&quot;</span>
+gh<span class="w"> </span>pr<span class="w"> </span>create<span class="w"> </span>--title<span class="w"> </span><span class="s2">"feat: implement issue #42"</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">"Closes #42"</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -1159,12 +1159,12 @@ Instead of “fix issues”, try “fix the type error in <code class="docutils 
 pass <code class="docutils literal notranslate"><span class="pre">-n</span></code> to ensure non-interactive mode is always active.</p>
 <p><strong>Limit tool access</strong>: Use <code class="docutils literal notranslate"><span class="pre">TOOL_ALLOWLIST</span></code> to restrict which tools
 gptme can use in automated contexts:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TOOL_ALLOWLIST</span><span class="o">=</span>read,shell<span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;audit the codebase for security issues&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TOOL_ALLOWLIST</span><span class="o">=</span>read,shell<span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"audit the codebase for security issues"</span>
 </pre></div>
 </div>
 <p><strong>Log everything</strong>: Redirect stdout and stderr to log files so you
 can review what gptme did:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;task&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">"task"</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
 </pre></div>
 </div>
 <p><strong>Test your prompts interactively first</strong>: Run the prompt interactively

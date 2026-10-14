@@ -801,7 +801,7 @@ user); the nearest entry wins when names collide.</p>
 <span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>list
 <span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>show<span class="w"> </span>prefer-short-answers
 <span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>prefer-short-answers<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span><span class="s2">&quot;User prefers short, direct answers.&quot;</span><span class="w"> </span>--type<span class="w"> </span>feedback<span class="w"> </span>&lt;<span class="w"> </span>details.md
+<span class="w">    </span><span class="s2">"User prefers short, direct answers."</span><span class="w"> </span>--type<span class="w"> </span>feedback<span class="w"> </span>&lt;<span class="w"> </span>details.md
 <span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>index
 </pre></div>
 </div>
@@ -814,9 +814,9 @@ selected root’s <code class="docutils literal notranslate"><span class="pre">M
 living entries from recall. To opt in, create <code class="docutils literal notranslate"><span class="pre">.memory-index.json</span></code> inside
 that memory directory:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;budget&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">21000</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;selected&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;prefer-short-answers.md&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;review-policy.md&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"budget"</span><span class="p">:</span><span class="w"> </span><span class="mi">21000</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"selected"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"prefer-short-answers.md"</span><span class="p">,</span><span class="w"> </span><span class="s2">"review-policy.md"</span><span class="p">]</span>
 <span class="p">}</span>
 </pre></div>
 </div>
@@ -871,8 +871,8 @@ entries, duplicate names, dangling targets, or asymmetric links, making
 <section id="recall">
 <h3>Recall<a class="headerlink" href="#recall" title="Link to this heading">#</a></h3>
 <p>Recall searches all living entries across the layered roots:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">&quot;How should private code be reviewed?&quot;</span><span class="w"> </span>-k<span class="w"> </span><span class="m">3</span>
-<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">&quot;exact identifier&quot;</span><span class="w"> </span>--format<span class="w"> </span>json
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">"How should private code be reviewed?"</span><span class="w"> </span>-k<span class="w"> </span><span class="m">3</span>
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">"exact identifier"</span><span class="w"> </span>--format<span class="w"> </span>json
 </pre></div>
 </div>
 <p>With <code class="docutils literal notranslate"><span class="pre">gptme-rag</span></code> and its <code class="docutils literal notranslate"><span class="pre">lexical</span></code> extra installed, <code class="docutils literal notranslate"><span class="pre">--backend</span> <span class="pre">auto</span></code> uses
@@ -886,9 +886,9 @@ token-overlap scorer. Output always reports the backend that actually ran; use
 substring matching rather than relevance ranking.  It filters living entries
 whose name, description, or body contains the given pattern
 (case-insensitive):</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;deploy&quot;</span>
-<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;auth&quot;</span><span class="w"> </span>--type<span class="w"> </span>project
-<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;review&quot;</span><span class="w"> </span>--json
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">"deploy"</span>
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">"auth"</span><span class="w"> </span>--type<span class="w"> </span>project
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>search<span class="w"> </span><span class="s2">"review"</span><span class="w"> </span>--json
 </pre></div>
 </div>
 <p>Use <code class="docutils literal notranslate"><span class="pre">recall</span></code> when you have a natural-language query and want the best few
@@ -923,8 +923,8 @@ distinctive phrases and lesson-style wildcards (<code class="docutils literal no
 descriptions, and bodies never trigger, so a memory named <code class="docutils literal notranslate"><span class="pre">release-rule</span></code> will
 stay silent until you give it keywords. Skip keywords on ambient facts that
 already belong in the index.</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>release-rule<span class="w"> </span><span class="s2">&quot;Verify releases before declaring done&quot;</span><span class="w"> </span>--keyword<span class="w"> </span><span class="s2">&quot;stable release&quot;</span><span class="w"> </span>--keyword<span class="w"> </span><span class="s2">&quot;deploy*&quot;</span><span class="w"> </span>&lt;<span class="w"> </span>rule.md
-<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>match<span class="w"> </span><span class="s2">&quot;Cut the stable release&quot;</span><span class="w"> </span>--format<span class="w"> </span>json
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>release-rule<span class="w"> </span><span class="s2">"Verify releases before declaring done"</span><span class="w"> </span>--keyword<span class="w"> </span><span class="s2">"stable release"</span><span class="w"> </span>--keyword<span class="w"> </span><span class="s2">"deploy*"</span><span class="w"> </span>&lt;<span class="w"> </span>rule.md
+<span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>match<span class="w"> </span><span class="s2">"Cut the stable release"</span><span class="w"> </span>--format<span class="w"> </span>json
 </pre></div>
 </div>
 <p>Repeated <code class="docutils literal notranslate"><span class="pre">--keyword</span></code> options replace the entry’s phrases; omit the option to
@@ -957,25 +957,25 @@ matching keyword scores one point. Equal scores keep name order.</p>
 <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>. It reads Claude Code’s JSON event from stdin and
 returns a valid <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> response:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;UserPromptSubmit&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">"hooks"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">"UserPromptSubmit"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">      </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="nt">"hooks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">          </span><span class="p">{</span>
-<span class="w">            </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-util memory recall --prompt - --format hook-json&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+<span class="w">            </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"command"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gptme-util memory recall --prompt - --format hook-json"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"timeout"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
 <span class="w">          </span><span class="p">}</span>
 <span class="w">        </span><span class="p">]</span>
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;PreToolUse&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="nt">"PreToolUse"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">      </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="nt">"hooks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">          </span><span class="p">{</span>
-<span class="w">            </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;command&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-util memory match --prompt - --format hook-json&quot;</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">&quot;timeout&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+<span class="w">            </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"command"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gptme-util memory match --prompt - --format hook-json"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"timeout"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
 <span class="w">          </span><span class="p">}</span>
 <span class="w">        </span><span class="p">]</span>
 <span class="w">      </span><span class="p">}</span>
@@ -996,11 +996,11 @@ workspace uses an isolated environment, call its absolute <code class="docutils 
 sessions.</p>
 <p>The two key patterns for Codex agents:</p>
 <p><strong>Recall at session start</strong> — surface memories relevant to the current task:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">&quot;&lt;one-line task description&gt;&quot;</span><span class="w"> </span>-k<span class="w"> </span><span class="m">5</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>memory<span class="w"> </span>recall<span class="w"> </span><span class="s2">"&lt;one-line task description&gt;"</span><span class="w"> </span>-k<span class="w"> </span><span class="m">5</span>
 </pre></div>
 </div>
 <p><strong>Save a memory</strong> — persist something worth keeping across sessions:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>&lt;slug&gt;<span class="w"> </span><span class="s2">&quot;&lt;one-line description&gt;&quot;</span><span class="w"> </span>--type<span class="w"> </span>&lt;type&gt;<span class="w"> </span><span class="s">&lt;&lt;&#39;EOF&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>memory<span class="w"> </span>save<span class="w"> </span>&lt;slug&gt;<span class="w"> </span><span class="s2">"&lt;one-line description&gt;"</span><span class="w"> </span>--type<span class="w"> </span>&lt;type&gt;<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
 <span class="s">&lt;body&gt;</span>
 <span class="s">EOF</span>
 </pre></div>
@@ -1022,8 +1022,8 @@ recall.</p>
 <section id="writer-provenance">
 <h3>Writer provenance<a class="headerlink" href="#writer-provenance" title="Link to this heading">#</a></h3>
 <p>Harness wrappers can preserve their session identity through the shared writer:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">util</span> <span class="n">memory</span> <span class="n">save</span> <span class="n">decision</span> <span class="s2">&quot;Reviewed decision&quot;</span> <span class="o">--</span><span class="nb">type</span> <span class="n">reference</span> \
-  <span class="o">--</span><span class="n">metadata</span> <span class="s1">&#39;{&quot;originSessionId&quot;:&quot;session-123&quot;,&quot;node_type&quot;:&quot;memory&quot;}&#39;</span> <span class="o">&lt;</span> <span class="n">body</span><span class="o">.</span><span class="n">md</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">util</span> <span class="n">memory</span> <span class="n">save</span> <span class="n">decision</span> <span class="s2">"Reviewed decision"</span> <span class="o">--</span><span class="nb">type</span> <span class="n">reference</span> \
+  <span class="o">--</span><span class="n">metadata</span> <span class="s1">'{"originSessionId":"session-123","node_type":"memory"}'</span> <span class="o">&lt;</span> <span class="n">body</span><span class="o">.</span><span class="n">md</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">--metadata</span></code> accepts a JSON object and merges its keys into existing entry

@@ -655,7 +655,7 @@ Use this guide when you want targeted edits — not a full rewrite.</p>
 <section id="edit-a-specific-function">
 <h2>Edit a specific function<a class="headerlink" href="#edit-a-specific-function" title="Link to this heading">#</a></h2>
 <p>Point gptme at the file and describe the change:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;in utils.py, change parse_date to also accept ISO 8601 strings&#39;</span><span class="w"> </span>utils.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'in utils.py, change parse_date to also accept ISO 8601 strings'</span><span class="w"> </span>utils.py
 </pre></div>
 </div>
 <p>gptme will read the relevant section, apply a targeted patch, and show you the diff.</p>
@@ -663,7 +663,7 @@ Use this guide when you want targeted edits — not a full rewrite.</p>
 <section id="edit-across-multiple-files">
 <h2>Edit across multiple files<a class="headerlink" href="#edit-across-multiple-files" title="Link to this heading">#</a></h2>
 <p>Pass multiple files and describe what spans them:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;rename the `config` parameter to `cfg` everywhere in these files&#39;</span><span class="w"> </span>api.py<span class="w"> </span>client.py<span class="w"> </span>tests/test_api.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'rename the `config` parameter to `cfg` everywhere in these files'</span><span class="w"> </span>api.py<span class="w"> </span>client.py<span class="w"> </span>tests/test_api.py
 </pre></div>
 </div>
 <p>gptme reads all three, makes consistent edits, and summarises the changes.</p>
@@ -671,31 +671,31 @@ Use this guide when you want targeted edits — not a full rewrite.</p>
 <section id="apply-a-diff-you-already-have">
 <h2>Apply a diff you already have<a class="headerlink" href="#apply-a-diff-you-already-have" title="Link to this heading">#</a></h2>
 <p>Paste a diff and let gptme apply it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span>main..feature<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;apply this diff to the current branch, resolving any conflicts&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span>main..feature<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'apply this diff to the current branch, resolving any conflicts'</span>
 </pre></div>
 </div>
 </section>
 <section id="fix-a-specific-error">
 <h2>Fix a specific error<a class="headerlink" href="#fix-a-specific-error" title="Link to this heading">#</a></h2>
 <p>Pipe the error message and the file:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix the error&#39;</span><span class="w"> </span>myapp.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'fix the error'</span><span class="w"> </span>myapp.py
 </pre></div>
 </div>
 </section>
 <section id="add-type-annotations-to-an-existing-function">
 <h2>Add type annotations to an existing function<a class="headerlink" href="#add-type-annotations-to-an-existing-function" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;add full type annotations to all public functions in this file&#39;</span><span class="w"> </span>mymodule.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add full type annotations to all public functions in this file'</span><span class="w"> </span>mymodule.py
 </pre></div>
 </div>
 </section>
 <section id="review-the-edit-before-committing">
 <h2>Review the edit before committing<a class="headerlink" href="#review-the-edit-before-committing" title="Link to this heading">#</a></h2>
 <p>gptme shows diffs by default. After reviewing:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;looks good, commit with a descriptive message&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'looks good, commit with a descriptive message'</span>
 </pre></div>
 </div>
 <p>Or chain it in one go:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;add type annotations to public functions in mymodule.py&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;run mypy on it and fix any errors&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add type annotations to public functions in mymodule.py'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'run mypy on it and fix any errors'</span><span class="w"> </span>-<span class="w"> </span><span class="s1">'commit'</span>
 </pre></div>
 </div>
 </section>

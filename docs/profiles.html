@@ -658,14 +658,14 @@ clear role.</p>
 <section id="using-a-profile">
 <h2>Using a profile<a class="headerlink" href="#using-a-profile" title="Link to this heading">#</a></h2>
 <p>Start a session with a profile, and list or inspect the available profiles:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>explorer<span class="w"> </span><span class="s2">&quot;summarize how authentication works in this repo&quot;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--agent-profile<span class="w"> </span>explorer<span class="w"> </span><span class="s2">"summarize how authentication works in this repo"</span>
 
 gptme-util<span class="w"> </span>profile<span class="w"> </span>list
 gptme-util<span class="w"> </span>profile<span class="w"> </span>show<span class="w"> </span>explorer
 </pre></div>
 </div>
 <p>Subagents take a profile too:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;reviewer&quot;</span><span class="p">,</span> <span class="s2">&quot;Review the PR diff for correctness issues&quot;</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">&quot;verifier&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">subagent</span><span class="p">(</span><span class="s2">"reviewer"</span><span class="p">,</span> <span class="s2">"Review the PR diff for correctness issues"</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">"verifier"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p>Tool restrictions are hard-enforced in the CLI (<code class="docutils literal notranslate"><span class="pre">--agent-profile</span></code>) and for
@@ -747,10 +747,10 @@ they’re expressed in the system prompt, not enforced at the tool level.</p>
 </ol>
 <p>So naming a subagent after a profile is enough to apply it:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Desktop interaction (mouse, keyboard, screenshots)</span>
-<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;computer-use&quot;</span><span class="p">,</span> <span class="s2">&quot;Click the Submit button and screenshot the result&quot;</span><span class="p">)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">"computer-use"</span><span class="p">,</span> <span class="s2">"Click the Submit button and screenshot the result"</span><span class="p">)</span>
 
 <span class="c1"># Typed delegation: verifier profile, run in a subprocess with a throwaway worktree</span>
-<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;my-reviewer&quot;</span><span class="p">,</span> <span class="s2">&quot;Check that the refactor passes all tests&quot;</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">&quot;verify&quot;</span><span class="p">)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">"my-reviewer"</span><span class="p">,</span> <span class="s2">"Check that the refactor passes all tests"</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">"verify"</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">role=&quot;verify&quot;</span></code> also sets <code class="docutils literal notranslate"><span class="pre">use_subprocess=True</span></code> and <code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> by default,
@@ -778,10 +778,10 @@ You are a careful code reviewer. Focus on correctness and test coverage.
 </pre></div>
 </div>
 <p>A TOML profile uses the same fields, with <code class="docutils literal notranslate"><span class="pre">system_prompt</span></code> as a key:</p>
-<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;reviewer&quot;</span>
-<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Careful code reviewer&quot;</span>
-<span class="n">system_prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;You are a careful code reviewer. Focus on correctness and test coverage.&quot;</span>
-<span class="n">tools</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">]</span>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"reviewer"</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Careful code reviewer"</span>
+<span class="n">system_prompt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"You are a careful code reviewer. Focus on correctness and test coverage."</span>
+<span class="n">tools</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"read"</span><span class="p">,</span><span class="w"> </span><span class="s2">"shell"</span><span class="p">]</span>
 
 <span class="k">[behavior]</span>
 <span class="n">read_only</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>

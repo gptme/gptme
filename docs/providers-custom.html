@@ -665,28 +665,28 @@ Ollama’s OpenAI-compatible API.</p>
 ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:3b
 ollama<span class="w"> </span>serve
 
-<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:3b
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://127.0.0.1:11434/v1"</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:3b
 </pre></div>
 </div>
 <p><strong>Persistent config</strong> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>):</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
-<span class="n">OPENAI_BASE_URL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
+<span class="n">OPENAI_BASE_URL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://127.0.0.1:11434/v1"</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"local/llama3.2:3b"</span>
 </pre></div>
 </div>
 <p>Or use a named provider entry (see <a class="reference internal" href="#configuration">Configuration</a> below):</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ollama&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;llama3.2:3b&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"ollama"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://127.0.0.1:11434/v1"</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"llama3.2:3b"</span>
 </pre></div>
 </div>
 <p>Then: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'hello'</span> <span class="pre">-m</span> <span class="pre">ollama/llama3.2:3b</span></code></p>
 <p><strong>Model name format:</strong> The name after <code class="docutils literal notranslate"><span class="pre">local/</span></code> (or <code class="docutils literal notranslate"><span class="pre">ollama/</span></code>) must match
 <code class="docutils literal notranslate"><span class="pre">ollama</span> <span class="pre">list</span></code> exactly, including the <code class="docutils literal notranslate"><span class="pre">:tag</span></code> suffix.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>ollama<span class="w"> </span>list
-gptme<span class="w"> </span><span class="s1">&#39;hi&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:3b<span class="w">       </span><span class="c1"># correct</span>
-gptme<span class="w"> </span><span class="s1">&#39;hi&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2<span class="w">          </span><span class="c1"># wrong if the tag is 3b, not latest</span>
+gptme<span class="w"> </span><span class="s1">'hi'</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:3b<span class="w">       </span><span class="c1"># correct</span>
+gptme<span class="w"> </span><span class="s1">'hi'</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2<span class="w">          </span><span class="c1"># wrong if the tag is 3b, not latest</span>
 </pre></div>
 </div>
 <p><strong>Common errors:</strong></p>
@@ -720,8 +720,8 @@ For agent-style work, prefer at least <code class="docutils literal notranslate"
 </div>
 <p><strong>Verify tool use is working:</strong></p>
 <p>After setup, run a real tool call to confirm the full stack works (not just text):</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://127.0.0.1:11434/v1&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>gptme<span class="w"> </span><span class="s1">&#39;list the files in the current directory&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.1:8b
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://127.0.0.1:11434/v1"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gptme<span class="w"> </span><span class="s1">'list the files in the current directory'</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.1:8b
 </pre></div>
 </div>
 <p>If gptme runs a shell command and shows real filenames, tool calling works. If the
@@ -740,14 +740,14 @@ It exposes an OpenAI-compatible server that gptme connects to directly.</p>
 <li><p>Open the <strong>Local Server</strong> tab (<code class="docutils literal notranslate"><span class="pre">↔</span></code> icon), load the model, and click <strong>Start Server</strong></p></li>
 </ol>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Default server address — no API key required</span>
-<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:1234/v1&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/lmstudio
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://localhost:1234/v1"</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </span>-m<span class="w"> </span>local/lmstudio
 </pre></div>
 </div>
 <p><strong>Named provider config</strong> (<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>):</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lmstudio&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:1234/v1&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local-model&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"lmstudio"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://localhost:1234/v1"</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"local-model"</span>
 </pre></div>
 </div>
 <p>Then: <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'hello'</span> <span class="pre">-m</span> <span class="pre">lmstudio</span></code></p>
@@ -798,13 +798,13 @@ This is useful when you want access to many open-weight models without running
 local hardware.</p>
 <p><strong>Example — DemonRoute</strong> (1,100+ open-weight models, prepaid, no overdraft):</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;demonroute&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.demonroute.com/v1&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEMONROUTE_API_KEY&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;dphn/Dolphin-Mistral-24B-Venice-Edition&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"demonroute"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://api.demonroute.com/v1"</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"DEMONROUTE_API_KEY"</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"dphn/Dolphin-Mistral-24B-Venice-Edition"</span>
 </pre></div>
 </div>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">DEMONROUTE_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>demonroute/dphn/Dolphin-Mistral-24B-Venice-Edition
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">DEMONROUTE_API_KEY</span><span class="o">=</span><span class="s2">"your-key"</span><span class="w"> </span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>demonroute/dphn/Dolphin-Mistral-24B-Venice-Edition
 </pre></div>
 </div>
 <p>DemonRoute supports <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/v1/chat/completions</span></code> with streaming and <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/v1/models</span></code>
@@ -822,19 +822,19 @@ named <code class="docutils literal notranslate"><span class="pre">[[providers]]
 <span class="w">  </span>--model<span class="w"> </span>meta-llama/Llama-3.1-8B-Instruct<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--port<span class="w"> </span><span class="m">8000</span>
 
-<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:8000/v1&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>local/meta-llama/Llama-3.1-8B-Instruct
+<span class="nv">OPENAI_BASE_URL</span><span class="o">=</span><span class="s2">"http://localhost:8000/v1"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </span>-m<span class="w"> </span>local/meta-llama/Llama-3.1-8B-Instruct
 </pre></div>
 </div>
 <p><strong>Or as a named provider entry:</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B-Instruct&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"vllm"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://localhost:8000/v1"</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span>
 </pre></div>
 </div>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">VLLM_API_KEY</span><span class="o">=</span><span class="s2">&quot;none&quot;</span><span class="w">   </span><span class="c1"># vLLM often needs no auth</span>
-gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class="w"> </span>-m<span class="w"> </span>vllm/meta-llama/Llama-3.1-8B-Instruct
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">VLLM_API_KEY</span><span class="o">=</span><span class="s2">"none"</span><span class="w">   </span><span class="c1"># vLLM often needs no auth</span>
+gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </span>-m<span class="w"> </span>vllm/meta-llama/Llama-3.1-8B-Instruct
 </pre></div>
 </div>
 <p><strong>Tokenizer in airgapped environments</strong></p>
@@ -842,7 +842,7 @@ gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span><span class=
 can time out with errors mentioning <code class="docutils literal notranslate"><span class="pre">openaipublic.blob.core.windows.net</span></code>.</p>
 <p>Pre-cache tiktoken once while online to avoid this:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>tiktoken
-python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import tiktoken; tiktoken.get_encoding(&#39;cl100k_base&#39;)&quot;</span>
+python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import tiktoken; tiktoken.get_encoding('cl100k_base')"</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -856,15 +856,15 @@ include this fallback, so the pre-cache step is recommended regardless.</p>
 <h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
 <p>Add custom providers to <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vllm-local&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8000/v1&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;meta-llama/Llama-3.1-8B&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"vllm-local"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"http://localhost:8000/v1"</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"meta-llama/Llama-3.1-8B"</span>
 
 <span class="k">[[providers]]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;azure-gpt4&quot;</span>
-<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://my-azure-endpoint.openai.azure.com/openai/deployments&quot;</span>
-<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;AZURE_API_KEY&quot;</span>
-<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gpt-4&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"azure-gpt4"</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://my-azure-endpoint.openai.azure.com/openai/deployments"</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"AZURE_API_KEY"</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"gpt-4"</span>
 </pre></div>
 </div>
 <p><strong>Configuration fields:</strong></p>
@@ -913,18 +913,18 @@ include this fallback, so the pre-cache step is recommended regardless.</p>
 <section id="setting-a-default-model">
 <h2>Setting a default model<a class="headerlink" href="#setting-a-default-model" title="Link to this heading">#</a></h2>
 <p><strong>Environment variable:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
-gptme<span class="w"> </span><span class="s1">&#39;hello&#39;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">MODEL</span><span class="o">=</span><span class="s2">"local/llama3.2:3b"</span>
+gptme<span class="w"> </span><span class="s1">'hello'</span>
 </pre></div>
 </div>
 <p><strong>Global config</strong> (recommended — see <a class="reference internal" href="config.html"><span class="doc">Configuration</span></a>):</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
-<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ollama/llama3.2:3b&quot;</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"ollama/llama3.2:3b"</span>
 </pre></div>
 </div>
 <p><strong>Project config</strong> (<code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> in the repo root):</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
-<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local/llama3.2:3b&quot;</span>
+<span class="n">MODEL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"local/llama3.2:3b"</span>
 </pre></div>
 </div>
 </section>

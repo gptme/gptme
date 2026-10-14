@@ -701,9 +701,9 @@ for all options.</p>
 <p>The same server also powers the <code class="docutils literal notranslate"><span class="pre">gptme-tts</span></code> plugin, which reads the agent’s
 replies aloud in the gptme CLI as they stream. Install it into the same Python
 environment as gptme:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme-contrib#subdirectory=plugins/gptme-tts&quot;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"git+https://github.com/gptme/gptme-contrib#subdirectory=plugins/gptme-tts"</span>
 <span class="c1"># or, for a pipx-installed gptme:</span>
-pipx<span class="w"> </span>inject<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme-contrib#subdirectory=plugins/gptme-tts&quot;</span>
+pipx<span class="w"> </span>inject<span class="w"> </span>gptme<span class="w"> </span><span class="s2">"git+https://github.com/gptme/gptme-contrib#subdirectory=plugins/gptme-tts"</span>
 </pre></div>
 </div>
 <p>The package registers itself through the <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> entry point, so no

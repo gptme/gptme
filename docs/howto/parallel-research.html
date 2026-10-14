@@ -657,7 +657,7 @@ execute the same task against multiple inputs.</p>
 <section id="research-alternatives-in-parallel">
 <h2>Research alternatives in parallel<a class="headerlink" href="#research-alternatives-in-parallel" title="Link to this heading">#</a></h2>
 <p>Write the coordinator prompt to a file and run it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cat<span class="w"> </span>&gt;<span class="w"> </span>research-prompt.md<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cat<span class="w"> </span>&gt;<span class="w"> </span>research-prompt.md<span class="w"> </span><span class="s">&lt;&lt; 'EOF'</span>
 <span class="s">Research the following three Python HTTP client libraries in parallel:</span>
 <span class="s">1. httpx</span>
 <span class="s">2. aiohttp</span>
@@ -668,7 +668,7 @@ execute the same task against multiple inputs.</p>
 <span class="s">recommend one for a high-concurrency microservice.</span>
 <span class="s">EOF</span>
 
-gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent<span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>cat<span class="w"> </span>research-prompt.md<span class="k">)</span><span class="s2">&quot;</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>cat<span class="w"> </span>research-prompt.md<span class="k">)</span><span class="s2">"</span>
 </pre></div>
 </div>
 <p>The coordinator spawns three subagents with separate contexts, each researching

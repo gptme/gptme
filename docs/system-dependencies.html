@@ -653,11 +653,11 @@ Python extras or system packages — install them only for the features you use.
 <h2>Python extras<a class="headerlink" href="#python-extras" title="Link to this heading">#</a></h2>
 <p>Add extras in brackets when installing:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Specific extras</span>
-pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[server,tui]&quot;</span>
-uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[browser]&quot;</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"gptme[server,tui]"</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">"gptme[browser]"</span>
 
-<span class="c1"># Everything commonly needed (see below for what &quot;all&quot; covers)</span>
-pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[all]&quot;</span>
+<span class="c1"># Everything commonly needed (see below for what "all" covers)</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"gptme[all]"</span>
 
 <span class="c1"># With the one-line installer (default extras: browser)</span>
 curl<span class="w"> </span>-sSf<span class="w"> </span>https://gptme.ai/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh<span class="w"> </span>-s<span class="w"> </span>--<span class="w"> </span>--extras<span class="w"> </span>browser,tui
@@ -746,7 +746,7 @@ beyond <code class="docutils literal notranslate"><span class="pre">pydantic-cor
 <p>The <code class="docutils literal notranslate"><span class="pre">browser</span></code> extra installs the Playwright library, but not the browsers it
 drives. gptme tries to download them automatically; to do it yourself, use the
 same Playwright version that gptme installed:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">&#39; &#39;</span><span class="w"> </span>-f2<span class="k">)</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PW_VERSION</span><span class="o">=</span><span class="k">$(</span>pipx<span class="w"> </span>runpip<span class="w"> </span>gptme<span class="w"> </span>show<span class="w"> </span>playwright<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>Version<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f2<span class="k">)</span>
 pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>chromium-headless-shell
 
 <span class="c1"># or Firefox, for pages that block headless Chromium</span>
@@ -759,17 +759,17 @@ pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwrig
 <h2>Installing from source<a class="headerlink" href="#installing-from-source" title="Link to this heading">#</a></h2>
 <p>To install the latest development version from git:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Using pipx</span>
-pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme.git&quot;</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"git+https://github.com/gptme/gptme.git"</span>
 
 <span class="c1"># Using uv</span>
-uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;git+https://github.com/gptme/gptme.git&quot;</span>
+uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">"git+https://github.com/gptme/gptme.git"</span>
 
 <span class="c1"># With extras</span>
-pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;gptme[server,browser] @ git+https://github.com/gptme/gptme.git&quot;</span>
+pipx<span class="w"> </span>install<span class="w"> </span><span class="s2">"gptme[server,browser] @ git+https://github.com/gptme/gptme.git"</span>
 </pre></div>
 </div>
 <p>If you have cloned the repository locally and want an editable install (changes to code take effect immediately):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone if you haven&#39;t already</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone if you haven't already</span>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme.git
 <span class="nb">cd</span><span class="w"> </span>gptme
 
@@ -780,7 +780,7 @@ pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </
 uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 
 <span class="c1"># Editable with extras</span>
-pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[server,browser]&quot;</span>
+pipx<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[server,browser]"</span>
 </pre></div>
 </div>
 </section>

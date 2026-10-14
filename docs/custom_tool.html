@@ -752,20 +752,20 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">confirm</span><span class="p">):</span>
-    <span class="n">name</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;name&#39;</span><span class="p">,</span> <span class="s1">&#39;World&#39;</span><span class="p">)</span>
-    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s1">&#39;system&#39;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!&quot;</span><span class="p">)</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'name'</span><span class="p">,</span> <span class="s1">'World'</span><span class="p">)</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s1">'system'</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!"</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;A simple greeting tool&quot;</span><span class="p">,</span>
-    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Greets the user by name&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"hello"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"A simple greeting tool"</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">"Greets the user by name"</span><span class="p">,</span>
     <span class="n">execute</span><span class="o">=</span><span class="n">execute</span><span class="p">,</span>
-    <span class="n">block_types</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;hello&quot;</span><span class="p">],</span>
+    <span class="n">block_types</span><span class="o">=</span><span class="p">[</span><span class="s2">"hello"</span><span class="p">],</span>
     <span class="n">parameters</span><span class="o">=</span><span class="p">[</span>
         <span class="n">Parameter</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;name&quot;</span><span class="p">,</span>
-            <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;string&quot;</span><span class="p">,</span>
-            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Name to greet&quot;</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"name"</span><span class="p">,</span>
+            <span class="nb">type</span><span class="o">=</span><span class="s2">"string"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">"Name to greet"</span><span class="p">,</span>
             <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="p">),</span>
     <span class="p">],</span>
@@ -785,15 +785,15 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.message</span><span class="w"> </span><span class="kn">import</span> <span class="n">Message</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">handle_my_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /my-command.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Handle the /my-command."""</span>
     <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># Remove command message</span>
-    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Command executed!&quot;</span><span class="p">)</span>
+    <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"Command executed!"</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_tool&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Tool with custom command&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_tool"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"Tool with custom command"</span><span class="p">,</span>
     <span class="n">commands</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;my-command&quot;</span><span class="p">:</span> <span class="n">handle_my_command</span><span class="p">,</span>
+        <span class="s2">"my-command"</span><span class="p">:</span> <span class="n">handle_my_command</span><span class="p">,</span>
     <span class="p">}</span>
 <span class="p">)</span>
 </pre></div>
@@ -803,29 +803,29 @@
 <h3>Command Examples<a class="headerlink" href="#command-examples" title="Link to this heading">#</a></h3>
 <p><strong>Commit Command (autocommit tool):</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">handle_commit_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /commit command.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Handle the /commit command."""</span>
     <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">..util.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">autocommit</span>
     <span class="k">yield</span> <span class="n">autocommit</span><span class="p">()</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;autocommit&quot;</span><span class="p">,</span>
-    <span class="n">commands</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;commit&quot;</span><span class="p">:</span> <span class="n">handle_commit_command</span><span class="p">}</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"autocommit"</span><span class="p">,</span>
+    <span class="n">commands</span><span class="o">=</span><span class="p">{</span><span class="s2">"commit"</span><span class="p">:</span> <span class="n">handle_commit_command</span><span class="p">}</span>
 <span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Pre-commit Command (precommit tool):</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">handle_precommit_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">Message</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Handle the /pre-commit command.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Handle the /pre-commit command."""</span>
     <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">..util.context</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_precommit_checks</span>
     <span class="n">success</span><span class="p">,</span> <span class="n">message</span> <span class="o">=</span> <span class="n">run_precommit_checks</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">success</span> <span class="ow">and</span> <span class="n">message</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
-    <span class="n">commands</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;pre-commit&quot;</span><span class="p">:</span> <span class="n">handle_precommit_command</span><span class="p">}</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"precommit"</span><span class="p">,</span>
+    <span class="n">commands</span><span class="o">=</span><span class="p">{</span><span class="s2">"pre-commit"</span><span class="p">:</span> <span class="n">handle_precommit_command</span><span class="p">}</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -875,13 +875,13 @@
 <h3>Loading from a File (<code class="docutils literal notranslate"><span class="pre">--tools</span></code>)<a class="headerlink" href="#loading-from-a-file-tools" title="Link to this heading">#</a></h3>
 <p>The simplest way to use a custom tool is to pass the file path directly via <code class="docutils literal notranslate"><span class="pre">--tools</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Add your tool on top of the default toolset (most common)</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>+./my_tool.py<span class="w"> </span><span class="s2">&quot;use the my_tool tool&quot;</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+./my_tool.py<span class="w"> </span><span class="s2">"use the my_tool tool"</span>
 
 <span class="c1"># Replace the default toolset entirely with specific tools</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>save,patch,./my_tool.py<span class="w"> </span><span class="s2">&quot;prompt&quot;</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>save,patch,./my_tool.py<span class="w"> </span><span class="s2">"prompt"</span>
 
-<span class="c1"># Load multiple custom tool files (additive — one &#39;+&#39; is enough)</span>
-gptme<span class="w"> </span>--tools<span class="w"> </span>+./tools/search.py,./tools/deploy.py<span class="w"> </span><span class="s2">&quot;prompt&quot;</span>
+<span class="c1"># Load multiple custom tool files (additive — one '+' is enough)</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+./tools/search.py,./tools/deploy.py<span class="w"> </span><span class="s2">"prompt"</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">+</span></code> prefix adds tools on top of the default toolset. Without <code class="docutils literal notranslate"><span class="pre">+</span></code>, the argument replaces the entire toolset — so you’d need to explicitly list any built-in tools you still want.</p>
@@ -892,7 +892,7 @@ gptme<span class="w"> </span>--tools<span class="w"> </span>+./tools/search.py,.
 <p>For packaged tools, specify the module in the <code class="docutils literal notranslate"><span class="pre">TOOL_MODULES</span></code> env variable or
 in your <a class="reference internal" href="config.html"><span class="doc">project configuration file</span></a>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[env]</span>
-<span class="n">TOOL_MODULES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;gptme.tools,yourpackage.your_custom_tool_module&quot;</span>
+<span class="n">TOOL_MODULES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"gptme.tools,yourpackage.your_custom_tool_module"</span>
 </pre></div>
 </div>
 <p>Don’t remove the <code class="docutils literal notranslate"><span class="pre">gptme.tools</span></code> package unless you know exactly what you are doing.</p>

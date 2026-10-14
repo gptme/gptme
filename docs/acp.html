@@ -677,7 +677,7 @@ gptme-acp
 </pre></div>
 </div>
 <p><strong>Direct install of gptme with the acp extra</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[acp]&#39;</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">'gptme[acp]'</span>
 gptme-acp
 </pre></div>
 </div>
@@ -703,8 +703,8 @@ python<span class="w"> </span>-m<span class="w"> </span>gptme.acp
 <h3>ACP Agent Registry<a class="headerlink" href="#id2" title="Link to this heading">#</a></h3>
 <p>gptme can be discovered and launched automatically by ACP-compatible editors via the <a class="reference external" href="https://github.com/agentclientprotocol/registry">ACP agent registry</a>.  The registry entry uses the <code class="docutils literal notranslate"><span class="pre">gptme-acp</span></code> package:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;package&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gptme-acp&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;launch&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uvx&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="nt">"package"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gptme-acp"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"launch"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"uvx"</span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
@@ -777,12 +777,12 @@ python<span class="w"> </span>-m<span class="w"> </span>gptme.acp
 </ul>
 <p>Example configuration in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
-<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"anthropic/claude-sonnet-4-6"</span>
 
 <span class="k">[env]</span>
 <span class="c1"># Tools are auto-confirmed in ACP mode.</span>
 <span class="c1"># Restrict which tools are available, if needed:</span>
-<span class="n">TOOL_ALLOWLIST</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ipython,shell,patch,save&quot;</span>
+<span class="n">TOOL_ALLOWLIST</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"ipython,shell,patch,save"</span>
 </pre></div>
 </div>
 </section>

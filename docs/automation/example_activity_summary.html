@@ -646,15 +646,15 @@
 <p>Here’s an example of how to use gptme to generate a daily summary based on ActivityWatch data using a shell script:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
 
-<span class="c1"># Function to get yesterday&#39;s date in YYYY-MM-DD format</span>
+<span class="c1"># Function to get yesterday's date in YYYY-MM-DD format</span>
 get_yesterday<span class="o">()</span><span class="w"> </span><span class="o">{</span>
-<span class="w">    </span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;yesterday&quot;</span><span class="w"> </span>+%Y-%m-%d
+<span class="w">    </span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">"yesterday"</span><span class="w"> </span>+%Y-%m-%d
 <span class="o">}</span>
 
 <span class="c1"># Function to get ActivityWatch report</span>
 get_aw_report<span class="o">()</span><span class="w"> </span><span class="o">{</span>
 <span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">date</span><span class="o">=</span><span class="nv">$1</span>
-<span class="w">    </span>aw-client<span class="w"> </span>report<span class="w"> </span><span class="k">$(</span>hostname<span class="k">)</span><span class="w"> </span>--start<span class="w"> </span><span class="nv">$date</span><span class="w"> </span>--stop<span class="w"> </span><span class="k">$(</span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$date</span><span class="s2"> + 1 day&quot;</span><span class="w"> </span>+%Y-%m-%d<span class="k">)</span>
+<span class="w">    </span>aw-client<span class="w"> </span>report<span class="w"> </span><span class="k">$(</span>hostname<span class="k">)</span><span class="w"> </span>--start<span class="w"> </span><span class="nv">$date</span><span class="w"> </span>--stop<span class="w"> </span><span class="k">$(</span>date<span class="w"> </span>-d<span class="w"> </span><span class="s2">"</span><span class="nv">$date</span><span class="s2"> + 1 day"</span><span class="w"> </span>+%Y-%m-%d<span class="k">)</span>
 <span class="o">}</span>
 
 <span class="c1"># Generate daily summary</span>
@@ -666,7 +666,7 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
 <span class="w">    </span><span class="nb">local</span><span class="w"> </span><span class="nv">summary_file</span><span class="o">=</span><span class="k">$(</span>mktemp<span class="k">)</span>
 
 <span class="w">    </span><span class="c1"># Generate summary using gptme</span>
-<span class="w">    </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">&quot;Based on the following ActivityWatch report for </span><span class="nv">$yesterday</span><span class="s2">, provide a concise summary of yesterday&#39;s activities.</span>
+<span class="w">    </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s2">"Based on the following ActivityWatch report for </span><span class="nv">$yesterday</span><span class="s2">, provide a concise summary of yesterday's activities.</span>
 <span class="s2">    Include insights on productivity, time spent on different categories, and any notable patterns.</span>
 <span class="s2">    Suggest areas for improvement if applicable.</span>
 
@@ -674,17 +674,17 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
 <span class="s2">    </span><span class="nv">$aw_report</span>
 
 <span class="s2">    Please format the summary in a clear, easy-to-read structure.</span>
-<span class="s2">    Save the summary to this file: </span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="s2">    Save the summary to this file: </span><span class="nv">$summary_file</span><span class="s2">"</span>
 
 <span class="w">    </span><span class="c1"># Return the path to the summary file</span>
-<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$summary_file</span><span class="s2">"</span>
 <span class="o">}</span>
 
 <span class="c1"># Run the summary generation and get the file path</span>
 <span class="nv">summary_file</span><span class="o">=</span><span class="k">$(</span>generate_daily_summary<span class="k">)</span>
 
 <span class="c1"># Output the file path (you can use this in other scripts or log it)</span>
-<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Daily summary saved to: </span><span class="nv">$summary_file</span><span class="s2">&quot;</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">"Daily summary saved to: </span><span class="nv">$summary_file</span><span class="s2">"</span>
 </pre></div>
 </div>
 <p>To automate this process to run every day at 8 AM, you could set up a cron job. Here’s an example cron entry:</p>

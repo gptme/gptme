@@ -823,7 +823,7 @@ After saving and closing, the edited conversation is loaded.</p>
 <p>Show the current model or switch to a different one.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/model                    # Show current model info (price, context, capabilities)
 /model openai/gpt-4o      # Switch to specific model
-/model anthropic          # Switch to provider&#39;s default model
+/model anthropic          # Switch to provider's default model
 </pre></div>
 </div>
 <p>The model change is persisted to the conversation’s config file.</p>
@@ -944,7 +944,7 @@ starts working on them right away. Anything after the skill name is passed to th
 skill as arguments.</p>
 <p>Each skill is also available as a bare <code class="docutils literal notranslate"><span class="pre">/&lt;name&gt;</span></code> shortcut, unless that name is
 already taken by a command or a loaded tool — <code class="docutils literal notranslate"><span class="pre">/skill:&lt;name&gt;</span></code> always works.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/skill:review src/app.py    # Invoke the &quot;review&quot; skill with an argument
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/skill:review src/app.py    # Invoke the "review" skill with an argument
 /review src/app.py          # Same, via the bare shortcut
 </pre></div>
 </div>
@@ -1003,7 +1003,7 @@ tells you why and stays open.</p>
 <h4>/impersonate<a class="headerlink" href="#impersonate" title="Link to this heading">#</a></h4>
 <p>Add a message as if it came from the assistant.</p>
 <p>Useful for guiding the conversation or testing tool behavior.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/impersonate I&#39;ll help you with that task.
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/impersonate I'll help you with that task.
 /impersonate          # Interactive mode: enter text at prompt
 </pre></div>
 </div>
@@ -1062,7 +1062,7 @@ default.</p></li>
 dedicated shadow repo.  No clean-tree requirement.</p></li>
 </ul>
 <p>Requires a workspace to be configured for the session (<code class="docutils literal notranslate"><span class="pre">--workspace</span></code>).</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/snapshot create [label]     # Record current workspace state (default label: &quot;manual&quot;)
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/snapshot create [label]     # Record current workspace state (default label: "manual")
 /snapshot list [--limit N]   # List recent snapshots, newest first (default: 20)
 /snapshot restore &lt;sha&gt;      # Roll back workspace to a snapshot
 /snapshot diff &lt;sha&gt;         # Show diff between current workspace and a snapshot
@@ -1102,7 +1102,7 @@ files.</p>
 # output:
 #   #  Label             Index  Timestamp
 #   1  before-tool-run      12  2026-06-14 10:23:45
-/backtrack before-tool-run --reason &quot;The file path was wrong; try /tmp/foo.txt instead&quot;
+/backtrack before-tool-run --reason "The file path was wrong; try /tmp/foo.txt instead"
 </pre></div>
 </div>
 </section>
@@ -1192,10 +1192,10 @@ a <code class="docutils literal notranslate"><span class="pre">.pre-commit-confi
 </pre></div>
 </div>
 <p>Loaded servers can also expose resources, prompts, and roots:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/mcp resources list &lt;server&gt;          # List a server&#39;s resources
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/mcp resources list &lt;server&gt;          # List a server's resources
 /mcp resources read &lt;server&gt; &lt;uri&gt;    # Read a resource
 /mcp templates list &lt;server&gt;          # List resource templates
-/mcp prompts list &lt;server&gt;            # List a server&#39;s prompts
+/mcp prompts list &lt;server&gt;            # List a server's prompts
 /mcp prompts get &lt;server&gt; &lt;prompt&gt;    # Get a prompt
 /mcp roots list [server]              # List configured roots
 /mcp roots add &lt;server&gt; &lt;uri&gt; [name]  # Add a root (e.g. file:///path/to/project)
@@ -1210,7 +1210,7 @@ a <code class="docutils literal notranslate"><span class="pre">.pre-commit-confi
 <p>You can execute tool code directly using slash commands with the tool’s language tag:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/shell ls -la              # Execute a shell command
 /ipython 2 + 2             # Execute Python code
-/py print(&quot;hello&quot;)         # Same as above
+/py print("hello")         # Same as above
 </pre></div>
 </div>
 <p>This is equivalent to writing a code block:</p>
@@ -1264,14 +1264,14 @@ a <code class="docutils literal notranslate"><span class="pre">.pre-commit-confi
 
 <span class="k">def</span><span class="w"> </span><span class="nf">my_command</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
     <span class="n">ctx</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">undo</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># Remove the command from log</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Arguments: </span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Arguments: </span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">args</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
     <span class="c1"># Optionally yield Message objects</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;mytool&quot;</span><span class="p">,</span>
-    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;My custom tool&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"mytool"</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">"My custom tool"</span><span class="p">,</span>
     <span class="n">commands</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;mycommand&quot;</span><span class="p">:</span> <span class="n">my_command</span><span class="p">,</span>
+        <span class="s2">"mycommand"</span><span class="p">:</span> <span class="n">my_command</span><span class="p">,</span>
     <span class="p">},</span>
 <span class="p">)</span>
 </pre></div>

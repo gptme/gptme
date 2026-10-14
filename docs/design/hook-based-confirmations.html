@@ -899,15 +899,15 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 </ul>
 <p>Example usage for other tools:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">my_tool_auto_approve</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Auto-approve safe operations, fall through for others.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Auto-approve safe operations, fall through for others."""</span>
     <span class="k">if</span> <span class="n">is_safe</span><span class="p">(</span><span class="n">tool_use</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">confirm</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Fall through to CLI/server hook</span>
 
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
-    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_tool&quot;</span><span class="p">,</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_tool"</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;auto_approve&quot;</span><span class="p">:</span> <span class="p">(</span><span class="s2">&quot;tool_confirm&quot;</span><span class="p">,</span> <span class="n">my_tool_auto_approve</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span>
+        <span class="s2">"auto_approve"</span><span class="p">:</span> <span class="p">(</span><span class="s2">"tool_confirm"</span><span class="p">,</span> <span class="n">my_tool_auto_approve</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span>
     <span class="p">},</span>
     <span class="o">...</span>
 <span class="p">)</span>
@@ -1012,11 +1012,11 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 <p>Introduce a new hook type <code class="docutils literal notranslate"><span class="pre">tool.confirm</span></code> that handles the confirmation decision:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">HookType</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Enum</span><span class="p">):</span>
     <span class="c1"># Existing hooks</span>
-    <span class="n">TOOL_EXECUTE_PRE</span> <span class="o">=</span> <span class="s2">&quot;tool.execute.pre&quot;</span>
-    <span class="n">TOOL_EXECUTE_POST</span> <span class="o">=</span> <span class="s2">&quot;tool.execute.post&quot;</span>
+    <span class="n">TOOL_EXECUTE_PRE</span> <span class="o">=</span> <span class="s2">"tool.execute.pre"</span>
+    <span class="n">TOOL_EXECUTE_POST</span> <span class="o">=</span> <span class="s2">"tool.execute.post"</span>
 
     <span class="c1"># New confirmation hook</span>
-    <span class="n">TOOL_CONFIRM</span> <span class="o">=</span> <span class="s2">&quot;tool.confirm&quot;</span>
+    <span class="n">TOOL_CONFIRM</span> <span class="o">=</span> <span class="s2">"tool.confirm"</span>
 </pre></div>
 </div>
 </section>
@@ -1033,9 +1033,9 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">ConfirmationResult</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Result of a tool confirmation request.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Result of a tool confirmation request."""</span>
 
-    <span class="n">action</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;confirm&quot;</span><span class="p">,</span> <span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;edit&quot;</span><span class="p">]</span>
+    <span class="n">action</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">"confirm"</span><span class="p">,</span> <span class="s2">"skip"</span><span class="p">,</span> <span class="s2">"edit"</span><span class="p">]</span>
     <span class="n">edited_content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">auto_confirm_remaining</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
 </pre></div>
@@ -1047,15 +1047,15 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">ToolConfirmHook</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Hook for tool confirmation decisions.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Hook for tool confirmation decisions."""</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">tooluse</span><span class="p">:</span> <span class="s2">&quot;ToolUse&quot;</span><span class="p">,</span>
+        <span class="n">tooluse</span><span class="p">:</span> <span class="s2">"ToolUse"</span><span class="p">,</span>
         <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Request confirmation for tool execution.</span>
+<span class="w">        </span><span class="sd">"""Request confirmation for tool execution.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            tooluse: The tool about to be executed</span>
@@ -1063,8 +1063,8 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 <span class="sd">            workspace: Workspace directory path</span>
 
 <span class="sd">        Yields:</span>
-<span class="sd">            ConfirmationResult with the user&#39;s decision</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">            ConfirmationResult with the user's decision</span>
+<span class="sd">        """</span>
         <span class="k">pass</span>
 </pre></div>
 </div>
@@ -1109,7 +1109,7 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
     <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;CLI-based confirmation using terminal input.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""CLI-based confirmation using terminal input."""</span>
 
     <span class="c1"># Show preview if available</span>
     <span class="k">if</span> <span class="n">preview</span><span class="p">:</span>
@@ -1120,17 +1120,17 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
         <span class="n">set_editable_text</span><span class="p">(</span><span class="n">tooluse</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="n">get_extension</span><span class="p">(</span><span class="n">tooluse</span><span class="p">))</span>
 
     <span class="c1"># Get user decision via terminal prompt</span>
-    <span class="n">confirmed</span> <span class="o">=</span> <span class="n">ask_execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Execute </span><span class="si">{</span><span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">?&quot;</span><span class="p">)</span>
+    <span class="n">confirmed</span> <span class="o">=</span> <span class="n">ask_execute</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Execute </span><span class="si">{</span><span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">?"</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">confirmed</span><span class="p">:</span>
         <span class="n">edited</span> <span class="o">=</span> <span class="n">get_editable_text</span><span class="p">()</span> <span class="k">if</span> <span class="n">editable</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="n">was_edited</span> <span class="o">=</span> <span class="n">edited</span> <span class="o">!=</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">content</span> <span class="k">if</span> <span class="n">edited</span> <span class="k">else</span> <span class="kc">False</span>
         <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span>
-            <span class="n">action</span><span class="o">=</span><span class="s2">&quot;edit&quot;</span> <span class="k">if</span> <span class="n">was_edited</span> <span class="k">else</span> <span class="s2">&quot;confirm&quot;</span><span class="p">,</span>
+            <span class="n">action</span><span class="o">=</span><span class="s2">"edit"</span> <span class="k">if</span> <span class="n">was_edited</span> <span class="k">else</span> <span class="s2">"confirm"</span><span class="p">,</span>
             <span class="n">edited_content</span><span class="o">=</span><span class="n">edited</span> <span class="k">if</span> <span class="n">was_edited</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;skip&quot;</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">"skip"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -1141,14 +1141,14 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
     <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Server-based confirmation using SSE events.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Server-based confirmation using SSE events."""</span>
 
     <span class="n">session</span> <span class="o">=</span> <span class="n">get_current_session</span><span class="p">()</span>
 
     <span class="c1"># Check auto-confirm</span>
     <span class="k">if</span> <span class="n">session</span><span class="o">.</span><span class="n">auto_confirm_count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
         <span class="n">session</span><span class="o">.</span><span class="n">auto_confirm_count</span> <span class="o">-=</span> <span class="mi">1</span>
-        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;confirm&quot;</span><span class="p">)</span>
+        <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">"confirm"</span><span class="p">)</span>
         <span class="k">return</span>
 
     <span class="c1"># Create pending tool entry</span>
@@ -1159,11 +1159,11 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
     <span class="p">)</span>
 
     <span class="c1"># Emit SSE event</span>
-    <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;tool_pending&quot;</span><span class="p">,</span> <span class="p">{</span>
-        <span class="s2">&quot;tool_id&quot;</span><span class="p">:</span> <span class="n">tool_id</span><span class="p">,</span>
-        <span class="s2">&quot;tool&quot;</span><span class="p">:</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span>
-        <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">content</span><span class="p">,</span>
-        <span class="s2">&quot;preview&quot;</span><span class="p">:</span> <span class="n">preview</span><span class="p">,</span>
+    <span class="n">emit_event</span><span class="p">(</span><span class="s2">"tool_pending"</span><span class="p">,</span> <span class="p">{</span>
+        <span class="s2">"tool_id"</span><span class="p">:</span> <span class="n">tool_id</span><span class="p">,</span>
+        <span class="s2">"tool"</span><span class="p">:</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">tool</span><span class="p">,</span>
+        <span class="s2">"content"</span><span class="p">:</span> <span class="n">tooluse</span><span class="o">.</span><span class="n">content</span><span class="p">,</span>
+        <span class="s2">"preview"</span><span class="p">:</span> <span class="n">preview</span><span class="p">,</span>
     <span class="p">})</span>
 
     <span class="c1"># Wait for client decision (via HTTP endpoint)</span>
@@ -1179,8 +1179,8 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
     <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span><span class="p">[</span><span class="n">ConfirmationResult</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Always confirms - for non-interactive/autonomous mode.&quot;&quot;&quot;</span>
-    <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;confirm&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="sd">"""Always confirms - for non-interactive/autonomous mode."""</span>
+    <span class="k">yield</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">"confirm"</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -1202,19 +1202,19 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 
     <span class="k">if</span> <span class="ow">not</span> <span class="n">confirm_results</span><span class="p">:</span>
         <span class="c1"># No confirmation hook registered - fall back to confirm function</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">confirm</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Execute </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">?&quot;</span><span class="p">):</span>
-            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Aborted&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">confirm</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Execute </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tool</span><span class="si">}</span><span class="s2">?"</span><span class="p">):</span>
+            <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"Aborted"</span><span class="p">)</span>
             <span class="k">return</span>
-        <span class="n">result</span> <span class="o">=</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;confirm&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">ConfirmationResult</span><span class="p">(</span><span class="n">action</span><span class="o">=</span><span class="s2">"confirm"</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">result</span> <span class="o">=</span> <span class="n">confirm_results</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
     <span class="c1"># Handle result</span>
-    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;skip&quot;</span><span class="p">:</span>
-        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Operation skipped by user&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">"skip"</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">"system"</span><span class="p">,</span> <span class="s2">"Operation skipped by user"</span><span class="p">)</span>
         <span class="k">return</span>
 
-    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">&quot;edit&quot;</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">edited_content</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">"edit"</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">edited_content</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">content</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">edited_content</span>
 
     <span class="c1"># Proceed with execution</span>
@@ -1227,25 +1227,25 @@ Tools register their own auto-approve hooks via ToolSpec.hooks per Erik’s sugg
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme/main.py or gptme/chat.py</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">init_confirmation_hooks</span><span class="p">(</span><span class="n">interactive</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">server_mode</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register appropriate confirmation hook based on mode.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""Register appropriate confirmation hook based on mode."""</span>
 
     <span class="k">if</span> <span class="n">server_mode</span><span class="p">:</span>
         <span class="n">register_hook</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;server_confirm&quot;</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"server_confirm"</span><span class="p">,</span>
             <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
             <span class="n">func</span><span class="o">=</span><span class="n">server_confirm_hook</span><span class="p">,</span>
             <span class="n">priority</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">elif</span> <span class="n">interactive</span><span class="p">:</span>
         <span class="n">register_hook</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;cli_confirm&quot;</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"cli_confirm"</span><span class="p">,</span>
             <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
             <span class="n">func</span><span class="o">=</span><span class="n">cli_confirm_hook</span><span class="p">,</span>
             <span class="n">priority</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">register_hook</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;auto_confirm&quot;</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"auto_confirm"</span><span class="p">,</span>
             <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
             <span class="n">func</span><span class="o">=</span><span class="n">auto_confirm_hook</span><span class="p">,</span>
             <span class="n">priority</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>

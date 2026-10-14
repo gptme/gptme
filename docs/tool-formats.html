@@ -710,7 +710,7 @@ constrained decoding to stop the model inventing an argument.</p>
 <h3><code class="docutils literal notranslate"><span class="pre">xml</span></code><a class="headerlink" href="#xml" title="Link to this heading">#</a></h3>
 <p>The same calls, wrapped in XML tags:</p>
 <div class="highlight-xml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;tool-use&gt;</span>
-<span class="nt">&lt;patch</span><span class="w"> </span><span class="na">args=</span><span class="s">&quot;test.txt&quot;</span><span class="nt">&gt;</span>
+<span class="nt">&lt;patch</span><span class="w"> </span><span class="na">args=</span><span class="s">"test.txt"</span><span class="nt">&gt;</span>
 ...
 <span class="nt">&lt;/patch&gt;</span>
 <span class="nt">&lt;/tool-use&gt;</span>
@@ -731,8 +731,8 @@ model falls back to a fenced block, the call is silently not executed. That make
 <p>Tools are sent to the provider as JSON-schema function definitions, and the
 provider returns structured tool calls, which gptme renders back into the log as:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>@patch(call_abc123): {
-  &quot;path&quot;: &quot;test.txt&quot;,
-  &quot;patch&quot;: &quot;...&quot;
+  "path": "test.txt",
+  "patch": "..."
 }
 </pre></div>
 </div>
@@ -800,7 +800,7 @@ of these.</p>
 </section>
 <section id="setting-the-format">
 <h2>Setting the format<a class="headerlink" href="#setting-the-format" title="Link to this heading">#</a></h2>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tool-format<span class="w"> </span>xml<span class="w"> </span><span class="s2">&quot;hello&quot;</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tool-format<span class="w"> </span>xml<span class="w"> </span><span class="s2">"hello"</span>
 </pre></div>
 </div>
 <p>Or via environment variable / config:</p>
@@ -809,7 +809,7 @@ of these.</p>
 </div>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># ~/.config/gptme/config.toml</span>
 <span class="k">[env]</span>
-<span class="n">TOOL_FORMAT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;xml&quot;</span>
+<span class="n">TOOL_FORMAT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"xml"</span>
 </pre></div>
 </div>
 <p>Resolution order, highest priority first:</p>

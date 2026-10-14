@@ -674,19 +674,19 @@ use, see <a class="reference internal" href="models.html"><span class="doc">Mode
 <section id="selecting-a-provider-and-model">
 <h2>Selecting a provider and model<a class="headerlink" href="#selecting-a-provider-and-model" title="Link to this heading">#</a></h2>
 <p>To select a provider and model, run <code class="docutils literal notranslate"><span class="pre">gptme</span></code> with the <code class="docutils literal notranslate"><span class="pre">-m</span></code>/<code class="docutils literal notranslate"><span class="pre">--model</span></code> flag set to <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code>, for example:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.6-sol
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra<span class="w">  </span><span class="c1"># uses your ChatGPT Plus/Pro subscription</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4-flash@together<span class="w">  </span><span class="c1"># pin to Together subprovider</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-v4-flash
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6<span class="w">  </span><span class="c1"># uses your SuperGrok subscription</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6<span class="w">  </span><span class="c1"># use the gptme managed service as router</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b<span class="w">  </span><span class="c1"># uses a local OpenAI-compatible server (e.g. ollama)</span>
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>custom/model<span class="w">  </span><span class="c1"># use a custom provider plugin</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.6-sol
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-6-astra<span class="w">  </span><span class="c1"># uses your ChatGPT Plus/Pro subscription</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4-flash@together<span class="w">  </span><span class="c1"># pin to Together subprovider</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-v4-flash
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>xai/grok-4
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>grok-subscription/grok-4.6<span class="w">  </span><span class="c1"># uses your SuperGrok subscription</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>gemini/gemini-2.5-flash
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6<span class="w">  </span><span class="c1"># use the gptme managed service as router</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>local/llama3.2:1b<span class="w">  </span><span class="c1"># uses a local OpenAI-compatible server (e.g. ollama)</span>
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>custom/model<span class="w">  </span><span class="c1"># use a custom provider plugin</span>
 </pre></div>
 </div>
 <p>You can list the models known to gptme using <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'/models'</span> <span class="pre">-</span> <span class="pre">'/exit'</span></code>.</p>
@@ -884,8 +884,8 @@ to each provider’s parameter:</p>
 <code class="docutils literal notranslate"><span class="pre">xhigh</span></code> on gpt-5.2+) is enforced by the provider; gptme only rejects levels
 the provider never accepts. Models without reasoning support ignore the
 variable, so it is safe to leave set across model switches.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">GPTME_THINKING_EFFORT</span><span class="o">=</span>high<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;prove this&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
-<span class="nv">GPTME_THINKING_EFFORT</span><span class="o">=</span>low<span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;rename the variable&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-r1
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">GPTME_THINKING_EFFORT</span><span class="o">=</span>high<span class="w"> </span>gptme<span class="w"> </span><span class="s2">"prove this"</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
+<span class="nv">GPTME_THINKING_EFFORT</span><span class="o">=</span>low<span class="w"> </span>gptme<span class="w"> </span><span class="s2">"rename the variable"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-r1
 </pre></div>
 </div>
 <p>Every assistant message records what happened, so session logs are not blind
@@ -906,7 +906,7 @@ in your config — see <a class="reference internal" href="providers-custom.html
 <p>Third-party packages can also register providers through the <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code>
 entry point, making them available right after installation:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>gptme-provider-minimax
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>minimax/MiniMax-M3
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>minimax/MiniMax-M3
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="providers-integration.html"><span class="doc">Provider Integration Guide</span></a> to write one.</p>
