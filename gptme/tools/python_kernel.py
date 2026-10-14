@@ -10,8 +10,8 @@ Enable with: GPTME_IPYTHON_BACKEND=kernel
 
 The kernel is started lazily on first use and restarted on crash.
 A socket-based bridge lets kernel-side code call registered gptme
-functions (pure-data helpers); Message-returning tool functions
-are not yet bridged and remain in-process.
+functions. Message-returning helpers deliver their attachments directly back
+to gptme rather than reducing them to a kernel text representation.
 """
 
 import logging
@@ -52,6 +52,10 @@ class BridgeServer:
         self._token: bytes = secrets.token_bytes(16)
         # Bound semaphore limits concurrent handler threads, preventing fd exhaustion.
         self._semaphore = threading.BoundedSemaphore(_MAX_BRIDGE_CONNECTIONS)
+        self._call_lock = threading.Lock()
+        self.messages: list[Any] = []
+        self._connections: set[socket.socket] = set()
+        self._connections_lock = threading.Lock()
 
     def register(self, fn: Callable) -> None:
         self._functions[fn.__name__] = fn
@@ -88,6 +92,12 @@ class BridgeServer:
                     pass
                 logger.warning("Bridge connection limit reached, rejecting connection")
                 continue
+            with self._connections_lock:
+                if self._sock is None:
+                    conn.close()
+                    self._semaphore.release()
+                    break
+                self._connections.add(conn)
             t = threading.Thread(
                 target=self._handle_with_release, args=(conn,), daemon=True
             )
@@ -97,6 +107,8 @@ class BridgeServer:
         try:
             self._handle(conn)
         finally:
+            with self._connections_lock:
+                self._connections.discard(conn)
             self._semaphore.release()
 
     @staticmethod
@@ -148,7 +160,27 @@ class BridgeServer:
                 }
             else:
                 try:
-                    ret = fn(*args, **kwargs)
+                    from gptme.message import Message
+
+                    # cwd is process-global: serialize helper calls and restore the
+                    # host directory even when the helper fails.
+                    with self._call_lock:
+                        cwd = os.getcwd()
+                        try:
+                            os.chdir(call.get("cwd", cwd))
+                            ret = fn(*args, **kwargs)
+                        finally:
+                            os.chdir(cwd)
+                        if isinstance(ret, Message):
+                            self.messages.append(ret)
+                            ret = None
+                        elif (
+                            isinstance(ret, list)
+                            and ret
+                            and all(isinstance(m, Message) for m in ret)
+                        ):
+                            self.messages.extend(ret)
+                            ret = None
                     result = {"result": ret}
                 except Exception as exc:
                     result = {"error": str(exc), "exc_type": type(exc).__name__}
@@ -162,6 +194,13 @@ class BridgeServer:
     def stop(self) -> None:
         sock = self._sock
         self._sock = None
+        with self._connections_lock:
+            for conn in self._connections:
+                try:
+                    conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                conn.close()
         if sock:
             try:
                 sock.close()
@@ -180,6 +219,7 @@ _BRIDGE_BOOTSTRAP = """\
 import pickle as _gptme_pickle
 import socket as _gptme_socket
 import struct as _gptme_struct
+import os as _gptme_os
 
 _GPTME_BRIDGE_PORT = {port}
 _GPTME_BRIDGE_TOKEN = bytes.fromhex('{token_hex}')
@@ -199,7 +239,7 @@ def _gptme_rpc(fn_name, *args, **kwargs):
     with _gptme_socket.socket(_gptme_socket.AF_INET, _gptme_socket.SOCK_STREAM) as _s:
         _s.connect(('127.0.0.1', _GPTME_BRIDGE_PORT))
         _s.sendall(_GPTME_BRIDGE_TOKEN)
-        _payload = _gptme_pickle.dumps({{'fn': fn_name, 'args': args, 'kwargs': kwargs}})
+        _payload = _gptme_pickle.dumps({{'fn': fn_name, 'args': args, 'kwargs': kwargs, 'cwd': _gptme_os.getcwd()}})
         _s.sendall(_gptme_struct.pack('>I', len(_payload)) + _payload)
         _raw = _gptme_recv_exact(_s, 4)
         (_length,) = _gptme_struct.unpack('>I', _raw)
@@ -434,14 +474,15 @@ class KernelBackend:
         """Execute a code cell and return captured outputs."""
         self._ensure_started()
 
-        # Sync working directory so the kernel and gptme stay in the same folder.
+        # A previous cell may itself have used %cd/os.chdir, so synchronize on
+        # every execution, not only when the host directory changes.
         cwd = os.getcwd()
-        if cwd != self._last_cwd:
-            self._exec_silent(
-                f"import os as _gptme_os; _gptme_os.chdir({cwd!r})",
-                timeout=5,
-            )
-            self._last_cwd = cwd
+        self._exec_silent(
+            f"import os as _gptme_os; _gptme_os.chdir({cwd!r})",
+            timeout=5,
+        )
+        self._last_cwd = cwd
+        self._bridge.messages.clear()
 
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
@@ -489,18 +530,25 @@ class KernelBackend:
                     chunk_bytes = len(text.encode("utf-8", errors="replace"))
                     stdout_total_bytes += chunk_bytes
                     if stdout_bytes < _MAX_STREAMING_OUTPUT_BYTES:
-                        stdout_parts.append(text)
-                        stdout_bytes += chunk_bytes
+                        retained = text.encode("utf-8", errors="replace")[
+                            : _MAX_STREAMING_OUTPUT_BYTES - stdout_bytes
+                        ].decode("utf-8", errors="ignore")
+                        stdout_parts.append(retained)
+                        stdout_bytes += len(retained.encode("utf-8"))
                 elif name == "stderr":
                     chunk_bytes = len(text.encode("utf-8", errors="replace"))
                     stderr_total_bytes += chunk_bytes
                     if stderr_bytes < _MAX_STREAMING_OUTPUT_BYTES:
-                        stderr_parts.append(text)
-                        stderr_bytes += chunk_bytes
+                        retained = text.encode("utf-8", errors="replace")[
+                            : _MAX_STREAMING_OUTPUT_BYTES - stderr_bytes
+                        ].decode("utf-8", errors="ignore")
+                        stderr_parts.append(retained)
+                        stderr_bytes += len(retained.encode("utf-8"))
 
             elif msg_type == "execute_result":
                 data = content.get("data", {})
-                result_text = data.get("text/plain")
+                text = data.get("text/plain")
+                result_text = _cap_kernel_text(text) if text is not None else None
 
             elif msg_type == "error":
                 import re
@@ -511,8 +559,8 @@ class KernelBackend:
                 ]
                 error = {
                     "ename": content.get("ename", ""),
-                    "evalue": content.get("evalue", ""),
-                    "traceback": clean_tb,
+                    "evalue": _cap_kernel_text(content.get("evalue", "")),
+                    "traceback": [_cap_kernel_text("\n".join(clean_tb))],
                 }
 
             elif msg_type == "status" and content.get("execution_state") == "idle":
@@ -566,6 +614,17 @@ class KernelBackend:
         if self._km and self._km.is_alive():
             logger.info("Interrupting kernel")
             self._km.interrupt_kernel()
+
+
+def _cap_kernel_text(text: str) -> str:
+    data = text.encode("utf-8", errors="replace")
+    if len(data) <= _MAX_STREAMING_OUTPUT_BYTES:
+        return text
+    retained = data[:_MAX_STREAMING_OUTPUT_BYTES].decode("utf-8", errors="ignore")
+    return (
+        retained
+        + f"\n[... {len(data) - len(retained.encode('utf-8')):,} bytes omitted ...]"
+    )
 
 
 def _monotonic() -> float:

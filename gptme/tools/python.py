@@ -450,8 +450,10 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         return
     except KeyboardInterrupt:
         backend.interrupt()
+        backend._drain_until_idle()
         raise
 
+    yield from backend._bridge.messages
     output = ""
 
     if result.stdout:

@@ -147,7 +147,9 @@ def test_kernel_interrupt_via_timeout(backend):
 
     start = time.monotonic()
     # timeout=2 means the loop sends interrupt and breaks after 2s
-    backend.execute("import time; time.sleep(100)", timeout=2)
+    result = backend.execute("import time; time.sleep(100)", timeout=2)
+    assert result.error is not None
+    assert result.error["ename"] == "ExecutionTimeout"
     elapsed = time.monotonic() - start
     # Should return within ~3 seconds (2s timeout + slack)
     assert elapsed < 6, f"execute() took {elapsed:.1f}s after timeout"
@@ -285,3 +287,103 @@ def test_bridge_server_rejects_wrong_token():
                 pass  # RST also means the server rejected us
     finally:
         server.stop()
+
+
+def test_kernel_capture_caps_single_large_chunk(backend, monkeypatch):
+    import gptme.tools.python_kernel as kernel
+
+    monkeypatch.setattr(kernel, "_MAX_STREAMING_OUTPUT_BYTES", 64)
+    result = backend.execute("print('x' * 10000)")
+    assert len(result.stdout) < 256
+    assert "bytes omitted" in result.stdout
+
+
+def test_kernel_caps_error_text(backend, monkeypatch):
+    import gptme.tools.python_kernel as kernel
+
+    monkeypatch.setattr(kernel, "_MAX_STREAMING_OUTPUT_BYTES", 64)
+    result = backend.execute("raise ValueError('x' * 10000)")
+    assert result.error is not None
+    assert len(result.error["evalue"]) < 256
+    assert len("\n".join(result.error["traceback"])) < 256
+
+
+def test_kernel_bridge_preserves_message_files(backend, tmp_path, monkeypatch):
+    import gptme.tools.python as py_mod
+    from gptme.message import Message
+
+    image = tmp_path / "plot.png"
+    image.write_bytes(b"image")
+    message = Message("system", "image result", files=[image])
+
+    def image_helper():
+        return [message]
+
+    backend.register_bridge_function(image_helper)
+    monkeypatch.setattr("gptme.tools.python_kernel.get_backend", lambda: backend)
+    messages = list(py_mod._execute_python_kernel("image_helper()"))
+    assert any(msg.files == [image] for msg in messages)
+
+
+def test_kernel_syncs_cwd_after_python_chdir(backend, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    backend.execute(f"import os; os.chdir({str(other)!r})")
+    result = backend.execute("os.getcwd()")
+    assert result.result_text == repr(str(tmp_path))
+
+
+def test_bridge_helper_uses_kernel_cwd(backend, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+
+    def helper_cwd():
+        return os.getcwd()
+
+    backend.register_bridge_function(helper_cwd)
+    result = backend.execute(f"import os; os.chdir({str(other)!r}); helper_cwd()")
+    assert result.error is None
+    assert result.result_text == repr(str(other))
+
+
+def test_bridge_stop_closes_idle_connections():
+    import socket
+    import time
+
+    server = BridgeServer()
+    server.start()
+    with socket.create_connection(("127.0.0.1", server.port), timeout=2) as conn:
+        deadline = time.monotonic() + 2
+        while not server._connections and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert server._connections
+        server.stop()
+        assert conn.recv(1) == b""
+
+
+def test_kernel_bridge_preserves_single_message(backend):
+    from gptme.message import Message
+
+    message = Message("system", "helper result")
+
+    def message_helper():
+        return message
+
+    backend.register_bridge_function(message_helper)
+    result = backend.execute("message_helper()")
+    assert result.error is None
+    assert backend._bridge.messages == [message]
+    backend.execute("42")
+    assert not backend._bridge.messages
+
+
+def test_kernel_helpers_survive_restart(backend):
+    def helper():
+        return 73
+
+    backend.register_bridge_function(helper)
+    assert backend.execute("helper()").result_text == "73"
+    backend.shutdown()
+    assert backend.execute("helper()").result_text == "73"
