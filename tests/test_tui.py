@@ -3584,3 +3584,37 @@ async def test_take_steer_prompts(tmp_path):
         app.prompt_queue = ["after interrupt"]
         app._interrupt_event.set()
         assert app._take_steer_prompts() == []
+
+
+@pytest.mark.asyncio
+async def test_queued_prompts_are_sent_together_after_a_turn(tmp_path, monkeypatch):
+    """Prompts still queued when a turn ends go in one new turn, not one per
+    turn; command-line prompts keep running one turn each."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._enqueue_prompt("first")
+        app._enqueue_prompt("second")
+        await app._dispatch_queue()
+        await pilot.pause()
+        assert [m.content for m in app.manager.log if m.role == "user"] == [
+            "first",
+            "second",
+        ]
+        assert started == [True]
+        assert app.prompt_queue == []
+
+
+@pytest.mark.asyncio
+async def test_command_line_prompts_are_not_steered(tmp_path, monkeypatch):
+    app = GptmeApp(
+        make_manager(tmp_path), workspace=tmp_path, initial_prompts=["one", "two"]
+    )
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        assert app.prompt_queue == ["two"]
+        assert app._take_steer_prompts() == []

@@ -1701,6 +1701,11 @@ STATUSLINE_REFRESH = 10
 STREAM_FPS = 20
 
 
+class _SequentialPrompt(str):
+    """A queued command-line prompt: sent when the previous turn ends (like
+    the CLI), never joined into a running turn."""
+
+
 class GptmeApp(App):
     """gptme TUI: streaming chat with live input, queueing and collapsible output."""
 
@@ -2115,8 +2120,9 @@ class GptmeApp(App):
         """Queued prompts that can join the running turn at its next step.
 
         Taken in order, stopping at the first that must wait for the turn to
-        end: a slash-command, a prompt with URLs (fetch confirmation), or a
-        queued skill invocation (it starts its own turn).
+        end: a slash-command, a prompt with unconfirmed URLs, a queued skill
+        invocation (it starts its own turn), or a command-line prompt (those
+        run one turn each, like the CLI).
         """
         taken: list[Message] = []
         while self.prompt_queue and not self._interrupt_event.is_set():
@@ -2126,7 +2132,11 @@ class GptmeApp(App):
                 if id(prompt) not in self._confirmed_urls:
                     break
                 urls = self._confirmed_urls.pop(id(prompt))
-            elif is_message_command(prompt) or extract_urls(prompt):
+            elif (
+                isinstance(prompt, _SequentialPrompt)
+                or is_message_command(prompt)
+                or extract_urls(prompt)
+            ):
                 break
             else:
                 prompt, urls = Message("user", prompt, quiet=True), []
@@ -2160,7 +2170,9 @@ class GptmeApp(App):
         first, *rest = self._initial_prompts
         self._initial_prompts = []
         for prompt in rest:
-            self._enqueue_prompt(prompt)
+            self._enqueue_prompt(
+                _SequentialPrompt(prompt) if isinstance(prompt, str) else prompt
+            )
         await self._submit_user_input(first)
 
     async def on_event(self, event: events.Event) -> None:
@@ -3345,6 +3357,12 @@ class GptmeApp(App):
             self._queued_widgets.clear()
             self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
+            # everything you queued goes in one turn, not one per turn
+            if steer := self._take_steer_prompts():
+                for msg in steer:
+                    self.manager.append(msg)
+                self._start_generation()
+                return
             prompt = self._pop_queued_prompt()
             self._set_state("idle")
             await self._submit_user_input(prompt)

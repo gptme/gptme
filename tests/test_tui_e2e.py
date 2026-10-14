@@ -279,18 +279,21 @@ async def test_e2e_queued_prompt_steers_running_turn(mock_app, monkeypatch):
         await pilot.pause()
         inp.text = "steer this way"
         await pilot.press("enter")
+        inp.text = "and this too"
+        await pilot.press("enter")
         await pilot.pause()
-        assert app.prompt_queue == ["steer this way"]
+        assert app.prompt_queue == ["steer this way", "and this too"]
         await wait_for(
             pilot,
             lambda: not app.generating and app.state == "idle",
             what="generation to finish",
         )
         roles = [(m.role, m.content) for m in app.manager.log if not m.hide]
-        users = [i for i, (r, c) in enumerate(roles) if r == "user"]
-        assert roles[users[-1]] == ("user", "steer this way")
-        # the same turn's next step answered it (mock/echo echoes it back)
-        assert roles[-1][0] == "assistant" and "steer this way" in roles[-1][1]
+        users = [c for r, c in roles if r == "user"]
+        # both joined the same next step, in order
+        assert users[-2:] == ["steer this way", "and this too"]
+        # which answered them (mock/echo echoes the last one back)
+        assert roles[-1][0] == "assistant" and "and this too" in roles[-1][1]
         assert app.prompt_queue == []
         assert len(generations) == 1  # one turn, not a second one after it
 
