@@ -1127,12 +1127,13 @@ def _resume_via_llm(
     keep_recent_tokens: int = _DEFAULT_KEEP_RECENT_TOKENS,
     keep_head: int = 0,
     checkpoint_response: Message | None = None,
-) -> Generator[Message, None, bool]:
+) -> Generator[Message, None, tuple[bool, str]]:
     """Core LLM-powered resume logic: summarize conversation and replace history.
 
-    Returns True iff the compacted view/log was applied. Early exits (too few
-    messages, no model, stale discard) return False so callers can skip
-    cooldown and side effects that assume a successful compaction.
+    Returns (applied, method) where applied is True iff the compacted view/log
+    was applied, and method is "summarize", "chunked", or "native". Early exits
+    return (False, "summarize") so callers can skip cooldown and side effects
+    that assume a successful compaction.
 
     Args:
         manager: LogManager that owns the conversation.
@@ -1161,7 +1162,7 @@ def _resume_via_llm(
             hide=use_view_branch,
             ui_only=True,
         )
-        return False
+        return (False, "summarize")
 
     if checkpoint_response is None:
         yield Message(
@@ -1185,7 +1186,7 @@ def _resume_via_llm(
             hide=use_view_branch,
             ui_only=True,
         )
-        return False
+        return (False, "summarize")
     # Provider-native compaction first: when the Anthropic model supports the
     # compaction capability, the old prefix is summarized server-side and the
     # signed block is replayed verbatim. Any failure here falls through to the
@@ -1202,7 +1203,9 @@ def _resume_via_llm(
             llm_unlocked=llm_unlocked,
         )
         if native_applied:
-            return True
+            return (True, "native")
+
+    _chunks_used: list[bool] = [False]
 
     if checkpoint_response is None:
         # Legacy/manual path: ask the model directly without tools. Automatic
@@ -1228,13 +1231,16 @@ def _resume_via_llm(
         def summarize_omitted(omitted: list[Message], max_tokens: int) -> str | None:
             if context_window is None:
                 return None
-            return _summarize_in_chunks(
+            result = _summarize_in_chunks(
                 omitted,
                 summary_model.full,
                 summary_model.model,
                 context_window,
                 max_tokens,
             )
+            if result is not None:
+                _chunks_used[0] = True
+            return result
 
         snapshot = None
         file_snapshot = None
@@ -1300,7 +1306,7 @@ def _resume_via_llm(
                     hide=use_view_branch,
                     ui_only=True,
                 )
-                return False
+                return (False, "summarize")
     else:
         resume_response = checkpoint_response
     resume_content = resume_response.content
@@ -1315,7 +1321,7 @@ def _resume_via_llm(
             hide=use_view_branch,
             ui_only=True,
         )
-        return False
+        return (False, "summarize")
 
     # Save RESUME.md to logdir (not workspace) for reference/debugging
     resume_path: Path | None = None
@@ -1591,4 +1597,4 @@ def _resume_via_llm(
         hide=use_view_branch,
         ui_only=True,
     )
-    return True
+    return (True, "chunked" if _chunks_used[0] else "summarize")

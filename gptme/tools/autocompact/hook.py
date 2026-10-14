@@ -527,6 +527,7 @@ def autocompact_hook(
         original_tokens = len_tokens(messages, m.model) if m else 0
         original_count = len(messages)
         view_before = manager.current_view
+        summarize_method = "summarize"
         try:
             # Read compact_instructions and keep_recent_tokens from project config
             compact_instructions: str | None = None
@@ -564,6 +565,7 @@ def autocompact_hook(
                     )
                     if native_applied:
                         applied = True
+                        summarize_method = "native"
                     else:
                         # Put checkpointing through the normal turn loop so the
                         # model can use the same tools, confirmation policy,
@@ -608,7 +610,7 @@ def autocompact_hook(
                     )
                     return
             else:
-                applied = yield from _resume_via_llm(
+                applied, summarize_method = yield from _resume_via_llm(
                     manager,
                     checkpoint_source,
                     use_view_branch=True,
@@ -668,7 +670,7 @@ def autocompact_hook(
             append_compaction_event(
                 manager.logdir,
                 trigger="budget",
-                method="summarize",
+                method=summarize_method,
                 tokens_before=original_tokens,
                 tokens_after=compacted_tokens,
                 messages_before=original_count,

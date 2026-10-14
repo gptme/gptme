@@ -1300,7 +1300,8 @@ def test_resume_via_llm_discards_stale_result_after_unlock():
             while True:
                 results.append(next(gen))
         except StopIteration as e:
-            applied = e.value
+            rv = e.value
+            applied = rv[0] if isinstance(rv, tuple) else rv
 
     mock_manager.create_view.assert_not_called()
     mock_manager.switch_view.assert_not_called()
@@ -1737,7 +1738,7 @@ def test_autocompact_summarize_stale_does_not_throttle(monkeypatch):
             "the summary was generating.",
             hide=True,
         )
-        return False
+        return (False, "summarize")
 
     with (
         patch(
@@ -2096,7 +2097,7 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
         assert use_view_branch is False
         active_manager.log = Log([Message("system", "summary")])
         yield Message("system", "done")
-        return True
+        return (True, "summarize")
 
     monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
 
@@ -2106,6 +2107,45 @@ def test_manual_summarize_writes_compaction_event(tmp_path, monkeypatch):
     assert len(events) == 1
     assert events[0]["trigger"] == "manual"
     assert events[0]["method"] == "summarize"
+    assert events[0]["messages"] == {"before": 2, "after": 1}
+
+
+def test_manual_summarize_writes_chunked_event_when_chunks_used(tmp_path, monkeypatch):
+    """When _resume_via_llm returns method='chunked', the event records method='chunked'."""
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import Log, LogManager
+    from gptme.tools.autocompact.events import read_compaction_events
+    from gptme.tools.autocompact.handlers import _compact_summarize
+
+    messages = [Message("system", "system prompt"), Message("user", "task")]
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    ctx = MagicMock()
+    ctx.manager = manager
+
+    def fake_resume_chunked(
+        active_manager,
+        _msgs,
+        *,
+        use_view_branch,
+        compact_instructions=None,
+        keep_recent_tokens=20_000,
+        keep_head=0,
+    ):
+        active_manager.log = Log([Message("system", "summary")])
+        yield Message("system", "done")
+        return (True, "chunked")
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers._resume_via_llm", fake_resume_chunked
+    )
+
+    list(_compact_summarize(ctx, messages))
+
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "manual"
+    assert events[0]["method"] == "chunked"
     assert events[0]["messages"] == {"before": 2, "after": 1}
 
 
@@ -2131,7 +2171,7 @@ def test_manual_summarize_skips_event_when_resume_not_applied(tmp_path, monkeypa
         yield Message(
             "system", "Not enough conversation history to create a meaningful resume."
         )
-        return False
+        return (False, "summarize")
 
     monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
 
@@ -2566,7 +2606,7 @@ def test_checkpoint_turn_waits_for_tools_then_applies_final_response(monkeypatch
         manager.current_view = "view-1"
         if False:
             yield Message("system", "unreachable")
-        return True
+        return (True, "summarize")
 
     with (
         patch(
@@ -2628,7 +2668,7 @@ def test_checkpoint_request_reenters_normal_cli_step_loop(tmp_path, monkeypatch)
         manager.switch_view(view)
         if False:
             yield Message("system", "unreachable")
-        return True
+        return (True, "summarize")
 
     with (
         patch.object(chat_module, "step", side_effect=fake_step),
@@ -3371,7 +3411,8 @@ def test_resume_via_llm_rejects_empty_checkpoint(
         while True:
             out.append(next(gen))
     except StopIteration as stop:
-        applied = stop.value
+        rv = stop.value
+        applied = rv[0] if isinstance(rv, tuple) else rv
 
     assert applied is False
     assert [m.content for m in manager.log.messages] == [m.content for m in messages]
@@ -4229,7 +4270,13 @@ def test_resume_via_llm_overflow_uses_chunked_summary(tmp_path, monkeypatch):
         return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
 
     monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
-    assert list(_resume_via_llm(manager, messages, keep_recent_tokens=0))
+    gen = _resume_via_llm(manager, messages, keep_recent_tokens=0)
+    outputs = []
+    with pytest.raises(StopIteration) as stopped:
+        while True:
+            outputs.append(next(gen))
+    assert outputs
+    assert stopped.value.value == (True, "chunked")
     chunk_calls = [r for r in requests if r[-1].content == _CHUNK_SUMMARY_PROMPT]
     assert chunk_calls, "overflow did not trigger chunked summarization"
     final = requests[-1]
@@ -4905,7 +4952,7 @@ def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
         manager.switch_view(view)
         if False:
             yield Message("system", "unreachable")
-        return True
+        return (True, "summarize")
 
     with (
         patch.object(chat_module, "step", side_effect=fake_step),
@@ -4939,12 +4986,15 @@ def test_checkpoint_turn_resumes_interrupted_task_after_install(tmp_path):
     assert manager.current_view is not None
 
 
-def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
+def test_autocompact_hook_tries_native_before_checkpoint(tmp_path, monkeypatch):
     """On a compaction-capable Anthropic model, native compaction must be
     attempted before queueing the generic checkpoint turn."""
     from unittest.mock import MagicMock, patch
 
     import gptme.tools.autocompact.hook as hook_module
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact import native_anthropic
+    from gptme.tools.autocompact.events import read_compaction_events
 
     hook_module._last_autocompact_attempt.clear()
     hook_module._failed_summarize.clear()
@@ -4953,12 +5003,10 @@ def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
         Message("system", "System prompt"),
         Message("user", "implement the feature"),
         Message("assistant", "I am working on it"),
+        Message("user", "continue"),
+        Message("assistant", "The feature is implemented"),
     ]
-    manager = MagicMock()
-    manager.logdir = "/tmp/conv-native-first"
-    manager.current_branch = "master"
-    manager.current_view = "main"
-    manager.log.messages = messages
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
 
     anthropic_model = MagicMock()
     anthropic_model.full = "anthropic/claude-test"
@@ -4966,34 +5014,50 @@ def test_autocompact_hook_tries_native_before_checkpoint(monkeypatch):
     anthropic_model.context = 200_000
     anthropic_model.max_output = 8192
 
-    def fake_native(_manager, msgs, **kwargs):
+    def fake_native(msgs, model, **kwargs):
         assert msgs[0].role == "system", "native path must receive the system head"
-        yield Message(
-            "system", "🔄 Compacting via provider-native compaction (Anthropic)..."
+        return Message(
+            "assistant",
+            "[compacted]",
+            metadata={
+                "anthropic_compaction_block": {
+                    "type": "compaction",
+                    "content": "signed checkpoint",
+                }
+            },
         )
-        return True
 
     with (
         patch(
             "gptme.tools.autocompact.hook.should_auto_compact",
             return_value="summarize",
         ),
-        patch("gptme.tools.autocompact.hook.get_project_config", return_value=None),
+        patch("gptme.tools.autocompact.hook.get_project_config") as mock_config,
         patch(
             "gptme.tools.autocompact.hook.get_default_model",
             return_value=anthropic_model,
         ),
-        patch(
-            "gptme.tools.autocompact.hook._apply_native_compaction",
-            side_effect=fake_native,
+        patch.object(
+            native_anthropic, "anthropic_compaction_supported", return_value=True
+        ),
+        patch.object(
+            native_anthropic, "anthropic_native_compact", side_effect=fake_native
         ) as mock_native,
     ):
+        mock_config.return_value.context.keep_recent_tokens = 0
+        mock_config.return_value.context.compact_instructions = None
         out = _message_outputs(list(hook_module.autocompact_hook(manager)))
 
     assert mock_native.called, "native path must be attempted before the checkpoint"
     assert not any(
         m.metadata and m.metadata.get("compaction_checkpoint_view") for m in out
     ), "checkpoint turn must not be queued when native compaction applied"
+
+    events = read_compaction_events(manager.logdir)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "budget"
+    assert events[0]["method"] == "native"
+    assert events[0]["messages"] == {"before": 5, "after": 3}
 
 
 def test_autocompact_hook_falls_back_to_checkpoint_when_native_fails(monkeypatch):

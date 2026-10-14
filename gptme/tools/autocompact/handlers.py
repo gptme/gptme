@@ -174,7 +174,7 @@ def _compact_summarize(
     m = get_default_model()
     original_tokens = len_tokens(msgs, m.model) if m else 0
     try:
-        applied = yield from _resume_via_llm(
+        applied, summarize_method = yield from _resume_via_llm(
             ctx.manager,
             msgs,
             use_view_branch=False,
@@ -191,7 +191,7 @@ def _compact_summarize(
         append_compaction_event(
             ctx.manager.logdir,
             trigger="manual",
-            method="summarize",
+            method=summarize_method,
             tokens_before=original_tokens,
             tokens_after=compacted_tokens,
             messages_before=len(msgs),
