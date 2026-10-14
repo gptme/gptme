@@ -572,14 +572,19 @@ def start_background_job(
         )
         _jobs_for(conversation_id)[job_id] = job
     if not _is_windows:
-        from .shell_memory import Target, watch
+        from .shell_memory import Target, group_alive, kill_group, watch
+
+        def kill_for_memory() -> None:
+            # the whole group: workers can outlive a leader that exits on TERM
+            kill_group(process.pid)
+            job.kill()
 
         watch(
             Target(
                 pgid=process.pid,
                 label=f"background job #{job_id}",
-                kill=job.kill,
-                alive=job.is_running,
+                kill=kill_for_memory,
+                alive=lambda: group_alive(process.pid),
                 on_killed=lambda reason: setattr(job, "kill_reason", reason),
             )
         )

@@ -54,7 +54,6 @@ Configuration:
 
 import atexit
 import codecs
-import functools
 import logging
 import math
 import os
@@ -118,6 +117,7 @@ from .shell_background import (
     start_background_job as start_background_job,
 )
 from .shell_memory import Target as MemoryTarget
+from .shell_memory import kill_tree
 from .shell_memory import watch as watch_memory
 from .shell_validation import (
     _find_first_unquoted_pipe,
@@ -752,7 +752,7 @@ class ShellSession:
             MemoryTarget(
                 pgid=process.pid,
                 label="the running shell command",
-                kill=functools.partial(_kill_descendants, process.pid),
+                kill=lambda: kill_tree(_descendant_pids(process.pid)),
                 alive=lambda: process.poll() is None,
                 on_killed=self._queue_restart_notice,
             )

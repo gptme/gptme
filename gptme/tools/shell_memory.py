@@ -20,6 +20,7 @@ import ctypes
 import functools
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -182,6 +183,41 @@ class MemoryGuard:
 
 
 _guard: MemoryGuard | None = None
+_guard_lock = threading.Lock()
+
+
+def kill_tree(pids: list[int]) -> None:
+    """SIGTERM then SIGKILL a fixed list of processes.
+
+    The list is taken once: re-listing children after SIGTERM would miss a
+    worker that ignores it and was re-parented when its parent exited.
+    """
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, sig)
+        if sig == signal.SIGTERM:
+            time.sleep(0.2)
+
+
+def kill_group(pgid: int) -> None:
+    """SIGTERM then SIGKILL every process in a group, leader or not."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pgid, sig)
+        if sig == signal.SIGTERM:
+            time.sleep(0.2)
+
+
+def group_alive(pgid: int) -> bool:
+    """Whether any process is left in the group (its leader may be gone)."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def guard_enabled() -> bool:
@@ -201,6 +237,7 @@ def watch(target: Target) -> None:
     except Exception:  # config errors must not break running commands
         logger.debug("memory guard: could not read config", exc_info=True)
         return
-    if _guard is None:
-        _guard = MemoryGuard()
+    with _guard_lock:
+        if _guard is None:
+            _guard = MemoryGuard()
     _guard.register(target)

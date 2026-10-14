@@ -128,3 +128,49 @@ def test_guard_can_be_disabled(monkeypatch):
     monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
     shell_memory.watch(Target(1, "x", lambda: None, lambda: True, lambda r: None))
     assert shell_memory._guard is None
+
+
+def test_background_job_workers_that_ignore_sigterm_are_killed(fake_low_memory):
+    """A worker ignoring SIGTERM must not survive its leader exiting on it."""
+    from gptme.tools.shell_background import reset_background_jobs, start_background_job
+    from gptme.tools.shell_memory import group_alive
+
+    job = start_background_job("(trap '' TERM; exec sleep 300) & wait")
+    try:
+        time.sleep(0.5)
+        pgid = job.process_group_id
+        assert pgid is not None and group_alive(pgid)
+        assert fake_low_memory.check() is not None
+        deadline = time.monotonic() + 5
+        while group_alive(pgid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not group_alive(pgid)
+    finally:
+        reset_background_jobs()
+
+
+def test_guard_is_created_once_under_concurrency(monkeypatch):
+    monkeypatch.setattr(shell_memory, "_guard", None)
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "1")
+    created: list[MemoryGuard] = []
+    real_init = MemoryGuard.__init__
+
+    def slow_init(self, *a, **kw):
+        time.sleep(0.05)  # widen the race window
+        real_init(self, *a, **kw)
+        created.append(self)
+
+    monkeypatch.setattr(MemoryGuard, "__init__", slow_init)
+    monkeypatch.setattr(MemoryGuard, "register", lambda self, t: None)
+    threads = [
+        threading.Thread(
+            target=shell_memory.watch,
+            args=(Target(i, "x", lambda: None, lambda: True, lambda r: None),),
+        )
+        for i in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(created) == 1
