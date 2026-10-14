@@ -32,12 +32,12 @@ def hook_env(
         "GPTME_LESSONS_SELECTOR_MAX_CALLS": "2",
         "GPTME_LESSONS_SELECTOR_TIMEOUT": "1",
     }
-    settings = {
+    environment = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith("GPTME_LESSONS_SELECTOR_")
-    } | settings
-    monkeypatch.setattr(selector.os, "environ", settings)
+    }
+    monkeypatch.setattr(selector.os, "environ", environment)
     # Hook reads selector authority from the pre-.env snapshot; alias it to the
     # live settings so fake_cli() writes remain visible to the hook.
     monkeypatch.setattr(selector, "_trusted_env", settings)
@@ -344,3 +344,106 @@ def test_workspace_env_cannot_enable_selector_command(
     monkeypatch.setattr(selector, "_trusted_env", {})
     assert len(emitted_names(run_hook(hook_env))) == 5
     assert not (hook_env["tmp"] / "requests.jsonl").exists()
+
+
+def test_identical_new_user_message_can_refresh_selection(
+    hook_env: dict[str, Any],
+) -> None:
+    fake_cli(hook_env, "print(json.dumps({'version':1, 'status':'empty', 'ids':[]}))")
+    run_hook(hook_env)
+    hook_env["manager"].log.messages.append(Message("user", "commit changes safely"))
+    run_hook(hook_env)
+    assert [request["event_kind"] for request in recorded_requests(hook_env)] == [
+        "user_prompt",
+        "user_prompt",
+    ]
+
+
+def test_command_is_stopped_while_output_exceeds_limit(
+    hook_env: dict[str, Any],
+) -> None:
+    completed = hook_env["tmp"] / "output-completed"
+    fake_cli(
+        hook_env,
+        "for _ in range(512): os.write(1, b'x' * 4096)\n"
+        f"open({str(completed)!r}, 'w').write('wrote 2MiB')",
+    )
+    assert len(emitted_names(run_hook(hook_env))) == 5
+    assert not completed.exists()
+
+
+def test_deeply_nested_response_preserves_guards_and_advisory_baseline(
+    hook_env: dict[str, Any],
+) -> None:
+    fake_cli(hook_env, "print('[' * 10000 + '0' + ']' * 10000)")
+    assert len(emitted_names(run_hook(hook_env))) == 5
+
+
+def test_deeply_nested_command_configuration_preserves_baseline(
+    hook_env: dict[str, Any],
+) -> None:
+    hook_env["settings"]["GPTME_LESSONS_SELECTOR_COMMAND"] = (
+        "[" * 10000 + "0" + "]" * 10000
+    )
+    assert len(emitted_names(run_hook(hook_env))) == 5
+
+
+def test_real_execution_setup_cannot_grant_selector_from_workspace_dotenv(
+    hook_env: dict[str, Any],
+) -> None:
+    import subprocess
+
+    fake_cli(hook_env, "raise AssertionError('untrusted dotenv command executed')")
+    workspace = hook_env["tmp"]
+    (workspace / ".env").write_text(
+        "\n".join(
+            f"{key}='{value}'"
+            for key, value in hook_env["settings"].items()
+            if key.startswith("GPTME_LESSONS_SELECTOR_")
+        )
+    )
+    code = """
+import os, sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from gptme.config import Config, UserConfig
+from gptme.executor import prepare_execution_environment
+from gptme.lessons import selector
+from gptme.lessons.parser import Lesson, LessonMetadata
+from gptme.message import Message
+from gptme.tools import lessons
+workspace = Path(sys.argv[1])
+assert all(value is None for value in selector._trusted_env.values())
+config = Config(user=UserConfig())
+with patch('gptme.executor.Config.from_workspace', return_value=config), \\
+     patch('gptme.executor.init_tools', return_value=[]), \\
+     patch('gptme.executor.init_hooks'), \\
+     patch('gptme.executor._register_core_compaction_hook'):
+    prepare_execution_environment(workspace)
+assert os.environ.get('GPTME_LESSONS_SELECTOR_COMMAND')
+catalog = [Lesson(workspace / (name + '.md'), LessonMetadata(keywords=['commit']),
+                  name, name, 'test', name) for name in ('guard', 'advisory')]
+manager = SimpleNamespace(logdir=workspace, log=SimpleNamespace(messages=[Message('user', 'commit')]))
+with patch.object(lessons, '_get_lesson_index', return_value=SimpleNamespace(lessons=catalog)), \\
+     patch.object(lessons, 'get_config', return_value=config):
+    emitted = list(lessons.auto_include_lessons_hook(manager))
+assert len(emitted) == 1
+assert '## guard' in emitted[0].content and '## advisory' in emitted[0].content
+assert not (workspace / 'requests.jsonl').exists()
+"""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GPTME_LESSONS_SELECTOR_")
+    }
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    subprocess.run(
+        [sys.executable, "-c", code, str(workspace)],
+        cwd=workspace,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=True,
+    )

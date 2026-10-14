@@ -9,9 +9,11 @@ import json
 import logging
 import math
 import os
+import selectors
 import signal
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
@@ -24,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _MAX_BYTES = 1_048_576
-_last_intent: ContextVar[tuple[str, str] | None] = ContextVar(
+_last_intent: ContextVar[tuple[str, int] | None] = ContextVar(
     "lesson_selector_intent", default=None
 )
 _SELECTOR_ENV_KEYS = (
@@ -57,21 +59,39 @@ def _transport(command: list[str], request: dict[str, Any], timeout: float) -> A
     payload = json.dumps(request).encode()
     if len(payload) > _MAX_BYTES:
         raise ValueError("request too large")
-    with tempfile.TemporaryFile() as source, tempfile.TemporaryFile() as output:
+    deadline = time.monotonic() + timeout
+    raw = bytearray()
+    with tempfile.TemporaryFile() as source:
         source.write(payload)
         source.seek(0)
         with subprocess.Popen(
             command,
             stdin=source,
-            stdout=output,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         ) as process:
             try:
-                process.wait(timeout=timeout)
+                assert process.stdout is not None
+                with selectors.DefaultSelector() as reader:
+                    reader.register(process.stdout, selectors.EVENT_READ)
+                    while True:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0 or not reader.select(remaining):
+                            raise subprocess.TimeoutExpired(command, timeout)
+                        chunk = os.read(
+                            process.stdout.fileno(),
+                            min(65536, _MAX_BYTES + 1 - len(raw)),
+                        )
+                        if not chunk:
+                            break
+                        raw.extend(chunk)
+                        if len(raw) > _MAX_BYTES:
+                            raise ValueError("response too large")
+                process.wait(timeout=max(0, deadline - time.monotonic()))
             finally:
-                # On interruption the unreaped CLI still owns this PID/group.
-                # A successful service has already joined its provider worker.
+                # An unreaped CLI still owns this PID/group. Kill both the CLI
+                # and provider worker on deadline, oversized output or interrupt.
                 if process.returncode is None:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
@@ -80,10 +100,6 @@ def _transport(command: list[str], request: dict[str, Any], timeout: float) -> A
                     process.wait()
             if process.returncode != 0:
                 raise ValueError("selector command failed")
-        output.seek(0)
-        raw = output.read(_MAX_BYTES + 1)
-    if len(raw) > _MAX_BYTES:
-        raise ValueError("response too large")
     try:
         return json.loads(raw)
     except RecursionError as exc:
@@ -150,7 +166,7 @@ def refine_matches(
             return matches
         query = messages[user_index].content
         session_id = str(manager.logdir.resolve())
-        intent = (session_id, query)
+        intent = (session_id, user_index)
         # A resumed conversation already in a tool turn must not restart paid
         # selection merely because this process has no in-memory cadence state.
         in_tool_turn = any(

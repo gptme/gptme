@@ -410,9 +410,11 @@ with an authorized provider/model):
 
 The command is a JSON argv array, executed without a shell. The executable and its
 arguments must be trusted configuration. Selector settings are read only from
-the process environment: a repository or conversation ``[env]`` cannot authorize
-service execution or provider spending. A nonempty explicit guard list, model
-and positive call limit are required; otherwise matching stays deterministic.
+a snapshot of the process environment captured when gptme is first imported,
+before workspace ``.env`` loading. Later process-environment changes and repository
+or conversation ``[env]`` cannot authorize service execution or provider spending.
+A nonempty explicit guard list, model and positive call limit are required;
+otherwise matching stays deterministic.
 Guard identifiers use the same path/name matching as ``GPTME_LESSONS_HOLDOUT``.
 Matched ``always_apply`` rules and rules with ``priority: critical`` are also
 protected. The advisory selector never suppresses these guards. Existing holdouts,
@@ -430,7 +432,9 @@ complete deterministic baseline. Memory delivery is unchanged.
 session. ``GPTME_LESSONS_SELECTOR_TIMEOUT`` defaults to two seconds and must be
 finite, positive and at most 30 seconds. The transport allows one additional
 second for command startup and serialization. It kills the entire owned process
-group on timeout. This experimental adapter currently requires POSIX; other
-platforms retain deterministic matching. Debug logs report selection or fallback
+group on timeout or output exceeding one MiB. Responses are read incrementally
+from a bounded pipe, never accumulated in a temporary output file. This
+experimental adapter currently requires POSIX; other platforms retain
+deterministic matching. Debug logs report selection or fallback
 reasons. This opt-in transport does not establish selection quality or authorize
 a paid rollout.
