@@ -38,7 +38,7 @@ def test_cli_saved_checkpoint_resumes_original_task(tmp_path, needs_continuation
         manager.create_view(view, source_messages + [kwargs["checkpoint_response"]])
         manager.switch_view(view)
         yield from ()
-        return True
+        return (True, "summarize")
 
     with (
         patch.object(chat, "step", side_effect=fake_step),
