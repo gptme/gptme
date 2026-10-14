@@ -1535,10 +1535,10 @@ async def test_finalize_prose_stream_height_stable(tmp_path):
         am = app.query_one(AssistantMessage)
         height_after = am.content_size.height
 
-        # With Markdown used during streaming, reflow should be ≤1 row.
-        assert height_after >= height_before - 1, (
-            f"prose height collapsed from {height_before} to {height_after} rows "
-            f"(dropped {height_before - height_after})"
+        # With Markdown used during streaming, reflow should be ≤1 row in either direction.
+        assert abs(height_after - height_before) <= 1, (
+            f"prose height changed from {height_before} to {height_after} rows "
+            f"(delta {height_after - height_before:+d})"
         )
 
 
