@@ -2612,6 +2612,7 @@ async def test_slow_command_does_not_block_ui(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
     async with app.run_test() as pilot:
         await pilot.pause()
+        app._interrupt_event.set()  # left over from an earlier interrupted turn
         inp = app.query_one("#input", ChatInput)
         inp.text = "/compact resume"
         await pilot.press("enter")

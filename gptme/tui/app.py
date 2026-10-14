@@ -2121,6 +2121,7 @@ class GptmeApp(App):
         # Off the event loop: commands like /compact call the LLM and would
         # freeze the UI. Input queues meanwhile, as during generation.
         self.generating = True
+        self._interrupt_event.clear()  # only a Ctrl+C during this command counts
         self._set_state(f"running /{cmd}…")
         self.run_worker(
             functools.partial(self._command_worker, msg, cmd, before),
