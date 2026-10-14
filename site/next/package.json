@@ -25,6 +25,7 @@
     "sanitize-html": "2.18.0"
   },
   "devDependencies": {
+    "@csstools/css-tokenizer": "4.0.2",
     "@tailwindcss/typography": "0.5.20",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "22.20.2",

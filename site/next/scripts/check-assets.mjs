@@ -9,9 +9,29 @@ import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Parser } from "htmlparser2";
 import parseSrcset from "parse-srcset";
+import { tokenize, TokenType } from "@csstools/css-tokenizer";
 
-const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]+))\s*\)/gi;
-const IMPORT_RE = /@import\s+(?:"([^"]*)"|'([^']*)')/gi;
+function cssRefs(css) {
+  const tokens = tokenize({ css }).filter(
+    ([type]) => type !== TokenType.Comment && type !== TokenType.Whitespace,
+  );
+  const refs = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const [type, , , , data] = tokens[i];
+    if (type === TokenType.URL) {
+      refs.push(data.value.trim());
+    } else if (
+      (type === TokenType.Function && data.value.toLowerCase() === "url") ||
+      (type === TokenType.AtKeyword && data.value.toLowerCase() === "import")
+    ) {
+      // Quoted url() arguments and bare @import strings are references;
+      // ordinary strings (e.g. content: "url(/example)") are not.
+      const next = tokens[i + 1];
+      if (next?.[0] === TokenType.String) refs.push(next[4].value.trim());
+    }
+  }
+  return refs;
+}
 
 // Unrendered template syntax (Jinja macros a theme ships in _static, JS templates).
 const TEMPLATE_RE = /\{\{|\{%|\$\{/;
@@ -19,12 +39,7 @@ const TEMPLATE_RE = /\{\{|\{%|\$\{/;
 /** Same-origin file references in an HTML or CSS document. */
 export function extractRefs(text, kind) {
   const refs = [];
-  const take = (re, source) => {
-    for (const m of source.matchAll(re)) {
-      refs.push((m[1] ?? m[2] ?? m[3] ?? "").trim());
-    }
-  };
-  let css = text;
+  let cssSources = [text];
   if (kind === "html") {
     const styles = [];
     let inStyle = false;
@@ -45,10 +60,9 @@ export function extractRefs(text, kind) {
       },
     });
     parser.end(text);
-    css = styles.join("\n");
+    cssSources = styles;
   }
-  take(URL_RE, css);
-  take(IMPORT_RE, css);
+  for (const css of cssSources) refs.push(...cssRefs(css));
   return refs.filter((r) => r && !TEMPLATE_RE.test(r) && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(r));
 }
 

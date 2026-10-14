@@ -48,6 +48,31 @@ test("srcset preserves commas inside data URLs and checks real candidates", () =
   assert.deepEqual(findMissing(root), [{ file: "index.html", ref: "/missing.png" }]);
 });
 
+test("ignores CSS comments and ordinary strings but checks live URLs and imports", () => {
+  const css = `/* url(/old.png) @import "/old.css"; */
+    .example { content: 'url(/text.png) @import "/text.css"'; }
+    @import /* comment */ "/live.css";
+    @import url("/other.css");
+    .image { background: URL('/live.png'); }`;
+  const expected = ["/live.css", "/live.png", "/other.css"];
+  assert.deepEqual(extractRefs(css, "css").sort(), expected);
+  assert.deepEqual(extractRefs(`<style>${css}</style>`, "html").sort(), expected);
+  assert.deepEqual(
+    extractRefs(`<div style="/* url(/old.png) */ content: 'url(/text.png)'; background: url(/live.png)"></div>`, "html"),
+    ["/live.png"],
+  );
+  const root = tree({
+    "index.html": `<style>/* background:url(/old.png) */ .x{content:'url(/text.png)'}</style>`,
+    "assets/s.css": css,
+    "live.css": "",
+    "other.css": "",
+    "live.png": "",
+  });
+  assert.deepEqual(findMissing(root), []);
+  writeFileSync(join(root, "assets/s.css"), `${css}\n.x{background:url(/missing.png)}`);
+  assert.deepEqual(findMissing(root), [{ file: "assets/s.css", ref: "/missing.png" }]);
+});
+
 test("ignores inline script bodies and unrendered template syntax", () => {
   const html = `<script src="/app.js"></script><script>el.innerHTML = \`<a href="\${url}">\`</script>
     <link href="{{ pathto('_static/theme.css', 1) }}" rel="stylesheet">`;
