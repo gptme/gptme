@@ -26,6 +26,28 @@ test("reads srcset candidates and CSS only from style blocks/attributes", () => 
   assert.deepEqual(extractRefs(html, "html").sort(), ["/a.png", "/b.png", "/c.png", "/d.png"]);
 });
 
+test("reads actual decoded HTML attributes, not prose or comments", () => {
+  const html = `<p>src="/example.png" href="/prose" style="background:url(/prose.png)"</p>
+    <!-- <img src="/comment.png"> -->
+    <script>const example = '<img src="/script.png">';</script>
+    <img src=/unquoted.png><img src="/a&amp;b.png">
+    <div style="background:url(&quot;/image.png&quot;)"></div>`;
+  assert.deepEqual(extractRefs(html, "html").sort(), ["/a&b.png", "/image.png", "/unquoted.png"]);
+});
+
+test("srcset preserves commas inside data URLs and checks real candidates", () => {
+  const html = `<img srcset="data:image/png;base64,AAAA 1x, /real.png 2x">
+    <img srcset="data:image/svg+xml,%3Csvg%3E,%3C/svg%3E, /other.png 2x">`;
+  assert.deepEqual(extractRefs(html, "html"), ["/real.png", "/other.png"]);
+  const root = tree({
+    "index.html": `<img srcset="data:image/png;base64,AAAA 1x, /real.png 2x">`,
+    "real.png": "",
+  });
+  assert.deepEqual(findMissing(root), []);
+  writeFileSync(join(root, "index.html"), `<img srcset="data:image/png;base64,AAAA 1x, /missing.png 2x">`);
+  assert.deepEqual(findMissing(root), [{ file: "index.html", ref: "/missing.png" }]);
+});
+
 test("ignores inline script bodies and unrendered template syntax", () => {
   const html = `<script src="/app.js"></script><script>el.innerHTML = \`<a href="\${url}">\`</script>
     <link href="{{ pathto('_static/theme.css', 1) }}" rel="stylesheet">`;

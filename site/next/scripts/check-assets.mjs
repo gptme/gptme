@@ -7,38 +7,48 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Parser } from "htmlparser2";
+import parseSrcset from "parse-srcset";
 
-const ATTR_RE = /\s(?:src|href|poster)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
-const SRCSET_RE = /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]+))\s*\)/gi;
 const IMPORT_RE = /@import\s+(?:"([^"]*)"|'([^']*)')/gi;
-// CSS inside HTML: <style> blocks and style="" attributes, not page prose.
-const STYLE_RE = /<style\b[^>]*>([\s\S]*?)<\/style>|\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 
-// Inline script bodies hold JS strings (e.g. `href="${url}"` templates), not markup.
-const SCRIPT_BODY_RE = /(<script\b[^>]*>)[\s\S]*?<\/script>/gi;
 // Unrendered template syntax (Jinja macros a theme ships in _static, JS templates).
 const TEMPLATE_RE = /\{\{|\{%|\$\{/;
 
 /** Same-origin file references in an HTML or CSS document. */
 export function extractRefs(text, kind) {
   const refs = [];
-  if (kind === "html") text = text.replace(SCRIPT_BODY_RE, "$1</script>");
-  const take = (re, split = false, source = text) => {
+  const take = (re, source) => {
     for (const m of source.matchAll(re)) {
-      const value = m[1] ?? m[2] ?? m[3] ?? "";
-      if (split) refs.push(...value.split(",").map((c) => c.trim().split(/\s+/)[0]));
-      else refs.push(value.trim());
+      refs.push((m[1] ?? m[2] ?? m[3] ?? "").trim());
     }
   };
   let css = text;
   if (kind === "html") {
-    take(ATTR_RE);
-    take(SRCSET_RE, true);
-    css = [...text.matchAll(STYLE_RE)].map((m) => m[1] ?? m[2] ?? m[3] ?? "").join("\n");
+    const styles = [];
+    let inStyle = false;
+    const parser = new Parser({
+      onopentag(name, attrs) {
+        for (const attr of ["src", "href", "poster"]) {
+          if (attrs[attr]) refs.push(attrs[attr].trim());
+        }
+        if (attrs.srcset) refs.push(...parseSrcset(attrs.srcset).map((candidate) => candidate.url));
+        if (attrs.style) styles.push(attrs.style);
+        inStyle = name === "style";
+      },
+      ontext(value) {
+        if (inStyle) styles.push(value);
+      },
+      onclosetag(name) {
+        if (name === "style") inStyle = false;
+      },
+    });
+    parser.end(text);
+    css = styles.join("\n");
   }
-  take(URL_RE, false, css);
-  take(IMPORT_RE, false, css);
+  take(URL_RE, css);
+  take(IMPORT_RE, css);
   return refs.filter((r) => r && !TEMPLATE_RE.test(r) && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(r));
 }
 
