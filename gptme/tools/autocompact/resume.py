@@ -7,7 +7,7 @@ context files, and manages conversation resumption.
 import logging
 import re
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -256,6 +256,21 @@ _SUMMARY_PROMPT_OVERHEAD_TOKENS = 4000
 _OMISSION_MARKER_RESERVE_TOKENS = 64
 """Reserved for the "[N older messages omitted]" note when messages are dropped."""
 
+_OMITTED_SUMMARY_FRACTION = 4
+"""On overflow, 1/N of the summarizer body budget holds a chunked summary of the
+messages that do not fit, instead of dropping them unseen."""
+
+_MAX_SUMMARY_CHUNKS = 8
+"""Upper bound on fresh-context chunk requests per compaction (newest kept)."""
+
+_CHUNK_SUMMARY_PROMPT = (
+    "The messages above are an older part of a long conversation that no longer "
+    "fits in a single summarization request. Summarize them for a later "
+    "checkpoint: the user's requests and requirements, decisions made, files and "
+    "commands touched, results, errors, and anything left unresolved. Be concise "
+    "and factual; do not invent details."
+)
+
 
 def _clip_middle(content: str, max_tokens: int, model: str) -> str:
     """Keep the head and tail of ``content`` so the result fits ``max_tokens``.
@@ -407,6 +422,7 @@ def _bound_summarize_input(
     keep_head: int = 0,
     extra_reserve_tokens: int = 0,
     pinned: Message | None = None,
+    summarize_omitted: Callable[[list[Message], int], str | None] | None = None,
 ) -> list[Message]:
     """Bound the summarizer request so summarizing an oversized log cannot itself overflow.
 
@@ -427,6 +443,11 @@ def _bound_summarize_input(
       would be the first thing a re-compaction loses. It is bounded separately
       so it cannot truncate the original system prefix, while retaining its
       chronological position among the other messages.
+    - ``summarize_omitted(messages, max_tokens)`` is the chunked fallback for
+      the overflow case. When the body does not fit, a fraction of the body
+      budget is reserved and the messages that would be dropped are passed to
+      it; its text replaces the bare omission marker. If it returns nothing,
+      the bare marker is used, so a failed fallback only costs the reserve.
     """
     head = msgs[:keep_head]
     body_start = keep_head
@@ -554,8 +575,20 @@ def _bound_summarize_input(
     if body_budget <= 0:
         return head + pinned_part
 
+    omitted_budget = 0
+    if (
+        summarize_omitted is not None
+        and sum(len_tokens(m.content, model) for m in body) > body_budget
+    ):
+        omitted_budget = body_budget // _OMITTED_SUMMARY_FRACTION
+        if omitted_budget >= SUMMARY_MIN_CLIP_TOKENS:
+            body_budget -= omitted_budget
+        else:
+            omitted_budget = 0
+
     kept: list[Message] = []
     used = 0
+    boundary_clipped = False
     for msg in reversed(body):
         remaining = body_budget - used
         tokens = len_tokens(msg.content, model)
@@ -569,27 +602,124 @@ def _bound_summarize_input(
             # the omission marker alone cannot fit), keeping the assembled
             # request inside the summarizer budget.
             kept.append(_clip_messages_to_budget([msg], max(remaining, 1), model)[0])
+            boundary_clipped = True
             break
         else:
             break
     dropped = len(body) - len(kept)
     kept.reverse()
-    if dropped:
+    if dropped or boundary_clipped:
         logger.info("Summarizer input: dropped %d oldest messages to fit", dropped)
-        kept.insert(
-            0,
-            Message(
-                "system",
-                f"[{dropped} older messages omitted to fit the summarization window]",
-            ),
+        boundary_note = " and a clipped boundary message" if boundary_clipped else ""
+        marker = (
+            f"[{dropped} older messages omitted{boundary_note} "
+            "to fit the summarization window]"
         )
+        if summarize_omitted is not None and omitted_budget:
+            # The clipped boundary message lost its middle; let the chunk
+            # summary see it whole.
+            omitted = body[: dropped + 1] if boundary_clipped else body[:dropped]
+            summary = summarize_omitted(omitted, omitted_budget)
+            if summary and summary.strip():
+                logger.info(
+                    "Summarizer input: summarized %d omitted messages in chunks",
+                    len(omitted),
+                )
+                marker = _clip_middle(
+                    f"[Summary of {dropped} older messages{boundary_note} that did not fit the "
+                    f"summarization window]\n\n{summary.strip()}",
+                    omitted_budget,
+                    model,
+                )
+        kept.insert(0, Message("system", marker))
     if pinned_part and pin_body_at is not None:
         pin_at_kept = max(pin_body_at - dropped, 0)
-        if dropped and pin_at_kept:
+        if (dropped or boundary_clipped) and pin_at_kept:
             # The omission marker adds a slot before retained pre-checkpoint messages.
             pin_at_kept += 1
         kept[pin_at_kept:pin_at_kept] = pinned_part
     return head + kept
+
+
+def _split_message_for_summary(
+    msg: Message, budget: int, model: str
+) -> Generator[Message, None, None]:
+    """Split on character boundaries without dropping or corrupting content."""
+    if len_tokens(msg.content, model) <= budget:
+        yield msg
+        return
+    middle = len(msg.content) // 2
+    if not middle:
+        raise ValueError("A single character exceeds the chunk summary budget")
+    yield from _split_message_for_summary(
+        msg.replace(content=msg.content[:middle]), budget, model
+    )
+    yield from _split_message_for_summary(
+        msg.replace(content=msg.content[middle:]), budget, model
+    )
+
+
+def _summarize_in_chunks(
+    msgs: list[Message],
+    model_full: str,
+    model: str,
+    context_window: int,
+    max_tokens: int,
+) -> str | None:
+    """Summarize ``msgs`` in fresh-context chunks that each fit the window.
+
+    The overflow fallback for the summarizer request: messages that cannot fit
+    beside the newest history are summarized separately instead of one shot at
+    the window edge. Each chunk sees only original messages, never an earlier
+    summary. Returns None on any failure or empty chunk so the caller keeps the
+    plain omission marker.
+    """
+    request = Message("user", _CHUNK_SUMMARY_PROMPT)
+    chunk_budget = (
+        context_window
+        - SUMMARY_MAX_OUTPUT_TOKENS
+        - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+        - len_tokens(request, model)
+    )
+    if chunk_budget < SUMMARY_MIN_CLIP_TOKENS or not msgs:
+        return None
+
+    chunks: list[list[Message]] = []
+    current: list[Message] = []
+    used = 0
+    for original in msgs:
+        for msg in _split_message_for_summary(original, chunk_budget, model):
+            tokens = len_tokens(msg.content, model)
+            if current and used + tokens > chunk_budget:
+                chunks.append(current)
+                current, used = [], 0
+            current.append(msg)
+            used += tokens
+    if current:
+        chunks.append(current)
+
+    skipped = max(len(chunks) - _MAX_SUMMARY_CHUNKS, 0)
+    chunks = chunks[skipped:]
+    per_chunk = max(min(SUMMARY_MAX_OUTPUT_TOKENS, max_tokens // len(chunks)), 1)
+    parts = [f"({skipped} earliest parts not summarized)"] if skipped else []
+    for i, chunk in enumerate(chunks, 1):
+        try:
+            reply = llm.reply(
+                chunk + [request],
+                model=model_full,
+                tools=[],
+                workspace=None,
+                max_tokens=per_chunk,
+            )
+        except Exception as e:
+            logger.warning("Chunked summary failed on part %d: %s", i, e)
+            return None
+        text = reply.content.strip()
+        if not text:
+            logger.warning("Chunked summary returned empty text for part %d", i)
+            return None
+        parts.append(f"Part {i}/{len(chunks)}:\n{text}")
+    return "\n\n".join(parts)
 
 
 def _split_recent_tail(
@@ -1093,14 +1223,19 @@ def _resume_via_llm(
                 break
             n_head += 1
         context_window = m.context if isinstance(m.context, int) else None
-        llm_msgs = _bound_summarize_input(
-            prepared_msgs,
-            m.model,
-            context_window,
-            keep_head=n_head,
-            extra_reserve_tokens=len_tokens(resume_request, m.model),
-            pinned=previous_checkpoint,
-        ) + [resume_request]
+        summary_model = m
+
+        def summarize_omitted(omitted: list[Message], max_tokens: int) -> str | None:
+            if context_window is None:
+                return None
+            return _summarize_in_chunks(
+                omitted,
+                summary_model.full,
+                summary_model.model,
+                context_window,
+                max_tokens,
+            )
+
         snapshot = None
         file_snapshot = None
         conv_snapshot = None
@@ -1121,6 +1256,17 @@ def _resume_via_llm(
                 # and views/<view>.jsonl, not the branch file. Snapshot both.
                 conv_snapshot = _logfile_snapshot(manager.logdir / "conversation.jsonl")
         with llm_unlocked or nullcontext():
+            # Bounding may call the model for chunk summaries; keep it unlocked
+            # and inside the stale-result snapshot like the main summary call.
+            llm_msgs = _bound_summarize_input(
+                prepared_msgs,
+                m.model,
+                context_window,
+                keep_head=n_head,
+                extra_reserve_tokens=len_tokens(resume_request, m.model),
+                pinned=previous_checkpoint,
+                summarize_omitted=summarize_omitted,
+            ) + [resume_request]
             resume_response = llm.reply(
                 llm_msgs,
                 model=m.full,
