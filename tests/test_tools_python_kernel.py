@@ -471,3 +471,30 @@ def test_cancelled_helper_message_does_not_reach_next_cell(backend):
         assert not backend._bridge.messages
     finally:
         release.set()
+
+
+def test_bridge_preserves_each_cell_session_context(backend):
+    from contextvars import copy_context
+
+    from gptme.tools._url_safety import (
+        _validate_url_scheme,
+        set_session_allow_hosts,
+    )
+
+    def check_url(url):
+        _validate_url_scheme(url)
+        return "allowed"
+
+    backend.register_bridge_function(check_url)
+
+    def execute_restricted(host):
+        set_session_allow_hosts([host])
+        return backend.execute("check_url('https://blocked.example/')")
+
+    result = copy_context().run(execute_restricted, "allowed.example")
+    assert result.error is not None
+    assert "allowed-hosts" in result.error["evalue"]
+    # Reusing the backend must capture the next cell's context, not startup's.
+    result = copy_context().run(execute_restricted, "blocked.example")
+    assert result.error is None
+    assert result.result_text == "'allowed'"

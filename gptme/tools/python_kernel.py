@@ -23,6 +23,7 @@ import struct
 import subprocess
 import threading
 from collections.abc import Callable
+from contextvars import Context, copy_context
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class BridgeServer:
         self._call_lock = threading.Lock()
         self.messages: list[Any] = []
         self.active_cell: str | None = None
+        self.cell_context = Context()
         self._connections: set[socket.socket] = set()
         self._connections_lock = threading.Lock()
 
@@ -177,7 +179,11 @@ class BridgeServer:
                             raise RuntimeError(
                                 "Bridge call belongs to an inactive cell"
                             )
-                        ret = fn(*args, **kwargs)
+                        # Handler threads do not inherit ContextVars. Copy the
+                        # cell caller's context for each helper so session policy
+                        # (including browser host restrictions) is preserved,
+                        # without leaking a helper's changes into later calls.
+                        ret = self.cell_context.copy().run(fn, *args, **kwargs)
                         if cell is None or cell == self.active_cell:
                             if isinstance(ret, Message):
                                 self.messages.append(ret)
@@ -510,6 +516,7 @@ class KernelBackend:
         result_text: str | None = None
         error: dict | None = None
 
+        self._bridge.cell_context = copy_context()
         msg_id = self._kc.execute(code, silent=False, store_history=True)
         self._bridge.active_cell = msg_id
         deadline = _monotonic() + timeout
