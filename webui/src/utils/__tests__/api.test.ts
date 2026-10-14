@@ -27,6 +27,7 @@ import {
   isLikelyChromeCorsPna,
   isRetryableConnectionFailure,
 } from '../api';
+import { setLocation } from '@/test-utils/location';
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -112,13 +113,7 @@ describe('isRetryableConnectionFailure', () => {
 });
 
 describe('isLikelyChromeCorsPna', () => {
-  const setHostname = (hostname: string) => {
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, hostname },
-      writable: true,
-      configurable: true,
-    });
-  };
+  const setHostname = (hostname: string) => setLocation(`https://${hostname}/`);
 
   it('returns true when public origin connects to localhost', () => {
     setHostname('chat.gptme.org');

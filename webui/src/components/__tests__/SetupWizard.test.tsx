@@ -5,6 +5,7 @@ import { SetupWizard } from '../SetupWizard';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { toast } from 'sonner';
+import { setLocation } from '@/test-utils/location';
 
 const mockConnect = jest.fn();
 const mockOpen = jest.fn();
@@ -25,37 +26,6 @@ const CLOUD_AUTH_BASE_URL = process.env['VITE_GPTME_CLOUD_BASE_URL'] || 'https:/
 const CLOUD_AUTH_URL = `${CLOUD_AUTH_BASE_URL}/authorize`;
 const CLOUD_AUTH_ORIGIN = new URL(CLOUD_AUTH_URL).origin;
 
-// Replaces window.location with a stub for the given href.
-//
-// jsdom's Location exposes its fields as own enumerable properties, so the
-// spread does copy `pathname`/`search`/`protocol`/… — but it copies them from
-// the *previous* location, which would leave the stub internally inconsistent
-// with the href being set. Derive every URL-ish field from the URL instead, and
-// keep the navigation methods as no-op jest mocks so a stray call is inert
-// rather than a TypeError.
-const setLocation = (href: string) => {
-  const url = new URL(href);
-  Object.defineProperty(window, 'location', {
-    value: {
-      assign: jest.fn(),
-      replace: jest.fn(),
-      reload: jest.fn(),
-      toString: () => url.href,
-      href: url.href,
-      origin: url.origin,
-      protocol: url.protocol,
-      host: url.host,
-      hostname: url.hostname,
-      port: url.port,
-      pathname: url.pathname,
-      search: url.search,
-      hash: url.hash,
-    },
-    writable: true,
-    configurable: true,
-  });
-};
-
 type MockTauriServerStatus = {
   running: boolean;
   port: number;
@@ -70,13 +40,11 @@ type MockUseTauriServerStatusResult = {
   serverStatus: MockTauriServerStatus | null;
 };
 
-const mockUseTauriServerStatus = jest.fn(
-  (): MockUseTauriServerStatusResult => ({
-    isLoading: false,
-    managesLocalServer: false,
-    serverStatus: null,
-  })
-);
+const mockUseTauriServerStatus = jest.fn((): MockUseTauriServerStatusResult => ({
+  isLoading: false,
+  managesLocalServer: false,
+  serverStatus: null,
+}));
 
 let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
 

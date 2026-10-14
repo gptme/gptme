@@ -5,6 +5,7 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 import { WelcomeView } from '../WelcomeView';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { settingsModal$ } from '@/stores/settingsModal';
+import { setLocation } from '@/test-utils/location';
 
 const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
@@ -37,22 +38,15 @@ let mockBaseUrl = 'http://localhost:5700';
 // Controls whether isLikelyChromeCorsPna() classifies the last probe URL as PNA.
 const mockIsLikelyChromeCorsPna = jest.fn().mockReturnValue(false);
 
-const setLocation = (href: string) => {
-  const url = new URL(href);
-  Object.defineProperty(window, 'location', {
-    value: {
-      ...window.location,
-      href: url.href,
-      origin: url.origin,
-      hostname: url.hostname,
-    },
-    writable: true,
-    configurable: true,
-  });
-};
-
 jest.mock('@/utils/api', () => ({
   isLikelyChromeCorsPna: (...args: unknown[]) => mockIsLikelyChromeCorsPna(...args),
+}));
+
+// jsdom does not implement navigation, so observe the demo CTA through the
+// navigateTo seam instead of window.location.href.
+const mockNavigateTo = jest.fn();
+jest.mock('@/utils/navigation', () => ({
+  navigateTo: (href: string) => mockNavigateTo(href),
 }));
 
 jest.mock('@/utils/connectionConfig', () => ({
@@ -772,7 +766,9 @@ describe('WelcomeView', () => {
     });
 
     it('navigates to ?demo=1 when clicking the demo CTA', () => {
-      setLocation('https://chat.gptme.org/');
+      // A non-chat.gptme.org origin proves the target is derived from the
+      // current location, not a hardcoded URL.
+      setLocation('https://app.example.com/some/path?tab=servers');
 
       render(
         <SettingsProvider>
@@ -780,12 +776,16 @@ describe('WelcomeView', () => {
         </SettingsProvider>
       );
 
+      mockNavigateTo.mockClear();
       const btn = screen.getByRole('button', { name: /try the offline demo/i });
       fireEvent.click(btn);
 
-      // jsdom sets window.location.href on assignment, constructing
-      // a URL with ?demo=1 appended.
-      expect(window.location.href).toContain('demo=1');
+      expect(mockNavigateTo).toHaveBeenCalledTimes(1);
+      const target = new URL(mockNavigateTo.mock.calls[0][0] as string);
+      expect(target.origin).toBe('https://app.example.com');
+      expect(target.pathname).toBe('/some/path');
+      expect(target.searchParams.get('tab')).toBe('servers');
+      expect(target.searchParams.get('demo')).toBe('1');
     });
   });
 
