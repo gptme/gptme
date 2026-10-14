@@ -288,3 +288,21 @@ def test_tracking_only_records_this_threads_processes():
         for p in other:
             p.kill()
             p.wait()
+
+
+def test_nested_tracking_keeps_outer_set_when_sets_are_equal():
+    """Ending an inner tracking scope (e.g. an ipython cell that started no
+    processes) must not end the outer one (the TUI step) when both are empty."""
+    import subprocess
+
+    from gptme.util.interrupt import start_tracking, stop_tracking
+
+    step = start_tracking()
+    try:
+        cell = start_tracking()
+        stop_tracking(cell)  # equal to `step` (both empty), but not the same
+        proc = subprocess.Popen(["sleep", "0"])
+        proc.wait()
+        assert step == {proc.pid}
+    finally:
+        stop_tracking(step)

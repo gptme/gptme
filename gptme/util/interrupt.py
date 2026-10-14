@@ -119,8 +119,12 @@ def start_tracking() -> set[int]:
 def stop_tracking(pids: set[int]) -> None:
     with _tracking_lock:
         stack = _tracking.get(threading.get_ident(), [])
-        if pids in stack:
-            stack.remove(pids)
+        # by identity: nested sets are often equal (e.g. both empty), and
+        # removing an outer one would stop it from recording new processes
+        for i in reversed(range(len(stack))):
+            if stack[i] is pids:
+                del stack[i]
+                break
         if not stack:
             _tracking.pop(threading.get_ident(), None)
 
