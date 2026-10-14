@@ -5088,3 +5088,205 @@ def test_openai_compatible_models_unreachable_logs_one_line(caplog):
     assert get.call_args.kwargs["timeout"] == (3, 10)
     assert "myserver provider: unavailable (Connection refused)" in caplog.text
     assert "HTTPConnectionPool" not in caplog.text
+
+
+# Gemini's OpenAI-compatible endpoint attaches an opaque thought signature to
+# each function call and rejects the next request (HTTP 400, "Function call is
+# missing a thought_signature") unless it is sent back on that call.
+_GEMINI_MODEL = "gemini/gemini-2.5-flash"
+_GEMINI_EXTRA = {"google": {"thought_signature": "c2lnLWNhbGwtMQ=="}}
+
+
+def _gemini_shell_conversation() -> list[Message]:
+    return [
+        Message(role="user", content="Read probe.txt."),
+        Message(
+            role="assistant",
+            content='@shell(call_1): {"command": "cat probe.txt"}',
+            metadata={
+                "model": _GEMINI_MODEL,
+                "thought_signatures": {"call_1": "c2lnLWNhbGwtMQ=="},
+            },
+        ),
+        Message(role="system", content="PROBE", call_id="call_1"),
+    ]
+
+
+def test_stream_completions_captures_gemini_thought_signature(monkeypatch, tmp_path):
+    from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+
+    from gptme.logmanager.manager import Log, _gen_read_jsonl
+
+    def chunk(tool_call):
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    finish_reason=None,
+                    delta=SimpleNamespace(
+                        reasoning_content=None,
+                        reasoning=None,
+                        content=None,
+                        tool_calls=[ChoiceDeltaToolCall.model_validate(tool_call)],
+                    ),
+                )
+            ],
+        )
+
+    # Signatures arrive on interleaved continuation chunks without ids, so each
+    # must be attributed to its own call by index. Arguments are emitted with
+    # the initial calls; the continuation chunks carry only signature metadata.
+    chunks = [
+        chunk(
+            {
+                "index": 0,
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "shell",
+                    "arguments": '{"command": "cat probe.txt"}',
+                },
+            }
+        ),
+        chunk(
+            {
+                "index": 1,
+                "id": "call_2",
+                "type": "function",
+                "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+            }
+        ),
+        chunk(
+            {
+                "index": 1,
+                "extra_content": {"google": {"thought_signature": "sig-2"}},
+            }
+        ),
+        chunk(
+            {
+                "index": 0,
+                "extra_content": _GEMINI_EXTRA,
+            }
+        ),
+    ]
+    create = Mock(return_value=chunks)
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
+
+    gen = llm_openai.stream([Message(role="user", content="hi")], _GEMINI_MODEL, None)
+    parts: list[str] = []
+    while True:
+        try:
+            parts.append(next(gen))
+        except StopIteration as exc:
+            metadata = exc.value
+            break
+
+    assert "@shell(call_1): " in "".join(parts)
+    assert metadata["thought_signatures"] == {
+        "call_1": "c2lnLWNhbGwtMQ==",
+        "call_2": "sig-2",
+    }
+
+    # Exercise the captured metadata through persistence and API preparation,
+    # rather than only checking the in-memory capture map.
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell
+    path = tmp_path / "conversation.jsonl"
+    Log(
+        [
+            Message(role="user", content="hi"),
+            Message(role="assistant", content="".join(parts), metadata=metadata),
+            Message(role="system", content="PROBE", call_id="call_1"),
+            Message(role="system", content="probe.txt", call_id="call_2"),
+        ]
+    ).write_jsonl(path)
+    reloaded = list(_gen_read_jsonl(path))
+
+    result, _ = _prepare_messages_for_api(reloaded, _GEMINI_MODEL, [shell])
+
+    assert {
+        call["id"]: call["extra_content"]  # type: ignore[typeddict-item]
+        for call in result[1]["tool_calls"]
+    } == {
+        "call_1": _GEMINI_EXTRA,
+        "call_2": {"google": {"thought_signature": "sig-2"}},
+    }
+
+
+def test_chat_completions_captures_gemini_thought_signature(monkeypatch):
+    from openai.types.chat import ChatCompletionMessageToolCall
+
+    tool_call = ChatCompletionMessageToolCall.model_validate(
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "shell", "arguments": "{}"},
+            "extra_content": _GEMINI_EXTRA,
+        }
+    )
+    completion = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                finish_reason="tool_calls",
+                message=SimpleNamespace(content=None, tool_calls=[tool_call]),
+            )
+        ],
+    )
+    raw_resp = SimpleNamespace(parse=lambda: completion, headers={})
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                with_raw_response=SimpleNamespace(create=Mock(return_value=raw_resp))
+            )
+        )
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
+
+    result, metadata = llm_openai.chat(
+        [Message(role="user", content="hi")], _GEMINI_MODEL, None
+    )
+
+    assert result == "@shell(call_1): {}"
+    assert metadata is not None
+    assert metadata["thought_signatures"] == {"call_1": "c2lnLWNhbGwtMQ=="}
+
+
+def test_prepare_gemini_replays_thought_signature_after_persistence(tmp_path):
+    """The signature survives a conversation.jsonl round trip and is replayed."""
+    from gptme.logmanager.manager import Log, _gen_read_jsonl
+
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell
+    path = tmp_path / "conversation.jsonl"
+    Log(_gemini_shell_conversation()).write_jsonl(path)
+    reloaded = list(_gen_read_jsonl(path))
+
+    result, _ = _prepare_messages_for_api(reloaded, _GEMINI_MODEL, [shell])
+
+    tool_call = result[1]["tool_calls"][0]
+    assert tool_call["id"] == "call_1"
+    assert tool_call["extra_content"] == _GEMINI_EXTRA  # type: ignore[typeddict-item]
+
+
+def test_prepare_non_gemini_does_not_send_thought_signature():
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell
+
+    result, _ = _prepare_messages_for_api(
+        _gemini_shell_conversation(), "openai/gpt-4o", [shell]
+    )
+
+    tool_call = result[1]["tool_calls"][0]
+    assert tool_call["id"] == "call_1"
+    assert "extra_content" not in tool_call
