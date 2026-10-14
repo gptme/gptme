@@ -102,16 +102,22 @@ def test_normal_empty_invocations(env: dict[str, Any], reason: str) -> None:
     assert [(r["outcome"], r["bytes"]) for r in receipts(env)] == [("empty", 0)]
 
 
-def test_matching_failure_is_error_not_empty(env: dict[str, Any]) -> None:
+def test_matching_failure_is_error_not_empty(
+    env: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
     with patch.object(tool, "_get_lesson_index", side_effect=ValueError("bad index")):
         assert list(tool.auto_include_lessons_hook(env["manager"])) == []
     assert [(r["outcome"], r["bytes"]) for r in receipts(env)] == [("error", 0)]
+    assert caplog.messages == ["Error during lesson auto-inclusion: bad index"]
 
 
-def test_config_failure_is_error_not_empty(env: dict[str, Any]) -> None:
+def test_config_failure_is_error_not_empty(
+    env: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
     with patch.object(tool, "get_config", side_effect=ValueError("bad config")):
         assert list(tool.auto_include_lessons_hook(env["manager"])) == []
     assert receipts(env)[0]["outcome"] == "error"
+    assert caplog.messages == ["Error during lesson auto-inclusion: bad config"]
 
 
 def test_receipt_write_failure_preserves_output(env: dict[str, Any]) -> None:
