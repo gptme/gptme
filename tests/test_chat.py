@@ -268,8 +268,15 @@ def test_find_potential_paths_bare_names(tmp_path, monkeypatch):
     (tmp_path / "journal").mkdir()
     (tmp_path / "README.md").write_text("x")
     monkeypatch.chdir(tmp_path)
-    content = "journal and persist, see README.md and `journal`"
+    (tmp_path / "notes.archive").mkdir()
+    (tmp_path / "Makefile").write_text("x")
+    content = "journal and persist, see README.md, notes.archive and `journal`"
     assert _find_potential_paths(content) == ["README.md"]
+    # explicit @-references attach any existing entry
+    assert _find_potential_paths("see @journal and @Makefile") == [
+        "journal",
+        "Makefile",
+    ]
     assert _find_potential_paths("see journal/ and ./journal") == [
         "journal/",
         "./journal",

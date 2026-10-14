@@ -412,11 +412,20 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert complete_input("see jo") == ["see jokes.txt", "see journal/"]
     assert complete_input("see @journal/2") == ["see @journal/2026-10-14.md"]
-    assert complete_input("see .j") == ["see .jhidden"]
+    assert complete_input("see .j") == ["see ./.jhidden"]
     assert complete_input(f"see {tmp_path}/jou") == [f"see {tmp_path}/journal/"]
     assert complete_input(f"{tmp_path}/jou") == [f"{tmp_path}/journal/"]
     assert complete_input("hello") == []
     assert complete_input("hello ") == []
+    # completed names must be ones include_paths attaches
+    (tmp_path / "Makefile").write_text("x")
+    (tmp_path / "my notes.txt").write_text("x")
+    assert complete_input("see Mak") == ["see ./Makefile"]
+    assert complete_input("see @Mak") == ["see @Makefile"]
+    assert complete_input("see my") == ["see `my notes.txt`"]
+    # a symlink loop is skipped, not raised
+    (tmp_path / "loop").symlink_to(tmp_path / "loop")
+    assert complete_input("see lo") == []
 
 
 @pytest.mark.asyncio

@@ -908,8 +908,10 @@ TUI_COMMANDS: dict[str, list[list[str]]] = {
 def complete_path(text: str) -> list[str]:
     """Full-text candidates completing the last word as a filesystem path.
 
-    Directories get a trailing slash, so "journ<Tab>" becomes "journal/",
-    which include_paths recognizes as a path (a bare "journal" is prose).
+    Candidates are written so include_paths attaches them: directories get a
+    trailing slash ("journ<Tab>" -> "journal/"; a bare "journal" is prose),
+    bare cwd files without an extension get "./" ("./Makefile"), and names
+    with spaces are backtick-quoted.
     """
     seg = re.split(r"\s", text)[-1]
     if not seg:
@@ -921,13 +923,23 @@ def complete_path(text: str) -> list[str]:
         entries = list(os.scandir(os.path.expanduser(dir_part or ".")))
     except OSError:
         return []
-    base = text[: len(text) - len(seg)] + at + dir_part
-    return sorted(
-        base + e.name + ("/" if e.is_dir() else "")
-        for e in entries
-        if e.name.startswith(prefix)
-        and (prefix.startswith(".") or not e.name.startswith("."))
-    )
+    candidates = []
+    for e in entries:
+        if not e.name.startswith(prefix):
+            continue
+        if e.name.startswith(".") and not prefix.startswith("."):
+            continue
+        try:
+            is_dir = e.is_dir()
+        except OSError:  # e.g. a symlink loop
+            continue
+        path = dir_part + e.name + ("/" if is_dir else "")
+        if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
+            path = "./" + path
+        if any(c.isspace() for c in path):
+            path = f"`{path}`"
+        candidates.append(text[: len(text) - len(seg)] + at + path)
+    return sorted(candidates)
 
 
 def complete_input(text: str) -> list[str]:
@@ -1229,7 +1241,7 @@ class ChatInput(TextArea):
         self.move_cursor(self.document.end)
 
     def _cycle_completion(self) -> None:
-        if "\n" in self.text and self.text.startswith("/"):
+        if "\n" in self.text and is_message_command(self.text):
             return  # commands are single-line
         if self._tab_candidates and self.text == self._tab_last:
             # repeated Tab: cycle through candidates
