@@ -669,7 +669,17 @@ is ignored there and long commands wait for GPTME_SHELL_TIMEOUT.</p>
 <dt>GPTME_SHELL_MEMORY_LIMIT: Optional per-shell address-space ceiling (POSIX only,</dt><dd><p>off by default). Accepts a plain byte count or a binary suffix (e.g.
 “512M”, “1G”). Applies to the persistent shell and any command it runs
 via <cite>ulimit -v</cite>, so a runaway build fails with an allocation error
-instead of stalling the session.</p>
+instead of stalling the session. Not enforced on macOS, which ignores
+<cite>ulimit -v</cite> (gptme then warns and runs without the ceiling).</p>
+</dd>
+<dt>GPTME_SHELL_MEMORY_GUARD: When system memory runs low (under 10% available,</dt><dd><p>or memory pressure reported by macOS), kill the command the agent
+started that uses the most memory (the running shell command or a
+background job) if it holds at least 5% of RAM, and tell the model
+why. A killed shell command takes the persistent shell with it; a
+fresh one starts with the working directory and exported variables
+restored. Catches several heavy commands that only together exhaust
+memory, which per-process limits can’t. On by default (POSIX); set
+to 0 to disable.</p>
 </dd>
 </dl>
 <p>GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
