@@ -468,7 +468,10 @@ def _find_open_tool_fence_pos(text: str) -> int | None:
                 open_fences.pop()
         pos += len(line) + 1  # +1 for '\n'
 
-    for char_pos, _fchar, lang in reversed(open_fences):
+    # Return the outermost unclosed tool fence so nested fences (e.g. a shell
+    # example inside a save block) don't split at the inner fence and expose
+    # the outer block's raw content lines.
+    for char_pos, _fchar, lang in open_fences:
         if is_supported_langtag(lang):
             return char_pos
     return None

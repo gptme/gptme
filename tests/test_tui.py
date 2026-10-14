@@ -1390,6 +1390,20 @@ def test_find_open_tool_fence_pos_ignores_closed():
     assert pos is None
 
 
+def test_find_open_tool_fence_pos_returns_outermost_for_nested():
+    """Nested fences: the outer tool fence position is returned, not the inner."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    # save block with a shell example inside that is still open
+    text = "```save README.md\nline1\n\n```shell\nexample code"
+    pos = _find_open_tool_fence_pos(text)
+    assert pos is not None
+    assert text[pos:].startswith("```save"), (
+        f"Expected outermost (save) fence at pos {pos!r}, got: {text[pos : pos + 20]!r}"
+    )
+
+
 def test_split_streaming_markdown_tool_calls_open_fence():
     """An open tool fence is returned as a tool segment even without a closing fence."""
     from gptme.tools import init_tools
@@ -1431,27 +1445,52 @@ async def test_streaming_tool_call_shows_stub_not_raw_lines(tmp_path):
         sm = app._stream_widget
         assert sm is not None
 
-        for line in _SAVE_60_LINES.splitlines(keepends=True):
+        lines = _SAVE_60_LINES.splitlines(keepends=True)
+        # Stream all content lines *before* the closing fence so we test the
+        # open (still-streaming) state — the key regression.  A naive impl
+        # that only collapses at fence-close would show 60 raw lines here.
+        for line in lines[:-1]:
             sm.append_token(line)
         await pilot.pause()
 
-        # The streaming widget should show a single stub row, not 60 raw lines.
-        rows = [
-            child
-            for child in sm.children
-            if not child.has_class("role") and child.display
+        def _visible_rows(widget):
+            return [
+                str(child.render())
+                for child in widget.children
+                if not child.has_class("role") and child.display
+            ]
+
+        rendered_open = _visible_rows(sm)
+        has_raw_open = any(
+            any(f"line{i}" in r for r in rendered_open) for i in range(1, 61)
+        )
+        assert not has_raw_open, (
+            f"Raw tool-call content leaked during open streaming: {rendered_open}"
+        )
+        stub_rows_open = [
+            r for r in rendered_open if "save" in r.lower() or "hello.py" in r
         ]
-        rendered = [str(child.render()) for child in rows]
-        # No row should contain raw content lines; all tool content collapsed to stub.
-        has_raw_content = any(
-            any(f"line{i}" in r for r in rendered) for i in range(1, 61)
+        assert stub_rows_open, (
+            f"Expected a stub row while tool fence is open, got: {rendered_open}"
         )
-        assert not has_raw_content, (
-            f"Raw tool-call content leaked into streaming view: {rendered}"
+
+        # Complete the call with the closing fence and re-check.
+        sm.append_token(lines[-1])
+        await pilot.pause()
+
+        rendered_closed = _visible_rows(sm)
+        has_raw_closed = any(
+            any(f"line{i}" in r for r in rendered_closed) for i in range(1, 61)
         )
-        # The stub should mention the tool name or path.
-        stub_rows = [r for r in rendered if "save" in r.lower() or "hello.py" in r]
-        assert stub_rows, f"Expected a stub row mentioning 'save', got: {rendered}"
+        assert not has_raw_closed, (
+            f"Raw tool-call content leaked after fence closed: {rendered_closed}"
+        )
+        stub_rows_closed = [
+            r for r in rendered_closed if "save" in r.lower() or "hello.py" in r
+        ]
+        assert stub_rows_closed, (
+            f"Expected a stub row after fence closed, got: {rendered_closed}"
+        )
 
 
 # ─────────────────────────────────────────────────────────
