@@ -125,7 +125,7 @@ jobs:
         deadline=$(( $(date -d "$CREATED" +%s) + 90 * 60 ))
         while :; do
           summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
-            --jq '[.[][] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
+            | jq -r '[.[][] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
           [ -n "$summary" ] || [ "$(date +%s)" -ge "$deadline" ] && break
           sleep 60
         done
@@ -177,7 +177,7 @@ jobs:
 
         # The read-only wait already allowed Greptile until PR age 90 min.
         summary=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
-          --jq '[.[][] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
+          | jq -r '[.[][] | select(.user.login == "greptile-apps[bot]" and (.body | contains("greptile_summary")))] | last | .body // empty')
         if [ -n "$summary" ]; then
           score=$(grep -oE 'Confidence Score: [0-9]/5' <<<"$summary" | grep -oE '[0-9]' | head -1 || true)
           reviewed=$(grep -oE 'commit/[0-9a-f]{40}' <<<"$summary" | tail -1 | cut -d/ -f2 || true)
@@ -200,7 +200,7 @@ jobs:
         bob_deadline=$(( $(date +%s) + 45 * 60 ))
         while :; do
           bob_body=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
-            --jq '[.[][] | select(.user.login == "TimeToBuildBob" and (.body | contains("<!-- bob-ai-review ")))] | last | .body // empty')
+            | jq -r '[.[][] | select(.user.login == "TimeToBuildBob" and (.body | contains("<!-- bob-ai-review ")))] | last | .body // empty')
           if [ -n "$bob_body" ]; then
             bob_marker=$(sed -n 's/^<!-- bob-ai-review \(.*\) -->$/\1/p' <<<"$bob_body")
             bob_score=$(jq -r '.score // empty' <<<"$bob_marker")
