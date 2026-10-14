@@ -10,17 +10,22 @@ built-in provider PR.
 Choosing the Right Integration Path
 ------------------------------------
 
-+-------------------------------+--------------------------------------------------------+--------------------+
-| Scenario                      | Recommended path                                       | Review required?   |
-+===============================+========================================================+====================+
-| Personal/team API endpoint    | :ref:`custom-provider-config`                          | No                 |
-+-------------------------------+--------------------------------------------------------+--------------------+
-| Shareable OpenAI-compatible   | :ref:`provider-plugin-package`                         | Only your package  |
-| provider (e.g. MiniMax, Chutes)|                                                       |                    |
-+-------------------------------+--------------------------------------------------------+--------------------+
-| Widely-used provider that     | :ref:`builtin-provider-pr`                             | gptme core PR      |
-| many gptme users will want    |                                                        |                    |
-+-------------------------------+--------------------------------------------------------+--------------------+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 45 20
+
+   * - Scenario
+     - Recommended path
+     - Review required?
+   * - Personal/team API endpoint
+     - :ref:`custom-provider-config`
+     - No
+   * - Shareable OpenAI-compatible provider (e.g. MiniMax, Chutes)
+     - :ref:`provider-plugin-package`
+     - Only your package
+   * - Widely-used provider that many gptme users will want
+     - :ref:`builtin-provider-pr`
+     - gptme core PR
 
 Start with a plugin package unless the provider has broad community demand —
 it lets you iterate quickly without waiting for a core PR review.

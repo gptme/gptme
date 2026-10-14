@@ -20,6 +20,9 @@ checks the class (and its methods only with ``:members:``), and ``autofunction``
 list directly after a line like ``Package structure:``, which RST renders as a
 single paragraph.
 
+Grid tables in RST files are checked for misaligned column separators, which
+docutils silently renders as a garbled table rather than reporting.
+
 The goal is to prevent rendering issues and maintain consistent formatting across
 all documentation, including both visible content and comments.
 """
@@ -29,6 +32,7 @@ import ast
 import inspect
 import re
 import sys
+import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import cache
@@ -199,14 +203,75 @@ def check_lines(lines: list[str]) -> list[Issue]:
     return issues
 
 
+GRID_BORDER = re.compile(r"^(\s*)\+[-=+]*\+\s*$")
+
+
+def _columns(row: str, chars: str) -> tuple[set[int], int]:
+    """Display columns of the given chars in a row, and the row's display width.
+
+    Matches docutils' ``column_width``: wide East Asian chars (e.g. emoji) take
+    two columns and combining chars none.
+    """
+    found: set[int] = set()
+    col = 0
+    for c in row:
+        if c in chars:
+            found.add(col)
+        if not unicodedata.combining(c):
+            col += 2 if unicodedata.east_asian_width(c) in "WF" else 1
+    return found, col
+
+
+def check_grid_tables(lines: list[str]) -> list[Issue]:
+    """
+    Check grid tables for misaligned column separators.
+
+    Docutils doesn't warn about a misplaced ``|`` in a grid table: it reads the
+    cell as spanning columns instead, so the table renders garbled with no build
+    error. Every line of a grid table must be as wide as its top border, and each
+    ``|`` must line up with a ``+`` in the border above or below it.
+
+    Returns:
+        Issues as ``("grid_table", border line, bad line, context)``, 1-indexed
+    """
+    issues: list[Issue] = []
+    i = 0
+    while i < len(lines):
+        match = GRID_BORDER.match(lines[i])
+        if not match or (i > 0 and lines[i - 1].strip()):
+            i += 1
+            continue
+        indent = match.group(1)
+        start = i
+        width = _columns(lines[i].rstrip(), "")[1]
+        table: list[str] = []
+        while i < len(lines) and lines[i].startswith((indent + "+", indent + "|")):
+            table.append(lines[i].rstrip())
+            i += 1
+        borders = [j for j, row in enumerate(table) if GRID_BORDER.match(row)]
+        for j, row in enumerate(table):
+            pipes, row_width = _columns(row, "|")
+            if j in borders:
+                if row_width != width:
+                    issues.append(("grid_table", start + 1, start + j + 1, row))
+                continue
+            above = max((b for b in borders if b < j), default=0)
+            below = min((b for b in borders if b > j), default=borders[-1])
+            junctions = _columns(table[above], "+")[0] | _columns(table[below], "+")[0]
+            if row_width != width or not row.endswith("|") or not pipes <= junctions:
+                issues.append(("grid_table", start + 1, start + j + 1, row))
+    return issues
+
+
 def check_file(file_path: Path) -> list[Issue]:
     """
-    Check a single RST file for list formatting issues.
+    Check a single RST file for list formatting and grid table issues.
 
     Args:
         file_path: Path to the RST file to check
     """
-    return check_lines(file_path.read_text(encoding="utf-8").splitlines())
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return check_lines(lines) + check_grid_tables(lines)
 
 
 @dataclass(frozen=True)
@@ -491,6 +556,11 @@ def report(file_path: Path, issues: list[Issue]) -> None:
                 f"{shown}:{line2}: nested list without blank line separation (parent list item at line {line1})"
             )
             fix = "Add a blank line before the nested list"
+        elif issue_type == "grid_table":
+            print(
+                f"{shown}:{line2}: grid table row misaligned with its borders (table starts at line {line1})"
+            )
+            fix = "Align every | with a + in the border, or use a list-table"
         else:
             print(
                 f"{shown}:{line2}: bullet list not preceded by blank line (previous content at line {line1})"
@@ -555,7 +625,8 @@ def main():
 
     if found_issues:
         print(
-            "List formatting error: RST requires blank lines before lists and between parent list items and nested lists"
+            "RST formatting error: lists need blank lines before them and between "
+            "parent list items and nested lists; grid table rows must align with their borders"
         )
         print(
             "See: https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#bullet-lists"
@@ -563,7 +634,7 @@ def main():
         sys.exit(1)
     else:
         print(
-            f"✓ No list formatting issues found in {len(rst_files)} RST files "
+            f"✓ No RST formatting issues found in {len(rst_files)} RST files "
             f"and {sum(map(len, docstrings.values()))} docstrings in {len(docstrings)} Python files."
         )
 
