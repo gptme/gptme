@@ -1908,6 +1908,37 @@ def test_strip_thinking_closed_and_open_blocks():
     assert _strip_thinking("plain") == "plain"
 
 
+def test_split_thinking_redacted_block():
+    """<think redacted>...</think redacted> from Anthropic extended thinking must not leak."""
+    # Closed redacted block — no thinking segment, no tag leakage
+    result = _split_thinking("<think redacted>\n</think redacted>\n\nAnswer")
+    for _, seg in result:
+        assert "think redacted" not in seg, f"Tag leaked into segment: {seg!r}"
+    prose = "".join(seg for is_think, seg in result if not is_think)
+    assert "Answer" in prose
+
+    # Unclosed redacted block still treated as thinking
+    result = _split_thinking("Visible\n<think redacted>\ndata")
+    prose_segs = [seg for is_think, seg in result if not is_think]
+    assert any("Visible" in s for s in prose_segs)
+    # "data" should not appear in non-thinking segments
+    assert all("data" not in s for s in prose_segs)
+
+
+def test_strip_thinking_redacted_block():
+    """_strip_thinking removes <think redacted> blocks and their content."""
+    # Closed redacted block
+    result = _strip_thinking("<think redacted>\n</think redacted>\n\nAnswer here")
+    assert "think redacted" not in result
+    assert "Answer here" in result
+
+    # Unclosed redacted block at end of stream
+    result = _strip_thinking("Visible\n<think redacted>\nencrypted_data")
+    assert "think redacted" not in result
+    assert "encrypted_data" not in result
+    assert "Visible" in result
+
+
 def test_renderables_for_message_hides_thinking():
     msg = Message("assistant", "<think>\na\nb\n</think>\nFinal answer.")
     hidden = renderables_for_message(msg, show_thinking=False)
