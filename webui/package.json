@@ -70,7 +70,6 @@
     "marked-highlight": "^2.2.4",
     "next-themes": "^0.4.6",
     "react": "^18.3.1",
-    "react-day-picker": "^9.14.0",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.89.0",
     "react-resizable-panels": "^2.1.3",
