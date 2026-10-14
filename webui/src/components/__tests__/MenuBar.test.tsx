@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { EmbeddedMenuItem } from '@/lib/embeddedContext';
 import { shortcutsDialogOpen$ } from '@/stores/shortcutsDialog';
 import { observable } from '@legendapp/state';
 import { MenuBar } from '../MenuBar';
+import { ShortcutsDialog } from '../ShortcutsDialog';
 import { settingsModal$ } from '@/stores/settingsModal';
 
 const compatibilityWarning$ = observable<null | {
@@ -118,20 +119,42 @@ describe('MenuBar keyboard shortcuts and embedded menu', () => {
     }
   );
 
-  it('moves shortcuts into the account menu and opens the local dialog, not a host action', async () => {
-    mockIsEmbedded = true;
-    mockMenuItems = hostItems;
-    const user = userEvent.setup();
-    render(<MenuBar />);
+  it.each(['Escape', 'Close'])(
+    'opens and focuses the real shortcuts dialog from the account menu, then dismisses with %s',
+    async (dismissal) => {
+      mockIsEmbedded = true;
+      mockMenuItems = hostItems;
+      const user = userEvent.setup();
+      render(
+        <>
+          <MenuBar />
+          <ShortcutsDialog />
+        </>
+      );
 
-    expect(screen.queryByRole('button', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Account menu' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' }));
+      expect(screen.queryByRole('button', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Account menu' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Keyboard shortcuts' }));
 
-    expect(shortcutsDialogOpen$.get()).toBe(true);
-    expect(mockSendAction).not.toHaveBeenCalled();
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-  });
+      expect(shortcutsDialogOpen$.get()).toBe(true);
+      expect(mockSendAction).not.toHaveBeenCalled();
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      const dialog = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+      expect(dialog).toBeVisible();
+      await waitFor(() =>
+        expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus()
+      );
+
+      if (dismissal === 'Escape') {
+        await user.keyboard('{Escape}');
+      } else {
+        await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+      }
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(shortcutsDialogOpen$.get()).toBe(false);
+    }
+  );
 
   it('adds a local General section when the host supplies only Account items', async () => {
     mockIsEmbedded = true;
