@@ -1221,6 +1221,54 @@ async def test_streaming_hidden_thinking_has_only_one_status_row(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
+    """Toggling thinking redraws immediately and keeps later tokens visible once."""
+    monkeypatch.delenv("GPTME_TUI_DISPLAY_THINKING", raising=False)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        await pilot.pause()
+        app._on_stream_token("<think>reasoning</think>Answer")
+        await pilot.pause()
+        sm = app._stream_widget
+        assert sm is not None
+        assert not sm._body.display
+
+        app._set_thinking(True)
+        await pilot.pause()
+        assert sm._body.display
+        assert "reasoning" in str(sm._body.render())
+        assert all(not row.display for row in sm._segments)
+        app._on_stream_token(" continues")
+        await pilot.pause()
+        assert "Answer continues" in str(sm._body.render())
+
+        app._set_thinking(False)
+        await pilot.pause()
+        assert not sm._body.display
+        assert [
+            row.has_class("thinking-stub") for row in sm._segments if row.display
+        ] == [
+            True,
+            False,
+        ]
+        app._on_stream_token(" hidden-mode tail")
+        await pilot.pause()
+        prose = [
+            row
+            for row in sm._segments
+            if row.display and not row.has_class("thinking-stub")
+        ]
+        assert len(prose) == 1
+        assert "Answer continues hidden-mode tail" in str(prose[0].render())
+        app._set_thinking(True)
+        await pilot.pause()
+        assert sm._body.display
+        assert "hidden-mode tail" in str(sm._body.render())
+        assert all(not row.display for row in sm._segments)
+
+
+@pytest.mark.asyncio
 async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
     """When show_thinking=False and thinking tokens arrive, the stub appears before prose."""
 
@@ -1297,6 +1345,40 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
         am = app.query_one(AssistantMessage)
         assert list(chat.children).index(am) == stream_idx
         assert list(chat.children)[stream_idx + 1] is trailing
+
+
+@pytest.mark.asyncio
+async def test_zombie_flush_after_finalize_is_noop(tmp_path):
+    """_flush_stream() called after _on_step_message() must be a no-op.
+
+    Regression: a delayed flush timer could fire after the stream was already
+    finalized by _on_step_message → _finalize_stream_in_place, resurrecting
+    the stream widget or double-applying pending tokens.  This test verifies
+    that the zombie flush clears the pending buffer and leaves exactly one
+    AssistantMessage with the correct content.
+    """
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        app._begin_stream()
+        await pilot.pause()
+        app._on_stream_token("Answer")
+        # Simulate tokens that arrived after the final message was queued but
+        # before the flush timer fired.
+        with app._stream_lock:
+            app._stream_pending.append(" trailing tokens")
+            app._stream_flush_scheduled = True
+        # Finalize via the normal step-message path (_finalize_stream_in_place).
+        app._on_step_message(Message("assistant", "Answer trailing tokens"))
+        # Zombie flush — must be a no-op after finalization.
+        app._flush_stream()
+        await pilot.pause()
+        assert app._stream_widget is None
+        assert not app.query(StreamingMessage)
+        assert len(app.query(AssistantMessage)) == 1
+        am = app.query_one(AssistantMessage)
+        assert "Answer trailing tokens" in am.content
+        assert not app._stream_pending
+        assert not app._stream_flush_scheduled
 
 
 # A 60-line save tool call — the exact fixture from the issue to test height stability.
