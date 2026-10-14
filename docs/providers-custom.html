@@ -633,6 +633,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lm-studio-local">LM Studio (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-discovery">Auto-discovery</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#remote-cloud-gateways">Remote cloud gateways</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
@@ -790,6 +791,28 @@ gptme<span class="w"> </span>providers<span class="w"> </span>list<span class="w
 </pre></div>
 </div>
 </section>
+<section id="remote-cloud-gateways">
+<h2>Remote cloud gateways<a class="headerlink" href="#remote-cloud-gateways" title="Link to this heading">#</a></h2>
+<p>Any OpenAI-compatible cloud API gateway works as a named <code class="docutils literal notranslate"><span class="pre">[[providers]]</span></code> entry.
+This is useful when you want access to many open-weight models without running
+local hardware.</p>
+<p><strong>Example — DemonRoute</strong> (1,100+ open-weight models, prepaid, no overdraft):</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[providers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;demonroute&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.demonroute.com/v1&quot;</span>
+<span class="n">api_key_env</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEMONROUTE_API_KEY&quot;</span>
+<span class="n">default_model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;dphn/Dolphin-Mistral-24B-Venice-Edition&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">DEMONROUTE_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-key&quot;</span><span class="w"> </span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>demonroute/dphn/Dolphin-Mistral-24B-Venice-Edition
+</pre></div>
+</div>
+<p>DemonRoute supports <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/v1/chat/completions</span></code> with streaming and <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/v1/models</span></code>
+for discovery. It is chat/text only (no embeddings). See <a class="reference external" href="https://demonroute.com/integrations">demonroute.com/integrations</a> for available models and pricing.</p>
+<p>A community plugin <code class="docutils literal notranslate"><span class="pre">gptme-provider-demonroute</span></code> (with per-model <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code>
+including accurate context and pricing) can be installed once published — see
+<a class="reference internal" href="providers-integration.html"><span class="doc">Provider Integration Guide</span></a> for the plugin path.</p>
+</section>
 <section id="vllm-and-openai-compatible-servers">
 <h2>vLLM and OpenAI-compatible servers<a class="headerlink" href="#vllm-and-openai-compatible-servers" title="Link to this heading">#</a></h2>
 <p>Any server exposing <code class="docutils literal notranslate"><span class="pre">/v1/chat/completions</span></code> works with the <code class="docutils literal notranslate"><span class="pre">local/</span></code> prefix or a
@@ -922,6 +945,7 @@ existing configurations.</p>
 <li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/514">Requesty provider support</a></p></li>
 <li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/548">AI/ML provider support</a></p></li>
 <li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/555">Chutes provider support</a></p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/issues/4260">DemonRoute provider support</a></p></li>
 </ul>
 </section>
 </section>
@@ -976,6 +1000,7 @@ existing configurations.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ollama-local">Ollama (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lm-studio-local">LM Studio (local)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-discovery">Auto-discovery</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#remote-cloud-gateways">Remote cloud gateways</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vllm-and-openai-compatible-servers">vLLM and OpenAI-compatible servers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#setting-a-default-model">Setting a default model</a></li>
