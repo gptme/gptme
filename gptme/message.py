@@ -252,6 +252,10 @@ class MessageMetadata(TypedDict, total=False):
     skill_invocation_id: str  # Explicit skill invocation that queued this prompt
     # Set when the degeneration guard aborted mid-stream and retried on another provider.
     degeneration: DegenerationData
+    # Opaque Gemini thought signatures keyed by tool call_id. Gemini's
+    # OpenAI-compatible API rejects a tool turn unless each signature is sent
+    # back on the function call it came with.
+    thought_signatures: dict[str, str]
     # Stable key for resume-only prompt messages (e.g. a re-applied agent
     # profile) so repeated resumes replace the same message instead of
     # stacking duplicates or matching by content substring.

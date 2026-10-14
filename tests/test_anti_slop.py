@@ -32,6 +32,8 @@ _SLOP_20W = (
     "in order to navigate the complexities of the ever-evolving landscape here."
 )
 
+_SUPPRESSION_NOTICE = "(gate suppressed by --no-fail; exit 0)"
+
 # ---------------------------------------------------------------------------
 # detect_smells
 # ---------------------------------------------------------------------------
@@ -359,6 +361,34 @@ def test_cli_check_no_fail_always_exits_zero():
     runner = CliRunner()
     result = runner.invoke(anti_slop, ["check", "--text", _SLOP_20W, "--no-fail"])
     assert result.exit_code == 0
+    assert "FAIL" in result.stdout
+    assert _SUPPRESSION_NOTICE in result.stderr
+    assert _SUPPRESSION_NOTICE not in result.stdout
+
+
+def test_cli_check_no_fail_json_preserves_fail_status():
+    runner = CliRunner()
+    result = runner.invoke(
+        anti_slop, ["check", "--text", _SLOP_20W, "--no-fail", "--json"]
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["status"] == "fail"
+    assert _SUPPRESSION_NOTICE in result.stderr
+    assert _SUPPRESSION_NOTICE not in result.stdout
+
+
+def test_cli_check_emits_no_suppression_notice_without_override():
+    runner = CliRunner()
+    failing = runner.invoke(anti_slop, ["check", "--text", _SLOP_20W])
+    assert failing.exit_code == 1
+    assert _SUPPRESSION_NOTICE not in failing.stderr
+    assert _SUPPRESSION_NOTICE not in failing.stdout
+
+    clean = runner.invoke(anti_slop, ["check", "--text", _CLEAN_20W, "--no-fail"])
+    assert clean.exit_code == 0
+    assert _SUPPRESSION_NOTICE not in clean.stderr
+    assert _SUPPRESSION_NOTICE not in clean.stdout
 
 
 def test_cli_check_json_output():

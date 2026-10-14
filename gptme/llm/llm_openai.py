@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator, Mapping
 from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
@@ -1350,17 +1350,36 @@ def chat(
         result.append(f"<think>\n{reasoning_content}\n</think>\n")
     if choice.message.content:
         result.append(choice.message.content)
+    thought_signatures: dict[str, str] = {}
     for tool_call in choice.message.tool_calls or []:
         assert isinstance(tool_call, ChatCompletionMessageToolCall)
         result.append(
             f"@{tool_call.function.name.strip()}({tool_call.id.strip()}): {tool_call.function.arguments}"
         )
+        if signature := _gemini_thought_signature(tool_call):
+            thought_signatures[tool_call.id.strip()] = signature
+    if thought_signatures:
+        metadata = metadata or {"model": model}
+        metadata["thought_signatures"] = thought_signatures
 
     if not result:
         raise ValueError(
             f"LLM returned empty response (finish_reason={choice.finish_reason})"
         )
     return "\n".join(result), metadata
+
+
+def _gemini_thought_signature(tool_call: Any) -> str | None:
+    """Return the opaque thought signature Gemini attaches to a tool call.
+
+    Gemini's OpenAI-compatible API sends it as
+    ``extra_content.google.thought_signature`` and requires it back on the
+    same call in the next request.
+    """
+    extra = getattr(tool_call, "extra_content", None)
+    google = extra.get("google") if isinstance(extra, dict) else None
+    signature = google.get("thought_signature") if isinstance(google, dict) else None
+    return signature if isinstance(signature, str) and signature else None
 
 
 def _uses_openrouter_backend(provider: Provider, model_meta: ModelMeta) -> bool:
@@ -1869,6 +1888,9 @@ def stream(
         _degen_detected = False
         last_usage = None
         stream_failed = False
+        thought_signatures: dict[str, str] = {}
+        # Continuation chunks carry only the index, not the call id.
+        tool_call_ids: dict[int, str] = {}
 
         try:
             _stream_obj = _stream_create(provider_ignore=_ignored_providers)
@@ -2043,6 +2065,13 @@ def stream(
                 # Handle tool calls
                 if delta.tool_calls:
                     for tool_call in delta.tool_calls:
+                        if isinstance(tool_call, ChoiceDeltaToolCall):
+                            if tool_call.id:
+                                tool_call_ids[tool_call.index] = tool_call.id
+                            call_id = tool_call_ids.get(tool_call.index)
+                            signature = _gemini_thought_signature(tool_call)
+                            if call_id and signature:
+                                thought_signatures[call_id] = signature
                         if (
                             isinstance(tool_call, ChoiceDeltaToolCall)
                             and tool_call.function
@@ -2169,6 +2198,11 @@ def stream(
         # and a usage chunk that arrived before the last model-bearing chunk.
         captured_metadata["served_model"] = served_model
 
+    if thought_signatures:
+        if captured_metadata is None:
+            captured_metadata = {"model": model}
+        captured_metadata["thought_signatures"] = thought_signatures
+
     # Attach degeneration info when the guard tripped (``retried`` says whether
     # the response was replaced or truncated).
     if _degen_data is not None:
@@ -2213,7 +2247,23 @@ def _extract_and_strip_reasoning(
     return reasoning, cleaned_content
 
 
-def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
+def _collect_thought_signatures(messages: Iterable[Message]) -> dict[str, str]:
+    """Map tool call_id to its Gemini thought signature across the conversation.
+
+    Later messages win on a reused call_id: Gemini validates signatures on the
+    current turn, which is always the latest one.
+    """
+    signatures: dict[str, str] = {}
+    for msg in messages:
+        if msg.metadata:
+            signatures.update(msg.metadata.get("thought_signatures") or {})
+    return signatures
+
+
+def _handle_tools(
+    message_dicts: Iterable[dict],
+    thought_signatures: Mapping[str, str] | None = None,
+) -> Generator[dict, None, None]:
     # Non-tool system messages between an assistant tool_calls message and the
     # corresponding tool responses break strict APIs like DeepSeek. Buffer them
     # and re-emit after the tool responses are flushed.
@@ -2286,6 +2336,11 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 )
                 for tooluse in tool_uses
             ]
+            for call in tool_calls:
+                if signature := (thought_signatures or {}).get(call["id"]):
+                    call["extra_content"] = {  # type: ignore[typeddict-unknown-key]
+                        "google": {"thought_signature": signature}
+                    }
 
             if content:
                 modified_message["content"] = content
@@ -2920,6 +2975,12 @@ def _prepare_messages_for_api(
     from .models import get_model  # fmt: skip
 
     model_meta = get_model(model)
+    # Collect before the prep passes below, which may merge messages and their metadata.
+    thought_signatures = (
+        _collect_thought_signatures(messages)
+        if model_meta.provider == "gemini"
+        else None
+    )
 
     # o1 models need _prep_o1 applied to ALL messages (including first), but no merging
     if any(
@@ -2959,7 +3020,7 @@ def _prepare_messages_for_api(
 
     if tools_dict is not None:
         messages_dicts = _merge_tool_results_with_same_call_id(
-            _handle_tools(messages_dicts)
+            _handle_tools(messages_dicts, thought_signatures)
         )
 
     # Transform returns MessageDict-typed messages

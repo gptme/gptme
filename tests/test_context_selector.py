@@ -256,6 +256,41 @@ class TestLLMSelector:
         assert results[0].identifier == "item1"
         assert results[1].identifier == "item2"
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "",
+            "item1",
+            "<selected>item1",
+            "item1</selected>",
+            "</selected><selected>item1",
+            "<selected><selected>item1</selected>",
+        ],
+    )
+    def test_malformed_response_raises(
+        self, sample_items: list[SimpleItem], content: str
+    ) -> None:
+        selector = LLMSelector(ContextSelectorConfig(strategy="llm"))
+
+        with (
+            patch("gptme.llm.reply", return_value=Mock(content=content)),
+            pytest.raises(ValueError, match="selected"),
+        ):
+            selector.select("git workflow", sample_items, max_results=2)
+
+    def test_duplicate_identifiers_do_not_consume_result_limit(
+        self, sample_items: list[SimpleItem]
+    ) -> None:
+        selector = LLMSelector(ContextSelectorConfig(strategy="llm"))
+        response = Mock(
+            content="<selected>\nitem3\nitem3\nunknown\nitem1\nitem4\n</selected>"
+        )
+
+        with patch("gptme.llm.reply", return_value=response):
+            results = selector.select("git workflow", sample_items, max_results=2)
+
+        assert [item.identifier for item in results] == ["item3", "item1"]
+
     def test_invalid_identifiers_filtered(self, sample_items, mock_llm_response):
         """Test that invalid identifiers are filtered out."""
         config = ContextSelectorConfig(strategy="llm")

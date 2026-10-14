@@ -641,14 +641,6 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "preferred_edit_format": "diff",
         },
-        "qwen/qwen3-max": {
-            "context": 256_000,
-            "max_output": 8192,
-            "price_input": 1.2,
-            "price_output": 6.0,
-            "supports_vision": True,
-            "preferred_edit_format": "whole",
-        },
         "anthropic/claude-opus-4.8": {
             "context": 1_000_000,
             "max_output": 128_000,

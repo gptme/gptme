@@ -239,6 +239,10 @@ linkcheck_ignore = [
     # touched. scripts/check_docs_repo_links.py checks these paths against git
     # instead (run by `make docs-linkcheck`).
     r"https://github\.com/gptme/[^/]+/(blob|tree)/master/.*",
+    # gptme-contrib repo pages (root + any sub-path) recurrently 429 CI (#4233,
+    # #4274). No issue/PR links to gptme-contrib exist in hand-written docs, so
+    # blanket-excluding the repo does not reduce correctness checking.
+    r"https://github\.com/gptme/gptme-contrib(/.*)?$",
     # Topic discovery pages throttle CI crawlers (429); they are not repo refs.
     # Keep repository, issue, PR, and discussion links checked.
     r"https://github\.com/topics/[^/?#]+/?(?:[?#].*)?$",

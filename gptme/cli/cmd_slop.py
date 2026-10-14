@@ -108,7 +108,10 @@ def check(
     else:
         click.echo(_format_report(report, top=top))
 
-    if not no_fail and report["status"] == "fail":
+    is_fail = report["status"] == "fail"
+    if no_fail and is_fail:
+        click.echo("(gate suppressed by --no-fail; exit 0)", err=True)
+    elif is_fail:
         raise SystemExit(1)
 
 
