@@ -127,6 +127,44 @@ async def test_e2e_tool_confirm_execute(mock_app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_e2e_running_tool_is_shown(mock_app, tmp_path):
+    """While a slow tool runs, its parsed call and a running line are shown
+    instead of the raw stream preview and a bare "generating" status."""
+    from gptme.tui.app import StreamingMessage, ToolPlaceholder
+
+    app = mock_app
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "run this:\n```shell\nsleep 2 && echo slept-ok\n```"
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+            what="confirmation dialog",
+        )
+        await pilot.press("y")
+        await wait_for(
+            pilot,
+            lambda: app.state == "running shell" and app.query(ToolPlaceholder),
+            what="running tool line",
+        )
+        assert app.generating
+        assert not app.query(StreamingMessage)
+        assert len(app.query(AssistantMessage)) == 1
+        (placeholder,) = app.query(ToolPlaceholder)
+        assert "sleep 2 && echo slept-ok" in str(placeholder._body.render())
+        await wait_for(
+            pilot,
+            lambda: not app.generating and app.state == "idle",
+            what="generation to finish",
+        )
+        assert len(app.query(AssistantMessage)) == 1
+        assert not app.query(ToolPlaceholder)
+        assert any("slept-ok" in m.content for m in app.manager.log)
+
+
+@pytest.mark.asyncio
 async def test_e2e_tool_skip(mock_app, tmp_path):
     """Declining the confirm dialog skips execution and returns to idle."""
     app = mock_app

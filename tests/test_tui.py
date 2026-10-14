@@ -751,29 +751,85 @@ TWO_SHELL_TOOLS_MSG = (
 
 
 @pytest.mark.asyncio
-async def test_tool_placeholder_show_and_clear(tmp_path):
-    """ToolPlaceholder appears after an assistant message with tool calls and disappears on tool output."""
+async def test_running_tool_is_shown_while_it_runs(tmp_path):
+    """When a tool starts, the streamed response is rendered (not left as raw
+    preview) and a running line shows the call; the final message replaces
+    the provisional one once the tools finish."""
     from gptme.tools import init_tools
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import AssistantMessage, StreamingMessage, _RunningTool
 
     init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 0
+        app._begin_stream()
+        app._on_stream_token(SHELL_TOOL_MSG)
+        await pilot.pause()
+        assert app.query(StreamingMessage)
 
-        # Assistant message containing a shell tool call → placeholder shown
+        app._on_tool_start(
+            _RunningTool.from_tool_use(ToolUse("shell", [], "echo hello"))
+        )
+        await pilot.pause()
+        assert not app.query(StreamingMessage)
+        assert len(app.query(AssistantMessage)) == 1
+        (placeholder,) = app.query(ToolPlaceholder)
+        text = str(placeholder._body.render())
+        assert "Running shell  echo hello" in text
+        assert "moves to background in" in text or "times out in" in text
+        assert app.state == "running shell"
+
+        # step() yields the assistant message after its tools finished
         app._on_step_message(Message("assistant", SHELL_TOOL_MSG))
         await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 1
-
-        # Tool output arrives while the batch is still active.
+        assert len(app.query(AssistantMessage)) == 1  # replaced, not duplicated
+        assert len(app.query(ToolPlaceholder)) == 0
+        assert app._running_tool is None
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
         await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 1
+        assert len(app.query(ToolPlaceholder)) == 0
 
-        # Starting the next model step marks the tool batch complete.
-        app._begin_stream()
+
+def test_running_tool_render_and_limits(monkeypatch):
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import _duration, _RunningTool
+
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "120")
+    running = _RunningTool.from_tool_use(
+        ToolUse("shell", [], "sleep 100\necho done", kwargs=None)
+    )
+    running.started -= 65
+    text = str(running.render())
+    assert "Running shell  sleep 100 (+1 lines)" in text
+    assert "1m05s" in text and "moves to background in 55s" in text
+    # tool-format calls carry the command in kwargs; background ones don't wait
+    bg = _RunningTool.from_tool_use(
+        ToolUse("shell", [], None, kwargs={"command": "make", "background": "true"})
+    )
+    assert bg.summary == "make" and bg.limit is None
+    assert _RunningTool.from_tool_use(ToolUse("save", ["a.txt"], "x")).limit is None
+    assert _duration(3725) == "1h02m"
+
+
+@pytest.mark.asyncio
+async def test_tool_start_hook_ignores_other_threads(tmp_path):
+    """Tools run by e.g. a thread-mode subagent must not drive this TUI."""
+    import threading
+
+    from gptme.hooks.types import ToolExecutePreData
+    from gptme.tools.base import ToolUse
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
         await pilot.pause()
+        app._generation_thread = -1  # not this or any other thread
+        data = ToolExecutePreData(tool_use=ToolUse("shell", [], "ls"))
+        thread = threading.Thread(target=lambda: list(app._tui_tool_start_hook(data)))
+        thread.start()
+        thread.join(5)
+        await pilot.pause()
+        assert app._running_tool is None
         assert len(app.query(ToolPlaceholder)) == 0
 
 
@@ -790,38 +846,24 @@ async def test_tool_placeholder_not_shown_for_tool_free_response(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tool_placeholder_persists_across_multiple_tools(tmp_path):
-    """ToolPlaceholder must stay visible until ALL tool outputs from one assistant message arrive."""
+async def test_running_tool_line_follows_each_tool(tmp_path):
+    """One running line for a message's tools, showing the current call."""
     from gptme.tools import init_tools
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import _RunningTool
 
     init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
-
-        # Assistant message with two shell calls → placeholder appears
-        app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
-        await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 1
-
-        # First tool output → placeholder must stay (one more tool pending)
-        app._on_step_message(Message("system", "```stdout\nfirst\n```"))
-        await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 1, "placeholder cleared too early"
-
-        # A hook can emit extra system messages for one tool. These must not
-        # consume the later tool's pending state.
-        app._on_step_message(Message("system", "Hook note after first tool"))
-        await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 1
-
-        # The indicator remains after the last result until execution leaves
-        # the tool batch and starts the next model step.
-        app._on_step_message(Message("system", "```stdout\nsecond\n```"))
-        await pilot.pause()
-        assert len(app.query(ToolPlaceholder)) == 1
-
         app._begin_stream()
+        app._on_stream_token(TWO_SHELL_TOOLS_MSG)
+        for cmd in ("echo first", "echo second"):
+            app._on_tool_start(_RunningTool.from_tool_use(ToolUse("shell", [], cmd)))
+            await pilot.pause()
+            (placeholder,) = app.query(ToolPlaceholder)
+            assert cmd in str(placeholder._body.render())
+        app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
 
@@ -3421,3 +3463,24 @@ async def test_statusline_result_after_shutdown_is_ignored(tmp_path):
         await app.screen.query_one("#status").remove()
         app._show_statusline("late output")
         app._show_statusline(None)
+
+
+def test_streaming_native_tool_call_is_collapsed():
+    """A native-format call (``@tool(id): {json}``) streams as a one-line stub,
+    not raw JSON, including while its arguments are still arriving."""
+    from gptme.tui.app import _streaming_all_segments, _streaming_tool_stub
+
+    buf = (
+        "Off-by-one in the windowing. Let me fix it.\n"
+        '@ipython(call_38c6): {"code":"\\nimport subprocess, os\\nprint(1)'
+    )
+    segments = _streaming_all_segments(buf)
+    assert [kind for kind, _ in segments] == ["prose", "tool_call"]
+    assert _streaming_tool_stub(segments[1][1]) == "▶ ipython: import subprocess, os…"
+    assert (
+        _streaming_tool_stub('@shell(c1): {"command":"ls -la"}') == "▶ shell: ls -la…"
+    )
+    assert _streaming_tool_stub("@save(c2): {") == "▶ save…"
+    assert _streaming_all_segments("use @mention in prose") == [
+        ("prose", "use @mention in prose")
+    ]

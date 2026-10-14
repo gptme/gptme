@@ -11,11 +11,14 @@ import contextlib
 import contextvars
 import functools
 import io
+import json
 import logging
+import math
 import os.path
 import re
 import signal
 import sys
+from collections.abc import Generator
 from dataclasses import dataclass
 
 try:
@@ -25,7 +28,7 @@ except ImportError:
 import threading
 import time
 from pathlib import Path
-from typing import IO, cast
+from typing import IO, TYPE_CHECKING, cast
 from uuid import uuid4
 
 from rich.console import Console as RichConsole
@@ -68,6 +71,7 @@ from ..dirs import get_pt_history_file
 from ..hooks import HookType, register_hook, trigger_hook, unregister_hook
 from ..hooks.cli_confirm import _get_lang_for_tool
 from ..hooks.confirm import ConfirmationResult
+from ..hooks.types import ToolExecutePreData
 from ..lessons.skill_events import (
     SkillPhase,
     abandon_skill_invocations,
@@ -95,6 +99,9 @@ from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
 from ..util.tokens import len_tokens
 from .statusline import LogStats, build_payload, run_statusline
+
+if TYPE_CHECKING:
+    from textual.timer import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -511,6 +518,19 @@ def _split_streaming_markdown_tool_calls(text: str) -> list[tuple[bool, str]]:
 def _streaming_tool_stub(tool_body: str) -> str:
     """One-line stub for a streaming (open/incomplete) markdown tool call."""
     first_line = tool_body.lstrip("\n").split("\n")[0].rstrip()
+    if native := re.match(r"^@(\w+)\(", first_line):
+        # native call: show its main argument (command/code/path), if any yet
+        arg = _NATIVE_ARG_RE.search(first_line)
+        summary = ""
+        if arg:
+            with contextlib.suppress(ValueError):
+                summary = json.loads(f'"{arg.group(1)}"')
+            summary = summary or arg.group(1)
+            summary = summary.strip().split("\n")[0]
+        if summary:
+            summary = summary if len(summary) <= 55 else summary[:54] + "…"
+            return f"▶ {native.group(1)}: {summary}…"
+        return f"▶ {native.group(1)}…"
     m = re.match(r"^`{3,}(\S+)(?:\s+(.+?))?[ \t]*$", first_line)
     if not m:
         return "▶ tool…"
@@ -537,8 +557,35 @@ def _streaming_all_segments(buffer: str) -> list[tuple[str, str]]:
             for is_tool, seg in _split_streaming_markdown_tool_calls(text):
                 if not seg.strip():
                     continue
-                out.append(("tool_call" if is_tool else "prose", seg))
+                if is_tool:
+                    out.append(("tool_call", seg))
+                    continue
+                for is_call, part in _split_streaming_native_tool_calls(seg):
+                    if part.strip():
+                        out.append(("tool_call" if is_call else "prose", part))
     return out
+
+
+# A native ("tool" format) call while streaming: its header line, up to the
+# end of that line or of the buffer (the JSON may still be arriving).
+_STREAMING_NATIVE_CALL_RE = re.compile(r"^@\w+\([^)\n]*\):[^\n]*", re.MULTILINE)
+
+
+def _split_streaming_native_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Split prose into (is_tool, segment) at ``@tool(id): {...}`` lines."""
+    out: list[tuple[bool, str]] = []
+    last = 0
+    for m in _STREAMING_NATIVE_CALL_RE.finditer(text):
+        if text[last : m.start()].strip():
+            out.append((False, text[last : m.start()]))
+        out.append((True, m.group(0)))
+        last = m.end()
+    if text[last:].strip() or not out:
+        out.append((False, text[last:]))
+    return out
+
+
+_NATIVE_ARG_RE = re.compile(r'"(?:command|code|path|file)"\s*:\s*"((?:[^"\\]|\\.)*)')
 
 
 def _split_xml_tool_calls(content: str) -> list[tuple[bool, str]]:
@@ -884,6 +931,84 @@ class StreamingMessage(Vertical):
             self._body.update(Text(label))
 
 
+@dataclass
+class _RunningTool:
+    """A tool call in progress, for the running-tool line."""
+
+    tool: str
+    summary: str  # the command/args, one line
+    started: float  # time.monotonic()
+    # (seconds, what happens then): e.g. shell moving to the background
+    limit: tuple[float, str] | None = None
+
+    @classmethod
+    def from_tool_use(cls, tool_use: ToolUse) -> "_RunningTool":
+        content = tool_use.content or ""
+        if not content and tool_use.kwargs:
+            content = tool_use.kwargs.get("command") or " ".join(
+                str(v) for v in tool_use.kwargs.values()
+            )
+        if not content and tool_use.args:
+            content = " ".join(tool_use.args)
+        return cls(
+            tool=tool_use.tool,
+            summary=_first_line(content),
+            started=time.monotonic(),
+            limit=_tool_limit(tool_use),
+        )
+
+    def render(self) -> Text:
+        elapsed = time.monotonic() - self.started
+        text = Text(f"Running {self.tool}", style="bold")
+        if self.summary:
+            text.append(f"  {self.summary}")
+        text.append(f"\n{_duration(elapsed)}", style="dim")
+        if self.limit:
+            seconds, what = self.limit
+            left = max(0.0, math.ceil(seconds - elapsed))
+            text.append(f" · {what} in {_duration(left)}", style="dim")
+        return text
+
+
+def _first_line(content: str, maxlen: int = 100) -> str:
+    """First line of a command, truncated, noting any further lines."""
+    lines = content.strip().splitlines()
+    if not lines:
+        return ""
+    first = lines[0] if len(lines[0]) <= maxlen else lines[0][: maxlen - 1] + "…"
+    return first + (f" (+{len(lines) - 1} lines)" if len(lines) > 1 else "")
+
+
+def _duration(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m{seconds:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+def _tool_limit(tool_use: ToolUse) -> tuple[float, str] | None:
+    """When a running tool call stops waiting, if known (shell only)."""
+    if tool_use.tool != "shell":
+        return None
+    if tool_use.kwargs and str(tool_use.kwargs.get("background", "")).lower() in (
+        "true",
+        "1",
+    ):
+        return None
+    from ..tools.shell import _get_foreground_timeout, _get_timeout
+
+    foreground = _get_foreground_timeout() if os.name == "posix" else None
+    if foreground:
+        return foreground, "moves to background"
+    if timeout := _get_timeout():
+        return timeout, "times out"
+    return None
+
+
 class ToolPlaceholder(Vertical):
     """Transient widget shown in the chat while a tool is running."""
 
@@ -897,6 +1022,9 @@ class ToolPlaceholder(Vertical):
 
     def set_tool(self, tool_name: str) -> None:
         self._body.update(Text(f"Running {tool_name}…"))
+
+    def set_running(self, text: Text) -> None:
+        self._body.update(text)
 
 
 class InfoMessage(Static):
@@ -1831,6 +1959,13 @@ class GptmeApp(App):
         self._stream_flush_scheduled = False
         self._stream_last_flush = 0.0
         self._tool_placeholder: ToolPlaceholder | None = None
+        # the tool call running now (set by the TOOL_EXECUTE_PRE hook)
+        self._running_tool: _RunningTool | None = None
+        self._running_tool_timer: Timer | None = None
+        # assistant message rendered from the stream when its tools started,
+        # replaced by the final message once they finish
+        self._provisional_assistant: Widget | None = None
+        self._generation_thread: int | None = None
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
         self.show_hidden = _show_hidden_default()
@@ -1911,6 +2046,13 @@ class GptmeApp(App):
             func=self._tui_confirm_hook,
             priority=100,
         )
+        # show each tool call as it starts: step() yields the assistant message
+        # only after all of its tools have finished
+        register_hook(
+            name="tui_tool_start",
+            hook_type=HookType.TOOL_EXECUTE_PRE,
+            func=self._tui_tool_start_hook,
+        )
         if self.inline:
             self._install_inline_resize_handler()
         else:
@@ -1985,6 +2127,7 @@ class GptmeApp(App):
             self.manager.logdir, self._active_skill_invocation_id, "abandoned"
         )
         unregister_hook("tui_confirm", HookType.TOOL_CONFIRM)
+        unregister_hook("tui_tool_start", HookType.TOOL_EXECUTE_PRE)
         # The saved streams are Textual's stdout/stderr captures, and unmount
         # can run after Textual has already restored the real streams:
         # only undo our own redirect, or later prints go to a dead capture.
@@ -2731,7 +2874,62 @@ class GptmeApp(App):
 
     def _generation_worker(self) -> None:
         """Thread worker: run the step loop inside the captured chat context."""
+        self._generation_thread = threading.get_ident()
         self._chat_ctx.run(self._generation_body)
+
+    def _tui_tool_start_hook(
+        self, data: ToolExecutePreData
+    ) -> Generator[Message, None, None]:
+        """TOOL_EXECUTE_PRE, on the worker thread: show the starting tool call."""
+        # only this TUI's own turn, not e.g. a thread-mode subagent's tools
+        if data.tool_use is not None and (
+            threading.get_ident() == self._generation_thread
+        ):
+            running = _RunningTool.from_tool_use(data.tool_use)
+            with contextlib.suppress(Exception):  # never block the tool
+                self.call_from_thread(self._on_tool_start, running)
+        yield from ()
+
+    def _on_tool_start(self, running: _RunningTool) -> None:
+        self._flush_stream()
+        if not self.inline and self._stream_widget is not None:
+            # render the streamed response now, not after its tools finish
+            content = self._stream_widget._buffer
+            self._finalize_stream_in_place(Message("assistant", content))
+            self._provisional_assistant = self._last_assistant_widget()
+        self._running_tool = running
+        self._set_state(f"running {running.tool}")
+        self._show_tool_placeholder()
+        self._tick_running_tool()
+        if self._running_tool_timer is None:
+            self._running_tool_timer = self.set_interval(1, self._tick_running_tool)
+
+    def _last_assistant_widget(self) -> Widget | None:
+        assistants = self.query_one("#chat", VerticalScroll).query(AssistantMessage)
+        return assistants.last() if assistants else None
+
+    def _tick_running_tool(self) -> None:
+        if (running := self._running_tool) is None:
+            return
+        text = running.render()
+        if self.inline:
+            self.query_one("#live", Static).update(text)
+        elif self._tool_placeholder is not None:
+            self._tool_placeholder.set_running(text)
+
+    def _after_confirm(self) -> None:
+        if (running := self._running_tool) is not None:
+            running.started = time.monotonic()  # time running, not awaiting you
+            self._set_state(f"running {running.tool}")
+            self._tick_running_tool()
+        else:
+            self._set_state("executing tools")
+
+    def _stop_running_tool(self) -> None:
+        self._running_tool = None
+        if self._running_tool_timer is not None:
+            self._running_tool_timer.stop()
+            self._running_tool_timer = None
 
     def _generation_body(self) -> None:
         """Runs the step loop until no more runnable tools."""
@@ -2977,7 +3175,14 @@ class GptmeApp(App):
             self._mount_in_chat(CostMessage(cost_text))
 
     def _on_step_message(self, msg: Message) -> None:
-        if msg.role == "assistant":
+        if msg.role == "assistant" and self._running_tool is not None:
+            # step() yields the assistant message once all its tools finished
+            self._stop_running_tool()
+            self._clear_tool_placeholder()
+            self._set_state("generating")
+        if msg.role == "assistant" and self._provisional_assistant is not None:
+            self._replace_provisional_assistant(msg)
+        elif msg.role == "assistant":
             if not self.inline and self._stream_widget is not None:
                 # Swap streaming preview for final rendering without a DOM gap.
                 self._finalize_stream_in_place(msg)
@@ -2987,18 +3192,28 @@ class GptmeApp(App):
                 self._show_message(msg)
         else:
             self._show_message(msg)
-        # UI thread: the tool format lives in the chat context, so pass it
-        if msg.role == "assistant" and any(
-            tool_use.is_runnable
-            for tool_use in ToolUse.iter_from_content(
-                msg.content, tool_format_override=self.tool_format
-            )
-        ):
-            self._set_state("executing tools")
-            self._show_tool_placeholder()
-        elif msg.role == "system" and self.state == "executing tools":
-            self._show_tool_placeholder()
         self._update_status()
+
+    def _replace_provisional_assistant(self, msg: Message) -> None:
+        """Swap the message rendered when its tools started for the final one."""
+        provisional = self._provisional_assistant
+        self._provisional_assistant = None
+        assert provisional is not None
+        if not provisional.is_attached:
+            self._show_message(msg)
+            return
+        # remove the stream widget a final message may still have
+        self._clear_stream_view()
+        if msg.hide and not self.show_hidden:
+            provisional.remove()
+            return
+        final = AssistantMessage(
+            msg.content, show_thinking=self.show_thinking, highlight=self.highlight
+        )
+        chat = self.query_one("#chat", VerticalScroll)
+        with self.batch_update():
+            chat.mount(final, before=provisional)
+            provisional.remove()
 
     async def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group != "generation":
@@ -3020,6 +3235,8 @@ class GptmeApp(App):
         self.generating = False
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
+        self._stop_running_tool()
+        self._provisional_assistant = None
         self._clear_tool_placeholder()
         await self._dispatch_queue()
 
@@ -3082,7 +3299,7 @@ class GptmeApp(App):
             if self._quitting:
                 return ConfirmationResult.skip("App exiting")
         self._restore_terminal()
-        self.call_from_thread(self._set_state, "executing tools")
+        self.call_from_thread(self._after_confirm)
         return result["r"]
 
     # ------------------------------------------------------------ actions
