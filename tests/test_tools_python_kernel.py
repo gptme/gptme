@@ -344,8 +344,9 @@ def test_bridge_helper_uses_kernel_cwd(backend, tmp_path, monkeypatch):
 
     backend.register_bridge_function(helper_cwd)
     result = backend.execute(f"import os; os.chdir({str(other)!r}); helper_cwd()")
-    assert result.error is None
-    assert result.result_text == repr(str(other))
+    assert result.error is not None
+    assert "working directory" in result.error["evalue"]
+    assert os.getcwd() == str(tmp_path)
 
 
 def test_bridge_stop_closes_idle_connections():
@@ -387,3 +388,86 @@ def test_kernel_helpers_survive_restart(backend):
     assert backend.execute("helper()").result_text == "73"
     backend.shutdown()
     assert backend.execute("helper()").result_text == "73"
+
+
+def test_kernel_message_return_remains_usable(backend):
+    from gptme.message import Message
+
+    def message_value():
+        return Message("system", "usable result")
+
+    backend.register_bridge_function(message_value)
+    result = backend.execute("message_value().content")
+    assert result.error is None
+    assert result.result_text == "'usable result'"
+    assert backend._bridge.messages[0].content == "usable result"
+
+
+def test_bridge_different_cwd_does_not_change_host(backend, tmp_path, monkeypatch):
+    import threading
+
+    monkeypatch.chdir(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    entered = threading.Event()
+    release = threading.Event()
+    observed = []
+
+    def slow_helper():
+        entered.set()
+        release.wait(5)
+        return "done"
+
+    backend.register_bridge_function(slow_helper)
+
+    def observe():
+        entered.wait(2)
+        observed.append(os.getcwd())
+        release.set()
+
+    observer = threading.Thread(target=observe)
+    observer.start()
+    try:
+        result = backend.execute(f"import os; os.chdir({str(other)!r}); slow_helper()")
+    finally:
+        release.set()
+        observer.join(3)
+    assert os.getcwd() == str(tmp_path)
+    assert observed == [str(tmp_path)]
+    assert result.error is not None
+    assert "working directory" in result.error["evalue"]
+
+
+def test_cancelled_helper_message_does_not_reach_next_cell(backend):
+    import threading
+
+    from gptme.message import Message
+
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def late_message():
+        entered.set()
+        release.wait(10)
+        finished.set()
+        return Message("system", "stale result")
+
+    backend.register_bridge_function(late_message)
+    try:
+        result = backend.execute("late_message()", timeout=0.5)
+        assert entered.is_set()
+        assert result.error is not None
+        # Finish the canceled helper while the next cell is already running,
+        # after its message buffer has been cleared.
+        timer = threading.Timer(0.2, release.set)
+        timer.start()
+        try:
+            result = backend.execute("import time; time.sleep(0.5); 42")
+        finally:
+            timer.join(2)
+        assert finished.wait(2)
+        assert result.error is None
+        assert not backend._bridge.messages
+    finally:
+        release.set()

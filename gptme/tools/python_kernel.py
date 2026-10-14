@@ -54,6 +54,7 @@ class BridgeServer:
         self._semaphore = threading.BoundedSemaphore(_MAX_BRIDGE_CONNECTIONS)
         self._call_lock = threading.Lock()
         self.messages: list[Any] = []
+        self.active_cell: str | None = None
         self._connections: set[socket.socket] = set()
         self._connections_lock = threading.Lock()
 
@@ -162,26 +163,40 @@ class BridgeServer:
                 try:
                     from gptme.message import Message
 
-                    # cwd is process-global: serialize helper calls and restore the
-                    # host directory even when the helper fails.
+                    # Helpers run in the host process: never change its global cwd
+                    # for work that can outlive an interrupted kernel cell.
                     with self._call_lock:
-                        cwd = os.getcwd()
-                        try:
-                            os.chdir(call.get("cwd", cwd))
-                            ret = fn(*args, **kwargs)
-                        finally:
-                            os.chdir(cwd)
-                        if isinstance(ret, Message):
-                            self.messages.append(ret)
-                            ret = None
-                        elif (
-                            isinstance(ret, list)
-                            and ret
-                            and all(isinstance(m, Message) for m in ret)
-                        ):
-                            self.messages.extend(ret)
-                            ret = None
-                    result = {"result": ret}
+                        if call.get("cwd", os.getcwd()) != os.getcwd():
+                            raise RuntimeError(
+                                "Bridge helper working directory differs from the host; "
+                                "change directory through the shell before calling helpers"
+                            )
+                        cell = call.get("cell")
+                        if cell is not None and cell != self.active_cell:
+                            raise RuntimeError(
+                                "Bridge call belongs to an inactive cell"
+                            )
+                        ret = fn(*args, **kwargs)
+                        if cell is None or cell == self.active_cell:
+                            if isinstance(ret, Message):
+                                self.messages.append(ret)
+                            elif isinstance(ret, list) and all(
+                                isinstance(m, Message) for m in ret
+                            ):
+                                self.messages.extend(ret)
+                    # Project kernels need not have gptme installed. Return a
+                    # portable attribute-bearing value while retaining originals
+                    # (including attachments) in the host output buffer.
+                    from types import SimpleNamespace
+
+                    def portable(value: Any) -> Any:
+                        if isinstance(value, Message):
+                            return SimpleNamespace(**vars(value))
+                        if isinstance(value, list):
+                            return [portable(item) for item in value]
+                        return value
+
+                    result = {"result": portable(ret)}
                 except Exception as exc:
                     result = {"error": str(exc), "exc_type": type(exc).__name__}
 
@@ -239,7 +254,8 @@ def _gptme_rpc(fn_name, *args, **kwargs):
     with _gptme_socket.socket(_gptme_socket.AF_INET, _gptme_socket.SOCK_STREAM) as _s:
         _s.connect(('127.0.0.1', _GPTME_BRIDGE_PORT))
         _s.sendall(_GPTME_BRIDGE_TOKEN)
-        _payload = _gptme_pickle.dumps({{'fn': fn_name, 'args': args, 'kwargs': kwargs, 'cwd': _gptme_os.getcwd()}})
+        _cell = get_ipython().kernel.get_parent().get('header', {{}}).get('msg_id')
+        _payload = _gptme_pickle.dumps({{'fn': fn_name, 'args': args, 'kwargs': kwargs, 'cwd': _gptme_os.getcwd(), 'cell': _cell}})
         _s.sendall(_gptme_struct.pack('>I', len(_payload)) + _payload)
         _raw = _gptme_recv_exact(_s, 4)
         (_length,) = _gptme_struct.unpack('>I', _raw)
@@ -494,6 +510,7 @@ class KernelBackend:
         error: dict | None = None
 
         msg_id = self._kc.execute(code, silent=False, store_history=True)
+        self._bridge.active_cell = msg_id
         deadline = _monotonic() + timeout
 
         timed_out = False
@@ -588,6 +605,7 @@ class KernelBackend:
                 )
             return text
 
+        self._bridge.active_cell = None
         return KernelExecResult(
             stdout=_with_marker(stdout_parts, stdout_bytes, stdout_total_bytes),
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
@@ -611,6 +629,7 @@ class KernelBackend:
 
     def interrupt(self) -> None:
         """Send SIGINT to the kernel, interrupting any blocking operation."""
+        self._bridge.active_cell = None
         if self._km and self._km.is_alive():
             logger.info("Interrupting kernel")
             self._km.interrupt_kernel()
