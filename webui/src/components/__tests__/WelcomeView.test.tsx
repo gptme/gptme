@@ -766,7 +766,9 @@ describe('WelcomeView', () => {
     });
 
     it('navigates to ?demo=1 when clicking the demo CTA', () => {
-      setLocation('https://chat.gptme.org/');
+      // A non-chat.gptme.org origin proves the target is derived from the
+      // current location, not a hardcoded URL.
+      setLocation('https://app.example.com/some/path?tab=servers');
 
       render(
         <SettingsProvider>
@@ -780,7 +782,9 @@ describe('WelcomeView', () => {
 
       expect(mockNavigateTo).toHaveBeenCalledTimes(1);
       const target = new URL(mockNavigateTo.mock.calls[0][0] as string);
-      expect(target.origin).toBe('https://chat.gptme.org');
+      expect(target.origin).toBe('https://app.example.com');
+      expect(target.pathname).toBe('/some/path');
+      expect(target.searchParams.get('tab')).toBe('servers');
       expect(target.searchParams.get('demo')).toBe('1');
     });
   });
