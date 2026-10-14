@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -212,6 +213,50 @@ class TestSelectRelevantFiles:
 
         # old.py should rank first despite being older (3 mentions vs 1)
         assert selected[0] == temp_files["old_py"]
+
+    @pytest.mark.parametrize(
+        ("response_content", "falls_back"),
+        [("I could not select files", True), ("<selected></selected>", False)],
+    )
+    def test_llm_response_failure_uses_scored_fallback(
+        self,
+        temp_files: dict[str, Path],
+        response_content: str,
+        falls_back: bool,
+    ) -> None:
+        msgs = [
+            Message(
+                "user",
+                "Review old recent",
+                files=[temp_files["old_py"], temp_files["recent_py"]],
+            )
+        ]
+        # Both candidates match the query, forcing real hybrid LLM refinement.
+        query = "old recent"
+        expected = select_relevant_files(
+            msgs,
+            workspace=None,
+            query=query,
+            max_files=1,
+            use_selector=True,
+            config=FileSelectorConfig(strategy="rule"),
+        )
+        assert len(expected) == 1
+
+        with patch(
+            "gptme.llm.reply", return_value=Message("assistant", response_content)
+        ) as reply:
+            selected = select_relevant_files(
+                msgs,
+                workspace=None,
+                query=query,
+                max_files=1,
+                use_selector=True,
+                config=FileSelectorConfig(strategy="hybrid"),
+            )
+
+        reply.assert_called_once()
+        assert selected == (expected if falls_back else [])
 
 
 if __name__ == "__main__":
