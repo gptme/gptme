@@ -262,6 +262,20 @@ def test_include_paths_error_sends_prompt_as_typed(monkeypatch):
     assert calls == ["./some/path"]
 
 
+def test_find_potential_paths_bare_names(tmp_path, monkeypatch):
+    """A bare cwd entry counts only as a filename with an extension: "journal"
+    in prose must not attach the journal/ listing."""
+    (tmp_path / "journal").mkdir()
+    (tmp_path / "README.md").write_text("x")
+    monkeypatch.chdir(tmp_path)
+    content = "journal and persist, see README.md and `journal`"
+    assert _find_potential_paths(content) == ["README.md"]
+    assert _find_potential_paths("see journal/ and ./journal") == [
+        "journal/",
+        "./journal",
+    ]
+
+
 def test_find_potential_paths_ignores_lone_slash():
     """Prose/markdown ' / ' is not a filesystem path (#3758)."""
     assert _find_potential_paths("**Still open / not done:**") == []

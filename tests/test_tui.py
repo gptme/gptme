@@ -398,8 +398,25 @@ def test_complete_input_commands():
     candidates = complete_input("/mod")
     assert "/model" in candidates
     assert all(c.startswith("/mod") for c in candidates)
-    # no completions for regular text
+
+
+def test_complete_input_paths(tmp_path, monkeypatch):
+    """Tab completes the last word as a path; directories get a slash so
+    include_paths treats them as paths (a bare "journal" is prose)."""
+    from gptme.tui.app import complete_input
+
+    (tmp_path / "journal").mkdir()
+    (tmp_path / "journal" / "2026-10-14.md").write_text("x")
+    (tmp_path / "jokes.txt").write_text("x")
+    (tmp_path / ".jhidden").write_text("x")
+    monkeypatch.chdir(tmp_path)
+    assert complete_input("see jo") == ["see jokes.txt", "see journal/"]
+    assert complete_input("see @journal/2") == ["see @journal/2026-10-14.md"]
+    assert complete_input("see .j") == ["see .jhidden"]
+    assert complete_input(f"see {tmp_path}/jou") == [f"see {tmp_path}/journal/"]
+    assert complete_input(f"{tmp_path}/jou") == [f"{tmp_path}/journal/"]
     assert complete_input("hello") == []
+    assert complete_input("hello ") == []
 
 
 @pytest.mark.asyncio

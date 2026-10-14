@@ -905,11 +905,37 @@ TUI_COMMANDS: dict[str, list[list[str]]] = {
 }
 
 
-def complete_input(text: str) -> list[str]:
-    """Full-line completion candidates, reusing the CLI command completers."""
+def complete_path(text: str) -> list[str]:
+    """Full-text candidates completing the last word as a filesystem path.
 
-    if not text.startswith("/"):
+    Directories get a trailing slash, so "journ<Tab>" becomes "journal/",
+    which include_paths recognizes as a path (a bare "journal" is prose).
+    """
+    seg = re.split(r"\s", text)[-1]
+    if not seg:
         return []
+    at = "@" if seg.startswith("@") else ""
+    dir_part, slash, prefix = seg[len(at) :].rpartition("/")
+    dir_part += slash
+    try:
+        entries = list(os.scandir(os.path.expanduser(dir_part or ".")))
+    except OSError:
+        return []
+    base = text[: len(text) - len(seg)] + at + dir_part
+    return sorted(
+        base + e.name + ("/" if e.is_dir() else "")
+        for e in entries
+        if e.name.startswith(prefix)
+        and (prefix.startswith(".") or not e.name.startswith("."))
+    )
+
+
+def complete_input(text: str) -> list[str]:
+    """Full-line completion candidates: slash-commands (reusing the CLI
+    command completers) or else a path for the last word."""
+
+    if not text.startswith("/") or "/" in text.split(None, 1)[0][1:]:
+        return complete_path(text)  # text, or an absolute path like /tmp/x
     parts = text.split(None, 1)
     if len(parts) == 1 and not text.endswith(" "):
         # completing the command name itself
@@ -1203,7 +1229,7 @@ class ChatInput(TextArea):
         self.move_cursor(self.document.end)
 
     def _cycle_completion(self) -> None:
-        if "\n" in self.text:
+        if "\n" in self.text and self.text.startswith("/"):
             return  # commands are single-line
         if self._tab_candidates and self.text == self._tab_last:
             # repeated Tab: cycle through candidates

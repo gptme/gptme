@@ -809,8 +809,10 @@ def _find_potential_paths(content: str) -> list[str]:
                 or s.startswith("http")
                 # Contains slash (for backtick-wrapped paths)
                 or "/" in s
-                # Files in current directory or subdirectories
-                or any(s.split("/", 1)[0] == file for file in cwd_files)
+                # Bare names in the current directory only with an extension:
+                # "README.md" is a reference, "journal" is likely prose (use
+                # "journal/" or "./journal", which Tab-completion produces)
+                or ("." in s.strip(".") and s in cwd_files)
             )
 
         return (
