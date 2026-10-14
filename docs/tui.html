@@ -783,6 +783,10 @@ the rest of the session.</p>
 by routing them through the shared command registry. Command output is
 shown inline in the conversation. <code class="docutils literal notranslate"><span class="pre">/quit</span></code> is a TUI-local alias for
 <code class="docutils literal notranslate"><span class="pre">/exit</span></code>, and <code class="docutils literal notranslate"><span class="pre">/display</span></code> (see <a class="reference internal" href="#display-settings">Display settings</a>) is TUI-only.</p>
+<p>Outside commands, Tab completes the last word as a file path, adding a
+trailing <code class="docutils literal notranslate"><span class="pre">/</span></code> to directories. A path in your message (<code class="docutils literal notranslate"><span class="pre">journal/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">./notes.md</span></code>, <code class="docutils literal notranslate"><span class="pre">README.md</span></code>) is attached to it; a bare word like
+<code class="docutils literal notranslate"><span class="pre">journal</span></code> is left as text.</p>
 </section>
 <section id="limitations">
 <h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
