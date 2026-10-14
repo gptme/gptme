@@ -588,6 +588,20 @@ class KernelBackend:
                 text = data.get("text/plain")
                 result_text = _cap_kernel_text(text) if text is not None else None
 
+            elif msg_type == "display_data":
+                # explicit display() calls — collect as stdout so they aren't silently dropped
+                data = content.get("data", {})
+                text = data.get("text/plain", "")
+                if text:
+                    chunk_bytes = len(text.encode("utf-8", errors="replace"))
+                    stdout_total_bytes += chunk_bytes
+                    if stdout_bytes < _MAX_STREAMING_OUTPUT_BYTES:
+                        retained = text.encode("utf-8", errors="replace")[
+                            : _MAX_STREAMING_OUTPUT_BYTES - stdout_bytes
+                        ].decode("utf-8", errors="ignore")
+                        stdout_parts.append(retained + "\n")
+                        stdout_bytes += len(retained.encode("utf-8"))
+
             elif msg_type == "error":
                 import re
 

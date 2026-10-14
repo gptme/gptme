@@ -533,3 +533,11 @@ def test_silent_setup_error_is_not_ignored(backend):
     }
     with pytest.raises(RuntimeError, match="bad cwd"):
         backend._exec_silent("pass")
+
+
+def test_kernel_execute_display_output(backend):
+    result = backend.execute(
+        "from IPython.display import display; display('hello display')"
+    )
+    assert "hello display" in result.stdout
+    assert result.error is None
