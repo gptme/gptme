@@ -1139,7 +1139,18 @@ mod tests {
             cmd: cmd.into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
-            url: "http://tauri.localhost".parse().unwrap(),
+            // tauri 2.12 added an `|| !is_local` branch to the ACL bypass.
+            // On Linux/macOS the tauri protocol is `tauri://`, so
+            // `http://tauri.localhost` is not considered local and the ACL
+            // enforces capabilities even when no app manifest is present.
+            // Use the platform-correct URL so the bypass still fires.
+            url: if cfg!(any(windows, target_os = "android")) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
             body: tauri::ipc::InvokeBody::default(),
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_string(),
