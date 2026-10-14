@@ -12,23 +12,32 @@ Commands provided:
 - ``/lesson refresh`` - Reload lessons from disk
 """
 
+import hashlib
 import importlib
 import json
 import logging
+import os
 import re
+import stat
 import uuid
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from ..commands import CommandContext
 from ..config import get_config
 from ..hooks import HookType, StopPropagation
 from ..lessons import Lesson, LessonIndex, LessonMatcher, MatchContext
 from ..lessons.commands import lesson
-from ..lessons.selector import refine_matches
+from ..lessons.selector import (
+    _selector_env,
+    configured_guards,
+    is_protected_lesson,
+    refine_matches,
+)
 from ..message import Message
 from .base import ToolSpec
 
@@ -247,8 +256,72 @@ def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]
     yield from lesson(ctx)
 
 
+@dataclass
+class _ItemEvidence:
+    event_id: str
+    intent: str | None = None
+    items: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _record_lesson_items(manager: "LogManager", evidence: _ItemEvidence) -> None:
+    """Opt-in private final-item evidence; failures leave exposure unknown.
+
+    Consumers must join the same session/event's aggregate emission receipt and
+    require an emitted outcome. Advisory classification also requires a known
+    guard configuration; these records alone do not establish successful exposure.
+    """
+    raw_directory = _selector_env("GPTME_LESSONS_ITEM_RECEIPTS_DIR")
+    if not raw_directory:
+        return
+    try:
+        import fcntl
+
+        directory = Path(raw_directory)
+        if not directory.is_absolute():
+            return
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(directory_fd)
+            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                return
+            fd = os.open(
+                "lesson-items.jsonl",
+                os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            with os.fdopen(fd, "a", encoding="utf-8") as stream:
+                info = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.getuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_nlink != 1
+                ):
+                    return
+                record = {
+                    "record_type": "final_item_receipt",
+                    "receipt_version": 1,
+                    "session_id": str(manager.logdir.resolve()),
+                    "event_id": evidence.event_id,
+                    "intent": evidence.intent,
+                    "guards_configured": bool(configured_guards()),
+                    "items": evidence.items,
+                }
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                stream.write(json.dumps(record) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except Exception:
+        pass  # Missing private evidence must not break aggregate receipts or output.
+
+
 def _record_lesson_emission(
-    manager: "LogManager", outcome: str, context_bytes: int
+    manager: "LogManager", outcome: str, context_bytes: int, event_id: str
 ) -> None:
     """Append aggregate emission evidence; never let telemetry break the hook."""
     try:
@@ -256,7 +329,7 @@ def _record_lesson_emission(
         record = {
             "record_type": "emission_receipt",
             "receipt_version": 1,
-            "event_id": uuid.uuid4().hex,
+            "event_id": event_id,
             "ts": datetime.now(timezone.utc).isoformat(),
             "runtime": "gptme",
             "session_id": str(logdir),
@@ -281,8 +354,19 @@ def auto_include_lessons_hook(
     """
     outcome = "empty"
     context_bytes = 0
+    event_id = uuid.uuid4().hex
+    evidence = (
+        _ItemEvidence(event_id)
+        if _selector_env("GPTME_LESSONS_ITEM_RECEIPTS_DIR")
+        else None
+    )
     try:
-        for message in _auto_include_lessons(manager):
+        if evidence is not None:
+            evidence.intent = next(
+                (m.content for m in reversed(manager.log.messages) if m.role == "user"),
+                None,
+            )
+        for message in _auto_include_lessons(manager, evidence):
             if isinstance(message, Message):
                 context_bytes += len(message.content.encode("utf-8"))
                 outcome = "emitted"
@@ -299,11 +383,13 @@ def auto_include_lessons_hook(
         outcome = "error"
         raise
     finally:
-        _record_lesson_emission(manager, outcome, context_bytes)
+        _record_lesson_emission(manager, outcome, context_bytes, event_id)
+        if evidence is not None:
+            _record_lesson_items(manager, evidence)
 
 
 def _auto_include_lessons(
-    manager: "LogManager",
+    manager: "LogManager", evidence: _ItemEvidence | None = None
 ) -> Generator[Message | StopPropagation, None, None]:
     """Hook to automatically include relevant lessons in context.
 
@@ -485,13 +571,26 @@ def _auto_include_lessons(
 
     # Format lessons as system message
     content_parts = ["# Relevant Lessons\n"]
+    rendered_items: list[dict[str, Any]] = []
     for match in new_matches:
         lesson = match.lesson
-        content_parts.append(f"\n## {lesson.title}\n")
-        content_parts.append(f"\n*Path: {lesson.path}*\n")
-        content_parts.append(f"\n*Category: {lesson.category}*\n")
-        content_parts.append(f"\n*Matched by: {len(match.matched_by)} keyword(s)*\n")
-        content_parts.append(f"\n{lesson.body}\n")
+        text = (
+            f"\n## {lesson.title}\n"
+            f"\n*Path: {lesson.path}*\n"
+            f"\n*Category: {lesson.category}*\n"
+            f"\n*Matched by: {len(match.matched_by)} keyword(s)*\n"
+            f"\n{lesson.body}\n"
+        )
+        content_parts.append(text)
+        if evidence is not None:
+            rendered_items.append(
+                {
+                    "item_id": str(lesson.path),
+                    "text": text,
+                    "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    "advisory": not is_protected_lesson(lesson, _is_holdout_lesson),
+                }
+            )
 
     lesson_msg = Message(
         role="system",
@@ -513,6 +612,8 @@ def _auto_include_lessons(
     # in the right place; info-level spam here fires mid-reply at hook time.
     logger.debug(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
 
+    if evidence is not None:
+        evidence.items.extend(rendered_items)
     yield lesson_msg
 
 
