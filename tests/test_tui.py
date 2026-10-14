@@ -28,14 +28,18 @@ from gptme.tui.app import (
     ToolPlaceholder,
     UserMessage,
     _append_pt_history,
+    _find_open_tool_fence_pos,
     _has_tool_calls,
     _load_pt_history,
     _markdown_tool_renderable,
     _split_all_tool_calls,
     _split_markdown_tool_calls,
+    _split_streaming_markdown_tool_calls,
     _split_thinking,
     _split_tool_calls,
     _split_xml_tool_calls,
+    _streaming_all_segments,
+    _streaming_tool_stub,
     _strip_thinking,
     _summarize,
     _tool_call_renderable,
@@ -1390,14 +1394,6 @@ _SAVE_60_LINES = (
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason=(
-        "Tool-call segments not yet streamed in collapsed form (#4331). "
-        "This test documents the remaining height-collapse issue for a 60-line "
-        "save call; it will pass once streaming renders tool calls in-place."
-    ),
-    strict=True,
-)
 async def test_finalize_stream_height_does_not_collapse(tmp_path):
     """Content height must not drop by more than 2 rows when a streaming preview
     is finalized (regression guard for the 60-line save-call layout jump)."""
@@ -1431,6 +1427,151 @@ async def test_finalize_stream_height_does_not_collapse(tmp_path):
         assert height_after >= height_before - 3, (
             f"height collapsed from {height_before} to {height_after} rows "
             f"(dropped {height_before - height_after})"
+        )
+
+
+# ─────────────────────────────────────────────────────────
+# Streaming tool-call collapse helpers
+# ─────────────────────────────────────────────────────────
+
+
+def test_streaming_tool_stub_with_path():
+    """_streaming_tool_stub extracts tool name and path from the opening fence."""
+    fence_text = "```save hello.py\nline1\nline2"
+    stub = _streaming_tool_stub(fence_text)
+    assert "save" in stub
+    assert "hello.py" in stub
+    assert stub.endswith("…")
+
+
+def test_streaming_tool_stub_no_path():
+    """_streaming_tool_stub falls back to tool name only when no path."""
+    stub = _streaming_tool_stub("```ipython\nprint('hi')")
+    assert "ipython" in stub
+    assert stub.endswith("…")
+
+
+def test_find_open_tool_fence_pos_detects_unclosed():
+    """_find_open_tool_fence_pos returns offset of last unclosed tool fence."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    text = "Prose.\n\n```save hello.py\nline1\nline2"
+    pos = _find_open_tool_fence_pos(text)
+    assert pos is not None
+    assert text[pos:].startswith("```save")
+
+
+def test_find_open_tool_fence_pos_ignores_closed():
+    """_find_open_tool_fence_pos returns None for a properly closed fence."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    text = "```save hello.py\nline1\n```\nMore prose."
+    pos = _find_open_tool_fence_pos(text)
+    assert pos is None
+
+
+def test_find_open_tool_fence_pos_returns_outermost_for_nested():
+    """Nested fences: the outer tool fence position is returned, not the inner."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    # save block with a shell example inside that is still open
+    text = "```save README.md\nline1\n\n```shell\nexample code"
+    pos = _find_open_tool_fence_pos(text)
+    assert pos is not None
+    assert text[pos:].startswith("```save"), (
+        f"Expected outermost (save) fence at pos {pos!r}, got: {text[pos : pos + 20]!r}"
+    )
+
+
+def test_split_streaming_markdown_tool_calls_open_fence():
+    """An open tool fence is returned as a tool segment even without a closing fence."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    content = "Saving the file.\n\n```save hello.py\nline1\nline2"
+    segments = _split_streaming_markdown_tool_calls(content)
+    tool_segs = [seg for is_tool, seg in segments if is_tool]
+    assert tool_segs, f"expected open fence to produce a tool segment, got: {segments}"
+    assert any("save" in seg for seg in tool_segs)
+
+
+def test_streaming_all_segments_open_tool_call():
+    """_streaming_all_segments returns a tool_call kind for an in-progress fence."""
+    from gptme.tools import init_tools
+
+    init_tools()
+    buf = "Saving the file.\n\n```save hello.py\nline1\nline2"
+    segs = _streaming_all_segments(buf)
+    kinds = [k for k, _ in segs]
+    assert "tool_call" in kinds, f"expected tool_call kind, got: {segs}"
+
+
+@pytest.mark.asyncio
+async def test_streaming_tool_call_shows_stub_not_raw_lines(tmp_path):
+    """While streaming, a tool-call block is shown as a one-line stub, not raw lines.
+
+    This is the core regression guard for gptme/gptme#4331: a 60-line save
+    call must not stream as 60 raw lines — it should show as a single collapsed
+    stub so finalizing the message causes no visible layout jump.
+    """
+    from gptme.tools import init_tools
+
+    init_tools()
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._begin_stream()
+        await pilot.pause()
+        sm = app._stream_widget
+        assert sm is not None
+
+        lines = _SAVE_60_LINES.splitlines(keepends=True)
+        # Stream all content lines *before* the closing fence so we test the
+        # open (still-streaming) state — the key regression.  A naive impl
+        # that only collapses at fence-close would show 60 raw lines here.
+        for line in lines[:-1]:
+            sm.append_token(line)
+        await pilot.pause()
+
+        def _visible_rows(widget):
+            return [
+                str(child.render())
+                for child in widget.children
+                if not child.has_class("role") and child.display
+            ]
+
+        rendered_open = _visible_rows(sm)
+        has_raw_open = any(
+            any(f"line{i}" in r for r in rendered_open) for i in range(1, 61)
+        )
+        assert not has_raw_open, (
+            f"Raw tool-call content leaked during open streaming: {rendered_open}"
+        )
+        stub_rows_open = [
+            r for r in rendered_open if "save" in r.lower() or "hello.py" in r
+        ]
+        assert stub_rows_open, (
+            f"Expected a stub row while tool fence is open, got: {rendered_open}"
+        )
+
+        # Complete the call with the closing fence and re-check.
+        sm.append_token(lines[-1])
+        await pilot.pause()
+
+        rendered_closed = _visible_rows(sm)
+        has_raw_closed = any(
+            any(f"line{i}" in r for r in rendered_closed) for i in range(1, 61)
+        )
+        assert not has_raw_closed, (
+            f"Raw tool-call content leaked after fence closed: {rendered_closed}"
+        )
+        stub_rows_closed = [
+            r for r in rendered_closed if "save" in r.lower() or "hello.py" in r
+        ]
+        assert stub_rows_closed, (
+            f"Expected a stub row after fence closed, got: {rendered_closed}"
         )
 
 

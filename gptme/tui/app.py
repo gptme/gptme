@@ -442,6 +442,104 @@ def _split_markdown_tool_calls(content: str) -> list[tuple[bool, str]]:
     return segments or [(False, content)]
 
 
+def _find_open_tool_fence_pos(text: str) -> int | None:
+    """Return the char offset of the last unclosed tool-call fence, or None.
+
+    Scans *text* line by line tracking open/closed code fences.  If the last
+    unclosed fence carries a lang tag that is a supported tool (via
+    ``is_supported_langtag``), its starting character offset is returned so
+    the caller can split the prose before it from the still-streaming body.
+    """
+    from ..tools import is_supported_langtag
+
+    lines = text.split("\n")
+    pos = 0
+    # stack of (char_pos, fence_chars, lang)
+    open_fences: list[tuple[int, str, str]] = []
+
+    for line in lines:
+        stripped = line.rstrip()
+        open_m = re.match(r"^(`{3,})(\S+)", stripped)
+        close_m = re.match(r"^(`{3,})\s*$", stripped)
+        if open_m:
+            fchar, lang = open_m.group(1), open_m.group(2)
+            open_fences.append((pos, fchar, lang))
+        elif close_m and open_fences:
+            if open_fences[-1][1] == close_m.group(1):
+                open_fences.pop()
+        pos += len(line) + 1  # +1 for '\n'
+
+    # Return the outermost unclosed tool fence so nested fences (e.g. a shell
+    # example inside a save block) don't split at the inner fence and expose
+    # the outer block's raw content lines.
+    for char_pos, _fchar, lang in open_fences:
+        if is_supported_langtag(lang):
+            return char_pos
+    return None
+
+
+def _split_streaming_markdown_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Extends _split_markdown_tool_calls to also detect open (streaming) fences.
+
+    After applying the standard closed-fence parser, inspects the last prose
+    segment for an unclosed opening fence whose lang is a supported tool.  If
+    found, the prose is split at the fence start so the partial tool body is
+    returned as a tool segment (``is_tool=True``).  The caller renders it as a
+    collapsed stub instead of raw lines.
+    """
+    segments = _split_markdown_tool_calls(text)
+
+    # If the last segment is already a tool call there is nothing left to do.
+    if segments and segments[-1][0]:
+        return segments
+
+    last_text = segments[-1][1] if segments else text
+    open_pos = _find_open_tool_fence_pos(last_text)
+    if open_pos is None:
+        return segments
+
+    before = last_text[:open_pos]
+    tool_body = last_text[open_pos:]
+    result = segments[:-1]
+    if before.strip():
+        result.append((False, before))
+    result.append((True, tool_body))
+    return result or [(False, text)]
+
+
+def _streaming_tool_stub(tool_body: str) -> str:
+    """One-line stub for a streaming (open/incomplete) markdown tool call."""
+    first_line = tool_body.lstrip("\n").split("\n")[0].rstrip()
+    m = re.match(r"^`{3,}(\S+)(?:\s+(.+?))?[ \t]*$", first_line)
+    if not m:
+        return "▶ tool…"
+    full_lang, path = m.group(1), m.group(2)
+    tool_name = full_lang.split(" ")[0]
+    if path:
+        summary = path if len(path) <= 55 else path[:54] + "…"
+        return f"▶ {tool_name}: {summary}…"
+    return f"▶ {tool_name}…"
+
+
+def _streaming_all_segments(buffer: str) -> list[tuple[str, str]]:
+    """Split *buffer* into (kind, text) pairs for the streaming preview.
+
+    Kinds: ``"thinking"``, ``"tool_call"``, ``"prose"``.
+    Empty/whitespace segments are omitted.
+    """
+    out: list[tuple[str, str]] = []
+    for is_think, text in _split_thinking(buffer):
+        if is_think:
+            if text.strip():
+                out.append(("thinking", text))
+        else:
+            for is_tool, seg in _split_streaming_markdown_tool_calls(text):
+                if not seg.strip():
+                    continue
+                out.append(("tool_call" if is_tool else "prose", seg))
+    return out
+
+
 def _split_xml_tool_calls(content: str) -> list[tuple[bool, str]]:
     """Split content into (is_tool, segment) pairs for XML-format tool-call blocks."""
     segments: list[tuple[bool, str]] = []
@@ -714,8 +812,6 @@ class StreamingMessage(Vertical):
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
-        if not self.show_thinking:
-            self._update_hidden_segments()
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
@@ -727,55 +823,50 @@ class StreamingMessage(Vertical):
     def _update_hidden_segments(self) -> None:
         if not self.is_mounted:
             return
-        segments = _split_thinking(self._buffer)
+        segments = _streaming_all_segments(self._buffer)
         self._body.display = not segments
         with self.app.batch_update():
-            for index, (is_thinking, text) in enumerate(segments):
+            for index, (kind, text) in enumerate(segments):
                 if index == len(self._segments):
-                    row = Static(
-                        classes="thinking-stub" if is_thinking else "stream-prose"
+                    css = (
+                        "thinking-stub"
+                        if kind == "thinking"
+                        else "tool-stub"
+                        if kind == "tool_call"
+                        else "stream-prose"
                     )
+                    row = Static(classes=css)
                     self._segments.append(row)
                     self.mount(row)
                 row = self._segments[index]
-                row.set_class(is_thinking, "thinking-stub")
-                if is_thinking:
-                    n = len(text.splitlines())
-                    row.update(
-                        Text(
-                            f"▸ Thinking ({n} line{'s' if n != 1 else ''})", style="dim"
+                row.set_class(kind == "thinking", "thinking-stub")
+                row.set_class(kind == "tool_call", "tool-stub")
+                row.set_class(kind == "prose", "stream-prose")
+                if kind == "thinking":
+                    if self.show_thinking:
+                        row.update(Text(text.strip()))
+                    else:
+                        n = len(text.splitlines())
+                        row.update(
+                            Text(
+                                f"▸ Thinking ({n} line{'s' if n != 1 else ''})",
+                                style="dim",
+                            )
                         )
-                    )
+                elif kind == "tool_call":
+                    row.update(Text(_streaming_tool_stub(text), style="dim"))
                 else:
                     row.update(Text(text.strip()))
-            # A split opening tag may briefly be prose before it is complete.
-            # Reuse existing rows and hide any that the parser no longer emits.
+            # Reuse existing rows; hide any the parser no longer emits.
             for index, row in enumerate(self._segments):
                 row.display = index < len(segments)
 
     def _refresh_thinking_display(self) -> None:
         """Sync widget visibility after show_thinking changes mid-stream."""
-        if self.show_thinking:
-            visible = self._visible().strip()
-            if visible:
-                self._body.update(Text(visible))
-            self._body.display = True
-            for row in self._segments:
-                row.display = False
-        else:
-            self._update_hidden_segments()
+        self._update_hidden_segments()
 
     def append_token(self, token: str) -> None:
         self._buffer += token
-        visible = self._visible().strip()
-
-        if self.show_thinking:
-            if visible:
-                self._body.update(Text(visible))
-            else:
-                self.set_thinking(bool(_THINK_OPEN_RE.search(self._buffer)))
-            return
-
         self._update_hidden_segments()
 
     def set_thinking(self, is_thinking: bool) -> None:
