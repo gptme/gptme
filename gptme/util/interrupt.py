@@ -81,41 +81,78 @@ def clear_pending(thread_id: int) -> None:
     ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread_id), None)
 
 
-def own_group_children() -> set[int]:
-    """This process's direct children in its own process group.
+_tracking: dict[int, list[set[int]]] = {}  # thread id -> stack of pid sets
+_tracking_lock = threading.Lock()
+_popen_hooked = False
 
-    Persistent shells and background jobs run in their own sessions, so this
-    is what tool code spawned directly (e.g. ``subprocess.run`` in ipython).
+
+def _hook_popen() -> None:
+    """Record the pid of each subprocess.Popen started on a tracking thread."""
+    global _popen_hooked
+    import subprocess
+
+    with _tracking_lock:
+        if _popen_hooked:
+            return
+        _popen_hooked = True
+    original = subprocess.Popen.__init__
+
+    def __init__(self, *args, **kwargs) -> None:
+        original(self, *args, **kwargs)
+        with _tracking_lock:
+            for pids in _tracking.get(threading.get_ident(), ()):
+                pids.add(self.pid)
+
+    subprocess.Popen.__init__ = __init__  # type: ignore[method-assign]
+
+
+def start_tracking() -> set[int]:
+    """Start recording processes this thread starts (via subprocess); the
+    returned set fills as they start. Nests; end with stop_tracking()."""
+    _hook_popen()
+    pids: set[int] = set()
+    with _tracking_lock:
+        _tracking.setdefault(threading.get_ident(), []).append(pids)
+    return pids
+
+
+def stop_tracking(pids: set[int]) -> None:
+    with _tracking_lock:
+        stack = _tracking.get(threading.get_ident(), [])
+        if pids in stack:
+            stack.remove(pids)
+        if not stack:
+            _tracking.pop(threading.get_ident(), None)
+
+
+def kill_processes(pids: set[int]) -> None:
+    """Kill tracked processes and their descendants: SIGTERM, then SIGKILL.
+
+    Only those in this process's group: persistent shells and background
+    jobs run in their own sessions and are managed separately. The tree is
+    listed once, so workers re-parented after SIGTERM are still killed.
     """
-    if os.name != "posix":
-        return set()
-    from ..tools.shell import _child_pids
-
-    group = os.getpgrp()
-    children = set()
-    for pid in _child_pids(os.getpid()):
-        try:
-            if os.getpgid(pid) == group:
-                children.add(pid)
-        except ProcessLookupError:
-            pass
-    return children
-
-
-def kill_new_children(before: set[int]) -> None:
-    """Kill children started since ``before`` was taken, and their descendants."""
     import signal
 
-    from ..tools.shell import _kill_descendants
+    from ..tools.shell import _descendant_pids
 
-    for pid in own_group_children() - before:
-        _kill_descendants(pid)
-        for sig in (signal.SIGTERM, signal.SIGKILL):
+    group = os.getpgrp()
+    targets: list[int] = []
+    for pid in pids:
+        try:
+            if os.getpgid(pid) != group:
+                continue
+        except ProcessLookupError:
+            continue
+        targets += [*_descendant_pids(pid), pid]
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in targets:
             try:
                 os.kill(pid, sig)
-            except ProcessLookupError:
-                break
-            time.sleep(0.1)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if sig == signal.SIGTERM and targets:
+            time.sleep(0.2)
 
 
 _real_sleep = time.sleep

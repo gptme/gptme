@@ -261,3 +261,30 @@ def test_clear_pending_drops_unlanded_exception():
     proceed.set()
     done.wait(5)
     assert errors == []
+
+
+def test_tracking_only_records_this_threads_processes():
+    """A cell's timeout must not kill processes another conversation's
+    thread started (the web server runs conversations in one process)."""
+    import subprocess
+
+    from gptme.util.interrupt import kill_processes, start_tracking, stop_tracking
+
+    mine = start_tracking()
+    other: list[subprocess.Popen] = []
+    thread = threading.Thread(
+        target=lambda: other.append(subprocess.Popen(["sleep", "30"]))
+    )
+    try:
+        own = subprocess.Popen(["sleep", "30"])
+        thread.start()
+        thread.join(5)
+        assert mine == {own.pid}
+        kill_processes(set(mine))
+        assert own.wait(5) is not None
+        assert other[0].poll() is None  # the other thread's process lives on
+    finally:
+        stop_tracking(mine)
+        for p in other:
+            p.kill()
+            p.wait()

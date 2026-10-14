@@ -94,9 +94,10 @@ from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
 from ..util.interrupt import (
     clear_pending,
-    kill_new_children,
-    own_group_children,
+    kill_processes,
     raise_in_thread,
+    start_tracking,
+    stop_tracking,
 )
 from ..util.tokens import len_tokens
 from .statusline import LogStats, build_payload, run_statusline
@@ -1824,7 +1825,7 @@ class GptmeApp(App):
         self._generation_thread: int | None = None
         self._step_lock = threading.Lock()
         self._in_step = False
-        self._step_children: set[int] = set()
+        self._step_processes: set[int] = set()  # started during the step
         self._quitting = False
         self._stream_widget: StreamingMessage | None = None
         # Streamed chunks are buffered by the worker and rendered at most
@@ -2758,10 +2759,10 @@ class GptmeApp(App):
                 # Ctrl+C raises KeyboardInterrupt into this thread while in
                 # step() (see action_interrupt): Textual's raw-mode Ctrl+C is a
                 # key, not SIGINT, so a running tool would never see it.
-                self._step_children = own_group_children()
-                with self._step_lock:
-                    self._in_step = True
+                self._step_processes = start_tracking()
                 try:
+                    with self._step_lock:
+                        self._in_step = True
                     for msg in step(
                         manager.log,
                         stream=True,
@@ -2784,15 +2785,14 @@ class GptmeApp(App):
                         self.call_from_thread(self._on_step_message, msg)
                 except KeyboardInterrupt:
                     interrupted = True
+                finally:
+                    self._leave_step()
+                    # tools (e.g. ipython) may have reset the tty out of raw mode
+                    self._restore_terminal()
+                if interrupted:  # recorded outside the window Ctrl+C can reach
                     msg = Message("system", INTERRUPT_CONTENT)
                     manager.append(msg)
                     self.call_from_thread(self._on_step_message, msg)
-                finally:
-                    with self._step_lock:
-                        self._in_step = False
-                        clear_pending(threading.get_ident())
-                    # tools (e.g. ipython) may have reset the tty out of raw mode
-                    self._restore_terminal()
 
                 if interrupted or declined or self._interrupt_event.is_set():
                     break
@@ -3118,6 +3118,22 @@ class GptmeApp(App):
             self._set_state("interrupting…")
             self._interrupt_step()
 
+    def _leave_step(self) -> None:
+        """End the window in which Ctrl+C raises into this (worker) thread.
+
+        A raise can land while we wait for the lock or before the pending one
+        is cleared; retry until the flag is down and nothing is pending.
+        """
+        while True:
+            try:
+                with self._step_lock:
+                    self._in_step = False
+                    clear_pending(threading.get_ident())
+                break
+            except KeyboardInterrupt:
+                continue
+        stop_tracking(self._step_processes)
+
     def _interrupt_step(self) -> None:
         """Stop a running tool: raise KeyboardInterrupt in the worker (the
         shell tool then kills its command, ipython stops the cell) and kill
@@ -3127,7 +3143,7 @@ class GptmeApp(App):
                 return
             raise_in_thread(self._generation_thread, KeyboardInterrupt)
         threading.Thread(
-            target=kill_new_children, args=(self._step_children,), daemon=True
+            target=kill_processes, args=(set(self._step_processes),), daemon=True
         ).start()
 
     def action_interrupt_or_quit(self) -> None:

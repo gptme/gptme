@@ -33,9 +33,10 @@ from ..util.context import md_codeblock
 from ..util.interrupt import (
     clear_pending,
     interruptible_sleep,
-    kill_new_children,
-    own_group_children,
+    kill_processes,
     raise_in_thread,
+    start_tracking,
+    stop_tracking,
 )
 from . import get_tools
 from .base import (
@@ -113,7 +114,7 @@ def _cell_timeout(timeout: float | None) -> Generator[Callable[[], bool], None, 
         yield fired.is_set
         return
     thread_id = threading.get_ident()
-    before = own_group_children()
+    started = start_tracking()  # only this cell's processes, not other threads'
     lock = threading.Lock()
     running = True
 
@@ -123,7 +124,7 @@ def _cell_timeout(timeout: float | None) -> Generator[Callable[[], bool], None, 
                 return
             fired.set()
             raise_in_thread(thread_id, CellTimeout)
-        kill_new_children(before)
+        kill_processes(set(started))
 
     timer = threading.Timer(timeout, fire)
     timer.daemon = True
@@ -137,6 +138,7 @@ def _cell_timeout(timeout: float | None) -> Generator[Callable[[], bool], None, 
             running = False
             timer.cancel()
             clear_pending(thread_id)
+        stop_tracking(started)
 
 
 def _format_cell_output(stdout: str, stderr: str) -> str:
