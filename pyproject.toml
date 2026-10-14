@@ -90,7 +90,7 @@ pick = {version = "^2.6.0", markers = "sys_platform != 'win32'"}
 tiktoken = ">=0.13.0"
 tomlkit = "*"
 typing-extensions = "*"
-platformdirs = "^4.11"
+platformdirs = "^4.12"
 lxml = {version = "*", optional = true}  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
 pypdf = {version = ">=6.19.0", optional = true}  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
