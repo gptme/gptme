@@ -214,6 +214,26 @@ class TestLLMSelector:
         assert results[0].identifier == "item1"
         assert results[1].identifier == "item3"
 
+    @pytest.mark.parametrize(
+        ("config_kwargs", "expected_max_tokens"),
+        [({}, 256), ({"max_tokens": 64}, 64), ({"max_tokens": None}, None)],
+        ids=["default", "custom", "uncapped"],
+    )
+    def test_forwards_max_tokens(
+        self, sample_items, mock_llm_response, config_kwargs, expected_max_tokens
+    ):
+        """The selection call respects the default cap and explicit overrides."""
+        config = ContextSelectorConfig(strategy="llm", **config_kwargs)
+        selector = LLMSelector(config)
+
+        with patch("gptme.llm.reply") as mock_reply:
+            mock_reply.return_value = mock_llm_response(["item1"])
+            results = selector.select(query="git workflow", candidates=sample_items)
+
+        mock_reply.assert_called_once()
+        assert mock_reply.call_args.kwargs["max_tokens"] == expected_max_tokens
+        assert results == [sample_items[0]]
+
     def test_empty_response(self, sample_items, mock_llm_response):
         """Test handling of empty LLM response."""
         config = ContextSelectorConfig(strategy="llm")
