@@ -397,7 +397,12 @@ class TestHybridSelector:
         assert len(results) == 5
         assert all(r.identifier.startswith("item") for r in results)
 
-    def test_malformed_llm_reply_falls_back_to_pre_filter(self):
+    @pytest.mark.parametrize(
+        "response",
+        ["no selected block here", "<selected>\nitem1\n"],
+        ids=["malformed", "truncated"],
+    )
+    def test_malformed_llm_reply_falls_back_to_pre_filter(self, response):
         """A malformed LLM reply degrades to the rule-based pre-filter, not an error."""
         many_items = [
             SimpleItem(
@@ -413,7 +418,7 @@ class TestHybridSelector:
         selector = HybridSelector(config)
 
         with patch(
-            "gptme.llm.reply", return_value=Mock(content="no selected block here")
+            "gptme.llm.reply", return_value=Mock(content=response)
         ) as mock_reply:
             results = selector.select(
                 query="git workflow best practices",
