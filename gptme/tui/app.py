@@ -825,6 +825,16 @@ class StreamingMessage(Vertical):
         if not self.is_mounted:
             return
         segments = _streaming_all_segments(self._buffer)
+        if self.show_thinking:
+            # Body mode: render full stream (thinking included) as plain text.
+            content = self._buffer.strip()
+            self._body.update(Text(content or "Generating…"))
+            self._body.display = True
+            with self.app.batch_update():
+                for row in self._segments:
+                    row.display = False
+            return
+        # Segment mode: collapse thinking into stubs, hide body.
         self._body.display = not segments
         with self.app.batch_update():
             for index, (kind, text) in enumerate(segments):
@@ -844,16 +854,13 @@ class StreamingMessage(Vertical):
                 row.set_class(kind == "tool_call", "tool-stub")
                 row.set_class(kind == "prose", "stream-prose")
                 if kind == "thinking":
-                    if self.show_thinking:
-                        row.update(Text(text.strip()))
-                    else:
-                        n = len(text.splitlines())
-                        row.update(
-                            Text(
-                                f"▸ Thinking ({n} line{'s' if n != 1 else ''})",
-                                style="dim",
-                            )
+                    n = len(text.splitlines())
+                    row.update(
+                        Text(
+                            f"▸ Thinking ({n} line{'s' if n != 1 else ''})",
+                            style="dim",
                         )
+                    )
                 elif kind == "tool_call":
                     row.update(Text(_streaming_tool_stub(text), style="dim"))
                 else:
