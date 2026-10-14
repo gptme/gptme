@@ -2530,3 +2530,38 @@ def test_restart_not_attempted_when_workspace_is_gone(tmp_path, monkeypatch, cap
     tui_main._finish_session(app, "conv")  # type: ignore[arg-type]
     assert calls == []
     assert "Not restarting" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("key", "expected"), [("y", ["https://example.com"]), ("n", [])]
+)
+async def test_url_prompt_asks_before_fetching(tmp_path, monkeypatch, key, expected):
+    """Typing a URL opens the confirm dialog from the real input handler.
+
+    Regression: _submit used push_screen_wait, which raises NoActiveWorker
+    outside a worker, so any prompt containing a URL crashed the TUI.
+    """
+    from gptme.tui.app import UrlConfirmScreen
+
+    seen: list[list[str] | None] = []
+
+    def fake_include_paths(msg, workspace, pre_confirmed_urls=None):
+        seen.append(pre_confirmed_urls)
+        return msg
+
+    monkeypatch.setattr("gptme.tui.app.include_paths", fake_include_paths)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#input", ChatInput).text = "look at https://example.com"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, UrlConfirmScreen)
+        assert seen == []  # nothing sent before the user answers
+        await pilot.press(key)
+        await pilot.pause()
+        assert not isinstance(app.screen, UrlConfirmScreen)
+    assert seen == [expected]
+    assert app.manager.log[-1].content == "look at https://example.com"

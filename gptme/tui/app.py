@@ -2279,10 +2279,17 @@ class GptmeApp(App):
             msg = Message("user", text, quiet=True)
         # Confirm before fetching any URLs, matching CLI behavior (TUI can't
         # use prompt_toolkit's sync dialog inside the running event loop).
-        pre_confirmed_urls: list[str] | None = None
+        # A callback, not push_screen_wait: callers aren't workers (#3351).
         urls = extract_urls(text)
         if urls:
-            pre_confirmed_urls = await self.push_screen_wait(UrlConfirmScreen(urls))
+            self.push_screen(
+                UrlConfirmScreen(urls),
+                callback=lambda confirmed: self._send(msg, confirmed),
+            )
+        else:
+            self._send(msg, None)
+
+    def _send(self, msg: Message, pre_confirmed_urls: list[str] | None) -> None:
         msg = include_paths(msg, self.workspace, pre_confirmed_urls=pre_confirmed_urls)
         self.manager.append(msg)
         self._show_message(msg)
