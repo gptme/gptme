@@ -3072,3 +3072,64 @@ async def test_tool_results_mount_above_persistent_status_line(tmp_path):
         assert app._tool_placeholder is placeholder
         chat = app.query_one("#chat")
         assert chat.children[-1] is placeholder
+
+
+@pytest.mark.asyncio
+async def test_statusline_command_renders_payload(tmp_path):
+    """[tui] statusline: the command gets the JSON payload on stdin and its
+    (ANSI) output replaces the built-in status."""
+    import shlex
+
+    script = tmp_path / "statusline.py"
+    script.write_text(
+        "import json, sys\n"
+        "d = json.load(sys.stdin)\n"
+        "g = d['gptme']\n"
+        "print(f\"\\033[35m{d['session_name']}\\033[0m turns={g['turns']} "
+        "state={g['state']} cwd={d['workspace']['current_dir']}\")\n"
+        "print('second line')\n"
+    )
+    app = GptmeApp(
+        make_manager(tmp_path, [Message("user", "hi"), Message("assistant", "yo")]),
+        workspace=tmp_path,
+    )
+    app._statusline_cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        status = app.query_one("#status", Static)
+        text = str(status.render())
+        assert "test-conversation turns=1 state=idle" in text, text
+        assert f"cwd={tmp_path}" in text
+        assert "second line" in text
+        assert "\x1b" not in text  # ANSI parsed into styles, not shown raw
+
+
+@pytest.mark.asyncio
+async def test_failing_statusline_falls_back_to_builtin(tmp_path):
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    app._statusline_cmd = "exit 3"
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert "idle" in str(app.query_one("#status", Static).render())
+
+
+def test_statusline_log_stats():
+    from gptme.tui.statusline import LogStats
+
+    log = [
+        Message("user", "hi"),
+        Message("assistant", "```shell\nls\n```"),
+        Message("system", "ok"),
+        Message("user", "/compact"),
+        Message("assistant", "```shell\npwd\n```\n```save x.txt\nx\n```"),
+    ]
+    stats = LogStats()
+    stats.update(log)
+    assert (stats.turns, stats.steps) == (1, 2)
+    assert stats.tools == {"shell": 2, "save": 1}
+    stats.update(log[:2])  # rewritten (e.g. undo): recount
+    assert (stats.turns, stats.steps) == (1, 1)

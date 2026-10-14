@@ -257,6 +257,16 @@ class SettingsConfig:
 
 
 @dataclass
+class TuiConfig:
+    """Settings for the Textual TUI (``gptme-tui``)."""
+
+    # Shell command rendering the status bar: gets a JSON payload on stdin
+    # (Claude Code statusline-compatible fields plus a "gptme" block) and
+    # prints one or more lines, ANSI colors allowed. Unset: built-in status.
+    statusline: str | None = None
+
+
+@dataclass
 class UserConfig:
     """User-level configuration, such as user-specific prompts and environment variables."""
 
@@ -283,6 +293,9 @@ class UserConfig:
 
     # Lifecycle hooks that apply across projects.
     hooks: HooksConfig = field(default_factory=HooksConfig)
+
+    # TUI settings, under a [tui] section.
+    tui: TuiConfig = field(default_factory=TuiConfig)
 
     # Plugin-specific configuration namespace (user-level)
     # Allows plugins to have their own config sections like [plugin.retrieval]

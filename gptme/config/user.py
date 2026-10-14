@@ -36,6 +36,7 @@ from .models import (
     ProviderConfig,
     ScriptHookConfig,
     SettingsConfig,
+    TuiConfig,
     UserConfig,
     UserIdentityConfig,
     UserPromptConfig,
@@ -648,6 +649,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     settings = SettingsConfig(
         **{k: v for k, v in settings_data.items() if k in settings_known}
     )
+    tui = _parse_tui_config(config.pop("tui", {}))
     hooks_data = config.pop("hooks", {})
     if not isinstance(hooks_data, dict):
         raise ValueError("hooks must be an object")
@@ -778,8 +780,24 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         plugins=plugins,
         settings=settings,
         hooks=hooks,
+        tui=tui,
         plugin=plugin_config,
     )
+
+
+def _parse_tui_config(data: object) -> TuiConfig:
+    """Parse [tui]; invalid values warn and fall back to defaults."""
+    if not isinstance(data, dict):
+        logger.warning(f"[tui] should be a table, got {type(data).__name__}")
+        return TuiConfig()
+    known = {f.name for f in fields(TuiConfig)}
+    if unknown := set(data) - known:
+        logger.warning(f"Unknown keys in [tui] config: {sorted(unknown)} (ignored)")
+    statusline = data.get("statusline")
+    if statusline is not None and not (isinstance(statusline, str) and statusline):
+        logger.warning("[tui].statusline should be a command string (ignored)")
+        statusline = None
+    return TuiConfig(statusline=statusline)
 
 
 def _strip_none(d: dict) -> dict:
