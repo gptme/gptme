@@ -3515,3 +3515,34 @@ def test_streaming_native_tool_call_is_collapsed():
     assert _streaming_all_segments("use @mention in prose") == [
         ("prose", "use @mention in prose")
     ]
+
+
+@pytest.mark.asyncio
+async def test_markdown_headers_are_compact_bold_and_left_aligned(tmp_path):
+    """Headers in messages: bold, left aligned, no underline, one blank line
+    above (none at the top of a message) and none below."""
+    from textual.widget import Widget
+    from textual.widgets._markdown import MarkdownHeader
+
+    content = "# Title\n\nFirst paragraph.\n\n## Section\n\nSecond paragraph."
+    manager = make_manager(tmp_path, [Message("assistant", content)])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(80, 30)) as pilot:
+        await pilot.pause()
+        msg = app.query_one(AssistantMessage)
+        h1, h2 = msg.query(MarkdownHeader)
+        for header in (h1, h2):
+            style = header.styles.text_style
+            assert style.bold and not style.underline
+            assert header.styles.content_align_horizontal == "left"
+            assert header.styles.margin.bottom == 0
+        assert h1.styles.margin.top == 0
+        assert h2.styles.margin.top == 1
+        markdown = h1.parent
+        assert isinstance(markdown, Widget)
+        # the title is the message body's first line, its paragraph right below
+        first_paragraph = markdown.children[1]
+        assert h1.region.y == markdown.content_region.y
+        assert first_paragraph.region.y == h1.region.bottom
+        # one blank line between a paragraph and the next header
+        assert h2.region.y == first_paragraph.region.bottom + 1
