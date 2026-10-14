@@ -8,6 +8,12 @@ from gptme.llm.llm_openai import openrouter_model_to_modelmeta
 from gptme.telemetry import _calculate_llm_cost
 
 
+@pytest.fixture(autouse=True)
+def no_live_catalog(monkeypatch):
+    # These tests exercise explicit model/base rates, not today's catalog prices.
+    monkeypatch.setattr("gptme.llm.get_available_models", lambda provider: [])
+
+
 def catalog_model(cache_price="0.00000003"):
     pricing = {"prompt": "0.00000015", "completion": "0.00000075"}
     if cache_price is not None:

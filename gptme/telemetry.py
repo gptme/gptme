@@ -52,6 +52,11 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# Successful catalogs are cached by the provider. Failed requests are not;
+# avoid retrying them for every cost calculation after an endpoint timeout.
+_openrouter_pricing_retry_after = 0.0
+_OPENROUTER_PRICING_RETRY_SECONDS = 60.0
+
 # Type variable for generic function decoration
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -386,8 +391,33 @@ def _calculate_llm_cost(
     if meta.pricing_type == "subscription":
         return 0.0
 
-    price_in = (meta.price_input or 0.0) / 1e6
-    price_out = (meta.price_output or 0.0) / 1e6
+    global _openrouter_pricing_retry_after
+    if (
+        meta.provider == "openrouter"
+        and time.monotonic() >= _openrouter_pricing_retry_after
+    ):
+        # Static metadata deliberately wins in get_model() for capabilities and
+        # startup performance. Cost accounting needs the cached catalog prices,
+        # including tiers, even when that lookup returned a static model.
+        from .llm import get_available_models
+
+        catalog_id = meta.model.split("@", 1)[0]
+        try:
+            catalog = get_available_models("openrouter")
+            meta = next((m for m in catalog if m.model == catalog_id), meta)
+        except Exception as exc:
+            _openrouter_pricing_retry_after = (
+                time.monotonic() + _OPENROUTER_PRICING_RETRY_SECONDS
+            )
+            logger.debug("OpenRouter pricing unavailable for %s: %s", catalog_id, exc)
+
+    # Long-context tiers key off the whole prompt, cached tokens included.
+    prompt_tokens = (
+        (input_tokens or 0) + (cache_creation_tokens or 0) + (cache_read_tokens or 0)
+    )
+    tier_input, tier_output, tier_cache_read = meta.effective_prices(prompt_tokens)
+    price_in = (tier_input or 0.0) / 1e6
+    price_out = (tier_output or 0.0) / 1e6
     cost = (input_tokens or 0) * price_in + (output_tokens or 0) * price_out
 
     # Keep the existing provider defaults when no explicit model rate is known.
@@ -402,8 +432,8 @@ def _calculate_llm_cost(
         price_cache_read = 0.5 * price_in
 
     # Zero is a known free cache read, not an absent catalog/model rate.
-    if meta.price_cache_read is not None:
-        price_cache_read = meta.price_cache_read / 1e6
+    if tier_cache_read is not None:
+        price_cache_read = tier_cache_read / 1e6
     caching_cost += price_cache_read * (cache_read_tokens or 0)
 
     return cost + caching_cost

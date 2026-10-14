@@ -36,6 +36,7 @@ from .models import (
     OPENAI_COMPAT_PROVIDERS,
     CustomProvider,
     ModelMeta,
+    PriceTier,
     Provider,
     infer_supports_mid_system,
     is_custom_provider,
@@ -2926,6 +2927,29 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
     price_output = float(pricing.get("completion", 0)) * 1_000_000
     cache_read = pricing.get("input_cache_read")
     price_cache_read = float(cache_read) * 1_000_000 if cache_read is not None else None
+    # Long-context tiers: OpenRouter bills prompts at or above
+    # ``min_prompt_tokens`` at the override rates instead of the base rates.
+    price_tiers = tuple(
+        sorted(
+            (
+                PriceTier(
+                    min_prompt_tokens=int(tier["min_prompt_tokens"]),
+                    price_input=float(tier.get("prompt", price_input / 1_000_000))
+                    * 1_000_000,
+                    price_output=float(tier.get("completion", price_output / 1_000_000))
+                    * 1_000_000,
+                    price_cache_read=(
+                        float(tier["input_cache_read"]) * 1_000_000
+                        if tier.get("input_cache_read") is not None
+                        else None
+                    ),
+                )
+                for tier in pricing.get("overrides") or []
+                if tier.get("min_prompt_tokens") is not None
+            ),
+            key=lambda tier: tier.min_prompt_tokens,
+        )
+    )
     # Check for vision support: look for "image" in input modalities
     # OpenRouter uses modalities like "text+image->text" (not "vision")
     architecture = model_data.get("architecture", {})
@@ -2957,6 +2981,7 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         price_input=price_input,
         price_output=price_output,
         price_cache_read=price_cache_read,
+        price_tiers=price_tiers,
         default_tool_format="tool",  # openai-compat route dialect
     )
 
