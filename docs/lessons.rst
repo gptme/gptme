@@ -386,3 +386,55 @@ See Also
 - :doc:`config` - Configuration options
 - :doc:`custom_tool` - Creating custom tools with lessons
 - :doc:`agents` - Using lessons with AI agents
+
+Experimental shared advisory selector
+-------------------------------------
+
+The production lesson hook can optionally narrow keyword or hybrid matches through
+an external JSON selector command. It is disabled by default. This adapter adds no
+mandatory dependency on gptme-contrib and never calls a model itself. The shared
+``gptme-lessons-extras`` service owns provider selection, cached decisions and
+per-session call limits.
+
+Enable it only after installing a compatible service and explicitly identifying
+your hard guard lessons. Set these in the process environment (replace the model
+with an authorized provider/model):
+
+.. code-block:: shell
+
+   export GPTME_LESSONS_SELECTOR_COMMAND='["python3", "-m", "gptme_lessons_extras.selector", "--context-json", "-", "--state-dir", "/path/to/private/selector-state"]'
+   export GPTME_LESSONS_SELECTOR_MODEL='provider/authorized-model'
+   export GPTME_LESSONS_SELECTOR_MAX_CALLS=2
+   export GPTME_LESSONS_SELECTOR_TIMEOUT=2
+   export GPTME_LESSONS_SELECTOR_GUARDS='git-safety,lessons/security/private-data.md'
+
+The command is a JSON argv array, executed without a shell. The executable and its
+arguments must be trusted configuration. Selector settings are read only from
+a snapshot of the process environment captured when gptme is first imported,
+before workspace ``.env`` loading. Later process-environment changes and repository
+or conversation ``[env]`` cannot authorize service execution or provider spending.
+A nonempty explicit guard list, model and positive call limit are required;
+otherwise matching stays deterministic.
+Guard identifiers use the same path/name matching as ``GPTME_LESSONS_HOLDOUT``.
+Matched ``always_apply`` rules and rules with ``priority: critical`` are also
+protected. The advisory selector never suppresses these guards. Existing holdouts,
+session limits, deduplication and materialization remain in effect.
+
+The adapter sends at most the eligible advisory catalog, with a selection cap of
+three lessons. It keeps the latest user prompt as the selection query; assistant
+and tool output do not start another provider request. Intermediate tool events
+reuse the shared service's cached decision, or fall back when the cache is absent
+or the eligible catalog has changed. Explicit empty selections suppress advisory
+matches; malformed, unavailable, over-budget or timed-out results preserve the
+complete deterministic baseline. Memory delivery is unchanged.
+
+``GPTME_LESSONS_SELECTOR_MAX_CALLS`` defaults to zero and accepts 0–10 calls per
+session. ``GPTME_LESSONS_SELECTOR_TIMEOUT`` defaults to two seconds and must be
+finite, positive and at most 30 seconds. The transport allows one additional
+second for command startup and serialization. It kills the entire owned process
+group on timeout or output exceeding one MiB. Responses are read incrementally
+from a bounded pipe, never accumulated in a temporary output file. This
+experimental adapter currently requires POSIX; other platforms retain
+deterministic matching. Debug logs report selection or fallback
+reasons. This opt-in transport does not establish selection quality or authorize
+a paid rollout.
