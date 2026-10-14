@@ -1,5 +1,6 @@
 // Server entry: renders each route to static HTML at build time
 // (scripts/prerender.mjs) and on request in dev (vite.config.ts).
+import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Head, Layout, type PageMeta } from "./components/Layout";
 import { renderReadme } from "./lib/readme";
@@ -18,7 +19,7 @@ export async function render(path: string): Promise<{ head: string; html: string
   const stats = await getStats();
 
   let meta: PageMeta;
-  let page: JSX.Element;
+  let page: ReactElement;
   if (path === "/stats/") {
     meta = {
       title: "Stats · gptme",
