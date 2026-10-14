@@ -22,6 +22,10 @@ class ContextSelectorConfig:
         256  # Output cap for the selection call; advisory responses are short
     )
 
+    # Strict API request bounds are opt-in and must be configured together.
+    max_input_bytes: int | None = None
+    max_provider_requests: int | None = None
+
     # Lesson-specific configuration
     lesson_use_yaml_metadata: bool = True
     lesson_priority_boost: dict[str, float] = field(

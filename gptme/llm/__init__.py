@@ -404,6 +404,8 @@ def reply(
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
+    max_input_bytes: int | None = None,
+    max_provider_requests: int | None = None,
 ) -> Message:
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
@@ -425,20 +427,34 @@ def reply(
     if context_msgs:
         generation_msgs.extend(context_msgs)
 
+    from .request_limits import request_limits, validate_limits
+
+    validate_limits(
+        generation_msgs,
+        model,
+        max_input_bytes,
+        max_provider_requests,
+        max_tokens,
+        stream=stream,
+        tools=tools,
+        output_schema=output_schema,
+    )
+
     # Tag only the provider call, not GENERATION_PRE hook failures above.
     try:
-        return _reply_after_hooks(
-            generation_msgs,
-            model,
-            stream,
-            tools,
-            output_schema,
-            on_token,
-            on_thinking,
-            max_tokens,
-            temperature,
-            top_p,
-        )
+        with request_limits(model, max_input_bytes, max_provider_requests):
+            return _reply_after_hooks(
+                generation_msgs,
+                model,
+                stream,
+                tools,
+                output_schema,
+                on_token,
+                on_thinking,
+                max_tokens,
+                temperature,
+                top_p,
+            )
     except Exception as e:
         mark_llm_reply_origin(
             e,

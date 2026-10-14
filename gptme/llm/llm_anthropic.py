@@ -22,6 +22,7 @@ from ..tools.base import ToolSpec, truncate_tool_description
 from ..tools.native_names import canonical_tool_name, native_tool_name
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
+from .request_limits import bounded_attempts, bounded_client, reserve_request
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
     DEFAULT_BASE_DELAY,
@@ -627,7 +628,9 @@ def retry_on_overloaded(
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
             generation = current_generation()
-            attempts = max_retries if max_retries is not None else get_max_retries()
+            attempts = bounded_attempts(
+                max_retries if max_retries is not None else get_max_retries()
+            )
             last_error: Exception | None = None
             for attempt in range(attempts):
                 # Do not start or retry a request after a thread-mode subagent's
@@ -973,20 +976,26 @@ def chat(
     else:
         _call_timeout = _chat_timeout()
 
-    response = client.messages.create(  # type: ignore[call-overload]
-        model=api_model,
-        messages=messages_dicts,
-        system=system_messages,
-        max_tokens=max_tokens,
-        tools=tools_dict or NOT_GIVEN,
-        thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
-        **output_config_kwargs,
-        **_compaction_betas_kwargs(messages),
-        **_fast_mode_kwargs(),
-        # Apply the subagent budget when present; ordinary calls still need
-        # an explicit timeout to bypass the SDK's streaming-required check.
-        timeout=_call_timeout,
-    )
+    with bounded_client(client, "anthropic") as send_client:
+        reserve_request(
+            send_client,
+            "anthropic",
+            {"messages": messages_dicts, "system": system_messages},
+        )
+        response = send_client.messages.create(
+            model=api_model,
+            messages=messages_dicts,
+            system=system_messages,
+            max_tokens=max_tokens,
+            tools=tools_dict or NOT_GIVEN,
+            thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
+            **output_config_kwargs,
+            **_compaction_betas_kwargs(messages),
+            **_fast_mode_kwargs(),
+            # Apply the subagent budget when present; ordinary calls still need
+            # an explicit timeout to bypass the SDK's streaming-required check.
+            timeout=_call_timeout,
+        )
     content = response.content
     metadata = _stamp_served_model(
         _stamp_reasoning_effort(
