@@ -1,7 +1,8 @@
 export default {
   // Cap workers to prevent container thrash on shared hosts
   maxWorkers: 4,
-  testEnvironment: 'jsdom',
+  // jsdom plus a window.location reconfigure hook (see jest.environment.cjs).
+  testEnvironment: '<rootDir>/jest.environment.cjs',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
     // Must beat the @/ mapper: Jest cannot parse import.meta in viteEnv.ts.

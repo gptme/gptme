@@ -31,6 +31,7 @@ import { formatUnknownError } from '@/utils/errors';
 import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
+import { navigateTo } from '@/utils/navigation';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
@@ -550,7 +551,7 @@ export const WelcomeView = () => {
                         onClick={() => {
                           const url = new URL(window.location.href);
                           url.searchParams.set('demo', '1');
-                          window.location.href = url.toString();
+                          navigateTo(url.toString());
                         }}
                       >
                         Try the offline demo
