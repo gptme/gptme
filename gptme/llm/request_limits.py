@@ -102,13 +102,7 @@ def bounded_attempts(attempts: int) -> int:
     return min(attempts, limit.requests) if limit is not None else attempts
 
 
-def reserve_request(
-    client: Any, provider: str, inputs: Any, *, relaxed_parameters: bool = False
-) -> None:
-    """Validate the concrete SDK route/input and debit immediately before send."""
-    limit = _limits.get()
-    if limit is None:
-        return
+def _validate_client(client: Any, provider: str, limit: _RequestLimits) -> None:
     if (
         provider != limit.provider
         or str(client.base_url).rstrip("/") != _ENDPOINTS[limit.provider]
@@ -116,6 +110,49 @@ def reserve_request(
         raise ValueError("unsupported endpoint for strict request bounds")
     if type(client.max_retries) is not int or client.max_retries != 0:
         raise ValueError("strict request bounds require SDK retries disabled")
+
+
+@contextmanager
+def bounded_client(client: Any, provider: str) -> Iterator[Any]:
+    """Give strict sends an owned redirect-free transport without shared mutation.
+
+    SDK defaults follow redirects, which can resend a POST outside our allowance.
+    Safe injected clients are reused. Otherwise with_options preserves credentials
+    and SDK settings while the newly allocated transport has an independent lifetime.
+    """
+    limit = _limits.get()
+    if limit is None:
+        yield client
+        return
+    _validate_client(client, provider, limit)
+    if client._client.follow_redirects is False:
+        yield client
+        return
+    transport: Any
+    if provider == "anthropic":
+        from anthropic import DefaultHttpxClient as AnthropicHttpClient
+
+        transport = AnthropicHttpClient(follow_redirects=False, timeout=client.timeout)
+    else:
+        from openai import DefaultHttpxClient as OpenAIHttpClient
+
+        transport = OpenAIHttpClient(follow_redirects=False, timeout=client.timeout)
+    try:
+        yield client.with_options(http_client=transport)
+    finally:
+        transport.close()
+
+
+def reserve_request(
+    client: Any, provider: str, inputs: Any, *, relaxed_parameters: bool = False
+) -> None:
+    """Validate the concrete SDK route/input and debit immediately before send."""
+    limit = _limits.get()
+    if limit is None:
+        return
+    _validate_client(client, provider, limit)
+    if client._client.follow_redirects is not False:
+        raise ValueError("strict request bounds require HTTP redirects disabled")
     if relaxed_parameters:
         raise ValueError("strict request bounds require parameter support")
     serialized = json.dumps(inputs, ensure_ascii=False, allow_nan=False).encode("utf-8")

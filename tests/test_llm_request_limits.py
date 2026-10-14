@@ -61,8 +61,10 @@ def test_invalid_strict_bounds_fail_before_provider(monkeypatch, kwargs):
 @pytest.fixture(params=["anthropic", "openrouter"])
 def provider_client(request, monkeypatch):
     """Exercise real SDK requests with in-process HTTP transports only."""
+    import anthropic
     import httpx
     import httpx2
+    import openai
     from anthropic import Anthropic
     from openai import OpenAI
 
@@ -75,6 +77,12 @@ def provider_client(request, monkeypatch):
 
     def handle(req):
         sent.append(req)
+        if status["code"] in (307, 308):
+            code = status["code"]
+            status["code"] = 200
+            return transport_module.Response(
+                code, headers={"location": "https://unapproved.invalid/replay"}
+            )
         if status["code"] == 200:
             body: dict[str, Any] = (
                 {
@@ -144,8 +152,23 @@ def provider_client(request, monkeypatch):
         monkeypatch.setitem(llm_openai.clients, "openrouter", client)
         monkeypatch.setattr(llm_openai, "backoff_wait", lambda *args: False)
         model = "openrouter/anthropic/claude-haiku-4.5"
+    owned_transports = []
+
+    def offline_scoped_transport(**kwargs):
+        transport = transport_module.Client(
+            transport=transport_module.MockTransport(handle), **kwargs
+        )
+        owned_transports.append(transport)
+        return transport
+
+    monkeypatch.setattr(
+        anthropic if provider == "anthropic" else openai,
+        "DefaultHttpxClient",
+        offline_scoped_transport,
+    )
     monkeypatch.setattr(llm, "init_llm", lambda provider: None)
     yield client, model, sent, status
+    assert all(transport.is_closed for transport in owned_transports)
     client.close()
 
 
@@ -281,3 +304,44 @@ def test_successful_strict_calls_reset_allowance(provider_client):
     assert strict_reply(model).content == "ok"
     assert strict_reply(model).content == "ok"
     assert len(sent) == 2
+
+
+@pytest.mark.parametrize("redirect_status", [307, 308])
+def test_redirects_cannot_resend_strict_requests(provider_client, redirect_status):
+    from anthropic import APIStatusError as AnthropicAPIStatusError
+    from openai import APIStatusError as OpenAIAPIStatusError
+
+    client, model, sent, status = provider_client
+    client._client.follow_redirects = True
+    status["code"] = redirect_status
+    with pytest.raises((AnthropicAPIStatusError, OpenAIAPIStatusError)):
+        strict_reply(model)
+    assert len(sent) == 1
+    assert sent[0].url.host != "unapproved.invalid"
+    assert client._client.follow_redirects is True
+    assert not client.is_closed()
+
+
+def test_strict_call_uses_owned_transport_for_redirect_following_client(
+    provider_client,
+):
+    client, model, sent, status = provider_client
+    client._client.follow_redirects = True
+    status["code"] = 200
+    assert strict_reply(model).content == "ok"
+    assert len(sent) == 1
+    assert client._client.follow_redirects is True
+    assert not client.is_closed()
+
+
+def test_normal_calls_keep_redirect_behavior(provider_client):
+    client, model, sent, status = provider_client
+    client._client.follow_redirects = True
+    status["code"] = 307
+    assert (
+        strict_reply(model, max_input_bytes=None, max_provider_requests=None).content
+        == "ok"
+    )
+    assert len(sent) == 2
+    assert sent[1].url.host == "unapproved.invalid"
+    assert not client.is_closed()

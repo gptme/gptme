@@ -56,7 +56,7 @@ from .openai_responses import (
     _tool_spec_to_responses_tool,
     served_model_from,
 )
-from .request_limits import bounded_attempts, reserve_request
+from .request_limits import bounded_attempts, bounded_client, reserve_request
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
     DEFAULT_BASE_DELAY,
@@ -1239,8 +1239,9 @@ def chat(
             if top_p_value is not None:
                 response_kwargs["top_p"] = top_p_value
 
-        reserve_request(client, str(provider), response_kwargs)
-        response = client.responses.create(**response_kwargs)
+        with bounded_client(client, str(provider)) as send_client:
+            reserve_request(send_client, str(provider), response_kwargs)
+            response = send_client.responses.create(**response_kwargs)
         metadata = _record_usage(
             response.usage,
             model,
@@ -1294,24 +1295,25 @@ def chat(
         optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
 
     def _chat_create(relaxed_privacy: bool = False) -> Any:
-        reserve_request(
-            client,
-            str(provider),
-            {"messages": messages_dicts},
-            relaxed_parameters=relaxed_privacy,
-        )
-        return client.chat.completions.with_raw_response.create(
-            model=api_model.split("@")[0],
-            messages=cast(list, messages_dicts),
-            extra_headers=extra_headers(provider),
-            extra_body=extra_body(
-                provider,
-                model_meta,
-                max_tokens=max_tokens,
-                relaxed_privacy=relaxed_privacy,
-            ),
-            **optional_kwargs,
-        )
+        with bounded_client(client, str(provider)) as send_client:
+            reserve_request(
+                send_client,
+                str(provider),
+                {"messages": messages_dicts},
+                relaxed_parameters=relaxed_privacy,
+            )
+            return send_client.chat.completions.with_raw_response.create(
+                model=api_model.split("@")[0],
+                messages=cast(list, messages_dicts),
+                extra_headers=extra_headers(provider),
+                extra_body=extra_body(
+                    provider,
+                    model_meta,
+                    max_tokens=max_tokens,
+                    relaxed_privacy=relaxed_privacy,
+                ),
+                **optional_kwargs,
+            )
 
     try:
         raw_response = _chat_create()
