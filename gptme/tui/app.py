@@ -16,6 +16,7 @@ import os.path
 import re
 import signal
 import sys
+from dataclasses import dataclass
 
 try:
     import termios
@@ -1317,6 +1318,16 @@ class UrlConfirmScreen(ModalScreen):
         self.dismiss([])
 
 
+@dataclass
+class _CommandResult:
+    """Outcome of a registry command, handed back to the UI thread."""
+
+    handled: bool = False
+    output: str = ""
+    error: str | None = None
+    exit: bool = False
+
+
 class GptmeApp(App):
     """gptme TUI: streaming chat with live input, queueing and collapsible output."""
 
@@ -2107,6 +2118,31 @@ class GptmeApp(App):
         msg = Message("user", text, quiet=True)
         before = self.manager.log.messages
         self.manager.append(msg)
+        # Off the event loop: commands like /compact call the LLM and would
+        # freeze the UI. Input queues meanwhile, as during generation.
+        self.generating = True
+        self._set_state(f"running /{cmd}…")
+        self.run_worker(
+            functools.partial(self._command_worker, msg, cmd, before),
+            thread=True,
+            group="command",
+        )
+
+    def _command_worker(self, msg: Message, cmd: str, before: list[Message]) -> None:
+        result = self._execute_command(msg, cmd)
+        self.call_from_thread(self._background_command_done, cmd, before, result)
+
+    def _background_command_done(
+        self, cmd: str, before: list[Message], result: _CommandResult
+    ) -> None:
+        self.generating = False
+        self._set_state("idle")
+        self._finish_command(cmd, before, result)
+        if not self.generating and self.prompt_queue:
+            self.call_later(self._submit_user_input, self._pop_queued_prompt())
+
+    def _execute_command(self, msg: Message, cmd: str) -> _CommandResult:
+        """Run a registry command, capturing output. Thread-safe: no UI calls."""
         # capture command output (print/rich console both write to sys.stdout);
         # give commands an empty stdin so ones that prompt interactively fail
         # fast (EOFError) instead of hanging the UI on a raw-mode tty
@@ -2125,39 +2161,44 @@ class GptmeApp(App):
 
                 handled = self._chat_ctx.run(execute_owned_command)
         except SystemExit:  # /exit
-            self._request_exit()
-            return
+            return _CommandResult(exit=True)
         except (EOFError, RuntimeError) as e:
-            # prompt_toolkit prompts call asyncio.run(), which fails inside
-            # Textual's running loop; other RuntimeErrors are real failures
+            # interactive prompts hit the empty stdin (EOFError), or fail on
+            # an event loop; other RuntimeErrors are real failures
             if isinstance(e, RuntimeError) and "event loop" not in str(e):
                 logger.exception("Command failed")
-                self._show_info(f"Command failed: {e}", error=True)
-                return
-            self._show_info(
-                f"/{cmd} needs interactive input, which the TUI doesn't "
+                return _CommandResult(error=f"Command failed: {e}")
+            return _CommandResult(
+                error=f"/{cmd} needs interactive input, which the TUI doesn't "
                 f"support; pass arguments directly (e.g. /{cmd} <args>) or "
-                "use the CLI.",
-                error=True,
+                "use the CLI."
             )
-            return
         except Exception as e:
             logger.exception("Command failed")
-            self._show_info(f"Command failed: {e}", error=True)
-            return
+            return _CommandResult(error=f"Command failed: {e}")
         finally:
             sys.stdin = real_stdin
+        return _CommandResult(handled=handled, output=buf.getvalue().strip())
 
+    def _finish_command(
+        self, cmd: str, before: list[Message], result: _CommandResult
+    ) -> None:
+        if result.exit:
+            self._request_exit()
+            return
+        if result.error:
+            self._show_info(result.error, error=True)
+            return
         self._model = self._chat_ctx.run(get_default_model)
         # Sync tool format — /model may have called set_tool_format()
         self.tool_format = self._chat_ctx.run(get_tool_format)
         if self.manager.log.messages != before:
             # command changed the log (undo, appended messages, …): re-render
             self._rebuild_chat()
-        if output := buf.getvalue().strip():
-            self._show_info(output)
-        if not handled:
-            logger.warning("Command %r not handled by registry", text)
+        if result.output:
+            self._show_info(result.output)
+        if not result.handled:
+            logger.warning("Command %r not handled by registry", cmd)
             self._show_info(f"Unknown command: /{cmd}")
         else:
             # Commands like /skill:<name> queue a follow-up user prompt.

@@ -2589,3 +2589,43 @@ async def test_click_on_just_removed_widget_does_not_crash(tmp_path, monkeypatch
         app.post_message(events.MouseDown(None, 5, 5, 0, 0, 1, False, False, False))
         await pilot.pause()
         assert app.is_running
+
+
+@pytest.mark.asyncio
+async def test_slow_command_does_not_block_ui(tmp_path, monkeypatch):
+    """Commands run in a worker: a slow one (e.g. /compact calling the LLM)
+    must not freeze the UI; input typed meanwhile queues and is sent after."""
+    import threading
+
+    release = threading.Event()
+
+    def slow_cmd(msg, manager):
+        assert release.wait(5)
+        print("compacted")
+        return True
+
+    monkeypatch.setattr("gptme.tui.app.execute_cmd", slow_cmd)
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/compact resume"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.state == "running /compact…"
+        # the event loop is free: typing works and the prompt queues
+        inp.text = "next prompt"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.prompt_queue == ["next prompt"]
+        release.set()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.state == "idle"
+        infos = [str(i.render()) for i in app.query(InfoMessage)]
+        assert any("compacted" in i for i in infos), infos
+        assert app.prompt_queue == []
+        assert started == [True]
+        assert app.manager.log[-1].content == "next prompt"
