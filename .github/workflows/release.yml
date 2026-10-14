@@ -99,6 +99,9 @@ jobs:
           fi
 
           # Verify CI is green on HEAD
+          # The default Actions shell is bash -e, without pipefail. API failures
+          # must propagate through jq even after a successful first page.
+          set -o pipefail
           HEAD_SHA=$(git rev-parse HEAD)
           echo "Checking CI status for $HEAD_SHA..."
 

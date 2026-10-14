@@ -73,7 +73,7 @@ def test_release_ci_gate(
         "GITHUB_OUTPUT": str(output),
     }
     result = subprocess.run(
-        ["bash", "-eo", "pipefail", "-c", snippet],
+        ["bash", "-e", "-c", snippet],
         cwd=WORKFLOW.parents[2],
         env=env,
         capture_output=True,
