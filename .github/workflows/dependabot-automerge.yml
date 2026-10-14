@@ -1,7 +1,10 @@
 name: Dependabot auto-merge
 
 # Squash-merges Dependabot minor/patch PRs once every other check on the PR has
-# passed. Majors (any group containing one) are left for a human.
+# passed. Majors (any group containing one) are left for a human, and so are
+# GitHub Actions bumps: merging changes under .github/workflows/ would need the
+# App to hold `Workflows: write`, which is more power than this job deserves
+# for one monthly PR.
 #
 # Why it waits itself instead of using GitHub's native auto-merge: the Master
 # ruleset has no required status checks (most workflows are path-filtered, so
@@ -21,6 +24,8 @@ name: Dependabot auto-merge
 #        gh secret set AUTOMERGE_APP_ID --app dependabot -R gptme/gptme
 #        gh secret set AUTOMERGE_APP_PRIVATE_KEY --app dependabot -R gptme/gptme < key.pem
 # Until both secrets exist the job logs a notice and does nothing.
+#
+# Actions in this job are pinned to commit SHAs: it handles the App key.
 
 on:
   pull_request:
@@ -40,7 +45,10 @@ permissions:
 jobs:
   automerge:
     name: Auto-merge (minor/patch)
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.actor == 'dependabot[bot]' &&
+      !startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/')
     runs-on: ubuntu-latest
     # The slowest PR checks (Tauri macOS/Windows builds) take up to ~60 min.
     timeout-minutes: 120
@@ -58,7 +66,7 @@ jobs:
           echo "ok=false" >> "$GITHUB_OUTPUT"
         fi
 
-    - uses: dependabot/fetch-metadata@v3
+    - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       id: meta
       if: steps.creds.outputs.ok == 'true'
 
@@ -94,7 +102,7 @@ jobs:
           sleep 60
         done
 
-    - uses: actions/create-github-app-token@v3
+    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
       id: app-token
       if: steps.wait.outputs.green == 'true'
       with:
