@@ -135,7 +135,14 @@ def test_tui_terminal_evidence(tmp_path: Path, monkeypatch, mode, expected):
     )
     app = GptmeApp(manager, workspace=tmp_path)
     app._active_skill_invocation_id = invocation_id
-    monkeypatch.setattr(app, "call_from_thread", lambda *a, **kw: None)
+
+    # Preserve the steering callback's return value without mounting a UI.
+    def call_from_thread(callback, *args, **kwargs):
+        if callback == app._take_steer_prompts:
+            return callback(*args, **kwargs)
+        return None
+
+    monkeypatch.setattr(app, "call_from_thread", call_from_thread)
     monkeypatch.setattr(app, "_restore_terminal", lambda: None)
     monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
     monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
