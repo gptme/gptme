@@ -2109,6 +2109,32 @@ class GptmeApp(App):
             self.query_one("#chat", VerticalScroll).mount(widget)
         self._update_status()
 
+    def _take_steer_prompts(self) -> list[Message]:
+        """Queued prompts that can join the running turn at its next step.
+
+        Taken in order, stopping at the first that must wait for the turn to
+        end: a slash-command, a prompt with URLs (fetch confirmation), or a
+        queued skill invocation (it starts its own turn).
+        """
+        taken: list[Message] = []
+        while self.prompt_queue and not self._interrupt_event.is_set():
+            prompt = self.prompt_queue[0]
+            if not isinstance(prompt, str):
+                break
+            if is_message_command(prompt) or extract_urls(prompt):
+                break
+            self._pop_queued_prompt()
+            msg = include_paths(
+                Message("user", prompt, quiet=True),
+                self.workspace,
+                pre_confirmed_urls=[],
+            )
+            self._show_message(msg)
+            taken.append(msg)
+        if taken:
+            self._update_status()
+        return taken
+
     def _pop_queued_prompt(self) -> str | Message:
         prompt = self.prompt_queue.pop(0)
         if self._queued_widgets:
@@ -3047,6 +3073,10 @@ class GptmeApp(App):
                     if response.content.strip():
                         outcome = "completed"
                     break
+                # Steering: prompts queued meanwhile join the turn now, so the
+                # next step sees them instead of waiting for the turn to end.
+                for msg in self.call_from_thread(self._take_steer_prompts):
+                    manager.append(msg)
         except SessionCompleteException:
             # complete tool is filtered out in interactive TUI mode, but a
             # resumed autonomous conversation may still have it loaded

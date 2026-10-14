@@ -252,6 +252,50 @@ async def test_e2e_running_tool_is_shown(mock_app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_e2e_queued_prompt_steers_running_turn(mock_app, monkeypatch):
+    """A prompt queued while a tool runs joins the turn at the next step,
+    instead of waiting for the whole turn to finish."""
+    monkeypatch.setenv("GPTME_MAX_STEPS", "3")
+    app = mock_app
+    generations: list[bool] = []
+    real_start = app._start_generation
+
+    def counting_start() -> None:
+        generations.append(True)
+        real_start()
+
+    monkeypatch.setattr(app, "_start_generation", counting_start)
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "run this:\n```shell\nsleep 1.5\n```"
+        await pilot.press("enter")
+        await wait_for(
+            pilot,
+            lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+            what="confirmation dialog",
+        )
+        await pilot.press("y")
+        await pilot.pause()
+        inp.text = "steer this way"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.prompt_queue == ["steer this way"]
+        await wait_for(
+            pilot,
+            lambda: not app.generating and app.state == "idle",
+            what="generation to finish",
+        )
+        roles = [(m.role, m.content) for m in app.manager.log if not m.hide]
+        users = [i for i, (r, c) in enumerate(roles) if r == "user"]
+        assert roles[users[-1]] == ("user", "steer this way")
+        # the same turn's next step answered it (mock/echo echoes it back)
+        assert roles[-1][0] == "assistant" and "steer this way" in roles[-1][1]
+        assert app.prompt_queue == []
+        assert len(generations) == 1  # one turn, not a second one after it
+
+
+@pytest.mark.asyncio
 async def test_e2e_tool_skip(mock_app, tmp_path):
     """Declining the confirm dialog skips execution and returns to idle."""
     app = mock_app
