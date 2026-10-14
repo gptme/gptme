@@ -60,10 +60,19 @@ class HybridSelector(ContextSelector):
         logger.debug(
             f"HybridSelector: LLM refining {len(pre_filtered)} -> {max_results}"
         )
-        refined = self.llm_selector.select(
-            query=query,
-            candidates=pre_filtered,
-            max_results=max_results,
-        )
+        try:
+            refined = self.llm_selector.select(
+                query=query,
+                candidates=pre_filtered,
+                max_results=max_results,
+            )
+        except ValueError as e:
+            # A malformed LLM reply must not turn a recoverable degraded
+            # selection into a hard failure; fall back to the rule-based ranking.
+            logger.warning(
+                f"HybridSelector: LLM refinement failed ({e}); "
+                f"falling back to rule-based pre-filter"
+            )
+            return pre_filtered[:max_results]
 
         return refined
