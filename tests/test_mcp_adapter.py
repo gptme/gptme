@@ -741,6 +741,11 @@ def test_restart_mcp_client_failed_reconnect_clears_stale_registry_entry(
     from gptme.mcp.client import MCPClient
 
     old_client = MagicMock(spec=MCPClient)
+    # stack/loop are set in MCPClient.__init__, so spec alone omits them; set
+    # them explicitly so the close path actually runs instead of hitting the
+    # AttributeError guard.
+    old_client.stack = MagicMock()
+    old_client.loop = MagicMock()
     _mcp_clients["test-server"] = old_client
 
     replacement = MagicMock(spec=MCPClient)
@@ -753,6 +758,8 @@ def test_restart_mcp_client_failed_reconnect_clears_stale_registry_entry(
         _restart_mcp_client("test-server", mock_config)
 
     # Old client was closed and must not linger as an "already loaded" entry
+    old_client.loop.run_until_complete.assert_called_once()
+    old_client.loop.close.assert_called_once_with()
     assert "test-server" not in _mcp_clients
 
 
