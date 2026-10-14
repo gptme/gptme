@@ -44,6 +44,28 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      # Peer-coupled majors must move together: a lone `react` or
+      # `@types/react` major fails `npm ci` on ERESOLVE (gptme/gptme#4118).
+      react-majors:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - "major"
+      # jest, its jsdom environment and ts-jest share a major; bumping only
+      # jest-environment-jsdom pulls jsdom 26 under jest 29 (gptme/gptme#4259).
+      jest-majors:
+        patterns:
+          - "jest"
+          - "jest-environment-jsdom"
+          - "ts-jest"
+          - "@jest/*"
+          - "@types/jest"
+          - "jsdom"
+        update-types:
+          - "major"
   - package-ecosystem: "npm"
     directory: "/webui/extension"
     schedule:
@@ -88,6 +110,16 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      # Peer-coupled majors must move together: a lone `react` or
+      # `@types/react` major fails `npm ci` on ERESOLVE (gptme/gptme#4118).
+      react-majors:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - "major"
   - package-ecosystem: "cargo"
     directory: "/tauri/src-tauri"
     schedule:
