@@ -35,6 +35,7 @@ _SELECTOR_ENV_KEYS = (
     "GPTME_LESSONS_SELECTOR_MODEL",
     "GPTME_LESSONS_SELECTOR_MAX_CALLS",
     "GPTME_LESSONS_SELECTOR_TIMEOUT",
+    "GPTME_LESSONS_ITEM_RECEIPTS_DIR",
 )
 # Snapshot taken before any workspace `.env` is loaded (see gptme/__init__.py).
 # Repositories cannot enable command execution by writing selector keys to .env.
@@ -106,6 +107,26 @@ def _transport(command: list[str], request: dict[str, Any], timeout: float) -> A
         raise ValueError("response nested too deeply") from exc
 
 
+def configured_guards() -> set[str]:
+    """Read guard identifiers from trusted settings, including in baseline mode."""
+    return {
+        token.strip().lower().replace("\\", "/")
+        for token in (_selector_env("GPTME_LESSONS_SELECTOR_GUARDS") or "").split(",")
+        if token.strip()
+    }
+
+
+def is_protected_lesson(
+    lesson: Lesson, is_guard: Callable[[Lesson, set[str]], bool]
+) -> bool:
+    """Canonical classification shared by selection and final-item evidence."""
+    return (
+        is_guard(lesson, configured_guards())
+        or lesson.metadata.always_apply
+        or (lesson.metadata.priority or "").lower() == "critical"
+    )
+
+
 def refine_matches(
     matches: list[MatchResult],
     manager: "LogManager",
@@ -121,12 +142,7 @@ def refine_matches(
     if not raw_command or not matches:
         return matches
     try:
-        raw_guards = _selector_env("GPTME_LESSONS_SELECTOR_GUARDS") or ""
-        guards = {
-            token.strip().lower().replace("\\", "/")
-            for token in raw_guards.split(",")
-            if token.strip()
-        }
+        guards = configured_guards()
         if not guards:
             raise ValueError("explicit guard configuration required")
         if os.name != "posix":
@@ -148,9 +164,7 @@ def refine_matches(
         protected = {
             str(match.lesson.path)
             for match in matches
-            if is_guard(match.lesson, guards)
-            or match.lesson.metadata.always_apply
-            or (match.lesson.metadata.priority or "").lower() == "critical"
+            if is_protected_lesson(match.lesson, is_guard)
         }
         advisory = [
             match for match in matches if str(match.lesson.path) not in protected

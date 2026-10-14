@@ -406,11 +406,15 @@ def test_real_execution_setup_cannot_grant_selector_from_workspace_dotenv(
 
     fake_cli(hook_env, "raise AssertionError('untrusted dotenv command executed')")
     workspace = hook_env["tmp"]
+    hook_env["settings"]["GPTME_LESSONS_ITEM_RECEIPTS_DIR"] = str(
+        workspace / "private-items"
+    )
     (workspace / ".env").write_text(
         "\n".join(
             f"{key}='{value}'"
             for key, value in hook_env["settings"].items()
             if key.startswith("GPTME_LESSONS_SELECTOR_")
+            or key == "GPTME_LESSONS_ITEM_RECEIPTS_DIR"
         )
     )
     code = """
@@ -442,11 +446,14 @@ with patch.object(lessons, '_get_lesson_index', return_value=SimpleNamespace(les
 assert len(emitted) == 1
 assert '## guard' in emitted[0].content and '## advisory' in emitted[0].content
 assert not (workspace / 'requests.jsonl').exists()
+assert os.environ.get('GPTME_LESSONS_ITEM_RECEIPTS_DIR')
+assert not (workspace / 'private-items').exists()
 """
     env = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith("GPTME_LESSONS_SELECTOR_")
+        and key != "GPTME_LESSONS_ITEM_RECEIPTS_DIR"
     }
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
     subprocess.run(

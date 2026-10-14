@@ -163,3 +163,249 @@ def test_consumer_throw_records_error_and_handed_off_bytes(env: dict[str, Any]) 
     assert [(r["outcome"], r["bytes"]) for r in receipts(env)] == [
         ("error", len(message.content.encode("utf-8")))
     ]
+
+
+def enable_items(env: dict[str, Any]) -> Path:
+    directory = env["manager"].logdir / "private-items"
+    selector._trusted_env = {
+        "GPTME_LESSONS_ITEM_RECEIPTS_DIR": str(directory),
+        "GPTME_LESSONS_SELECTOR_GUARDS": "guard",
+    }
+    return directory
+
+
+def item_receipts(directory: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in (directory / "lesson-items.jsonl").read_text().splitlines()
+    ]
+
+
+def test_private_final_items_bind_exact_render_and_latest_intent(
+    env: dict[str, Any],
+) -> None:
+    import hashlib
+    import stat
+
+    directory = enable_items(env)
+    manager = env["manager"]
+    manager.log.messages.extend(
+        [Message("assistant", "receipt old"), Message("user", "receipt latest 🚀")]
+    )
+    message = next(invocation := tool.auto_include_lessons_hook(manager))
+    manager.log.messages.append(Message("user", "changed after handoff"))
+    invocation.close()
+    record = item_receipts(directory)[0]
+    aggregate = receipts(env)[0]
+    assert record["event_id"] == aggregate["event_id"]
+    assert record["session_id"] == aggregate["session_id"]
+    assert record["intent"] == "receipt latest 🚀"
+    assert record["guards_configured"] is True
+    assert isinstance(message, Message)
+    item = record["items"][0]
+    assert item["item_id"] == str(env["catalog"][0].path)
+    assert item["text"] == message.content.removeprefix("# Relevant Lessons\n")
+    assert item["content_hash"] == hashlib.sha256(item["text"].encode()).hexdigest()
+    assert item["advisory"] is True
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE((directory / "lesson-items.jsonl").stat().st_mode) == 0o600
+    assert not {"items", "intent"} & aggregate.keys()
+
+
+@pytest.mark.parametrize("protection", ["configured", "always", "critical"])
+def test_baseline_item_classification_uses_selector_guards(
+    env: dict[str, Any], protection: str
+) -> None:
+    directory = enable_items(env)
+    lesson = env["catalog"][0]
+    assert selector._trusted_env is not None
+    if protection == "configured":
+        selector._trusted_env["GPTME_LESSONS_SELECTOR_GUARDS"] = "lesson"
+    elif protection == "always":
+        lesson.metadata.always_apply = True
+    else:
+        lesson.metadata.priority = "critical"
+    assert len(list(tool.auto_include_lessons_hook(env["manager"]))) == 1
+    assert item_receipts(directory)[0]["items"][0]["advisory"] is False
+
+
+def test_private_zero_and_missing_intent(env: dict[str, Any]) -> None:
+    directory = enable_items(env)
+    env["manager"].log.messages.clear()
+    assert list(tool.auto_include_lessons_hook(env["manager"])) == []
+    record = item_receipts(directory)[0]
+    assert record["items"] == []
+    assert record["intent"] is None
+    assert record["event_id"] == receipts(env)[0]["event_id"]
+
+
+def test_untrusted_item_configuration_cannot_enable_capture(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = env["manager"].logdir / "untrusted-items"
+    monkeypatch.setenv("GPTME_LESSONS_ITEM_RECEIPTS_DIR", str(directory))
+    env["settings"]["GPTME_LESSONS_ITEM_RECEIPTS_DIR"] = str(directory)
+    assert len(list(tool.auto_include_lessons_hook(env["manager"]))) == 1
+    assert not directory.exists()
+
+
+@pytest.mark.parametrize(
+    "unsafe", ["public-dir", "public-file", "symlink-file", "relative"]
+)
+def test_unsafe_private_destination_preserves_aggregate_and_output(
+    env: dict[str, Any], unsafe: str
+) -> None:
+    directory = enable_items(env)
+    directory.mkdir(mode=0o700)
+    path = directory / "lesson-items.jsonl"
+    if unsafe == "public-dir":
+        directory.chmod(0o755)
+    elif unsafe == "public-file":
+        path.touch(mode=0o644)
+    elif unsafe == "symlink-file":
+        target = directory / "target"
+        target.touch(mode=0o600)
+        path.symlink_to(target)
+    else:
+        assert selector._trusted_env is not None
+        selector._trusted_env["GPTME_LESSONS_ITEM_RECEIPTS_DIR"] = "relative"
+    assert len(list(tool.auto_include_lessons_hook(env["manager"]))) == 1
+    assert receipts(env)[0]["outcome"] == "emitted"
+    assert not path.exists() or path.read_text() == ""
+
+
+def test_pre_handoff_error_does_not_record_rendered_candidates(
+    env: dict[str, Any],
+) -> None:
+    directory = enable_items(env)
+
+    def fail_final_log(message: str) -> None:
+        if message.startswith("Auto-included"):
+            raise ValueError("render logging failed")
+
+    with patch.object(tool.logger, "debug", side_effect=fail_final_log):
+        assert list(tool.auto_include_lessons_hook(env["manager"])) == []
+    assert receipts(env)[0]["outcome"] == "error"
+    assert item_receipts(directory)[0]["items"] == []
+
+
+@pytest.mark.parametrize("ending", ["close", "throw", "unstarted"])
+def test_private_generator_lifecycle(env: dict[str, Any], ending: str) -> None:
+    directory = enable_items(env)
+    invocation = tool.auto_include_lessons_hook(env["manager"])
+    if ending == "unstarted":
+        invocation.close()
+        assert not directory.exists()
+        assert not (env["manager"].logdir / "lesson-emissions.jsonl").exists()
+        return
+    next(invocation)
+    if ending == "throw":
+        with pytest.raises(StopIteration):
+            invocation.throw(ValueError("interrupted"))
+    else:
+        invocation.close()
+    invocation.close()
+    assert len(item_receipts(directory)) == 1
+    assert len(item_receipts(directory)[0]["items"]) == 1
+    assert item_receipts(directory)[0]["event_id"] == receipts(env)[0]["event_id"]
+
+
+def test_final_items_after_selection_caps_dedup_and_materialization(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from copy import deepcopy
+
+    directory = enable_items(env)
+    catalog = env["catalog"]
+    for name in ("guard", "suppressed", "selected", "dedup", "capped"):
+        lesson = deepcopy(catalog[0])
+        lesson.path = env["manager"].logdir / (name + ".md")
+        catalog.append(lesson)
+    catalog.pop(0)
+    env["manager"].log.messages.append(
+        Message("system", f"# Relevant Lessons\n*Path: {catalog[3].path}*\n")
+    )
+    catalog[2].is_stub = True
+    materialized = deepcopy(catalog[2])
+    materialized.is_stub = False
+    materialized.body = "materialized exact 🚀"
+    monkeypatch.setattr(
+        tool,
+        "_get_lesson_index",
+        lambda: SimpleNamespace(
+            lessons=catalog, materialize_lesson=lambda lesson: materialized
+        ),
+    )
+    env["settings"]["GPTME_LESSONS_MAX_PER_TURN"] = "3"
+    # Real bounded transport with a model-free fixture response.
+    import sys
+
+    response = json.dumps(
+        {
+            "version": 1,
+            "status": "selected",
+            "ids": [str(catalog[i].path) for i in (2, 3, 4)],
+        }
+    )
+    assert selector._trusted_env is not None
+    selector._trusted_env.update(
+        {
+            "GPTME_LESSONS_SELECTOR_COMMAND": json.dumps(
+                [
+                    sys.executable,
+                    "-c",
+                    f"print({response!r})",
+                ]
+            ),
+            "GPTME_LESSONS_SELECTOR_GUARDS": "guard",
+            "GPTME_LESSONS_SELECTOR_MODEL": "fixture/no-provider",
+            "GPTME_LESSONS_SELECTOR_MAX_CALLS": "1",
+        }
+    )
+    messages = list(tool.auto_include_lessons_hook(env["manager"]))
+    items = item_receipts(directory)[0]["items"]
+    assert [item["item_id"] for item in items] == [str(catalog[i].path) for i in (0, 2)]
+    assert [item["advisory"] for item in items] == [False, True]
+    assert "materialized exact 🚀" in items[1]["text"]
+    assert isinstance(messages[0], Message)
+    assert (
+        "# Relevant Lessons\n" + "".join(item["text"] for item in items)
+        == messages[0].content
+    )
+
+
+def test_private_write_failure_does_not_lose_aggregate(env: dict[str, Any]) -> None:
+    directory = enable_items(env)
+    with patch.object(tool.os, "fsync", side_effect=OSError("disk unavailable")):
+        assert len(list(tool.auto_include_lessons_hook(env["manager"]))) == 1
+    assert receipts(env)[0]["outcome"] == "emitted"
+    assert directory.exists()
+
+
+def test_missing_guard_configuration_marks_classification_unknown(
+    env: dict[str, Any],
+) -> None:
+    directory = enable_items(env)
+    assert selector._trusted_env is not None
+    selector._trusted_env.pop("GPTME_LESSONS_SELECTOR_GUARDS")
+    assert len(list(tool.auto_include_lessons_hook(env["manager"]))) == 1
+    assert item_receipts(directory)[0]["guards_configured"] is False
+
+
+@pytest.mark.parametrize("unsafe", ["symlink-directory", "hardlinked-file"])
+def test_private_evidence_rejects_aliased_destinations(
+    env: dict[str, Any], unsafe: str
+) -> None:
+    directory = enable_items(env)
+    target_directory = directory.parent / "actual-private-items"
+    target_directory.mkdir(mode=0o700)
+    target = target_directory / "lesson-items.jsonl"
+    target.touch(mode=0o600)
+    if unsafe == "symlink-directory":
+        directory.symlink_to(target_directory, target_is_directory=True)
+    else:
+        directory.mkdir(mode=0o700)
+        (directory / "lesson-items.jsonl").hardlink_to(target)
+    assert len(list(tool.auto_include_lessons_hook(env["manager"]))) == 1
+    assert receipts(env)[0]["outcome"] == "emitted"
+    assert target.read_text() == ""
