@@ -151,7 +151,7 @@ def test_keyboard_interrupt_before_promotion_terminates_command(
     def join_soft_timeout(self: threading.Thread, timeout: float | None = None) -> None:
         if (
             not interrupted["done"]
-            and timeout == 0.5
+            and timeout is not None  # the soft-timeout wait (polled in slices)
             and threading.current_thread() is threading.main_thread()
         ):
             interrupted["done"] = True

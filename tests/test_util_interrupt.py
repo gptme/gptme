@@ -205,3 +205,104 @@ class TestHandleKeyboardInterrupt:
         assert not t.is_alive()
         assert not raised.is_set()
         assert completed.is_set()
+
+
+def test_raise_in_thread_stops_interruptible_sleep():
+    """time.sleep normally ignores an exception raised from another thread
+    until it returns; within interruptible_sleep() it stops promptly."""
+    import time
+
+    from gptme.util.interrupt import interruptible_sleep, raise_in_thread
+
+    result: dict = {}
+
+    def worker() -> None:
+        start = time.monotonic()
+        try:
+            with interruptible_sleep():
+                time.sleep(30)
+        except KeyboardInterrupt:
+            result["took"] = time.monotonic() - start
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    time.sleep(0.3)
+    assert thread.ident is not None
+    assert raise_in_thread(thread.ident, KeyboardInterrupt)
+    thread.join(5)
+    assert result["took"] < 2
+    assert time.sleep.__name__ == "sleep"  # restored
+
+
+def test_clear_pending_drops_unlanded_exception():
+    import time
+
+    from gptme.util.interrupt import clear_pending, raise_in_thread
+
+    done = threading.Event()
+    errors: list[BaseException] = []
+    proceed = threading.Event()
+
+    def worker() -> None:
+        try:
+            proceed.wait()  # a C-level wait: the raise can't land yet
+            for _ in range(1000):
+                pass
+        except BaseException as e:
+            errors.append(e)
+        done.set()
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    time.sleep(0.1)
+    assert thread.ident is not None
+    raise_in_thread(thread.ident, KeyboardInterrupt)
+    clear_pending(thread.ident)
+    proceed.set()
+    done.wait(5)
+    assert errors == []
+
+
+def test_tracking_only_records_this_threads_processes():
+    """A cell's timeout must not kill processes another conversation's
+    thread started (the web server runs conversations in one process)."""
+    import subprocess
+
+    from gptme.util.interrupt import kill_processes, start_tracking, stop_tracking
+
+    mine = start_tracking()
+    other: list[subprocess.Popen] = []
+    thread = threading.Thread(
+        target=lambda: other.append(subprocess.Popen(["sleep", "30"]))
+    )
+    try:
+        own = subprocess.Popen(["sleep", "30"])
+        thread.start()
+        thread.join(5)
+        assert mine == {own.pid}
+        kill_processes(set(mine))
+        assert own.wait(5) is not None
+        assert other[0].poll() is None  # the other thread's process lives on
+    finally:
+        stop_tracking(mine)
+        for p in other:
+            p.kill()
+            p.wait()
+
+
+def test_nested_tracking_keeps_outer_set_when_sets_are_equal():
+    """Ending an inner tracking scope (e.g. an ipython cell that started no
+    processes) must not end the outer one (the TUI step) when both are empty."""
+    import subprocess
+
+    from gptme.util.interrupt import start_tracking, stop_tracking
+
+    step = start_tracking()
+    try:
+        cell = start_tracking()
+        stop_tracking(cell)  # equal to `step` (both empty), but not the same
+        proc = subprocess.Popen(["sleep", "0"])
+        proc.wait()
+        assert step == {proc.pid}
+    finally:
+        stop_tracking(step)

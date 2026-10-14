@@ -3032,7 +3032,13 @@ def execute_shell_impl(
         worker = threading.Thread(target=ctx.run, args=(run_foreground,), daemon=True)
         worker.start()
         try:
-            worker.join(foreground_timeout)
+            # Short joins, not one long one: an interrupt raised into this
+            # thread from another (the TUI's Ctrl+C) lands only between them.
+            deadline = time.monotonic() + (
+                math.inf if foreground_timeout is None else foreground_timeout
+            )
+            while worker.is_alive() and (left := deadline - time.monotonic()) > 0:
+                worker.join(min(left, 0.2))
         except KeyboardInterrupt as e:
             # Ctrl-C lands on the main thread while it is blocked in join.
             # Kill the command (not bash): SIGINT-to-pgid waits for bash to

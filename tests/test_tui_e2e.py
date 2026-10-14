@@ -126,6 +126,93 @@ async def test_e2e_tool_confirm_execute(mock_app, tmp_path):
         assert app.query(SystemMessage), "tool output should be rendered"
 
 
+@pytest.fixture
+def mock_app_ipython(tmp_path, monkeypatch):
+    """mock_app with the ipython tool too."""
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    init(
+        "mock/echo",
+        interactive=True,
+        tool_allowlist=["shell", "ipython"],
+        tool_format="markdown",
+        no_confirm=False,
+    )
+    set_default_model("mock/echo")
+    init_tools(["shell", "ipython"])
+    set_output_format("quiet")
+    manager = LogManager([], logdir=tmp_path / "conv", lock=False)
+    return GptmeApp(manager, tool_format="markdown", workspace=tmp_path)
+
+
+def _sleepers(marker: str) -> list[str]:
+    out = subprocess.run(
+        ["pgrep", "-f", marker], capture_output=True, text=True, check=False
+    )
+    return out.stdout.split()
+
+
+async def _run_and_interrupt(app, pilot, block: str) -> float:
+    """Send a prompt whose echo runs ``block``, confirm it, press Ctrl+C once
+    it runs; return how long the turn took to stop."""
+    inp = app.query_one("#input", ChatInput)
+    inp.text = f"run this:\n{block}"
+    await pilot.press("enter")
+    await wait_for(
+        pilot,
+        lambda: isinstance(app.screen_stack[-1], ConfirmScreen),
+        what="confirmation dialog",
+    )
+    await pilot.press("y")
+    await asyncio.sleep(1.0)  # let the tool start blocking
+    await pilot.pause()
+    assert app.generating
+    start = time.monotonic()
+    await pilot.press("ctrl+c")
+    await wait_for(
+        pilot,
+        lambda: not app.generating and app.state == "idle",
+        timeout=10,
+        what="interrupted turn to end",
+    )
+    return time.monotonic() - start
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process handling")
+@pytest.mark.asyncio
+async def test_e2e_ctrl_c_stops_running_shell_command(mock_app):
+    app = mock_app
+    marker = f"sleep 3{uuid.uuid4().int % 1000:03d}"
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        took = await _run_and_interrupt(app, pilot, f"```shell\n{marker}\n```")
+    assert took < 5
+    assert not _sleepers(marker)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process handling")
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import time\ntime.sleep({n})",
+        "import subprocess\nsubprocess.run(['sleep', '{n}'])",
+    ],
+)
+@pytest.mark.asyncio
+async def test_e2e_ctrl_c_stops_running_ipython_cell(mock_app_ipython, code):
+    """ipython runs in-process on the TUI worker thread: Ctrl+C must still
+    stop a cell blocked in time.sleep or a subprocess."""
+    app = mock_app_ipython
+    n = 300 + uuid.uuid4().int % 600
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.pause()
+        took = await _run_and_interrupt(
+            app, pilot, "```ipython\n" + code.format(n=n) + "\n```"
+        )
+    assert took < 5
+    assert not _sleepers(f"sleep {n}")
+    assert any("KeyboardInterrupt" in m.content for m in app.manager.log)
+
+
 @pytest.mark.asyncio
 async def test_e2e_running_tool_is_shown(mock_app, tmp_path):
     """While a slow tool runs, its parsed call and a running line are shown

@@ -2,6 +2,12 @@
 The assistant can execute Python code blocks.
 
 It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.
+
+Configuration:
+    GPTME_IPYTHON_TIMEOUT: Seconds a code block may run before it is interrupted
+        (default 600, 0 disables). Processes the block started are killed too,
+        and ``time.sleep`` is interruptible while a block runs; other blocking
+        calls (e.g. a socket read) only stop once they return.
 """
 
 import ast
@@ -13,6 +19,7 @@ import os
 import re
 import site
 import sys
+import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from logging import getLogger
@@ -23,6 +30,14 @@ from ..constants import DECLINED_CONTENT
 from ..hooks import ConfirmAction, get_confirmation
 from ..message import Message
 from ..util.context import md_codeblock
+from ..util.interrupt import (
+    clear_pending,
+    interruptible_sleep,
+    kill_processes,
+    raise_in_thread,
+    start_tracking,
+    stop_tracking,
+)
 from . import get_tools
 from .base import (
     Parameter,
@@ -70,6 +85,69 @@ def _decode_slice(data: bytes) -> str:
         return data.decode("utf-8", errors="surrogatepass")
     except UnicodeDecodeError:
         return data.decode("utf-8", errors="ignore")
+
+
+class CellTimeout(KeyboardInterrupt):
+    """Raised in a cell's thread when it exceeds GPTME_IPYTHON_TIMEOUT."""
+
+
+def _get_timeout() -> float | None:
+    """GPTME_IPYTHON_TIMEOUT in seconds (default 600); 0 disables."""
+    raw = os.environ.get("GPTME_IPYTHON_TIMEOUT", "600")
+    try:
+        timeout = float(raw)
+    except ValueError:
+        logger.warning("Invalid GPTME_IPYTHON_TIMEOUT=%r, using 600s", raw)
+        timeout = 600.0
+    return timeout if timeout > 0 else None
+
+
+@contextmanager
+def _cell_timeout(timeout: float | None) -> Generator[Callable[[], bool], None, None]:
+    """Interrupt the running cell after ``timeout`` seconds.
+
+    Raises CellTimeout in this thread and kills the processes the cell
+    started (unblocking e.g. ``subprocess.run``). Yields whether it fired.
+    """
+    fired = threading.Event()
+    if timeout is None:
+        yield fired.is_set
+        return
+    thread_id = threading.get_ident()
+    started = start_tracking()  # only this cell's processes, not other threads'
+    lock = threading.Lock()
+    running = True
+
+    def fire() -> None:
+        with lock:
+            if not running:
+                return
+            fired.set()
+            raise_in_thread(thread_id, CellTimeout)
+        kill_processes(set(started))
+
+    timer = threading.Timer(timeout, fire)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield fired.is_set
+    except CellTimeout:
+        pass  # landed outside the cell's code (IPython catches it inside)
+    finally:
+        with lock:
+            running = False
+            timer.cancel()
+            clear_pending(thread_id)
+        stop_tracking(started)
+
+
+def _format_cell_output(stdout: str, stderr: str) -> str:
+    output = ""
+    if stdout:
+        output += md_codeblock("stdout", _cap_output(stdout).rstrip()) + "\n\n"
+    if stderr:
+        output += md_codeblock("stderr", _cap_output(stderr).rstrip()) + "\n\n"
+    return output
 
 
 def _cap_output(output: str) -> str:
@@ -412,11 +490,27 @@ def execute_python(
     pre_images = _snapshot_images(cwd)
 
     # Capture and display output in real-time
-    with capture_and_display() as (stdout_capture, stderr_capture):
+    timeout = _get_timeout()
+    with (
+        _cell_timeout(timeout) as timed_out,
+        interruptible_sleep(),
+        capture_and_display() as (stdout_capture, stderr_capture),
+    ):
         # Execute the code (output will be displayed in real-time)
         result: ExecutionResult = _ipython.run_cell(
             code, silent=False, store_history=False
         )
+    if timed_out():
+        yield Message(
+            "system",
+            f"Execution timed out after {timeout:g}s and was interrupted "
+            "(GPTME_IPYTHON_TIMEOUT). Run long work in the background with the "
+            "shell tool instead.\n\n"
+            + _format_cell_output(
+                stdout_capture.get_captured(), stderr_capture.get_captured()
+            ),
+        )
+        return
 
     captured_stdout = stdout_capture.get_captured()
     captured_stderr = stderr_capture.get_captured()
