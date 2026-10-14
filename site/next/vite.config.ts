@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
 type Route = { path: string; file: string };
@@ -41,7 +42,7 @@ function ssrDev(): Plugin {
 
 export default defineConfig({
   appType: "custom",
-  plugins: [ssrDev()],
+  plugins: [tailwindcss(), ssrDev()],
   oxc: {
     jsx: { runtime: "automatic" },
   },

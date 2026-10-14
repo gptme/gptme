@@ -20,8 +20,8 @@ It has two pages:
 
 The stack matches `webui/`, so components and tokens can be shared later:
 
-- Vite 5, React 18, TypeScript 5
-- Tailwind CSS 3.4 with PostCSS/autoprefixer and `@tailwindcss/typography`
+- Vite 8, React 19, TypeScript 7
+- Tailwind CSS 4 (CSS-first config, `@tailwindcss/vite`) with `@tailwindcss/typography`
 
 Pages are **prerendered to static HTML** for SEO, not shipped as a client-side SPA:
 
@@ -71,11 +71,11 @@ gptme.ai:
   terminal palette (`--term-*`), the Superuser Labs band (`--su-*`), type, radii and
   spacing. Light is the default (`:root`). Dark applies via `prefers-color-scheme: dark`,
   or explicitly with `data-theme="dark"` on `<html>`; `data-theme="light"` forces light.
-- `tailwind.preset.ts` maps those variables into the Tailwind theme. Components use
-  classes like `bg-surface text-ink border-border text-accent-2-text bg-term-bg`, never
-  raw hex values. Because the values are CSS variables, no `dark:` variants are needed.
-  Another project adopts the tokens by importing `tokens.css` and adding the preset to
-  `presets` in its Tailwind config.
+- `src/styles/theme.css` maps those variables into the Tailwind theme (`@theme inline`).
+  Components use classes like `bg-surface text-ink border-border text-accent-2-text
+  bg-term-bg`, never raw hex values. Because the values are CSS variables, no `dark:`
+  variants are needed. Another project adopts the tokens by importing `tokens.css` and
+  `theme.css` after `@import "tailwindcss"`.
 
 Two text-only variants exist for WCAG AA contrast on the light background:
 `accent-2-text` (darker copper) and `muted-text`. See the header comment in `tokens.css`.
@@ -87,14 +87,12 @@ Fonts requests.
 
 Breakpoints come from the design: `max-sm` (≤600px, following the MainMobile board),
 `max-md` (≤900px, stacked layout) and `max-lg` (≤1100px). Components are written
-desktop-first with those variants (see `tailwind.config.ts`).
+desktop-first with those variants (see `src/styles/theme.css`).
 
 ## Layout
 
 ```
 index.html               HTML template (<!--app-head--> / <!--app-html--> markers)
-tailwind.preset.ts       tokens -> Tailwind theme (shareable)
-tailwind.config.ts       site config: preset, breakpoints, js/no-js variants
 vite.config.ts           dev SSR middleware
 scripts/prerender.mjs    static HTML for every route
 src/
@@ -108,7 +106,8 @@ src/
   lib/stats.ts           build-time stats with fallback
   lib/readme.ts          README rendering
   styles/tokens.css      shared design tokens
-  styles/index.css       fonts, tokens, Tailwind layers
+  styles/theme.css       tokens -> Tailwind theme (shareable)
+  styles/index.css       fonts, tokens, Tailwind, prose theme
 ```
 
 ## Not in scope

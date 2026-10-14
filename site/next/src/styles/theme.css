@@ -1,0 +1,84 @@
+/*
+ * gptme Tailwind theme: maps the design tokens in tokens.css into the Tailwind
+ * theme, so components use classes like `bg-surface text-ink border-border`
+ * instead of raw hex values.
+ *
+ * The values are CSS variables, so light/dark switching happens in tokens.css
+ * (prefers-color-scheme, or data-theme on <html>) and no `dark:` variants are
+ * needed. Other gptme surfaces (webui, docs theme, gptme.ai) can adopt the same
+ * design language by importing tokens.css and this file after
+ * `@import "tailwindcss"`.
+ *
+ * `@theme inline` makes utilities use the value directly (`var(--color-bg)`)
+ * instead of going through a theme variable of the same name, which would be
+ * circular with tokens.css and which tokens.css would shadow anyway.
+ */
+
+@theme inline {
+  /* Breakpoints from the design: mobile board <=600px, stacked layout <=900px,
+     tighter desktop <=1100px. Components are written desktop-first with
+     max-sm / max-md / max-lg variants. */
+  --breakpoint-*: initial;
+  --breakpoint-sm: 601px;
+  --breakpoint-md: 901px;
+  --breakpoint-lg: 1101px;
+  --breakpoint-xl: 1441px;
+
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-border: var(--color-border);
+  --color-chip: var(--color-chip);
+  --color-ink: var(--color-ink);
+  --color-heading: var(--color-heading);
+  --color-ink-2: var(--color-ink-2);
+  --color-muted: var(--color-muted);
+  /* AA-safe variants for small text on light backgrounds */
+  --color-muted-text: var(--color-muted-text);
+  --color-accent: var(--color-accent);
+  --color-accent-2: var(--color-accent-2);
+  --color-accent-2-text: var(--color-accent-2-text);
+  --color-on-accent: var(--color-on-accent);
+  --color-ring: var(--color-ring);
+
+  --color-term-bg: var(--term-bg);
+  --color-term-border: var(--term-border);
+  --color-term-header: var(--term-header);
+  --color-term-text: var(--term-text);
+  --color-term-muted: var(--term-muted);
+  --color-term-tool: var(--term-tool);
+  --color-term-pass: var(--term-pass);
+  --color-term-fail: var(--term-fail);
+  --color-term-prompt: var(--term-prompt);
+
+  --color-su-bg: var(--su-bg);
+  --color-su-text: var(--su-text);
+  --color-su-text-2: var(--su-text-2);
+  --color-su-link: var(--su-link);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --tracking-eyebrow: var(--tracking-eyebrow);
+  --tracking-heading: var(--tracking-tight);
+  --tracking-display: var(--tracking-display);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
+
+  --container-page: var(--page-max);
+
+  --shadow-term: var(--term-shadow);
+
+  /* tokens.css also defines a type scale under the same --text-* names that
+     Tailwind uses for text-sm etc. Pin the utilities to Tailwind's default
+     sizes; the design's type scale is not wired into utilities. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+}

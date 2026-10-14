@@ -14,6 +14,8 @@
  * tag styling.
  */
 
+import type { ReactElement } from "react";
+
 type PromptKind =
   | "coding"
   | "ai"
@@ -87,7 +89,7 @@ function formatPrompt(prompt: string) {
   const parts = prompt.split("$");
   if (parts.length <= 1) return <span>{prompt}</span>;
 
-  const out: Array<JSX.Element> = [
+  const out: Array<ReactElement> = [
     <span key="dollar" className="text-term-prompt">
       ${" "}
     </span>,
