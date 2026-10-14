@@ -1348,17 +1348,28 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_finalize_stream_discards_delayed_tokens(tmp_path):
-    """A delayed flush must not resurrect the finalized reply during a tool call."""
+async def test_zombie_flush_after_finalize_is_noop(tmp_path):
+    """_flush_stream() called after _on_step_message() must be a no-op.
+
+    Regression: a delayed flush timer could fire after the stream was already
+    finalized by _on_step_message → _finalize_stream_in_place, resurrecting
+    the stream widget or double-applying pending tokens.  This test verifies
+    that the zombie flush clears the pending buffer and leaves exactly one
+    AssistantMessage with the correct content.
+    """
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         app._begin_stream()
         await pilot.pause()
         app._on_stream_token("Answer")
+        # Simulate tokens that arrived after the final message was queued but
+        # before the flush timer fired.
         with app._stream_lock:
             app._stream_pending.append(" trailing tokens")
             app._stream_flush_scheduled = True
+        # Finalize via the normal step-message path (_finalize_stream_in_place).
         app._on_step_message(Message("assistant", "Answer trailing tokens"))
+        # Zombie flush — must be a no-op after finalization.
         app._flush_stream()
         await pilot.pause()
         assert app._stream_widget is None
