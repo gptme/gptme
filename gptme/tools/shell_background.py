@@ -135,6 +135,11 @@ class BackgroundJob:
     log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
     _final_log_written: bool = field(default=False, repr=False)
+    # Why the job was killed by gptme (e.g. the memory guard), for the model.
+    kill_reason: str | None = None
+    # a kill after the completion message went out (a worker that outlived
+    # the job's main process): delivered as a message of its own
+    _late_kill_notice: str | None = field(default=None, repr=False)
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -470,6 +475,21 @@ def _notify_completion(job: BackgroundJob) -> None:
             condition.notify_all()
 
 
+def _record_kill_reason(job: BackgroundJob, reason: str) -> None:
+    """Tell the model why gptme killed the job: in its completion message, or,
+    if that already went out, in a message of its own."""
+    with _job_lock:  # the completion hook takes it too: no delivery meanwhile
+        with _completion_queue.mutex:
+            undelivered = any(queued is job for queued in _completion_queue.queue)
+        if not job._completion_notified or undelivered:
+            job.kill_reason = reason
+            return
+        if _background_jobs.get(job.conversation_id, {}).get(job.id) is not job:
+            return
+        job._late_kill_notice = reason
+        _completion_queue.put(job)
+
+
 def _jobs_for(conversation_id: str | None) -> dict[int, BackgroundJob]:
     return _background_jobs.setdefault(conversation_id, {})
 
@@ -569,6 +589,23 @@ def start_background_job(
             log_dir=_current_log_dir(),
         )
         _jobs_for(conversation_id)[job_id] = job
+    if not _is_windows:
+        from .shell_memory import Target, group_alive, kill_group, watch
+
+        def kill_for_memory() -> None:
+            # the whole group: workers can outlive a leader that exits on TERM
+            kill_group(process.pid)
+            job.kill()
+
+        watch(
+            Target(
+                pgid=process.pid,
+                label=f"background job #{job_id}",
+                kill=kill_for_memory,
+                alive=lambda: group_alive(process.pid),
+                on_killed=lambda reason: _record_kill_reason(job, reason),
+            )
+        )
     job.start_reader()
     return job
 
@@ -645,10 +682,19 @@ atexit.register(reset_background_jobs)
 
 
 def _completion_message(job: BackgroundJob) -> Message:
+    if notice := job._late_kill_notice:
+        job._late_kill_notice = None
+        return Message(
+            "system",
+            f"Processes left over from background shell job #{job.id} "
+            f"(`{job.command}`), which had already finished: {notice}",
+        )
     status = f"exit code {job.process.returncode}"
     stdout, stderr = job.get_output()
     details = format_job_output(job, stdout, stderr)
     suffix = f"\n\n{details}" if details else "\n\nNo output."
+    if job.kill_reason:
+        suffix = f"\n\n{job.kill_reason}{suffix}"
     return Message(
         "system",
         f"Background shell job #{job.id} finished ({status}): `{job.command}`{suffix}",
