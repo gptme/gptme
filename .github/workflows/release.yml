@@ -102,17 +102,29 @@ jobs:
           HEAD_SHA=$(git rev-parse HEAD)
           echo "Checking CI status for $HEAD_SHA..."
 
+          # Only count check runs from push-triggered workflow runs. On a quiet
+          # master, HEAD also collects scheduled and Dependabot runs (Model
+          # Freshness, the Dependabot updater); their failures or timeouts are
+          # not a verdict on this commit and must not block the release.
+          # Collect scalar IDs across pages into one JSON array. Discard partial
+          # results on API failure; stderr preserves the reason for the skip.
+          if ! PUSH_SUITES=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=${HEAD_SHA}&event=push&per_page=100" \
+            --paginate --jq '.workflow_runs[].check_suite_id' | jq -s '.'); then
+            PUSH_SUITES="[]"
+          fi
+
           # Check individual check runs (not suites) to avoid blocking on
           # flaky/optional checks like external API tests.
           # Exclude: API tests (external, flaky), the report-only Dependency
           # Advisory Scan (continue-on-error; a coalesced/cancelled run of it
           # must not block a release), and this workflow's own runs.
-          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+          CONCLUSIONS=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs?per_page=100" \
             --paginate \
-            --jq '[.check_runs[] | select(
+            | jq -r --argjson suites "$PUSH_SUITES" '[.check_runs[] | select(
               .app.slug == "github-actions" and
+              (.check_suite.id as $s | $suites | index($s)) and
               (.name | test("API tests|^Dependency Advisory Scan$|^Pre-flight checks$|^Create release$|^Publish release$") | not)
-            )] | map(.conclusion) | unique | .[]' 2>/dev/null || echo "unknown")
+            )] | map(.conclusion) | unique | .[]' || echo "unknown")
 
           echo "CI conclusions (excluding API tests): $CONCLUSIONS"
 
@@ -132,7 +144,7 @@ jobs:
           fi
 
           # Require explicit success — skip if unknown or empty (API failure)
-          if [ -z "$CONCLUSIONS" ] || [ "$CONCLUSIONS" = "unknown" ]; then
+          if [ -z "$CONCLUSIONS" ] || echo "$CONCLUSIONS" | grep -q "unknown"; then
             echo "CI status unavailable on HEAD — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
