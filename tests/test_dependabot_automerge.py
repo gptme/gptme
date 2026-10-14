@@ -108,6 +108,38 @@ def test_stale_low_score_does_not_block_new_review(tmp_path: Path) -> None:
     assert "ok=true" in output
 
 
+def test_stale_low_score_with_same_dependencies_waits_for_new_review(
+    tmp_path: Path,
+) -> None:
+    output, _ = run_gate(tmp_path, [review(OLD, 3), review(HEAD)], same_deps=True)
+    assert "ok=true" in output
+    assert int((tmp_path / "poll").read_text()) == 2
+
+
+def test_stale_low_score_with_same_dependencies_times_out(tmp_path: Path) -> None:
+    output, _ = run_gate(tmp_path, [review(OLD, 3)], same_deps=True)
+    assert "ok=true" not in output
+    assert "No review (Greptile or Bob) within the time window" in output
+    assert int((tmp_path / "clock").read_text()) == 135 * 60
+
+
+@pytest.mark.parametrize("score", [3, 5])
+def test_published_short_sha_review_matches_head(tmp_path: Path, score: int) -> None:
+    body = (
+        "Confidence 1/5\n<!-- bob-ai-review "
+        + json.dumps(
+            {"sha": HEAD[:12], "score": score, "history": [{"sha": OLD, "score": 1}]}
+        )
+        + " -->"
+    )
+    output, _ = run_gate(tmp_path, [body])
+    if score == 5:
+        assert "ok=true" in output
+    else:
+        assert "ok=true" not in output
+        assert "Bob confidence is 3/5" in output
+
+
 def test_rebase_with_same_dependencies_accepts_old_review(tmp_path: Path) -> None:
     output, _ = run_gate(tmp_path, [review(OLD)], same_deps=True)
     assert "ok=true" in output

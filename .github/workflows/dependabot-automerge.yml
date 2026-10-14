@@ -202,17 +202,24 @@ jobs:
           bob_body=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
             --jq '[.[][] | select(.user.login == "TimeToBuildBob" and (.body | contains("<!-- bob-ai-review ")))] | last | .body // empty')
           if [ -n "$bob_body" ]; then
-            bob_score=$(grep -oE '"score": *[0-9]+' <<<"$bob_body" | grep -oE '[0-9]+$' | head -1 || true)
-            bob_sha=$(grep -oE '"sha": *"[0-9a-f]{40}"' <<<"$bob_body" | grep -oE '"[0-9a-f]{40}"' | tr -d '"' | head -1 || true)
-            [ -n "$bob_sha" ] || hold "could not parse commit SHA from Bob's review."
-            if [ "$bob_sha" = "$SHA" ]; then
-              pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+            bob_marker=$(sed -n 's/^<!-- bob-ai-review \(.*\) -->$/\1/p' <<<"$bob_body")
+            bob_score=$(jq -r '.score // empty' <<<"$bob_marker")
+            bob_sha=$(jq -r '.sha // empty' <<<"$bob_marker")
+            [[ "$bob_sha" =~ ^[0-9a-f]{12,40}$ ]] || hold "could not parse commit SHA from Bob's review."
+            # Published Bob markers abbreviate the reviewed SHA to 12 chars.
+            if [[ "$SHA" = "$bob_sha"* ]]; then
+              pass_if_review_ok "Bob" "$bob_score" "$SHA"
             fi
             head_deps=$(deps "$SHA")
             if [ -n "$head_deps" ] && [ "$(deps "$bob_sha" || true)" = "$head_deps" ]; then
-              pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+              if [ "$bob_score" = "5" ]; then
+                pass_if_review_ok "Bob" "$bob_score" "$bob_sha"
+              else
+                echo "Ignoring stale Bob review ${bob_sha:0:9} (score $bob_score/5, same deps): waiting for fresh review."
+              fi
+            else
+              echo "Ignoring Bob review of ${bob_sha:0:9}: dependency versions changed."
             fi
-            echo "Ignoring Bob review of ${bob_sha:0:9}: dependency versions changed."
           fi
           [ "$(date +%s)" -lt "$bob_deadline" ] || break
           sleep 60
