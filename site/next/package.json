@@ -11,8 +11,8 @@
     "copy-assets": "node scripts/copy-assets.mjs",
     "dev": "node scripts/copy-assets.mjs && vite",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/readme.test.ts src/lib/readme-hash.test.ts src/lib/stats.test.ts",
-    "build": "node scripts/copy-assets.mjs && npm test && tsc --noEmit && vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs",
+    "test": "node --experimental-strip-types --test src/lib/readme.test.ts src/lib/readme-hash.test.ts src/lib/stats.test.ts scripts/check-assets.test.mjs",
+    "build": "node scripts/copy-assets.mjs && npm test && tsc --noEmit && vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs && node scripts/check-assets.mjs dist",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -25,12 +25,15 @@
     "sanitize-html": "2.18.0"
   },
   "devDependencies": {
+    "@csstools/css-tokenizer": "4.0.2",
     "@tailwindcss/typography": "0.5.20",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "22.20.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@types/sanitize-html": "2.16.2",
+    "htmlparser2": "12.0.0",
+    "parse-srcset": "1.0.2",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.3.4"
