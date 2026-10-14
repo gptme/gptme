@@ -15,7 +15,7 @@ SRCFILES = $(shell echo "${SRCFILES_RAW}" | tr ' ' '\n' | grep -v -f <(echo "${E
 RADON_ARGS = --exclude "scripts/Kokoro-82M/*" --exclude "*/Kokoro-82M/*"
 
 build: ## Build the project (install dependencies)
-	poetry install
+	uv sync --all-extras
 
 build-docker: ## Build Docker images
 	docker build . -t gptme:latest -f scripts/Dockerfile
@@ -62,7 +62,7 @@ PYTEST_WORKERS ?= auto
 
 test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
-	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
+	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
 		-n $(PYTEST_WORKERS) \
 		$(if $(EVAL), , -m "not eval") \
@@ -71,21 +71,21 @@ test: ## Run tests
 		$(if $(PROFILE), --profile-svg)
 
 test-api: ## Run only API-dependent tests (requires_api marker)
-	poetry run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
+	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
 		-m "requires_api" \
 		--timeout 60 --retries 2 --retry-delay 5
 
 eval: ## Run evaluation suite
-	poetry run gptme-eval
+	uv run gptme-eval
 
 typecheck: ## Run mypy type checking
-	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE)))
+	uv run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE)))
 
 typecheck-coverage: ## Run mypy type checking with type coverage report (XML for CI + text imprecision summary)
 	mkdir -p .mypy_coverage_report
 	@status=0; \
-	poetry run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))) --cobertura-xml-report .mypy_coverage_report --txt-report .mypy_coverage_report || status=$$?; \
+	uv run mypy ${SRCDIRS} $(if $(EXCLUDES),$(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))) --cobertura-xml-report .mypy_coverage_report --txt-report .mypy_coverage_report || status=$$?; \
 	echo ""; \
 	echo "=== Type Coverage Summary ==="; \
 	cat .mypy_coverage_report/index.txt; \
@@ -94,7 +94,7 @@ typecheck-coverage: ## Run mypy type checking with type coverage report (XML for
 RUFF_ARGS=${SRCDIRS} $(foreach EXCLUDE,$(EXCLUDES),--exclude $(EXCLUDE))
 
 pre-commit:  ## Run pre-commit hooks
-	poetry run pre-commit run --all-files
+	uv run pre-commit run --all-files
 
 lint: ## Run linters
 	@# check there is no `ToolUse("python"` in the code (should be `ToolUse("ipython"`)
@@ -102,13 +102,13 @@ lint: ## Run linters
 	@# check that there are nu uses of tmp_path fixture (see https://github.com/gptme/gptme/issues/709)
 	@#! grep -r 'def.*tmp_path[:,)]' ${SRCDIRS} tests/
 	@# ruff
-	poetry run ruff check ${RUFF_ARGS}
+	uv run ruff check ${RUFF_ARGS}
 	@# pylint (always pass, just output duplicates)
-	poetry run pylint --disable=all --enable=duplicate-code --exit-zero gptme/
+	uv run pylint --disable=all --enable=duplicate-code --exit-zero gptme/
 
 format: ## Format code
-	poetry run ruff check --fix-only ${RUFF_ARGS}
-	poetry run ruff format ${RUFF_ARGS}
+	uv run ruff check --fix-only ${RUFF_ARGS}
+	uv run ruff format ${RUFF_ARGS}
 
 update-models:
 	wayback_url=$$(curl "https://archive.org/wayback/available?url=openai.com/api/pricing/" | jq -r '.archived_snapshots.closest.url') && \
@@ -118,18 +118,18 @@ precommit: format lint typecheck check-rst  ## Run all pre-commit checks
 
 check-rst:
 	@echo "Checking RST files for proper nested list formatting..."
-	poetry run python scripts/check_rst_formatting.py docs/
+	uv run python scripts/check_rst_formatting.py docs/
 
 check-openapi: ## Validate OpenAPI specification
 	@echo "Generating OpenAPI spec..."
 	@mkdir -p build
-	poetry run gptme-server openapi -o build/openapi.json
+	uv run gptme-server openapi -o build/openapi.json
 	@echo "Validating OpenAPI spec..."
-	poetry run openapi-spec-validator build/openapi.json
+	uv run openapi-spec-validator build/openapi.json
 	@echo "✅ OpenAPI spec is valid!"
 
 docs/.clean: docs/conf.py
-	poetry run make -C docs clean
+	uv run make -C docs clean
 	touch docs/.clean
 
 docs: docs/conf.py docs/*.rst docs/.clean check-rst
@@ -140,15 +140,15 @@ docs: docs/conf.py docs/*.rst docs/.clean check-rst
 			git fetch origin eval-results --depth=1 && git checkout origin/eval-results -- eval_results || echo "No eval results available; building docs without leaderboard data"; \
 		fi \
 	fi
-	poetry run make -C docs html SPHINXOPTS="-W --keep-going"
-	poetry run python scripts/docs_structure.py docs/_build/html --check
+	uv run make -C docs html SPHINXOPTS="-W --keep-going"
+	uv run python scripts/docs_structure.py docs/_build/html --check
 
 docs-structure: ## Show the built docs' sidebar navigation with each page's headings
-	poetry run python scripts/docs_structure.py docs/_build/html --headings
+	uv run python scripts/docs_structure.py docs/_build/html --headings
 
 docs-linkcheck: docs/conf.py docs/*.rst ## Check docs for dead links (see docs/conf.py linkcheck_ignore)
 	python3 scripts/check_docs_repo_links.py
-	poetry run make -C docs linkcheck
+	uv run make -C docs linkcheck
 
 docs-auto:
 	make -C docs livehtml
@@ -180,6 +180,7 @@ site-check:  ## Verify the assembled gptme.org tree before deploy
 	grep -F -q "An AI agent that lives in your terminal" site/dist/index.html
 	test -f site/dist/readme/index.html
 	grep -F -q "https://gptme.org/media/" site/dist/readme/index.html
+	test -f site/dist/stats/index.html
 	test -f site/dist/docs/index.html
 	test -f site/dist/CNAME
 	grep -Fxq "gptme.org" site/dist/CNAME
@@ -221,10 +222,10 @@ release-minor:  ## Create a stable minor release (x.Y+1.0)
 .PHONY: dist/CHANGELOG.md
 dist/CHANGELOG.md: ./scripts/build_changelog.py
 	@# Use clean version if on tagged commit, otherwise use descriptive version
-	@POETRY_VERSION=v$$(poetry version --short) && \
+	@UV_VERSION=v$$(uv version --short) && \
 	GIT_VERSION=$$(git describe --tags) && \
-	if [ "$$POETRY_VERSION" = "$$GIT_VERSION" ]; then \
-		VERSION=$$POETRY_VERSION; \
+	if [ "$$UV_VERSION" = "$$GIT_VERSION" ]; then \
+		VERSION=$$UV_VERSION; \
 	else \
 		VERSION=$$GIT_VERSION; \
 	fi && \
@@ -250,7 +251,7 @@ release: version dist/CHANGELOG.md  ## Release new version (interactive)
 	# Amend version commit to include changelog
 	# Force-update tag to amended commit
 	# Then use shared publish script for push + GH release
-	@VERSION=v$$(poetry version --short) && \
+	@VERSION=v$$(uv version --short) && \
 		echo "Releasing version $${VERSION}"; \
 		grep $${VERSION} docs/changelog.rst || (awk '/^   releases\// && !done { \
 			print "   releases/'"$${VERSION}"'.md"; \
@@ -279,7 +280,7 @@ clean-site:  ## Clean generated site files
 	rm -rf site/dist
 
 clean-docs:  ## Clean generated documentation
-	poetry run make -C docs clean
+	uv run make -C docs clean
 
 clean-test:  ## Clean test logs and outputs
 	echo $$HOME/.local/share/gptme/logs/*test-*-test_*
@@ -296,7 +297,7 @@ rename-logs:
 	./scripts/auto_rename_logs.py $(if $(APPLY),--no-dry-run) --limit $(or $(LIMIT),10)
 
 analyze-compression: ## Analyze compression ratios of conversation logs
-	poetry run python scripts/analyze_compression.py --limit $(or $(LIMIT),100) $(if $(VERBOSE),-v) $(if $(DETAILED),-d)
+	uv run python scripts/analyze_compression.py --limit $(or $(LIMIT),100) $(if $(VERBOSE),-v) $(if $(DETAILED),-d)
 
 tiny:  ## Quick "are we tiny?" summary (LoC + complexity)
 	@echo "=== Are we tiny? ==="
@@ -309,9 +310,9 @@ tiny:  ## Quick "are we tiny?" summary (LoC + complexity)
 	@printf "  Total:   %5d\n" $$(cloc ${SRCFILES} --csv --quiet | tail -1 | cut -d, -f5)
 	@echo
 	@echo "Complexity:"
-	@printf "  Avg: %s\n" "$$(poetry run radon cc ${SRCFILES} --average --total-average | grep 'Average complexity' | cut -d'(' -f2 | cut -d')' -f1)"
-	@printf "  D+ functions: %d\n" $$(poetry run radon cc ${SRCFILES} --min D | grep -cE "    [FCM]" || true)
-	@printf "  Files >300 SLOC: %d\n" $$(poetry run radon raw ${SRCFILES} | awk '/^[^ ]/ {file=$$0} /SLOC:/ {if ($$2 > 300) count++} END {print count+0}')
+	@printf "  Avg: %s\n" "$$(uv run radon cc ${SRCFILES} --average --total-average | grep 'Average complexity' | cut -d'(' -f2 | cut -d')' -f1)"
+	@printf "  D+ functions: %d\n" $$(uv run radon cc ${SRCFILES} --min D | grep -cE "    [FCM]" || true)
+	@printf "  Files >300 SLOC: %d\n" $$(uv run radon raw ${SRCFILES} | awk '/^[^ ]/ {file=$$0} /SLOC:/ {if ($$2 > 300) count++} END {print count+0}')
 
 cloc: cloc-core cloc-tools cloc-server cloc-tests  ## Run cloc to count lines of code
 
@@ -348,14 +349,14 @@ metrics:  ## Generate code metrics report
 	@echo
 	@echo "Project Overview:"
 	@echo "  Files: $$(find ${SRCDIRS} -name '*.py' | wc -l)"
-	@echo "  Total blocks: $$(poetry run radon cc ${SRCFILES} --total-average | grep "blocks" | cut -d' ' -f1 | tr -d '\n')"
-	@echo "  Average complexity: $$(poetry run radon cc ${SRCFILES} --average --total-average | grep "Average complexity" | cut -d'(' -f2 | cut -d')' -f1)"
+	@echo "  Total blocks: $$(uv run radon cc ${SRCFILES} --total-average | grep "blocks" | cut -d' ' -f1 | tr -d '\n')"
+	@echo "  Average complexity: $$(uv run radon cc ${SRCFILES} --average --total-average | grep "Average complexity" | cut -d'(' -f2 | cut -d')' -f1)"
 	@echo
 	@echo "Most Complex Functions (D+):"
-	@poetry run radon cc ${SRCFILES} --min D | grep -v "^$$" | grep -E "^[^ ]|    [FCM].*[DE]" | sed 's/^/  /'
+	@uv run radon cc ${SRCFILES} --min D | grep -v "^$$" | grep -E "^[^ ]|    [FCM].*[DE]" | sed 's/^/  /'
 	@echo
 	@echo "Largest Files (>300 SLOC):"
-	@poetry run radon raw ${SRCFILES} | awk '/^[^ ]/ {file=$$0} /SLOC:/ {if ($$2 > 300) printf "  %4d %s\n", $$2, file}' | sort -nr
+	@uv run radon raw ${SRCFILES} | awk '/^[^ ]/ {file=$$0} /SLOC:/ {if ($$2 > 300) printf "  %4d %s\n", $$2, file}' | sort -nr
 	@echo
 	@make metrics-duplicates
 
@@ -365,16 +366,16 @@ metrics-duplicates:  ## Find duplicated code using jscpd
 
 bench-import:  ## Benchmark import time
 	@echo "Benchmarking import time for gptme"
-	time poetry run python -X importtime -m gptme --model openai --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n | tail -n 10
-	@#time poetry run python -X importtime -m gptme --model openrouter --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
-	@#time poetry run python -X importtime -m gptme --model anthropic --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
+	time uv run python -X importtime -m gptme --model openai --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n | tail -n 10
+	@#time uv run python -X importtime -m gptme --model openrouter --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
+	@#time uv run python -X importtime -m gptme --model anthropic --non-interactive 2>&1 | grep "import time" | cut -d'|' -f 2- | sort -n
 
 bench-startup:  ## Benchmark startup time (import + full start/exit cycle)
-	@# Invoke the venv binaries directly: `poetry run` adds 1-3s of wrapper
-	@# overhead per invocation, which would drown out what we're measuring.
+	@# Invoke the venv binaries directly: `uv run` adds wrapper overhead; use
+	@# the venv directly for accurate startup measurements.
 	@# `< /dev/null` closes stdin so the piped-stdin grace period isn't hit.
 	@echo "Benchmarking startup time for gptme"
-	@VENV=$$(poetry env info --path) && \
+	@VENV=$$(uv run python -c "import sys, os; print(os.path.dirname(os.path.dirname(sys.executable)))") && \
 	hyperfine --warmup 2 -M 10 \
 		-n "import gptme.cli.main" "$$VENV/bin/python -c 'from gptme.cli.main import main'" \
 		-n "gptme --help" "$$VENV/bin/gptme --help" \

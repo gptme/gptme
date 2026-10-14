@@ -71,9 +71,10 @@ _tool_format_var: ContextVar[ToolFormat | None] = ContextVar(
     "tool_format", default=None
 )
 
-# Match tool name and start of JSON
+# Canonical MCP names can contain spaces, slashes, colons, and parentheses.
+# Bound the name to one line; the call-id suffix delimits it from the JSON.
 toolcall_re = re.compile(
-    r"^@([\w.]+)\(([\w\-:\.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL
+    r"^@([^\r\n]+?)\(([\w\-:\.]+)\):\s*({.*)", re.MULTILINE | re.DOTALL
 )
 
 
@@ -1230,7 +1231,9 @@ class ToolUse:
             if block_end is not None:
                 search_from = block_end
                 continue
-            tool_name = match.group(1)
+            from .native_names import canonical_tool_name
+
+            tool_name = canonical_tool_name(match.group(1))
             call_id = match.group(2)
             json_start = match.start(3)
             json_end = find_json_end(content, json_start)

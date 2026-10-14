@@ -43,7 +43,7 @@ jobs:
           code:
             - 'gptme/**'
             - 'tests/**'
-            - 'poetry.lock'
+            - 'uv.lock'
             - 'pyproject.toml'
             - 'Makefile'
             - '.github/workflows/test.yml'
@@ -60,7 +60,7 @@ jobs:
             - 'gptme/session.py'
             - 'gptme/executor.py'
             - 'tests/**'
-            - 'poetry.lock'
+            - 'uv.lock'
             - 'Makefile'
             - '.github/workflows/test.yml'
 
@@ -94,29 +94,15 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
 
-    - name: Store cache ID in file .cache-id
-      id: cache-id
-      run: echo "noextras" > .cache-id
-
-    - name: Install poetry
-      run: pipx install poetry
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.12'
-        cache: 'poetry'
-        cache-dependency-path: |
-          poetry.lock
-          .cache-id
 
     - name: Install dependencies
-      run: |
-        make build
-        poetry install -E all
+      run: uv sync --all-extras --frozen
 
     - name: Install playwright
-      run: poetry run playwright install chromium
+      run: uv run playwright install chromium
 
     # Slow tests (browser, MCP, integration) run on master and dispatch only:
     # they dominate this job's runtime, and PR CI waits on it.
@@ -174,26 +160,12 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
 
-    - name: Store cache ID in file .cache-id
-      id: cache-id
-      run: echo "minimal" > .cache-id
-
-    - name: Install poetry
-      run: pipx install poetry
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.10'
-        cache: 'poetry'
-        cache-dependency-path: |
-          poetry.lock
-          .cache-id
 
     - name: Install dependencies (no extras)
-      run: |
-        make build
-        poetry install
+      run: uv sync --frozen
 
     - name: Run tests (no extras, fast only)
       env:
@@ -238,32 +210,19 @@ jobs:
       with:
         submodules: 'recursive'
 
-    - name: Store cache ID in file .cache-id
-      shell: pwsh
-      run: Set-Content -Path .cache-id -Value windows-path-config
-
-    # Must precede setup-python: `cache: 'poetry'` resolves the poetry binary.
-    - name: Install poetry
-      run: pipx install poetry
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.12'
-        cache: 'poetry'
-        cache-dependency-path: |
-          poetry.lock
-          .cache-id
 
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --frozen
 
     - name: Run Windows path/config smoke tests
       env:
         TERM: xterm
         MODEL: local/test
       run: |
-        poetry run pytest -v `
+        uv run pytest -v `
           tests/test_dirs.py `
           tests/test_logmanager_locking.py `
           tests/test_config.py::test_custom_tool_file_allowlist_preserved `
@@ -272,14 +231,14 @@ jobs:
           tests/test_cli.py::test_help `
           tests/test_cli.py::test_version
 
-  # uv-native smoke: Poetry CI cannot catch a broken [dependency-groups] table.
+  # Quick lockfile health check: verifies that [dependency-groups] resolves
+  # and the installed env satisfies the two most basic CLI smoke tests.
   # Invoke pytest through the venv interpreter (`python -m pytest`) so a
-  # runner-PATH pytest cannot make this job pass when the project env is
-  # missing pytest. A missing pytest/requests still fails the check.
+  # runner-PATH pytest cannot mask a broken project env.
   test-uv:
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
-    name: Test with uv (PEP 735 smoke)
+    name: Test with uv (lockfile smoke)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -297,8 +256,8 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Install project + PEP 735 dev group
-      run: uv sync
+    - name: Install project + dev group (frozen)
+      run: uv sync --frozen
 
     - name: Smoke uv-native pytest
       env:
@@ -349,23 +308,15 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
         echo "DISPLAY=:99" >> $GITHUB_ENV
 
-    - name: Install poetry
-      run: pipx install poetry
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.10'
-        cache: 'poetry'
-        cache-dependency-path: poetry.lock
 
     - name: Install dependencies
-      run: |
-        make build
-        poetry install -E all
+      run: uv sync --all-extras --frozen
 
     - name: Install playwright
-      run: poetry run playwright install chromium
+      run: uv run playwright install chromium
 
     - name: Run API tests only
       uses: nick-fields/retry@v4

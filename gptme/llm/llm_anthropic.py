@@ -19,6 +19,7 @@ from pydantic import BaseModel  # fmt: skip
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec, truncate_tool_description
+from ..tools.native_names import canonical_tool_name, native_tool_name
 from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
 from .retry_abort import backoff_wait, current_generation
@@ -879,6 +880,16 @@ def _chat_timeout() -> float:
         ) from exc
 
 
+def _compaction_betas_kwargs(messages: list[Message]) -> dict[str, Any]:
+    """Replay of a provider-native compaction block requires the compaction
+    beta on every request that carries the block."""
+    if any(
+        m.metadata and m.metadata.get("anthropic_compaction_block") for m in messages
+    ):
+        return {"betas": ["compact-2026-09-04"]}
+    return {}
+
+
 @retry_on_overloaded()
 def chat(
     messages: list[Message],
@@ -970,6 +981,7 @@ def chat(
         tools=tools_dict or NOT_GIVEN,
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
+        **_compaction_betas_kwargs(messages),
         **_fast_mode_kwargs(),
         # Apply the subagent budget when present; ordinary calls still need
         # an explicit timeout to bypass the SDK's streaming-required check.
@@ -997,7 +1009,9 @@ def chat(
                 f"<think>\n{block.thinking}\n<!-- think-sig: {block.signature} -->\n</think>"
             )
         elif block.type == "tool_use":
-            parsed_block.append(f"\n@{block.name}({block.id}): {block.input}")
+            parsed_block.append(
+                f"\n@{canonical_tool_name(block.name)}({block.id}): {block.input}"
+            )
         else:
             logger.warning("Unknown block: %s", str(block))
 
@@ -1086,6 +1100,7 @@ def stream(
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,  # type: ignore[arg-type]
         **output_config_kwargs,  # type: ignore[arg-type]
         **_fast_mode_kwargs(),
+        **_compaction_betas_kwargs(messages),
     ) as stream:
         for chunk in stream:
             match chunk.type:
@@ -1094,7 +1109,7 @@ def stream(
                     block = chunk.content_block
                     if isinstance(block, anthropic.types.ToolUseBlock):
                         tool_use = block
-                        yield f"\n@{tool_use.name}({tool_use.id}): "
+                        yield f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
                     elif isinstance(block, anthropic.types.ThinkingBlock):
                         yield "<think>\n"
                     elif isinstance(block, anthropic.types.RedactedThinkingBlock):
@@ -1323,7 +1338,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 {
                     "type": "tool_use",
                     "id": tooluse.call_id or "",
-                    "name": tooluse.tool,
+                    "name": native_tool_name(tooluse.tool),
                     "input": tooluse.kwargs or {},
                 }
                 for tooluse in tool_uses
@@ -1492,9 +1507,7 @@ def _transform_system_messages(
 def _spec2tool(
     spec: ToolSpec,
 ) -> "anthropic.types.ToolParam":
-    name = spec.name
-    if spec.block_types:
-        name = spec.block_types[0]
+    name = native_tool_name(spec.name)
 
     # TODO: are input_schema and parameters the same? (both JSON Schema?)
     return cast(
@@ -1555,6 +1568,19 @@ def _prepare_messages_for_api(
     """
     # noreorder
     import anthropic.types  # fmt: skip
+
+    # Signed compaction blocks are round-tripped as the first message, in
+    # place of the history the provider already summarized. They never go
+    # through text conversion.
+    compaction_prefix: list[Message] = []
+    rest: list[Message] = []
+    for candidate in messages:
+        if candidate.metadata and candidate.metadata.get("anthropic_compaction_block"):
+            compaction_prefix.append(candidate)
+        else:
+            rest.append(candidate)
+    if compaction_prefix:
+        messages = rest
 
     # Transform system messages
     messages, system_messages = _transform_system_messages(messages, model=model)
@@ -1671,5 +1697,20 @@ def _prepare_messages_for_api(
     )
     messages_dicts_new = cast(list[anthropic.types.MessageParam], messages_with_cache)
     system_messages = cast(list[anthropic.types.TextBlockParam], system_with_cache)
+
+    # Replay signed compaction blocks verbatim as the first message content.
+    if compaction_prefix:
+        blocks = [
+            cast(dict, msg.metadata["anthropic_compaction_block"])
+            for msg in compaction_prefix
+            if msg.metadata
+        ]
+        messages_dicts_new.insert(
+            0,
+            cast(
+                "anthropic.types.MessageParam",
+                {"role": "user", "content": blocks},
+            ),
+        )
 
     return messages_dicts_new, system_messages, tools_dict

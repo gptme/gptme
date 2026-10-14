@@ -49,21 +49,14 @@ jobs:
           echo "available=true" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Install poetry
+    - uses: astral-sh/setup-uv@v7
       if: steps.check_key.outputs.available == 'true'
-      run: pipx install poetry
-
-    - name: Set up Python
-      if: steps.check_key.outputs.available == 'true'
-      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
-        cache: 'poetry'
-        cache-dependency-path: poetry.lock
 
     - name: Install gptme from PR branch
       if: steps.check_key.outputs.available == 'true'
-      run: poetry install
+      run: uv sync --frozen
 
     - name: Write gptme config
       if: steps.check_key.outputs.available == 'true'
@@ -92,7 +85,7 @@ jobs:
       run: |
         mkdir -p eval_results
         # 5 basic tests with Haiku — fast and cheap (~$0.03-0.08/run)
-        poetry run python -m gptme.eval \
+        uv run python -m gptme.eval \
           hello prime100 fix-bug hello-patch init-git \
           -m "$EVAL_MODEL" \
           --timeout 60 \

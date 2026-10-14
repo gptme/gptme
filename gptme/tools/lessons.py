@@ -25,6 +25,7 @@ from ..config import get_config
 from ..hooks import HookType, StopPropagation
 from ..lessons import Lesson, LessonIndex, LessonMatcher, MatchContext
 from ..lessons.commands import lesson
+from ..lessons.selector import refine_matches
 from ..message import Message
 from .base import ToolSpec
 
@@ -359,12 +360,19 @@ def auto_include_lessons_hook(
         # Match lessons against context
         match_results = matcher.match(index.lessons, context)
 
-        # Filter out already included lessons (MatchResult has .lesson attribute)
-        new_matches = [
+        # Holdouts remain ineligible even for explicitly protected guards.
+        eligible_matches = [
             match
             for match in match_results
             if not _is_holdout_lesson(match.lesson, holdout_lessons)
-            and str(match.lesson.path) not in included_lessons
+        ]
+        eligible_matches = refine_matches(eligible_matches, manager, _is_holdout_lesson)
+
+        # Dedup after selection keeps the service's eligible catalog stable.
+        new_matches = [
+            match
+            for match in eligible_matches
+            if str(match.lesson.path) not in included_lessons
             and str(match.lesson.path) not in stats.unique_lessons
         ]
 

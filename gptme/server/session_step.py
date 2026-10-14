@@ -985,7 +985,7 @@ def step(
     # Notify clients about generation status
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
 
-    tool_format = chat_config.tool_format
+    tool_format = chat_config.tool_format or model_meta.default_tool_format
     tools = None
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]

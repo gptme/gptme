@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import warnings
 
+# Capture selector authority before any workspace .env can set it.
+from .lessons.selector import capture_trusted_selector_env
+
+capture_trusted_selector_env()
+
 # Suppress requests' overly-strict version-compatibility warning.
 # Newer urllib3/chardet/charset_normalizer work fine with requests;
 # the warning just pollutes every gptme command output.

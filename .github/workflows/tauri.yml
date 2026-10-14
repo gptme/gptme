@@ -386,20 +386,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-dev build-essential libffi-dev
 
-      - name: Install poetry
-        run: pipx install poetry
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.13'
-          cache: 'poetry'
 
       - name: Install dependencies
         shell: bash
-        run: |
-          make build
-          poetry install --extras server --extras pyinstaller --with dev
+        run: uv sync --extra server --extra pyinstaller --frozen
 
       - name: Build PyInstaller executable
         shell: bash

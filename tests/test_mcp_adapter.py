@@ -734,6 +734,38 @@ def test_session_client_retry_stays_in_session_registry(mock_config):
     assert "test-server" not in _mcp_clients
 
 
+def test_restart_mcp_client_failed_reconnect_clears_stale_registry_entry(
+    mock_config,
+):
+    """A failed reconnect must not leave the closed old client registered."""
+    from gptme.mcp.client import MCPClient
+
+    old_client = MagicMock(spec=MCPClient)
+    # stack/loop are set in MCPClient.__init__, so spec alone omits them; set
+    # them explicitly so the close path actually runs instead of hitting the
+    # AttributeError guard.
+    old_client.stack = MagicMock()
+    old_client.loop = MagicMock()
+    # Consume the __aexit__ awaitable like a real loop would (avoids the
+    # "coroutine was never awaited" warning from MagicMock's async magic).
+    old_client.loop.run_until_complete.side_effect = lambda coro: coro.close()
+    _mcp_clients["test-server"] = old_client
+
+    replacement = MagicMock(spec=MCPClient)
+    replacement.connect.side_effect = RuntimeError("server unreachable")
+
+    with (
+        patch("gptme.mcp.client.MCPClient", return_value=replacement),
+        pytest.raises(RuntimeError, match="server unreachable"),
+    ):
+        _restart_mcp_client("test-server", mock_config)
+
+    # Old client was closed and must not linger as an "already loaded" entry
+    old_client.loop.run_until_complete.assert_called_once()
+    old_client.loop.close.assert_called_once_with()
+    assert "test-server" not in _mcp_clients
+
+
 def test_restart_mcp_client_survives_cleanup_failure_and_reconnects(mock_config):
     """Test restart tolerates cleanup failures from the old client."""
 

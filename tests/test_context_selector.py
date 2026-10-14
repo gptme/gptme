@@ -377,6 +377,40 @@ class TestHybridSelector:
         assert len(results) == 5
         assert all(r.identifier.startswith("item") for r in results)
 
+    def test_malformed_llm_reply_falls_back_to_pre_filter(self):
+        """A malformed LLM reply degrades to the rule-based pre-filter, not an error."""
+        many_items = [
+            SimpleItem(
+                identifier=f"item{i}",
+                content=f"Content about git workflow {i}",
+                metadata={"keywords": ["git", "workflow"], "priority": "medium"},
+            )
+            for i in range(25)
+        ]
+        config = ContextSelectorConfig(
+            strategy="hybrid", max_candidates=20, max_selected=5
+        )
+        selector = HybridSelector(config)
+
+        with patch(
+            "gptme.llm.reply", return_value=Mock(content="no selected block here")
+        ) as mock_reply:
+            results = selector.select(
+                query="git workflow best practices",
+                candidates=many_items,
+                max_results=5,
+            )
+            mock_reply.assert_called_once()
+
+        # The fallback must be exactly the rule-based ranking, capped at max_results
+        expected = RuleBasedSelector(config).select(
+            query="git workflow best practices",
+            candidates=many_items,
+            max_results=config.max_candidates,
+        )[:5]
+        assert [r.identifier for r in results] == [e.identifier for e in expected]
+        assert len(results) == 5
+
     def test_preserves_llm_selection_order(self, mock_llm_response):
         """Test that hybrid selector preserves LLM's selection order."""
         many_items = [

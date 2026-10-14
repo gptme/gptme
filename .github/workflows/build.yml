@@ -14,7 +14,7 @@ on:
       - 'scripts/**'
       - 'media/**'
       - 'pyproject.toml'
-      - 'poetry.lock'
+      - 'uv.lock'
       - 'README.md'
       - 'Makefile'
       - '.dockerignore'
@@ -222,17 +222,9 @@ jobs:
       with:
         ref: ${{ inputs.tag || github.ref }}
 
-    - name: Install poetry
-      run: pipx install poetry
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: ${{ matrix.python_version }}
-        cache: 'poetry'
-        #cache-dependency-path: |
-        #  pyproject.toml
-        #  poetry.lock
 
     - name: Install system dependencies (Ubuntu)
       if: runner.os == 'Linux'
@@ -257,9 +249,7 @@ jobs:
         sudo apt-get install -y python3-dev build-essential libffi-dev
 
     - name: Install dependencies
-      run: |
-        make build
-        poetry install --extras server --extras pyinstaller --with dev
+      run: uv sync --extra server --extra pyinstaller --frozen
 
     - name: Set up Node.js
       uses: actions/setup-node@v7

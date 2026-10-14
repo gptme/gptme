@@ -317,8 +317,7 @@ class LogManager:
                     messages=self.snapshot_message_files(branch_log.messages)
                 )
 
-        # Saved main history has its own store, outside the user-branch namespace.
-        # In particular, branches/lossless.jsonl may be an ordinary experiment.
+        # Load lossless snapshot (written by manual compaction to preserve full history)
         self._lossless_log: Log | None = None
         lossless_path = self.logdir / "lossless.jsonl"
         if lossless_path.exists():
@@ -632,10 +631,8 @@ class LogManager:
             # Append to master (main branch) for full history preservation
             if "main" in self._branches:
                 self._branches["main"] = self._branches["main"].append(msg)
+            # Keep lossless snapshot current (manual-compact path: lossless + view)
             if self._lossless_log is not None:
-                # Keep the preserved lossless transcript current under views
-                # too, so results appended after an in-place compaction stay
-                # recallable.
                 self._lossless_log = self._lossless_log.append(msg)
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
@@ -643,11 +640,8 @@ class LogManager:
         else:
             # Not on a view, append to current branch normally (no dual-write)
             self.log = self.log.append(msg)
+            # Keep lossless snapshot current when on main (manual-compact path)
             if self._lossless_log is not None and self.current_branch == "main":
-                # Keep the preserved lossless transcript current so results
-                # appended after an in-place compaction stay recallable. Only
-                # mirror main: messages from other (experiment) branches must
-                # not leak into the main conversation's recallable results.
                 self._lossless_log = self._lossless_log.append(msg)
 
         self.write()
@@ -709,10 +703,9 @@ class LogManager:
         Path(self.logfile).parent.mkdir(parents=True, exist_ok=True)
         paths: set[Path] = set()
 
-        # Save original outputs before replacing the active transcript with a
-        # checkpoint. If the snapshot fails, the on-disk original stays intact.
-        # Persist saved history even when the caller skips ordinary branches.
-        if self._lossless_log is not None:
+        # Persist the recall archive before advancing the active transcript.
+        # A failed archive write must leave the on-disk conversation unchanged.
+        if self._lossless_log is not None and self.logdir:
             lossless_path = self.logdir / "lossless.jsonl"
             self._lossless_log = self._lossless_log.write_jsonl(
                 lossless_path, append=True
@@ -934,6 +927,22 @@ class LogManager:
             )
         return manager
 
+    def preserve_lossless_log(self) -> None:
+        """Write the full lossless history to lossless.jsonl.
+
+        Call before manual compaction to ensure the original transcript is
+        preserved even after conversation.jsonl is replaced.  Raises on
+        failure so callers can abort before touching conversation.jsonl.
+        """
+        if not self.logdir:
+            return
+        lossless_path = self.logdir / "lossless.jsonl"
+        lossless_path.parent.mkdir(parents=True, exist_ok=True)
+        # Re-compaction must not overwrite the existing full transcript with
+        # the already compacted active branch. Recall IDs address this archive.
+        written = self.master_log.write_jsonl(lossless_path, append=True)
+        self._lossless_log = written
+
     def branch(self, name: str) -> None:
         """Switches to a branch."""
         self.write()
@@ -1064,26 +1073,10 @@ class LogManager:
 
     @property
     def master_log(self) -> Log:
-        """Get the master log (always the main branch, never compacted).
-
-        Prefers the preserved snapshot in ``lossless.jsonl`` when an in-place
-        (manual) compaction replaced the active branch, so result-recall IDs
-        keep pointing at the full transcript. User branches never own this store.
-        """
+        """Get the master log (always the full lossless history)."""
         if self._lossless_log is not None:
             return self._lossless_log
         return self._branches.get("main", self._branches[self.current_branch])
-
-    def preserve_lossless_log(self) -> None:
-        """Snapshot the catalog's master transcript separately from user branches.
-
-        Used before an in-place compaction replaces the active log: the
-        snapshot keeps the full transcript available to ``master_log`` so
-        recallable result IDs remain valid.
-        """
-        if self._lossless_log is None:
-            # This is a new destination: do not reuse main's persisted prefix.
-            self._lossless_log = self.master_log.replace(persisted=())
 
     def fork(self, name: str) -> None:
         """
@@ -1182,6 +1175,9 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
         value = msg.metadata.get("prompt_generation")
         return value if isinstance(value, str) else None
 
+    def _has_compaction_block(m: Message) -> bool:
+        return bool(m.metadata and m.metadata.get("anthropic_compaction_block"))
+
     merged: list[Message] = []
     for msg in msgs:
         if (
@@ -1192,6 +1188,8 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
             and msg.content != SYSTEM_PROMPT_CACHE_BOUNDARY
             and merged[-1].content != SYSTEM_PROMPT_CACHE_BOUNDARY
             and _generation(merged[-1]) == _generation(msg)
+            and not _has_compaction_block(msg)
+            and not _has_compaction_block(merged[-1])
         ):
             merged[-1] = merged[-1].concat(msg)
         else:

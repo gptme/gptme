@@ -7,18 +7,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make git tmux curl pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN pip install --no-cache-dir poetry
+# Install uv for locked dependency exports.
+RUN pip install --no-cache-dir uv
 
 # Set the working directory
 WORKDIR /app
 
 # Copy only the files needed for installation
-COPY pyproject.toml poetry.lock* ./
+COPY pyproject.toml uv.lock ./
 
-# Install project dependencies
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --no-root -E server -E browser -E datascience
+# Install project dependencies into the system interpreter used by the entrypoint.
+RUN uv export --frozen --no-hashes --no-emit-project --extra server --extra browser --extra datascience -o requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy the project files
 COPY . /app

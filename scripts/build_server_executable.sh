@@ -11,7 +11,7 @@ fi
 
 # Install dependencies including server extras
 echo "Installing dependencies..."
-poetry install --extras server --with dev
+uv sync --extra server
 
 # Clean previous builds
 echo "Cleaning previous builds..."
@@ -19,7 +19,7 @@ rm -rf build/ dist/ scripts/pyinstaller/gptme-server.spec.bak
 
 # Run PyInstaller
 echo "Running PyInstaller..."
-poetry run pyinstaller scripts/pyinstaller/gptme-server.spec
+uv run pyinstaller scripts/pyinstaller/gptme-server.spec
 
 # Check if build was successful
 if [ -f "dist/gptme-server" ] || [ -f "dist/gptme-server.exe" ]; then

@@ -4,13 +4,15 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Head, Layout, type PageMeta } from "./components/Layout";
 import { renderReadme } from "./lib/readme";
-import { getStats } from "./lib/stats";
+import { getStats, resolveCharts } from "./lib/stats";
 import { Home } from "./routes/Home";
 import { Readme } from "./routes/Readme";
+import { Stats, statsCharts } from "./routes/Stats";
 
 export const routes = [
   { path: "/", file: "index.html" },
   { path: "/readme/", file: "readme/index.html" },
+  { path: "/stats/", file: "stats/index.html" },
 ];
 
 export async function render(path: string): Promise<{ head: string; html: string }> {
@@ -18,7 +20,20 @@ export async function render(path: string): Promise<{ head: string; html: string
 
   let meta: PageMeta;
   let page: ReactElement;
-  if (path === "/readme/") {
+  if (path === "/stats/") {
+    meta = {
+      title: "Stats · gptme",
+      description:
+        "gptme usage and community stats: GitHub stars, PyPI and release downloads, contributors. Collected daily by gptme/stats.",
+      path,
+    };
+    const [stars, pypi, releases] = await Promise.all([
+      resolveCharts(statsCharts.stars),
+      resolveCharts(statsCharts.pypi),
+      resolveCharts(statsCharts.releases),
+    ]);
+    page = <Stats stats={stats} charts={{ stars, pypi, releases }} />;
+  } else if (path === "/readme/") {
     meta = {
       title: "README · gptme",
       description: "The gptme README: features, demos, getting started and the ecosystem.",

@@ -33,7 +33,7 @@ cd "$REPO_ROOT"
 
 # --- Read version metadata from git/pyproject ---
 
-VERSION=$(poetry version --short)
+VERSION=$(uv version --short)
 TAG="v${VERSION}"
 
 # Verify the tag exists on HEAD

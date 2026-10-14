@@ -26,10 +26,7 @@ jobs:
     timeout-minutes: 15
     steps:
     - uses: actions/checkout@v7
-    - name: Install poetry
-      run: pipx install poetry
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.10'
     - name: Install pre-commit
@@ -52,18 +49,11 @@ jobs:
     timeout-minutes: 20
     steps:
     - uses: actions/checkout@v7
-    - name: Install poetry
-      run: pipx install poetry
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.10'
-        cache: 'poetry'
     - name: Install dependencies
-      run: |
-        make build
-        poetry install -E server -E browser -E telemetry -E dspy -E tui
-        poetry run pip install tomli tomli_w lxml
+      run: uv sync --extra server --extra browser --extra telemetry --extra dspy --extra tui --frozen
     # The OpenAPI check needs the same install (server extra), so it runs here,
     # in parallel with mypy, instead of in its own job.
     - name: Typecheck and check OpenAPI spec

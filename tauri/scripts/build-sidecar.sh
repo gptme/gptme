@@ -95,11 +95,8 @@ if [[ -f "uv.lock" ]]; then
         exit 1
     fi
 else
-    if [[ -f "poetry.lock" ]]; then
-        echo "WARNING: No uv.lock found (it is gitignored); install will not" \
-             "enforce pinned versions from poetry.lock." \
-             "Run 'uv lock' to generate a uv.lock for reproducible builds." >&2
-    fi
+    echo "WARNING: No uv.lock found; install will not enforce pinned versions." \
+         "Run 'uv lock' to generate a uv.lock for reproducible builds." >&2
     [[ -d ".venv" ]] || uv venv .venv
     uv pip install --quiet ".[server]" pyinstaller
 fi
