@@ -204,14 +204,18 @@ def test_worker_killed_after_completion_gets_its_own_notice(fake_low_memory):
         background_job_completion_hook as hook,
     )
 
-    class Manager:
-        chat_id = None
+    # the worker doesn't hold the job's output pipes, so the job completes
+    # as soon as its main process exits
+    job = start_background_job("(trap '' HUP; exec sleep 300) >/dev/null 2>&1 & exit 0")
 
-    job = start_background_job("(trap '' HUP; exec sleep 300) & exit 0")
+    class Manager:
+        chat_id = job.conversation_id
+
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 15
         while not job._completion_notified and time.monotonic() < deadline:
             time.sleep(0.1)
+        assert job._completion_notified
         [completion] = list(hook(Manager()))
         assert "finished" in completion.content
         assert fake_low_memory.check() is not None
