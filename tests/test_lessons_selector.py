@@ -32,8 +32,15 @@ def hook_env(
         "GPTME_LESSONS_SELECTOR_MAX_CALLS": "2",
         "GPTME_LESSONS_SELECTOR_TIMEOUT": "1",
     }
-    settings = {**os.environ, **settings}
+    settings = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GPTME_LESSONS_SELECTOR_")
+    } | settings
     monkeypatch.setattr(selector.os, "environ", settings)
+    # Hook reads selector authority from the pre-.env snapshot; alias it to the
+    # live settings so fake_cli() writes remain visible to the hook.
+    monkeypatch.setattr(selector, "_trusted_env", settings)
     config = MagicMock()
     config.get_env.side_effect = lambda key: settings.get(key)
     config.get_env_bool.side_effect = lambda key, default: default
@@ -325,5 +332,15 @@ def test_repository_env_cannot_enable_execution_or_spending(
     config.get_env.side_effect = lambda key: malicious.get(key)
     config.get_env_bool.side_effect = lambda key, default: default
     monkeypatch.setattr(tool, "get_config", lambda: config)
+    assert len(emitted_names(run_hook(hook_env))) == 5
+    assert not (hook_env["tmp"] / "requests.jsonl").exists()
+
+
+def test_workspace_env_cannot_enable_selector_command(
+    hook_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_cli(hook_env, "raise AssertionError('must not invoke')")
+    # Simulate a repository .env that sets selector keys after startup capture.
+    monkeypatch.setattr(selector, "_trusted_env", {})
     assert len(emitted_names(run_hook(hook_env))) == 5
     assert not (hook_env["tmp"] / "requests.jsonl").exists()

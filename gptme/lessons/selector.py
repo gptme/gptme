@@ -27,6 +27,29 @@ _MAX_BYTES = 1_048_576
 _last_intent: ContextVar[tuple[str, str] | None] = ContextVar(
     "lesson_selector_intent", default=None
 )
+_SELECTOR_ENV_KEYS = (
+    "GPTME_LESSONS_SELECTOR_COMMAND",
+    "GPTME_LESSONS_SELECTOR_GUARDS",
+    "GPTME_LESSONS_SELECTOR_MODEL",
+    "GPTME_LESSONS_SELECTOR_MAX_CALLS",
+    "GPTME_LESSONS_SELECTOR_TIMEOUT",
+)
+# Snapshot taken before any workspace `.env` is loaded (see gptme/__init__.py).
+# Repositories cannot enable command execution by writing selector keys to .env.
+_trusted_env: dict[str, str | None] | None = None
+
+
+def capture_trusted_selector_env() -> None:
+    """Record selector settings from the process environment, once, pre-.env."""
+    global _trusted_env
+    if _trusted_env is None:
+        _trusted_env = {key: os.environ.get(key) for key in _SELECTOR_ENV_KEYS}
+
+
+def _selector_env(key: str) -> str | None:
+    if _trusted_env is None:
+        return None  # fail closed: no capture means no selector
+    return _trusted_env.get(key)
 
 
 def _transport(command: list[str], request: dict[str, Any], timeout: float) -> Any:
@@ -61,7 +84,10 @@ def _transport(command: list[str], request: dict[str, Any], timeout: float) -> A
         raw = output.read(_MAX_BYTES + 1)
     if len(raw) > _MAX_BYTES:
         raise ValueError("response too large")
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except RecursionError as exc:
+        raise ValueError("response nested too deeply") from exc
 
 
 def refine_matches(
@@ -75,11 +101,11 @@ def refine_matches(
     lesson does not change the eligible catalog and invalidate its cached choice.
     Any configuration, transport or protocol failure returns the exact baseline.
     """
-    raw_command = os.environ.get("GPTME_LESSONS_SELECTOR_COMMAND")
+    raw_command = _selector_env("GPTME_LESSONS_SELECTOR_COMMAND")
     if not raw_command or not matches:
         return matches
     try:
-        raw_guards = os.environ.get("GPTME_LESSONS_SELECTOR_GUARDS") or ""
+        raw_guards = _selector_env("GPTME_LESSONS_SELECTOR_GUARDS") or ""
         guards = {
             token.strip().lower().replace("\\", "/")
             for token in raw_guards.split(",")
@@ -96,11 +122,11 @@ def refine_matches(
             or any(not isinstance(arg, str) or not arg for arg in command)
         ):
             raise ValueError("command must be a nonempty JSON argv array")
-        timeout = float(os.environ.get("GPTME_LESSONS_SELECTOR_TIMEOUT") or "2")
-        calls = int(os.environ.get("GPTME_LESSONS_SELECTOR_MAX_CALLS") or "0")
+        timeout = float(_selector_env("GPTME_LESSONS_SELECTOR_TIMEOUT") or "2")
+        calls = int(_selector_env("GPTME_LESSONS_SELECTOR_MAX_CALLS") or "0")
         if not math.isfinite(timeout) or not 0 < timeout <= 30 or not 0 <= calls <= 10:
             raise ValueError("invalid selector deadline or call budget")
-        model = os.environ.get("GPTME_LESSONS_SELECTOR_MODEL")
+        model = _selector_env("GPTME_LESSONS_SELECTOR_MODEL")
         if not model or not calls:
             raise ValueError("explicit model and positive call budget required")
         protected = {
@@ -190,6 +216,12 @@ def refine_matches(
         keep = protected | set(ids)
         logger.debug("Lesson selector %s: %d advisory matches", status, len(ids))
         return [match for match in matches if str(match.lesson.path) in keep]
-    except (OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        RecursionError,
+        subprocess.SubprocessError,
+    ) as exc:
         logger.debug("Lesson selector fallback: %s", exc)
         return matches
