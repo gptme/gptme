@@ -447,6 +447,8 @@ class KernelBackend:
         stderr_parts: list[str] = []
         stdout_bytes = 0
         stderr_bytes = 0
+        stdout_total_bytes = 0  # total received, including dropped chunks
+        stderr_total_bytes = 0
         result_text: str | None = None
         error: dict | None = None
 
@@ -484,13 +486,17 @@ class KernelBackend:
                 name = content.get("name", "")
                 text = content.get("text", "")
                 if name == "stdout":
+                    chunk_bytes = len(text.encode("utf-8", errors="replace"))
+                    stdout_total_bytes += chunk_bytes
                     if stdout_bytes < _MAX_STREAMING_OUTPUT_BYTES:
                         stdout_parts.append(text)
-                        stdout_bytes += len(text.encode("utf-8", errors="replace"))
+                        stdout_bytes += chunk_bytes
                 elif name == "stderr":
+                    chunk_bytes = len(text.encode("utf-8", errors="replace"))
+                    stderr_total_bytes += chunk_bytes
                     if stderr_bytes < _MAX_STREAMING_OUTPUT_BYTES:
                         stderr_parts.append(text)
-                        stderr_bytes += len(text.encode("utf-8", errors="replace"))
+                        stderr_bytes += chunk_bytes
 
             elif msg_type == "execute_result":
                 data = content.get("data", {})
@@ -524,9 +530,19 @@ class KernelBackend:
                     "traceback": [],
                 }
 
+        def _with_marker(parts: list[str], buffered: int, total: int) -> str:
+            text = "".join(parts)
+            if total > buffered:
+                dropped = total - buffered
+                text += (
+                    f"\n\n[... {dropped:,} bytes omitted "
+                    f"({total:,} total — capture limit reached, head only) ...]"
+                )
+            return text
+
         return KernelExecResult(
-            stdout="".join(stdout_parts),
-            stderr="".join(stderr_parts),
+            stdout=_with_marker(stdout_parts, stdout_bytes, stdout_total_bytes),
+            stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
             result_text=result_text,
             error=error,
         )
