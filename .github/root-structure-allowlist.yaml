@@ -19,7 +19,6 @@ allowed_entries:
   - SECURITY.md
   - docker-compose.yml
   - gptme.toml
-  - greptile.json  # Greptile reads its config only from the repo root
   - mypy.ini
   - uv.lock
   - pyproject.toml
