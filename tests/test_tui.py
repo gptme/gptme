@@ -1226,13 +1226,12 @@ async def test_streaming_hidden_thinking_has_only_one_status_row(tmp_path):
 
 @pytest.mark.asyncio
 async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
-    """Toggling thinking redraws the stream's rows immediately (full thinking
-    text vs. a one-line stub) and keeps later tokens visible once."""
+    """Toggling thinking switches between body mode (full text) and segment mode (stubs)."""
     monkeypatch.delenv("GPTME_TUI_DISPLAY_THINKING", raising=False)
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
 
-    def rows(sm) -> list[tuple[bool, str]]:
-        """(is the thinking row, text) for each visible segment row."""
+    def visible_segments(sm) -> list[tuple[bool, str]]:
+        """(is_thinking_stub, text) for each visible segment row."""
         return [
             (row.has_class("thinking-stub"), str(row.render()))
             for row in sm._segments
@@ -1246,32 +1245,41 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
+        # Default: segment mode — body hidden, segments show stubs
         assert not sm._body.display
-        assert rows(sm) == [(True, "▸ Thinking (1 line)"), (False, "Answer")]
+        assert visible_segments(sm) == [
+            (True, "▸ Thinking (1 line)"),
+            (False, "Answer"),
+        ]
 
+        # Body mode: body shows full text, all segments hidden
         app._set_thinking(True)
         await pilot.pause()
-        assert rows(sm) == [(True, "reasoning"), (False, "Answer")]
+        assert sm._body.display
+        assert "reasoning" in str(sm._body.render())
+        assert all(not row.display for row in sm._segments)
         app._on_stream_token(" continues")
         await pilot.pause()
-        assert rows(sm) == [(True, "reasoning"), (False, "Answer continues")]
+        assert "Answer continues" in str(sm._body.render())
 
+        # Back to segment mode
         app._set_thinking(False)
         await pilot.pause()
-        assert rows(sm) == [
+        assert not sm._body.display
+        assert visible_segments(sm) == [
             (True, "▸ Thinking (1 line)"),
             (False, "Answer continues"),
         ]
         app._on_stream_token(" hidden-mode tail")
         await pilot.pause()
-        assert rows(sm)[1] == (False, "Answer continues hidden-mode tail")
+        assert visible_segments(sm)[1] == (False, "Answer continues hidden-mode tail")
+
+        # Back to body mode: body shows all accumulated tokens
         app._set_thinking(True)
         await pilot.pause()
-        assert rows(sm) == [
-            (True, "reasoning"),
-            (False, "Answer continues hidden-mode tail"),
-        ]
-        assert not sm._body.display
+        assert sm._body.display
+        assert "hidden-mode tail" in str(sm._body.render())
+        assert all(not row.display for row in sm._segments)
 
 
 @pytest.mark.asyncio
