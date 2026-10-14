@@ -4005,6 +4005,166 @@ def test_resume_via_llm_recompaction_asks_to_carry_checkpoint_forward(
     assert "already contains a checkpoint" not in prompts[1]
 
 
+def _overflow_msgs() -> list[Message]:
+    msgs = [Message("system", "System prompt")]
+    msgs.extend(
+        Message("user" if i % 2 == 0 else "assistant", f"OLD-{i} " + "detail " * 600)
+        for i in range(12)
+    )
+    msgs += [Message("user", "newest task"), Message("assistant", "newest answer")]
+    return msgs
+
+
+def test_bound_summarize_input_summarizes_omitted_messages():
+    """Overflow: messages that do not fit are summarized, not dropped unseen."""
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    window = 16000
+    msgs = _overflow_msgs()
+    seen: list[tuple[list[Message], int]] = []
+
+    def summarize(omitted: list[Message], max_tokens: int) -> str:
+        seen.append((omitted, max_tokens))
+        return "CHUNK-NOTE: user asked for OLD-0"
+
+    out = _bound_summarize_input(
+        msgs, model, window, keep_head=1, summarize_omitted=summarize
+    )
+    assert len(seen) == 1
+    omitted, max_tokens = seen[0]
+    # The oldest conversation message reaches the summarizer instead of vanishing.
+    assert omitted[0].content.startswith("OLD-0")
+    assert max_tokens > 0
+    assert out[0].content == "System prompt"
+    assert "CHUNK-NOTE" in out[1].content
+    assert "did not fit the summarization window" in out[1].content
+    assert len_tokens(out[1].content, model) <= max_tokens
+    assert out[-1].content == "newest answer"
+    assert len_tokens(out, model) <= (
+        window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_bound_summarize_input_failed_chunk_summary_keeps_marker():
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    out = _bound_summarize_input(
+        _overflow_msgs(),
+        "gpt-4",
+        16000,
+        keep_head=1,
+        summarize_omitted=lambda omitted, max_tokens: None,
+    )
+    assert "older messages omitted" in out[1].content
+    assert out[-1].content == "newest answer"
+
+
+def test_bound_summarize_input_fitting_body_skips_chunk_summary():
+    from gptme.tools.autocompact.resume import _bound_summarize_input
+
+    msgs = _overflow_msgs()
+    calls: list[int] = []
+
+    def summarize(omitted: list[Message], max_tokens: int) -> str:
+        calls.append(len(omitted))
+        return "unused"
+
+    out = _bound_summarize_input(
+        msgs, "gpt-4", 200_000, keep_head=1, summarize_omitted=summarize
+    )
+    assert calls == []
+    assert [m.content for m in out] == [m.content for m in msgs]
+
+
+def test_summarize_in_chunks_fresh_context_per_chunk(monkeypatch):
+    from gptme.tools.autocompact.resume import (
+        _CHUNK_SUMMARY_PROMPT,
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _summarize_in_chunks,
+    )
+
+    model = "gpt-4"
+    window = 14000
+    requests: list[list[Message]] = []
+
+    def fake_reply(msgs, **kwargs):
+        requests.append(msgs)
+        return Message("assistant", f"note {len(requests)}")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+    msgs = _overflow_msgs()[1:13]
+    summary = _summarize_in_chunks(msgs, "openai/gpt-4", model, window, 3000)
+
+    assert summary is not None
+    assert len(requests) > 1
+    assert f"Part {len(requests)}/{len(requests)}" in summary
+    # Every chunk is its own request ending with the chunk prompt, fits the
+    # window, and together they cover each original message exactly once.
+    covered = []
+    for request in requests:
+        assert request[-1].content == _CHUNK_SUMMARY_PROMPT
+        assert len_tokens(request, model) <= (
+            window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+        ) + len_tokens(request[-1], model)
+        covered += [m.content for m in request[:-1]]
+    assert covered == [m.content for m in msgs]
+
+
+def test_summarize_in_chunks_failure_returns_none(monkeypatch):
+    from gptme.tools.autocompact.resume import _summarize_in_chunks
+
+    def boom(msgs, **kwargs):
+        raise RuntimeError("context length exceeded")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", boom)
+    assert (
+        _summarize_in_chunks(
+            _overflow_msgs()[1:5], "openai/gpt-4", "gpt-4", 14000, 2000
+        )
+        is None
+    )
+
+
+def test_resume_via_llm_overflow_uses_chunked_summary(tmp_path, monkeypatch):
+    """End to end: an over-window log gets chunk summaries before the checkpoint."""
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import LogManager
+    from gptme.tools.autocompact.resume import _CHUNK_SUMMARY_PROMPT, _resume_via_llm
+
+    messages = _overflow_msgs()
+    manager = LogManager(messages, logdir=tmp_path / "conversation")
+    model_meta = MagicMock()
+    model_meta.full = "openai/gpt-4"
+    model_meta.model = "gpt-4"
+    model_meta.context = 16000
+    model_meta.max_output = 4096
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.resume.get_default_model", lambda: model_meta
+    )
+    requests: list[list[Message]] = []
+
+    def fake_reply(msgs, **kwargs):
+        requests.append(msgs)
+        if msgs[-1].content == _CHUNK_SUMMARY_PROMPT:
+            return Message("assistant", "CHUNK-NOTE: OLD-0 requirements")
+        return Message("assistant", "## Objective\nTest.\n\n## Context Files\n(none)")
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+    assert list(_resume_via_llm(manager, messages, keep_recent_tokens=0))
+    chunk_calls = [r for r in requests if r[-1].content == _CHUNK_SUMMARY_PROMPT]
+    assert chunk_calls, "overflow did not trigger chunked summarization"
+    final = requests[-1]
+    assert final[-1].content != _CHUNK_SUMMARY_PROMPT
+    assert any("CHUNK-NOTE" in m.content for m in final)
+
+
 def test_bound_summarize_input_pins_previous_checkpoint():
     from gptme.tools.autocompact.resume import _bound_summarize_input
 
