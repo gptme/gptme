@@ -1699,6 +1699,16 @@ class GptmeApp(App):
             self._enqueue_prompt(prompt)
         await self._submit_user_input(first)
 
+    async def on_event(self, event: events.Event) -> None:
+        # A click can land on a widget removed since the last frame (e.g. the
+        # "Generating…" placeholder on interrupt). Textual would start a text
+        # selection in its parent, which is None, and crash: drop the click.
+        if isinstance(event, events.MouseDown) and not self.mouse_captured:
+            widget, _ = self.screen.get_widget_and_offset_at(event.x, event.y)
+            if widget is not None and widget is not self.screen and not widget.parent:
+                return
+        await super().on_event(event)
+
     def on_unmount(self) -> None:
         self._quitting = True
         self._restore_inline_resize_handler()
