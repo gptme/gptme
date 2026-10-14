@@ -237,7 +237,8 @@ def test_find_potential_paths_ignores_unknown_user_tilde():
     from gptme.message import Message
     from gptme.util.context import include_paths
 
-    content = "Inhale ~x/2 seconds, then check ~/file.txt"
+    # an unlikely user name, so the test holds on hosts that have a user "x"
+    content = "Inhale ~nosuchuser-gptme/2 seconds, then check ~/file.txt"
     assert _find_potential_paths(content) == ["~/file.txt"]
     include_paths(Message("user", content))
 
@@ -247,12 +248,18 @@ def test_include_paths_error_sends_prompt_as_typed(monkeypatch):
     from gptme.message import Message
     from gptme.util import context
 
-    def boom(word):
+    calls: list[str] = []
+
+    def boom(word: str, **kwargs) -> str:
+        calls.append(word)
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(context, "_resource_to_codeblock", lambda *a, **kw: boom(a))
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setattr(context, "use_fresh_context", lambda: False)
+    monkeypatch.setattr(context, "_resource_to_codeblock", boom)
     msg = Message("user", "look at ./some/path")
     assert context.include_paths(msg) is msg
+    assert calls == ["./some/path"]
 
 
 def test_find_potential_paths_ignores_lone_slash():
