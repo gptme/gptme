@@ -232,6 +232,36 @@ def test_find_potential_paths_punctuation():
     assert "https://example.com" in paths
 
 
+def test_find_potential_paths_ignores_unknown_user_tilde():
+    """`~x/2` (no user x) is prose, and expanduser() raises on it (crashed TUI)."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    # an unlikely user name, so the test holds on hosts that have a user "x"
+    content = "Inhale ~nosuchuser-gptme/2 seconds, then check ~/file.txt"
+    assert _find_potential_paths(content) == ["~/file.txt"]
+    include_paths(Message("user", content))
+
+
+def test_include_paths_error_sends_prompt_as_typed(monkeypatch):
+    """Any error while attaching paths must not crash the chat and lose the prompt."""
+    from gptme.message import Message
+    from gptme.util import context
+
+    calls: list[str] = []
+
+    def boom(word: str, **kwargs) -> str:
+        calls.append(word)
+        raise RuntimeError("boom")
+
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setattr(context, "use_fresh_context", lambda: False)
+    monkeypatch.setattr(context, "_resource_to_codeblock", boom)
+    msg = Message("user", "look at ./some/path")
+    assert context.include_paths(msg) is msg
+    assert calls == ["./some/path"]
+
+
 def test_find_potential_paths_ignores_lone_slash():
     """Prose/markdown ' / ' is not a filesystem path (#3758)."""
     assert _find_potential_paths("**Still open / not done:**") == []

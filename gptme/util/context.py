@@ -560,6 +560,23 @@ def include_paths(
     workspace: Path | None = None,
     pre_confirmed_urls: list[str] | None = None,
 ) -> Message:
+    """Attach paths/URLs found in ``msg`` (see :func:`_include_paths`).
+
+    Prose can look like a path in endless odd ways, and an unexpected error
+    here would crash the chat and lose the prompt: send it as typed instead.
+    """
+    try:
+        return _include_paths(msg, workspace, pre_confirmed_urls)
+    except Exception:
+        logger.exception("Failed to include paths/URLs; sending the prompt as typed")
+        return msg
+
+
+def _include_paths(
+    msg: Message,
+    workspace: Path | None = None,
+    pre_confirmed_urls: list[str] | None = None,
+) -> Message:
     """
     Searches the message for any valid paths and:
      - In legacy mode (default):
@@ -781,6 +798,9 @@ def _find_potential_paths(content: str) -> list[str]:
             # A lone slash is prose/markdown ("open / not"), not a path.
             # Implicitly attaching filesystem root is never useful (#3758).
             if s.strip("/") == "":
+                return False
+            # "~x/2" with no user x is prose; expanduser() would raise on it.
+            if s.startswith("~") and os.path.expanduser(s).startswith("~"):
                 return False
             return (
                 # Absolute/home/relative paths
