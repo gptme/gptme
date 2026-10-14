@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -755,65 +756,153 @@ _PIPE_REASON = (
     "Piping to shell interpreters or script execution is blocked. This pattern "
     "can execute arbitrary code and is a security risk."
 )
-# flags that give the program inline, per interpreter (single-dash ones also
-# count inside a cluster, e.g. python -uc, perl -lne)
-_INLINE_PROGRAM_FLAGS = {
-    "python": {"c", "m"},
-    "perl": {"e", "E"},
-    "ruby": {"e"},
-    "node": {"e", "p"},
+
+
+@dataclass(frozen=True)
+class _InterpreterArgs:
+    """How an interpreter's command-line options are parsed. Anything not
+    listed counts as unknown, and unknown means the pipe may be the program."""
+
+    inline: str  # short flags whose program is in the arguments (-c, -e)
+    value: str  # short flags taking a value, attached or the next argument
+    rest: str  # short flags taking an optional value: the rest of the cluster
+    digits: str  # short flags taking optional digits (perl -l, -0777)
+    flags: str  # short flags taking no value
+    inline_long: frozenset[str] = frozenset()
+    value_long: frozenset[str] = frozenset()
+    flags_long: frozenset[str] = frozenset({"--help", "--version"})
+
+
+_INTERPRETER_ARGS = {
+    "python": _InterpreterArgs(
+        inline="cm",
+        value="WXQ",
+        rest="",
+        digits="",
+        flags="bBdEhiIOPqRsSuvVx?",
+        value_long=frozenset({"--check-hash-based-pycs"}),
+    ),
+    "perl": _InterpreterArgs(
+        inline="eE",
+        value="IMm",
+        rest="iFxDdC",
+        digits="0l",
+        flags="acnpsStTuUvwWXh",
+    ),
+    "ruby": _InterpreterArgs(
+        inline="e",
+        value="IrEC",
+        rest="FxK",
+        digits="0W",
+        flags="acdhlnpsSvwy",
+        value_long=frozenset({"--enable", "--disable", "--encoding", "--dump"}),
+        flags_long=frozenset({"--help", "--version", "--verbose", "--copyright"}),
+    ),
+    "node": _InterpreterArgs(
+        inline="ep",
+        value="rC",
+        rest="",
+        digits="",
+        flags="hivc",
+        inline_long=frozenset({"--eval", "--print"}),
+        value_long=frozenset(
+            {"--require", "--import", "--input-type", "--loader", "--conditions"}
+        ),
+        flags_long=frozenset(
+            {
+                "--help",
+                "--version",
+                "--no-warnings",
+                "--enable-source-maps",
+                "--trace-warnings",
+                "--no-deprecation",
+                "--trace-deprecation",
+                "--expose-gc",
+                "--preserve-symlinks",
+                "--check",
+            }
+        ),
+    ),
 }
-_INLINE_PROGRAM_LONG = {"node": {"--eval", "--print"}}
-# options whose value is the next argument, so it isn't taken for a script
-_VALUE_OPTIONS = {
-    "python": {"-X", "-W", "-Q"},
-    "perl": {"-I", "-M", "-m"},
-    "ruby": {"-I", "-r", "-E", "-C"},
-    "node": {"-r", "--require", "--import", "--input-type", "--loader", "-C"},
-}
+_COMMAND_SEPARATORS = {"|", "||", "&", "&&", ";", ";;", "(", ")"}
+
+
+def _interpreter_args(rest: str) -> list[str] | None:
+    """The interpreter's arguments as the shell passes them, without
+    redirects; None if they can't be parsed."""
+    try:
+        lexer = shlex.shlex(rest.split("\n", 1)[0], posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = iter(list(lexer))
+    except ValueError:
+        return None
+    args: list[str] = []
+    for token in tokens:
+        if token in _COMMAND_SEPARATORS:
+            break
+        if set(token) <= set("<>&") and set(token) & set("<>"):
+            # a redirect (`2>/dev/null`, `>&1`): drop its fd and target
+            if args and args[-1].isdigit():
+                args.pop()
+            next(tokens, None)
+            continue
+        args.append(token)
+    return args
+
+
+def _is_plain_path(arg: str) -> bool:
+    """Not stdin and not something the shell expands (an empty variable or a
+    glob matching nothing would leave the interpreter reading stdin)."""
+    return arg != "-" and not set(arg) & set("$`*?[{")
 
 
 def _interpreter_gets_program(interp: str, rest: str) -> bool:
-    """Whether a piped-into interpreter gets its program from its arguments
-    (``-c``/``-e``/a script file) rather than reading it from the pipe."""
+    """Whether a piped-into interpreter certainly gets its program from its
+    arguments (``-c``/``-e`` or a script file) rather than from the pipe.
+
+    Default deny: an option this doesn't know, a shell expansion where the
+    script would be, or no program at all means the pipe may be the program.
+    """
     family = re.sub(r"[\d.]+$", "", interp.rsplit("/", 1)[-1])
-    rest = rest.split("\n", 1)[0]
-    try:
-        lexer = shlex.shlex(rest, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:
-        return False  # can't tell: treat as reading the pipe
-    args = []
-    for token in tokens:
-        if token in {"|", "||", "&", "&&", ";", ";;", "(", ")"}:
-            break
-        args.append(token)
-    skip = False
-    for i, arg in enumerate(args):
-        if skip:
-            skip = False
-            continue
-        if arg == "-":
-            return False  # explicitly reads the program from stdin
+    spec = _INTERPRETER_ARGS[family]
+    args = _interpreter_args(rest)
+    if args is None:
+        return False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        i += 1
         if arg == "--":
-            return i + 1 < len(args)  # the next argument is the script
+            return i < len(args) and _is_plain_path(args[i])
         if arg.startswith("--"):
-            if arg.split("=", 1)[0] in _INLINE_PROGRAM_LONG.get(family, set()):
+            name, eq, _ = arg.partition("=")
+            if name in spec.inline_long:
                 return True
-            skip = arg in _VALUE_OPTIONS.get(family, set())
+            if name in spec.value_long:
+                i += 0 if eq else 1
+            elif name not in spec.flags_long:
+                return False
             continue
-        if arg.startswith("-"):
-            if arg in _VALUE_OPTIONS.get(family, set()):
-                skip = True
-                continue
+        if arg.startswith("-") and arg != "-":
             cluster = arg[1:]
-            if family == "node":
-                cluster = cluster[:1]  # node has no flag clusters
-            if set(cluster) & _INLINE_PROGRAM_FLAGS.get(family, set()):
-                return True
+            j = 0
+            while j < len(cluster):
+                flag = cluster[j]
+                j += 1
+                if flag in spec.inline:
+                    return True
+                if flag in spec.value:
+                    i += 0 if j < len(cluster) else 1
+                    break
+                if flag in spec.rest:
+                    break
+                if flag in spec.digits:
+                    while j < len(cluster) and cluster[j].isdigit():
+                        j += 1
+                elif flag not in spec.flags:
+                    return False
             continue
-        return True  # a script file
+        return _is_plain_path(arg)  # the script file
     return False
 
 
