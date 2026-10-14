@@ -321,6 +321,14 @@ ignore_missing_imports = true
 module = "playwright.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "jupyter_client.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ipykernel.*"
+ignore_missing_imports = true
+
 
 [[tool.mypy.overrides]]
 module = "swebench.*"
