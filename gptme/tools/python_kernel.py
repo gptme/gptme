@@ -47,8 +47,9 @@ class BridgeServer:
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self.port: int = 0
-        # Per-instance auth token sent by the kernel before every request.
-        # Prevents other local processes from sending crafted pickles to the bridge.
+        # 128-bit per-instance capability, verified before unpickling. It excludes
+        # unauthenticated local users, not same-user debuggers or the kernel itself.
+        # The kernel executes trusted user code; this bridge is not a sandbox.
         self._token: bytes = secrets.token_bytes(16)
         # Bound semaphore limits concurrent handler threads, preventing fd exhaustion.
         self._semaphore = threading.BoundedSemaphore(_MAX_BRIDGE_CONNECTIONS)
