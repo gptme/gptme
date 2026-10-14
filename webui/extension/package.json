@@ -8,7 +8,7 @@
     "watch": "bash build.sh --watch"
   },
   "devDependencies": {
-    "@types/chrome": "^0.3.4",
+    "@types/chrome": "^0.3.5",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   }
