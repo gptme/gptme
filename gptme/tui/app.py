@@ -155,8 +155,10 @@ def _summarize(content: str, maxlen: int = SUMMARY_MAXLEN) -> str:
     return f"{first} ({n} line{'s' if n != 1 else ''})"
 
 
-_THINK_RE = re.compile(r"<think(?:ing)?>(.*?)</think(?:ing)?>", re.DOTALL)
-_THINK_OPEN_RE = re.compile(r"<think(?:ing)?>")
+_THINK_RE = re.compile(
+    r"<think(?:ing)?(?:\s[^>]*)?>(.*?)</think(?:ing)?(?:\s[^>]*)?>", re.DOTALL
+)
+_THINK_OPEN_RE = re.compile(r"<think(?:ing)?(?:\s[^>]*)?>")
 _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
 # Matches the `tool` format: @tool_name(call_id): {...json...}. Calls end at
