@@ -20,7 +20,7 @@ allowed_entries:
   - docker-compose.yml
   - gptme.toml
   - mypy.ini
-  - poetry.lock
+  - uv.lock
   - pyproject.toml
 
   # Directories

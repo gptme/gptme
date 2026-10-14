@@ -16,7 +16,7 @@
 #
 # In both modes:
 #   1. Finds the last stable tag (vX.Y.Z) and last tag of any kind
-#   2. Updates pyproject.toml via `poetry version`
+#   2. Updates pyproject.toml (sed-based, no poetry required)
 #   3. Commits and tags the version bump (does NOT push — caller decides)
 #
 # Outputs version metadata to stdout and $GITHUB_OUTPUT (if set):
@@ -31,9 +31,18 @@ set -euo pipefail
 
 # Portable in-place sed: BSD sed (macOS) requires an explicit empty extension;
 # GNU sed uses -i.bak syntax. Using .bak + rm is the only form that works on both.
+_bump_main_version() {
+    sed -i.bak "s/^version = \".*\"/version = \"$1\"/" pyproject.toml
+    rm pyproject.toml.bak
+}
+
 _bump_shim_version() {
     sed -i.bak "s/^version = \".*\"/version = \"$1\"/" packages/gptme-acp/pyproject.toml
     rm packages/gptme-acp/pyproject.toml.bak
+}
+
+_get_pyproject_version() {
+    uv version --short
 }
 
 TYPE=""
@@ -88,7 +97,7 @@ if [ -z "$TYPE" ]; then
     git pull
 
     VERSION_TAG=$(git describe --tags --abbrev=0 | cut -b 2-)
-    VERSION_PYPROJECT=$(poetry version --short)
+    VERSION_PYPROJECT=$(_get_pyproject_version)
     IS_COMMIT_TAGGED=$(git tag --points-at HEAD | grep -q "^v[0-9]\+\.[0-9]\+\.[0-9]\+$" && echo "true" || echo "false")
 
     if [ "${VERSION_TAG}" == "${VERSION_PYPROJECT}" ] && [ "${IS_COMMIT_TAGGED}" == "true" ]; then
@@ -97,9 +106,10 @@ if [ -z "$TYPE" ]; then
     elif [ "${VERSION_TAG}" != "${VERSION_PYPROJECT}" ]; then
         echo "The latest tag is ${VERSION_TAG} but the version in pyproject.toml is ${VERSION_PYPROJECT}"
         echo "Updating the version in pyproject.toml to match the latest tag"
-        poetry version "${VERSION_TAG}"
+        _bump_main_version "${VERSION_TAG}"
         _bump_shim_version "${VERSION_TAG}"
-        git add pyproject.toml packages/gptme-acp/pyproject.toml
+        uv lock
+        git add pyproject.toml packages/gptme-acp/pyproject.toml uv.lock
         git commit -m "chore: bump version to ${VERSION_TAG}" || echo "No version bump needed"
     else
         read -rp "Enter new version number: " VERSION_NEW
@@ -109,9 +119,10 @@ if [ -z "$TYPE" ]; then
             exit 0
         fi
         echo "Bumping version to ${VERSION_NEW}"
-        poetry version "${VERSION_NEW}"
+        _bump_main_version "${VERSION_NEW}"
         _bump_shim_version "${VERSION_NEW}"
-        git add pyproject.toml packages/gptme-acp/pyproject.toml
+        uv lock
+        git add pyproject.toml packages/gptme-acp/pyproject.toml uv.lock
         git commit -m "chore: bump version to ${VERSION_NEW}"
         git tag -s "v${VERSION_NEW}" -m "v${VERSION_NEW}"
 
@@ -169,15 +180,18 @@ TAG="v${NEW_VERSION}"
 echo "Bumping version: $LAST_STABLE → $TAG (type=$TYPE, pre-release=$PRERELEASE)"
 
 # Update pyproject.toml
-poetry version "$NEW_VERSION"
+_bump_main_version "$NEW_VERSION"
 echo "Updated pyproject.toml: $(grep '^version' pyproject.toml)"
 
 # Also bump gptme-acp shim to keep it in sync with main package
 _bump_shim_version "$NEW_VERSION"
 echo "Updated packages/gptme-acp/pyproject.toml: $(grep '^version' packages/gptme-acp/pyproject.toml)"
 
+# Refresh the root package version in the lockfile before committing and tagging.
+uv lock
+
 # Commit and tag
-git add pyproject.toml packages/gptme-acp/pyproject.toml
+git add pyproject.toml packages/gptme-acp/pyproject.toml uv.lock
 git commit -m "chore: bump version to ${NEW_VERSION}"
 git tag "$TAG"
 echo "Created commit and tag: $TAG"

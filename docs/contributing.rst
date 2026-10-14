@@ -26,11 +26,8 @@ Install
    git clone https://github.com/gptme/gptme.git
    cd gptme
 
-   # install poetry (if not installed)
-   pipx install poetry
-
-   # activate the virtualenv
-   poetry shell
+   # install uv (if not installed)
+   pipx install uv
 
    # build the project
    make build
@@ -47,8 +44,8 @@ Before making changes, run this smoke test from the repository root:
 .. code-block:: bash
 
    make build
-   poetry run gptme --version
-   poetry run pytest tests/test_cli.py::test_version -q
+   uv run gptme --version
+   uv run pytest tests/test_cli.py::test_version -q
 
 The install must finish without errors, the CLI command must print a version,
 and the focused test must report ``1 passed``. These checks do not require an
@@ -59,7 +56,7 @@ send a one-token Anthropic quota probe before the selected test runs.
 Keeping your environment in sync
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``poetry.lock`` pins the toolchain, and ``.pre-commit-config.yaml`` pins the
+``uv.lock`` pins the toolchain, and ``.pre-commit-config.yaml`` pins the
 hook versions separately. A virtualenv that has drifted from the lockfile will
 disagree with CI, usually in confusing ways:
 
@@ -68,14 +65,14 @@ disagree with CI, usually in confusing ways:
 - ``pre-commit`` keeps reformatting a file you just formatted, and the commit
   aborts every time with "files were modified by this hook".
 
-Run ``poetry install`` before concluding that a lint or test result is a
+Run ``uv sync --frozen`` before concluding that a lint or test result is a
 problem with the repository, and check the version you are actually reasoning
 about:
 
 .. code-block:: bash
 
-   poetry install
-   poetry run ruff --version   # must match poetry.lock
+   uv sync --frozen
+   uv run ruff --version   # must match uv.lock
 
 Two things worth knowing when this happens:
 
@@ -193,7 +190,7 @@ To enable telemetry during development:
 
    .. code-block:: bash
 
-      poetry install -E telemetry
+      uv sync --extra telemetry --frozen
 
 2. Run Jaeger for trace visualization:
 
@@ -228,9 +225,9 @@ To enable telemetry during development:
 
    .. code-block:: bash
 
-      poetry run gptme 'hello'
+      uv run --extra telemetry gptme 'hello'
       # or gptme-server (use --host 0.0.0.0 so the Prometheus container can reach it)
-      poetry run gptme-server --host 0.0.0.0
+      uv run --extra telemetry --extra server gptme-server --host 0.0.0.0
 
 6. View data:
 

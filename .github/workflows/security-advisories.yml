@@ -8,7 +8,7 @@ on:
     # advisories depend on dependencies (the weekly schedule catches new ones)
     paths:
       - 'pyproject.toml'
-      - 'poetry.lock'
+      - 'uv.lock'
       - 'webui/package.json'
       - 'webui/package-lock.json'
       - '.github/workflows/security-advisories.yml'
@@ -42,13 +42,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      # gptme has no committed uv.lock (gitignored; project uses poetry), so
-      # --frozen would fail. `uv sync` resolves and generates the lockfile that
-      # `uv audit` reads. Note: this audits the uv-resolved graph rather than
-      # the Poetry-committed snapshot; Phase 2 can add `poetry export | pip-audit`
-      # for exact parity with what Poetry installs.
-      - name: Install dependencies and resolve lockfile
-        run: uv sync --all-extras || echo "::warning::Failed to resolve dependencies; audit will run against any existing lockfile or report a tooling error."
+      - name: Install dependencies
+        run: uv sync --all-extras --frozen || echo "::warning::Failed to resolve dependencies; audit will run against any existing lockfile or report a tooling error."
 
       - name: Run audit and generate SARIF
         id: audit

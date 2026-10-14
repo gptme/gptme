@@ -4,7 +4,7 @@
 # You can set these variables from the command line, and also
 # from the environment for the first two.
 SPHINXOPTS    ?=
-SPHINXBUILD   ?= poetry run python -m sphinx.cmd.build
+SPHINXBUILD   ?= uv run python -m sphinx.cmd.build
 SOURCEDIR     = .
 BUILDDIR      = _build
 

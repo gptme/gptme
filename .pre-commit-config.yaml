@@ -38,12 +38,12 @@ repos:
     entry: 'ToolUse\("python"'
     language: pygrep
     types: [python]
-  - id: check-poetry-lock-sync
-    name: Check poetry.lock is in sync
-    description: Ensures poetry.lock is in sync with pyproject.toml
-    entry: bash scripts/check_poetry_lock_sync.sh
+  - id: check-uv-lock-sync
+    name: Check uv.lock is in sync
+    description: Ensures uv.lock is in sync with pyproject.toml
+    entry: uv lock --check
     language: system
-    files: ^(pyproject\.toml|poetry\.lock)$
+    files: ^(pyproject\.toml|uv\.lock)$
     pass_filenames: false
 #- repo: local
 #  hooks:

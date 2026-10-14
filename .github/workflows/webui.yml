@@ -72,8 +72,7 @@ jobs:
       working-directory: webui/extension
       run: npm run build
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
+    - uses: astral-sh/setup-uv@v7
       with:
         python-version: '3.12'
 
@@ -81,8 +80,7 @@ jobs:
       working-directory: .
       run: |
         make bundle-webui
-        pipx install poetry
-        poetry build
+        uv build
         make validate-release-package
 
     - name: Upload dist artifact

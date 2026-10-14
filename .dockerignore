@@ -78,7 +78,7 @@ docker-compose.yml
 
 # Keep these files/directories
 !pyproject.toml
-!poetry.lock
+!uv.lock
 !README.md
 !gptme
 !static

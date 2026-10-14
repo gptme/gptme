@@ -67,16 +67,15 @@ ENV WIDTH=1024
 ENV HEIGHT=768
 ENV DISPLAY=:${DISPLAY_NUM}
 
-# Install Poetry and dependencies from the committed lockfile.
+# Install uv and dependencies from the committed lockfile.
 WORKDIR /app
 RUN python3.10 -m pip install --no-cache-dir --upgrade pip && \
-    python3.10 -m pip install --no-cache-dir poetry
-COPY pyproject.toml poetry.lock README.md /app/
-RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi -E server -E browser --no-root --without=dev
+    python3.10 -m pip install --no-cache-dir uv
+COPY pyproject.toml uv.lock README.md /app/
+RUN uv export --frozen --no-hashes --no-dev --no-emit-project --extra server --extra browser -o requirements.txt && \
+    python3.10 -m pip install --no-cache-dir -r requirements.txt
 COPY --chown=$USERNAME:$USERNAME . /app
-RUN python3.10 -m pip install --no-cache-dir build && \
-    poetry install --no-interaction --no-ansi -E server -E browser --without=dev
+RUN python3.10 -m pip install --no-cache-dir --no-deps .
 
 # Install Playwright system-level deps (needs root)
 RUN python3.10 -m playwright install-deps chromium

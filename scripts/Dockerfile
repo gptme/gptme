@@ -17,20 +17,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install poetry in its own venv
-RUN python -m venv /opt/poetry && \
-    /opt/poetry/bin/pip install --no-cache-dir poetry
+# Install the resolver/build frontend (poetry-core remains the build backend).
+RUN pip install --no-cache-dir uv
 
 # Copy files needed for building wheel
-COPY pyproject.toml poetry.lock README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY gptme gptme/
 COPY --from=webui-builder /app/webui/dist gptme/server/webui-dist/
 
-# Install dependencies and export requirements for server
-RUN /opt/poetry/bin/poetry self add poetry-plugin-export && \
-    /opt/poetry/bin/poetry export --without-hashes --without dev -f requirements.txt -o requirements.txt && \
-    /opt/poetry/bin/poetry export --without-hashes --without dev -E server -f requirements.txt -o requirements-server.txt && \
-    /opt/poetry/bin/poetry build
+# Export locked dependencies without the local project: the runtime installs its wheel.
+RUN uv export --frozen --no-hashes --no-dev --no-emit-project -o requirements.txt && \
+    uv export --frozen --no-hashes --no-dev --no-emit-project --extra server -o requirements-server.txt && \
+    uv export --frozen --no-hashes --no-dev --no-emit-project --extra browser -o requirements-browser.txt && \
+    uv build
 
 # Final stage
 FROM python:3.12-slim
@@ -66,7 +65,7 @@ WORKDIR /app
 
 # Copy wheel and requirements, then install
 COPY --from=builder /app/dist/gptme-*.whl /app/requirements*.txt /tmp/
-RUN pip install --no-cache-dir /tmp/gptme-*.whl && rm /tmp/gptme-*.whl
+RUN pip install --no-cache-dir -r /tmp/requirements.txt /tmp/gptme-*.whl && rm /tmp/gptme-*.whl
 
 # Create non-root user and workspace
 RUN useradd -m appuser && \
