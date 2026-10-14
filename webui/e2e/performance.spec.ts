@@ -68,7 +68,10 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
 
     // Open a conversation so the store is populated
     await page.getByText('Introduction to gptme').click();
-    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+    // Use data-message-index rather than a specific text match: virtualization may
+    // keep the first message (Hello! I'm gptme) off-screen, and server startup
+    // latency can push text-visible beyond the 10s window on loaded runners.
+    await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
     // Navigate back to the root and measure how quickly the sidebar becomes visible.
     // Pre-fix: the store subscription triggered cascading re-renders that slowed the sidebar
@@ -96,7 +99,10 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
 
     // Load a conversation so every subsequent sidebar render has a populated store
     await page.getByText('Introduction to gptme').click();
-    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+    // Use data-message-index rather than a specific text match: virtualization may
+    // keep the first message off-screen on slower CI runners or after the Jupyter
+    // kernel startup overhead added in feat(python) was merged.
+    await expect(page.locator('[data-message-index]').first()).toBeVisible({ timeout: 10000 });
 
     // Go back to the list
     await page.goto('/');
