@@ -26,6 +26,12 @@ test("reads srcset candidates and CSS only from style blocks/attributes", () => 
   assert.deepEqual(extractRefs(html, "html").sort(), ["/a.png", "/b.png", "/c.png", "/d.png"]);
 });
 
+test("ignores inline script bodies and unrendered template syntax", () => {
+  const html = `<script src="/app.js"></script><script>el.innerHTML = \`<a href="\${url}">\`</script>
+    <link href="{{ pathto('_static/theme.css', 1) }}" rel="stylesheet">`;
+  assert.deepEqual(extractRefs(html, "html"), ["/app.js"]);
+});
+
 test("passes when every same-origin reference resolves", () => {
   const root = tree({
     "index.html": `<link href="/assets/s.css" rel="stylesheet"><a href="/readme/#demos"></a><img src="media/logo.png?v=1">`,

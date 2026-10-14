@@ -15,9 +15,15 @@ const IMPORT_RE = /@import\s+(?:"([^"]*)"|'([^']*)')/gi;
 // CSS inside HTML: <style> blocks and style="" attributes, not page prose.
 const STYLE_RE = /<style\b[^>]*>([\s\S]*?)<\/style>|\sstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 
+// Inline script bodies hold JS strings (e.g. `href="${url}"` templates), not markup.
+const SCRIPT_BODY_RE = /(<script\b[^>]*>)[\s\S]*?<\/script>/gi;
+// Unrendered template syntax (Jinja macros a theme ships in _static, JS templates).
+const TEMPLATE_RE = /\{\{|\{%|\$\{/;
+
 /** Same-origin file references in an HTML or CSS document. */
 export function extractRefs(text, kind) {
   const refs = [];
+  if (kind === "html") text = text.replace(SCRIPT_BODY_RE, "$1</script>");
   const take = (re, split = false, source = text) => {
     for (const m of source.matchAll(re)) {
       const value = m[1] ?? m[2] ?? m[3] ?? "";
@@ -33,7 +39,7 @@ export function extractRefs(text, kind) {
   }
   take(URL_RE, false, css);
   take(IMPORT_RE, false, css);
-  return refs.filter((r) => r && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(r));
+  return refs.filter((r) => r && !TEMPLATE_RE.test(r) && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(r));
 }
 
 /** File a reference from `fromFile` resolves to (null: the document itself). */

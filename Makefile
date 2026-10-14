@@ -190,6 +190,7 @@ site-check:  ## Verify the assembled gptme.org tree before deploy
 	test -f site/dist/badge.svg
 	test -f site/dist/.nojekyll
 	! grep -q 'name="generator" content="pandoc"' site/dist/index.html
+	node site/next/scripts/check-assets.mjs site/dist
 
 .PHONY: site-next
 site-next:  ## Build the gptme.org landing page (site/next, needs Node 22.12+)
