@@ -3548,6 +3548,7 @@ async def test_markdown_headers_are_compact_bold_and_left_aligned(tmp_path):
         assert h2.region.y == first_paragraph.region.bottom + 1
 
 
+@pytest.mark.asyncio
 async def test_take_steer_prompts(tmp_path):
     """Queued prompts join the running turn in order, up to the first one
     that must wait for the turn to end (command, URL, skill invocation)."""
