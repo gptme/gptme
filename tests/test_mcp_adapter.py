@@ -734,6 +734,28 @@ def test_session_client_retry_stays_in_session_registry(mock_config):
     assert "test-server" not in _mcp_clients
 
 
+def test_restart_mcp_client_failed_reconnect_clears_stale_registry_entry(
+    mock_config,
+):
+    """A failed reconnect must not leave the closed old client registered."""
+    from gptme.mcp.client import MCPClient
+
+    old_client = MagicMock(spec=MCPClient)
+    _mcp_clients["test-server"] = old_client
+
+    replacement = MagicMock(spec=MCPClient)
+    replacement.connect.side_effect = RuntimeError("server unreachable")
+
+    with (
+        patch("gptme.mcp.client.MCPClient", return_value=replacement),
+        pytest.raises(RuntimeError, match="server unreachable"),
+    ):
+        _restart_mcp_client("test-server", mock_config)
+
+    # Old client was closed and must not linger as an "already loaded" entry
+    assert "test-server" not in _mcp_clients
+
+
 def test_restart_mcp_client_survives_cleanup_failure_and_reconnects(mock_config):
     """Test restart tolerates cleanup failures from the old client."""
 
