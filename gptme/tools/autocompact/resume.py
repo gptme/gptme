@@ -608,9 +608,13 @@ def _bound_summarize_input(
             break
     dropped = len(body) - len(kept)
     kept.reverse()
-    if dropped:
+    if dropped or boundary_clipped:
         logger.info("Summarizer input: dropped %d oldest messages to fit", dropped)
-        marker = f"[{dropped} older messages omitted to fit the summarization window]"
+        boundary_note = " and a clipped boundary message" if boundary_clipped else ""
+        marker = (
+            f"[{dropped} older messages omitted{boundary_note} "
+            "to fit the summarization window]"
+        )
         if summarize_omitted is not None and omitted_budget:
             # The clipped boundary message lost its middle; let the chunk
             # summary see it whole.
@@ -622,7 +626,7 @@ def _bound_summarize_input(
                     len(omitted),
                 )
                 marker = _clip_middle(
-                    f"[Summary of {dropped} older messages that did not fit the "
+                    f"[Summary of {dropped} older messages{boundary_note} that did not fit the "
                     f"summarization window]\n\n{summary.strip()}",
                     omitted_budget,
                     model,
@@ -630,11 +634,29 @@ def _bound_summarize_input(
         kept.insert(0, Message("system", marker))
     if pinned_part and pin_body_at is not None:
         pin_at_kept = max(pin_body_at - dropped, 0)
-        if dropped and pin_at_kept:
+        if (dropped or boundary_clipped) and pin_at_kept:
             # The omission marker adds a slot before retained pre-checkpoint messages.
             pin_at_kept += 1
         kept[pin_at_kept:pin_at_kept] = pinned_part
     return head + kept
+
+
+def _split_message_for_summary(
+    msg: Message, budget: int, model: str
+) -> Generator[Message, None, None]:
+    """Split on character boundaries without dropping or corrupting content."""
+    if len_tokens(msg.content, model) <= budget:
+        yield msg
+        return
+    middle = len(msg.content) // 2
+    if not middle:
+        raise ValueError("A single character exceeds the chunk summary budget")
+    yield from _split_message_for_summary(
+        msg.replace(content=msg.content[:middle]), budget, model
+    )
+    yield from _split_message_for_summary(
+        msg.replace(content=msg.content[middle:]), budget, model
+    )
 
 
 def _summarize_in_chunks(
@@ -665,16 +687,14 @@ def _summarize_in_chunks(
     chunks: list[list[Message]] = []
     current: list[Message] = []
     used = 0
-    for msg in msgs:
-        tokens = len_tokens(msg.content, model)
-        if tokens > chunk_budget:
-            msg = _clip_messages_to_budget([msg], chunk_budget, model)[0]
+    for original in msgs:
+        for msg in _split_message_for_summary(original, chunk_budget, model):
             tokens = len_tokens(msg.content, model)
-        if current and used + tokens > chunk_budget:
-            chunks.append(current)
-            current, used = [], 0
-        current.append(msg)
-        used += tokens
+            if current and used + tokens > chunk_budget:
+                chunks.append(current)
+                current, used = [], 0
+            current.append(msg)
+            used += tokens
     if current:
         chunks.append(current)
 

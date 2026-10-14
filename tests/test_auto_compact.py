@@ -4116,6 +4116,78 @@ def test_summarize_in_chunks_fresh_context_per_chunk(monkeypatch):
     assert covered == [m.content for m in msgs]
 
 
+def test_bound_summarize_input_summarizes_clipped_boundary_without_drops():
+    """Keeping every message must not bypass the lost-content summary."""
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _bound_summarize_input,
+    )
+
+    model = "gpt-4"
+    window = 16000
+    user = Message("user", "requirement detail " * 2500)
+    seen = []
+
+    def summarize(omitted, max_tokens):
+        seen.append(omitted)
+        return "BOUNDARY-NOTE: preserve the full user requirements"
+
+    out = _bound_summarize_input(
+        [user, Message("assistant", "short reply")],
+        model,
+        window,
+        summarize_omitted=summarize,
+    )
+
+    assert seen == [[user]]
+    assert len(out) == 3  # summary plus both retained messages
+    assert "BOUNDARY-NOTE" in out[0].content
+    assert "clipped boundary message" in out[0].content
+    assert out[1].content != user.content
+    assert out[-1].content == "short reply"
+    assert len_tokens(out, model) <= (
+        window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+    )
+
+
+def test_summarize_in_chunks_splits_oversized_message_losslessly(monkeypatch):
+    """A requirement in a large message's middle reaches a fresh request."""
+    from gptme.tools.autocompact.resume import (
+        _SUMMARY_PROMPT_OVERHEAD_TOKENS,
+        SUMMARY_MAX_OUTPUT_TOKENS,
+        _summarize_in_chunks,
+    )
+
+    model = "gpt-4"
+    window = 16000
+    requirement = "MIDDLE-REQUIREMENT: never delete the database"
+    user = Message(
+        "user", "before detail " * 2000 + requirement + " after detail" * 2400
+    )
+    requests = []
+
+    def fake_reply(msgs, **kwargs):
+        requests.append(msgs)
+        return Message(
+            "assistant",
+            requirement if any(requirement in m.content for m in msgs) else "note",
+        )
+
+    monkeypatch.setattr("gptme.tools.autocompact.resume.llm.reply", fake_reply)
+    summary = _summarize_in_chunks([user], "openai/gpt-4", model, window, 2000)
+
+    assert summary is not None and requirement in summary
+    assert len(requests) > 1
+    pieces = [m for request in requests for m in request[:-1]]
+    assert "".join(m.content for m in pieces) == user.content
+    assert all(m.role == user.role for m in pieces)
+    for request in requests:
+        assert len_tokens(request, model) <= (
+            window - SUMMARY_MAX_OUTPUT_TOKENS - _SUMMARY_PROMPT_OVERHEAD_TOKENS
+        )
+
+
 def test_summarize_in_chunks_failure_returns_none(monkeypatch):
     from gptme.tools.autocompact.resume import _summarize_in_chunks
 
