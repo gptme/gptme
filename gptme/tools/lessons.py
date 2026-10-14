@@ -13,11 +13,14 @@ Commands provided:
 """
 
 import importlib
+import json
 import logging
 import re
+import uuid
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..commands import CommandContext
@@ -244,7 +247,62 @@ def handle_lesson_command(ctx: CommandContext) -> Generator[Message, None, None]
     yield from lesson(ctx)
 
 
+def _record_lesson_emission(
+    manager: "LogManager", outcome: str, context_bytes: int
+) -> None:
+    """Append aggregate emission evidence; never let telemetry break the hook."""
+    try:
+        logdir = manager.logdir.resolve()
+        record = {
+            "record_type": "emission_receipt",
+            "receipt_version": 1,
+            "event_id": uuid.uuid4().hex,
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "runtime": "gptme",
+            "session_id": str(logdir),
+            "hook": "STEP_PRE",
+            "outcome": outcome,
+            "bytes": context_bytes,
+        }
+        with (logdir / "lesson-emissions.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record) + "\n")
+    except Exception:
+        pass  # A missing receipt is unknown exposure, never a measured zero.
+
+
 def auto_include_lessons_hook(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
+    """Include lessons and receipt each consumed invocation, including empty ones.
+
+    Bytes measure final UTF-8 context handed to the caller, not provider delivery.
+    Exhaustion or early close records once; an unstarted generator records nothing.
+    Error outcomes must not be counted as successful empty invocations.
+    """
+    outcome = "empty"
+    context_bytes = 0
+    try:
+        for message in _auto_include_lessons(manager):
+            if isinstance(message, Message):
+                context_bytes += len(message.content.encode("utf-8"))
+                outcome = "emitted"
+            yield message
+    except GeneratorExit:
+        raise
+    except Exception as e:
+        outcome = "error"
+        try:
+            logger.warning(f"Error during lesson auto-inclusion: {e}")
+        except Exception:
+            pass  # Logging must not prevent the error receipt or fail-open return.
+    except BaseException:
+        outcome = "error"
+        raise
+    finally:
+        _record_lesson_emission(manager, outcome, context_bytes)
+
+
+def _auto_include_lessons(
     manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
     """Hook to automatically include relevant lessons in context.
@@ -337,132 +395,125 @@ def auto_include_lessons_hook(
     )
 
     # Get lesson index and find matching lessons
-    try:
-        index = _get_lesson_index()
+    index = _get_lesson_index()
 
-        # Choose matcher based on configuration
-        if use_hybrid:
-            # Only import ACE when explicitly requested
-            LessonEmbedder, GptmeHybridMatcher = _get_ace_components()
+    # Choose matcher based on configuration
+    if use_hybrid:
+        # Only import ACE when explicitly requested
+        LessonEmbedder, GptmeHybridMatcher = _get_ace_components()
 
-            if LessonEmbedder is not None and GptmeHybridMatcher is not None:
-                logger.info("Using ACE hybrid lesson matching")
-                # Initialize embedder with lesson directories from LessonIndex
-                from pathlib import Path
+        if LessonEmbedder is not None and GptmeHybridMatcher is not None:
+            logger.info("Using ACE hybrid lesson matching")
+            # Initialize embedder with lesson directories from LessonIndex
+            from pathlib import Path
 
-                lesson_dirs = index.lesson_dirs
+            lesson_dirs = index.lesson_dirs
 
-                # Use first lesson directory for embedder (typically workspace lessons)
-                # Embeddings stored in .gptme/embeddings/lessons/
-                embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
+            # Use first lesson directory for embedder (typically workspace lessons)
+            # Embeddings stored in .gptme/embeddings/lessons/
+            embeddings_dir = Path.cwd() / ".gptme" / "embeddings" / "lessons"
 
-                try:
-                    embedder = LessonEmbedder(
-                        lessons_dir=lesson_dirs[0]
-                        if lesson_dirs
-                        else Path.cwd() / "lessons",
-                        embeddings_dir=embeddings_dir,
-                    )
-                    logger.info(
-                        f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
-                    )
-                    matcher = GptmeHybridMatcher(embedder=embedder)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to initialize embedder: {e}. Falling back to keyword matching."
-                    )
-                    # Fall back to keyword-only (not hybrid with None embedder)
-                    matcher = LessonMatcher()
-            else:
-                logger.warning(
-                    "Hybrid matching requested but ACE not available "
-                    "(install sentence-transformers), falling back to keyword-only"
+            try:
+                embedder = LessonEmbedder(
+                    lessons_dir=lesson_dirs[0]
+                    if lesson_dirs
+                    else Path.cwd() / "lessons",
+                    embeddings_dir=embeddings_dir,
                 )
+                logger.info(
+                    f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
+                )
+                matcher = GptmeHybridMatcher(embedder=embedder)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize embedder: {e}. Falling back to keyword matching."
+                )
+                # Fall back to keyword-only (not hybrid with None embedder)
                 matcher = LessonMatcher()
         else:
-            logger.debug("Using keyword-only lesson matcher")
+            logger.warning(
+                "Hybrid matching requested but ACE not available "
+                "(install sentence-transformers), falling back to keyword-only"
+            )
             matcher = LessonMatcher()
+    else:
+        logger.debug("Using keyword-only lesson matcher")
+        matcher = LessonMatcher()
 
-        # Match lessons against context
-        match_results = matcher.match(index.lessons, context)
+    # Match lessons against context
+    match_results = matcher.match(index.lessons, context)
 
-        # Holdouts remain ineligible even for explicitly protected guards.
-        eligible_matches = [
-            match
-            for match in match_results
-            if not _is_holdout_lesson(match.lesson, holdout_lessons)
-        ]
-        eligible_matches = refine_matches(eligible_matches, manager, _is_holdout_lesson)
+    # Holdouts remain ineligible even for explicitly protected guards.
+    eligible_matches = [
+        match
+        for match in match_results
+        if not _is_holdout_lesson(match.lesson, holdout_lessons)
+    ]
+    eligible_matches = refine_matches(eligible_matches, manager, _is_holdout_lesson)
 
-        # Dedup after selection keeps the service's eligible catalog stable.
-        new_matches = [
-            match
-            for match in eligible_matches
-            if str(match.lesson.path) not in included_lessons
-            and str(match.lesson.path) not in stats.unique_lessons
-        ]
+    # Dedup after selection keeps the service's eligible catalog stable.
+    new_matches = [
+        match
+        for match in eligible_matches
+        if str(match.lesson.path) not in included_lessons
+        and str(match.lesson.path) not in stats.unique_lessons
+    ]
 
-        # Limit to remaining session budget
-        remaining_budget = max_lessons - len(stats.unique_lessons)
-        if len(new_matches) > remaining_budget:
-            logger.debug(
-                f"Limiting lessons from {len(new_matches)} to {remaining_budget} "
-                f"(session: {len(stats.unique_lessons)}/{max_lessons})"
-            )
-            new_matches = new_matches[:remaining_budget]
-
-        if max_per_turn > 0 and len(new_matches) > remaining_turn_budget:
-            logger.debug(
-                f"Limiting lessons from {len(new_matches)} to {remaining_turn_budget} "
-                f"(per-turn limit)"
-            )
-            new_matches = new_matches[:remaining_turn_budget]
-
-        if not new_matches:
-            logger.debug("No new lessons to include")
-            return
-
-        for match in new_matches:
-            if match.lesson.is_stub:
-                match.lesson = index.materialize_lesson(match.lesson)
-
-        # Format lessons as system message
-        content_parts = ["# Relevant Lessons\n"]
-        for match in new_matches:
-            lesson = match.lesson
-            content_parts.append(f"\n## {lesson.title}\n")
-            content_parts.append(f"\n*Path: {lesson.path}*\n")
-            content_parts.append(f"\n*Category: {lesson.category}*\n")
-            content_parts.append(
-                f"\n*Matched by: {len(match.matched_by)} keyword(s)*\n"
-            )
-            content_parts.append(f"\n{lesson.body}\n")
-
-        lesson_msg = Message(
-            role="system",
-            content="".join(content_parts),
-            hide=True,  # Hide from user-facing output
+    # Limit to remaining session budget
+    remaining_budget = max_lessons - len(stats.unique_lessons)
+    if len(new_matches) > remaining_budget:
+        logger.debug(
+            f"Limiting lessons from {len(new_matches)} to {remaining_budget} "
+            f"(session: {len(stats.unique_lessons)}/{max_lessons})"
         )
+        new_matches = new_matches[:remaining_budget]
 
-        # Update session statistics
-        for match in new_matches:
-            path_str = str(match.lesson.path)
-            stats.unique_lessons.add(path_str)
-            stats.turn_lessons.add(path_str)
-            stats.lesson_titles[path_str] = match.lesson.title
-        stats.total_matched += len(new_matches)
+    if max_per_turn > 0 and len(new_matches) > remaining_turn_budget:
+        logger.debug(
+            f"Limiting lessons from {len(new_matches)} to {remaining_turn_budget} "
+            f"(per-turn limit)"
+        )
+        new_matches = new_matches[:remaining_turn_budget]
 
-        titles = [str(match.lesson.title) for match in new_matches]
-        titles_list = "\n".join(f"- {title}" for title in titles)
-        # debug-level: session-end stats (session_end_lessons_hook) report this
-        # in the right place; info-level spam here fires mid-reply at hook time.
-        logger.debug(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
-
-        yield lesson_msg
-
-    except Exception as e:
-        logger.warning(f"Error during lesson auto-inclusion: {e}")
+    if not new_matches:
+        logger.debug("No new lessons to include")
         return
+
+    for match in new_matches:
+        if match.lesson.is_stub:
+            match.lesson = index.materialize_lesson(match.lesson)
+
+    # Format lessons as system message
+    content_parts = ["# Relevant Lessons\n"]
+    for match in new_matches:
+        lesson = match.lesson
+        content_parts.append(f"\n## {lesson.title}\n")
+        content_parts.append(f"\n*Path: {lesson.path}*\n")
+        content_parts.append(f"\n*Category: {lesson.category}*\n")
+        content_parts.append(f"\n*Matched by: {len(match.matched_by)} keyword(s)*\n")
+        content_parts.append(f"\n{lesson.body}\n")
+
+    lesson_msg = Message(
+        role="system",
+        content="".join(content_parts),
+        hide=True,  # Hide from user-facing output
+    )
+
+    # Update session statistics
+    for match in new_matches:
+        path_str = str(match.lesson.path)
+        stats.unique_lessons.add(path_str)
+        stats.turn_lessons.add(path_str)
+        stats.lesson_titles[path_str] = match.lesson.title
+    stats.total_matched += len(new_matches)
+
+    titles = [str(match.lesson.title) for match in new_matches]
+    titles_list = "\n".join(f"- {title}" for title in titles)
+    # debug-level: session-end stats (session_end_lessons_hook) report this
+    # in the right place; info-level spam here fires mid-reply at hook time.
+    logger.debug(f"Auto-included {len(new_matches)} lessons:\n{titles_list}")
+
+    yield lesson_msg
 
 
 def session_end_lessons_hook(
