@@ -785,6 +785,11 @@ Claude Code status line, set a command:</p>
 </tbody>
 </table>
 </div>
+<p>A prompt sent while the agent is working is queued. It joins the running
+turn before the agent’s next step, so you can steer it without waiting for
+the turn to finish. If it contains URLs, you’re asked whether to fetch them
+when you queue it. The queue stays in order: a slash-command waits until the
+turn ends, and so does everything queued after it.</p>
 <p>When a tool is about to execute, a confirmation dialog shows a preview;
 press <kbd class="kbd docutils literal notranslate">y</kbd> to execute, <kbd class="kbd docutils literal notranslate">n</kbd> to skip, or <kbd class="kbd docutils literal notranslate">a</kbd> to auto-confirm for
 the rest of the session.</p>
