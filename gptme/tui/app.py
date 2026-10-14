@@ -865,7 +865,8 @@ class StreamingMessage(Vertical):
         self.show_thinking = show_thinking
         self._body = Static(Text("Generating…"), classes="progress-placeholder")
         # Keep one row per thinking/prose segment, in final-render order.
-        self._segments: list[Static] = []
+        # Prose segments use Markdown widgets so heights match AssistantMessage at finalize.
+        self._segments: list[Static | Markdown] = []
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
@@ -895,21 +896,22 @@ class StreamingMessage(Vertical):
         with self.app.batch_update():
             for index, (kind, text) in enumerate(segments):
                 if index == len(self._segments):
-                    css = (
-                        "thinking-stub"
-                        if kind == "thinking"
-                        else "tool-stub"
-                        if kind == "tool_call"
-                        else "stream-prose"
-                    )
-                    row = Static(classes=css)
-                    self._segments.append(row)
-                    self.mount(row)
+                    # Use Markdown for prose so heights match AssistantMessage at finalize.
+                    new_row: Static | Markdown
+                    if kind == "prose":
+                        # Pass text to constructor so _on_mount uses it (not "").
+                        new_row = Markdown(text.strip(), classes="stream-prose")
+                    else:
+                        css = "thinking-stub" if kind == "thinking" else "tool-stub"
+                        new_row = Static(classes=css)
+                    self._segments.append(new_row)
+                    self.mount(new_row)
                 row = self._segments[index]
                 row.set_class(kind == "thinking", "thinking-stub")
                 row.set_class(kind == "tool_call", "tool-stub")
                 row.set_class(kind == "prose", "stream-prose")
                 if kind == "thinking":
+                    assert isinstance(row, Static)
                     n = len(text.splitlines())
                     row.update(
                         Text(
@@ -918,9 +920,15 @@ class StreamingMessage(Vertical):
                         )
                     )
                 elif kind == "tool_call":
+                    assert isinstance(row, Static)
                     row.update(Text(_streaming_tool_stub(text), style="dim"))
                 else:
-                    row.update(Text(text.strip()))
+                    # Prose: Markdown widget renders same as AssistantMessage;
+                    # update() is async (schedules a parse) but non-blocking.
+                    if isinstance(row, Markdown):
+                        row.update(text.strip())
+                    else:
+                        row.update(Text(text.strip()))
             # Reuse existing rows; hide any the parser no longer emits.
             for index, row in enumerate(self._segments):
                 row.display = index < len(segments)
