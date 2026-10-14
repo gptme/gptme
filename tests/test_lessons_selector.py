@@ -292,8 +292,19 @@ def test_transport_deadline_kills_cli_and_its_child(hook_env: dict[str, Any]) ->
     assert time.monotonic() - start < 5
     with pytest.raises(ProcessLookupError):
         os.kill(int(parent_pid.read_text()), 0)
-    # A killed grandchild may briefly be a zombie until PID 1 reaps it.
-    proc_stat = Path(f"/proc/{int(child_pid.read_text())}/stat")
+    # The SIGKILL is sent to the process group, but the grandchild may briefly
+    # still be running ('R') before the kernel delivers the signal, then briefly
+    # be a zombie ('Z') until PID 1 reaps it. Poll up to 1s for the child to die.
+    child_pid_val = int(child_pid.read_text())
+    poll_deadline = time.monotonic() + 1.0
+    while time.monotonic() < poll_deadline:
+        proc_stat = Path(f"/proc/{child_pid_val}/stat")
+        if not proc_stat.exists():
+            break
+        if proc_stat.read_text().split()[2] not in ("R", "S", "D"):
+            break
+        time.sleep(0.05)
+    proc_stat = Path(f"/proc/{child_pid_val}/stat")
     if proc_stat.exists():
         assert proc_stat.read_text().split()[2] == "Z"
     assert not marker.exists()
