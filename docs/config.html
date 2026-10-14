@@ -631,6 +631,7 @@
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tui-status-line">TUI status line</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-model-selection-works">How model selection works</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-config-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-defaults-and-prompt-fragments">Runtime defaults and prompt fragments</a></li>
@@ -750,6 +751,29 @@ workspace files, profiles, or a conversation’s custom system prompt.</p></li>
 <code class="docutils literal notranslate"><span class="pre">config.toml</span></code>. That lets you keep <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in dotfiles or version control without
 exposing your keys. The webui setup wizard already writes keys to <code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>.</p>
 </div>
+<section id="tui-status-line">
+<span id="tui-statusline"></span><h3>TUI status line<a class="headerlink" href="#tui-status-line" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">[tui]</span> <span class="pre">statusline</span></code> sets a command that renders the TUI status bar:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[tui]</span>
+<span class="n">statusline</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"python3 ~/.config/gptme/statusline.py"</span>
+</pre></div>
+</div>
+<p>The command gets a JSON object on stdin and prints the status line: one or
+more lines, ANSI colors allowed. It runs when the status changes (and every
+10 seconds), in the workspace directory, and must finish within 2 seconds;
+if it fails or prints nothing, the built-in status is shown. Fields use the
+names of Claude Code’s statusline input where they map, so one script can
+serve both:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">model.display_name</span></code>, <code class="docutils literal notranslate"><span class="pre">cwd</span></code>, <code class="docutils literal notranslate"><span class="pre">workspace.current_dir</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">context_window</span></code>: <code class="docutils literal notranslate"><span class="pre">used_percentage</span></code>, <code class="docutils literal notranslate"><span class="pre">context_window_size</span></code>,
+<code class="docutils literal notranslate"><span class="pre">current_usage.input_tokens</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cost</span></code>: <code class="docutils literal notranslate"><span class="pre">total_cost_usd</span></code>, <code class="docutils literal notranslate"><span class="pre">total_duration_ms</span></code> (since the TUI started)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">session_id</span></code> and <code class="docutils literal notranslate"><span class="pre">session_name</span></code>: the conversation name</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gptme</span></code>: <code class="docutils literal notranslate"><span class="pre">state</span></code> (<code class="docutils literal notranslate"><span class="pre">idle</span></code>, <code class="docutils literal notranslate"><span class="pre">generating</span></code>, <code class="docutils literal notranslate"><span class="pre">executing</span> <span class="pre">tools</span></code>, …),
+<code class="docutils literal notranslate"><span class="pre">queued</span></code>, <code class="docutils literal notranslate"><span class="pre">turns</span></code>, <code class="docutils literal notranslate"><span class="pre">steps</span></code>, <code class="docutils literal notranslate"><span class="pre">tools</span></code> (calls per tool) and <code class="docutils literal notranslate"><span class="pre">logdir</span></code></p></li>
+</ul>
+</section>
 <section id="how-model-selection-works">
 <span id="id2"></span><h3>How model selection works<a class="headerlink" href="#how-model-selection-works" title="Link to this heading">#</a></h3>
 <p>When you start gptme, the model is resolved in this priority order. The layers
@@ -1225,6 +1249,7 @@ The variable name is derived from the parameter name in uppercase.</p>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#global-config">Global config</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tui-status-line">TUI status line</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-model-selection-works">How model selection works</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-overrides-config-local-toml">Local overrides (<code class="docutils literal notranslate"><span class="pre">config.local.toml</span></code>)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-defaults-and-prompt-fragments">Runtime defaults and prompt fragments</a></li>

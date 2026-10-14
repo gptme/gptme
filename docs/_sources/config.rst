@@ -103,6 +103,33 @@ The ``env`` section contains environment variables that gptme will fall back to 
    ``config.toml``. That lets you keep ``config.toml`` in dotfiles or version control without
    exposing your keys. The webui setup wizard already writes keys to ``config.local.toml``.
 
+.. _tui-statusline:
+
+TUI status line
+~~~~~~~~~~~~~~~
+
+``[tui] statusline`` sets a command that renders the TUI status bar:
+
+.. code-block:: toml
+
+    [tui]
+    statusline = "python3 ~/.config/gptme/statusline.py"
+
+The command gets a JSON object on stdin and prints the status line: one or
+more lines, ANSI colors allowed. It runs when the status changes (and every
+10 seconds), in the workspace directory, and must finish within 2 seconds;
+if it fails or prints nothing, the built-in status is shown. Fields use the
+names of Claude Code's statusline input where they map, so one script can
+serve both:
+
+- ``model.display_name``, ``cwd``, ``workspace.current_dir``
+- ``context_window``: ``used_percentage``, ``context_window_size``,
+  ``current_usage.input_tokens``
+- ``cost``: ``total_cost_usd``, ``total_duration_ms`` (since the TUI started)
+- ``session_id`` and ``session_name``: the conversation name
+- ``gptme``: ``state`` (``idle``, ``generating``, ``executing tools``, …),
+  ``queued``, ``turns``, ``steps``, ``tools`` (calls per tool) and ``logdir``
+
 .. _how-model-selection-works:
 
 How model selection works
