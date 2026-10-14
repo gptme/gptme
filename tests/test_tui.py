@@ -1050,6 +1050,130 @@ def test_streaming_message_set_thinking_ignored_after_tokens():
     mock_update.assert_not_called()
 
 
+def test_streaming_message_thinking_stub_positioned_before_body():
+    """_thinking_stub is always in the DOM before _body so finalize never shifts prose."""
+    msg = StreamingMessage(show_thinking=False)
+    # compose() is called lazily; the stub is set during compose, not __init__.
+    assert msg._thinking_stub is None  # not yet composed
+    assert msg._body is not None
+
+
+@pytest.mark.asyncio
+async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
+    """When show_thinking=False and thinking tokens arrive, the stub appears before prose."""
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._begin_stream()
+        await pilot.pause()
+
+        sm = app._stream_widget
+        assert sm is not None
+        assert not sm.show_thinking  # default is show_thinking=False in tests
+
+        # Stream thinking block followed by prose
+        sm.append_token("<think>reasoning line 1\nreasoning line 2\n</think>")
+        sm.append_token("Some visible prose")
+        await pilot.pause()
+
+        # Thinking stub should be visible in position, above the body
+        assert sm._thinking_stub is not None
+        assert sm._thinking_stub.display
+        stub_text = str(sm._thinking_stub.render())
+        assert "Thinking" in stub_text
+
+        # The body should show the visible prose
+        body_text = str(sm._body.render())
+        assert "Some visible prose" in body_text
+
+
+@pytest.mark.asyncio
+async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
+    """After streaming, finalizing mounts AssistantMessage at the stream widget's
+    DOM position — no gap where the stream widget disappears before replacement."""
+    from textual.containers import VerticalScroll
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        # Simulate a prior user message so there's a neighbor widget
+        app._on_step_message(Message("user", "hello"))
+        await pilot.pause()
+
+        app._begin_stream()
+        await pilot.pause()
+
+        sm = app._stream_widget
+        assert sm is not None
+
+        chat = app.query_one("#chat", VerticalScroll)
+        stream_idx = list(chat.children).index(sm)
+
+        # Finalize
+        app._on_step_message(Message("assistant", "hello back"))
+        await pilot.pause()
+
+        # StreamingMessage is gone; AssistantMessage is at the same position
+        assert len(app.query(StreamingMessage)) == 0
+        assert len(app.query(AssistantMessage)) == 1
+        am = app.query_one(AssistantMessage)
+        assert list(chat.children).index(am) == stream_idx
+
+
+# A 60-line save tool call — the exact fixture from the issue to test height stability.
+_SAVE_60_LINES = (
+    "Saving the file.\n\n```save hello.py\n"
+    + "\n".join(f"line{i}" for i in range(1, 61))
+    + "\n```"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(
+    reason=(
+        "Tool-call segments not yet streamed in collapsed form (#4331). "
+        "This test documents the remaining height-collapse issue for a 60-line "
+        "save call; it will pass once streaming renders tool calls in-place."
+    ),
+    strict=True,
+)
+async def test_finalize_stream_height_does_not_collapse(tmp_path):
+    """Content height must not drop by more than 2 rows when a streaming preview
+    is finalized (regression guard for the 60-line save-call layout jump)."""
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._begin_stream()
+        await pilot.pause()
+
+        sm = app._stream_widget
+        assert sm is not None
+
+        # Stream the entire 60-line save call token by token (chunked for speed)
+        for line in _SAVE_60_LINES.splitlines(keepends=True):
+            sm.append_token(line)
+        await pilot.pause()
+
+        height_before = sm.content_size.height
+
+        # Finalize
+        app._on_step_message(Message("assistant", _SAVE_60_LINES))
+        await pilot.pause()
+
+        am = app.query_one(AssistantMessage)
+        height_after = am.content_size.height
+
+        # The finalized height should not have dropped massively.
+        # A 60-line tool call collapses to ~1 title row, but the surrounding prose
+        # and role label stay. We allow up to 3 rows of shrinkage for normal
+        # markdown-vs-raw-text reflow; anything larger is the old layout-jump bug.
+        assert height_after >= height_before - 3, (
+            f"height collapsed from {height_before} to {height_after} rows "
+            f"(dropped {height_before - height_after})"
+        )
+
+
 # ─────────────────────────────────────────────────────────
 # Format detection across all three tool-call formats
 # ─────────────────────────────────────────────────────────

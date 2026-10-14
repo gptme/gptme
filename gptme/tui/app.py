@@ -708,23 +708,53 @@ class StreamingMessage(Vertical):
         self._buffer = ""
         self.show_thinking = show_thinking
         self._body = Static(Text("Generating…"), classes="progress-placeholder")
+        # Position-stable stub for hidden thinking: always mounted before _body
+        # so finalize never inserts a new widget above already-visible prose.
+        self._thinking_stub: Static | None = None
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
+        # Pre-mount a hidden stub so its DOM position is locked in from the
+        # start; it becomes visible only when thinking content arrives.
+        self._thinking_stub = Static(Text(""), classes="thinking-stub")
+        self._thinking_stub.display = False
+        yield self._thinking_stub
         yield self._body
 
     def _visible(self) -> str:
         return self._buffer if self.show_thinking else _strip_thinking(self._buffer)
 
+    def _thinking_line_count(self) -> int:
+        segs = _split_thinking(self._buffer)
+        return sum(len(text.splitlines()) for is_think, text in segs if is_think)
+
     def append_token(self, token: str) -> None:
         self._buffer += token
-        if visible := self._visible().strip():
+        visible = self._visible().strip()
+
+        if self.show_thinking:
+            if visible:
+                self._body.update(Text(visible))
+            else:
+                self.set_thinking(bool(_THINK_OPEN_RE.search(self._buffer)))
+            return
+
+        # show_thinking=False: keep the thinking stub in its pre-allocated
+        # position so finalize never inserts a collapsible above visible prose.
+        has_open_think = bool(_THINK_OPEN_RE.search(self._buffer))
+        if has_open_think and self._thinking_stub is not None:
+            n = self._thinking_line_count()
+            label = f"▸ Thinking ({n} line{'s' if n != 1 else ''}, generating…)"
+            self._thinking_stub.update(Text(label, style="dim"))
+            self._thinking_stub.display = True
+
+        if visible:
             self._body.update(Text(visible))
-        else:
-            self.set_thinking(bool(_THINK_OPEN_RE.search(self._buffer)))
+        elif not has_open_think:
+            self._body.update(Text("Generating…"))
 
     def set_thinking(self, is_thinking: bool) -> None:
         """Update the placeholder when the model transitions in/out of thinking."""
@@ -2647,13 +2677,51 @@ class GptmeApp(App):
             self._tool_placeholder.remove()
             self._tool_placeholder = None
 
+    def _finalize_stream_in_place(self, msg: Message) -> None:
+        """Mount the final AssistantMessage before the streaming widget and remove it.
+
+        Doing both inside batch_update() avoids an intermediate frame with a
+        gap: the chat scroll never sees the stream widget disappear before its
+        replacement is present.
+        """
+        assert self._stream_widget is not None
+        stream_widget = self._stream_widget
+        self._stream_text = ""
+        self._stream_widget = None
+
+        if msg.hide and not self.show_hidden:
+            stream_widget.remove()
+            return
+
+        am = AssistantMessage(
+            msg.content, show_thinking=self.show_thinking, highlight=self.highlight
+        )
+        chat = self.query_one("#chat", VerticalScroll)
+        stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
+        with self.batch_update():
+            chat.mount(am, before=stream_widget)
+            stream_widget.remove()
+        if stick:
+            self.call_after_refresh(chat.scroll_end, animate=False)
+        cost_text = inline_cost_text(msg)
+        if cost_text:
+            self._mount_in_chat(CostMessage(cost_text))
+
     def _on_step_message(self, msg: Message) -> None:
         if msg.role == "assistant":
-            # replace the live stream view with the final rendering
-            self._clear_stream_view()
-        # Results and hook messages mount above the tool status line, which
-        # stays until the next model step or worker completion ends the batch.
-        self._show_message(msg)
+            if not self.inline and self._stream_widget is not None:
+                # Swap streaming preview for final rendering without a DOM gap.
+                self._finalize_stream_in_place(msg)
+            else:
+                # Inline path or no stream widget: clear preview and show normally.
+                self._clear_stream_view()
+                self._show_message(msg)
+        else:
+            if msg.role == "system":
+                # Keep the indicator at the bottom while results and hook messages
+                # arrive. The next model step or worker completion ends the batch.
+                self._clear_tool_placeholder()
+            self._show_message(msg)
         # UI thread: the tool format lives in the chat context, so pass it
         if msg.role == "assistant" and any(
             tool_use.is_runnable
