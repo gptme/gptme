@@ -85,8 +85,8 @@ mkdir -p "$BINS_DIR"
 # When uv.lock is absent (e.g. fresh checkout — it is gitignored), fall back
 # to uv pip install.  This path is NOT lock-pinned; prefer generating a uv.lock
 # (`uv lock`) or committing it for reproducible sidecar builds.
-# pyinstaller is in [tool.poetry.group.dev.dependencies]; uv maps Poetry groups
-# to --group NAME, so --group dev selects it.  server extras add Flask etc.
+# pyinstaller is in the PEP 735 [dependency-groups] dev group;
+# --group dev selects it.  server extras add Flask etc.
 cd "$REPO_ROOT"
 if [[ -f "uv.lock" ]]; then
     if ! uv sync --frozen --extra server --group dev --quiet; then

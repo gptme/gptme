@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -29,13 +30,15 @@ SCRIPTS: dict[str, str] = pyproject["project"]["scripts"]
 
 
 def _optional_distributions() -> list[str]:
-    """Distribution names declared ``optional = true`` in pyproject."""
-    deps = pyproject["tool"]["poetry"]["dependencies"]
-    return [
-        name
-        for name, spec in deps.items()
-        if isinstance(spec, dict) and spec.get("optional")
-    ]
+    """Distribution names only reachable through an extra in pyproject."""
+    project = pyproject["project"]
+    required = {Requirement(r).name for r in project["dependencies"]}
+    optional = {
+        Requirement(r).name
+        for reqs in project["optional-dependencies"].values()
+        for r in reqs
+    }
+    return sorted(optional - required)
 
 
 def _optional_modules() -> list[str]:

@@ -60,7 +60,7 @@ python -m gptme.eval.dspy show-prompt
 
 ## Installation
 
-DSPy is an optional dependency added in pyproject.toml under `[tool.poetry.extras]`.
+DSPy is an optional dependency added in pyproject.toml under `[project.optional-dependencies]`.
 
 Install with:
 ```bash
