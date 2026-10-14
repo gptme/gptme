@@ -268,7 +268,11 @@ async def test_e2e_queued_prompt_steers_running_turn(mock_app, monkeypatch):
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         inp = app.query_one("#input", ChatInput)
-        inp.text = "run this:\n```shell\nsleep 1.5\n```"
+        # the tool runs until the test releases it, after queuing
+        release = Path(app.workspace) / f"release-{uuid.uuid4().hex[:8]}"
+        inp.text = (
+            f"run this:\n```shell\nwhile [ ! -e {release} ]; do sleep 0.1; done\n```"
+        )
         await pilot.press("enter")
         await wait_for(
             pilot,
@@ -283,6 +287,7 @@ async def test_e2e_queued_prompt_steers_running_turn(mock_app, monkeypatch):
         await pilot.press("enter")
         await pilot.pause()
         assert app.prompt_queue == ["steer this way", "and this too"]
+        release.touch()
         await wait_for(
             pilot,
             lambda: not app.generating and app.state == "idle",
@@ -309,7 +314,11 @@ async def test_e2e_queued_url_prompt_confirms_at_queue_time(mock_app, monkeypatc
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
         inp = app.query_one("#input", ChatInput)
-        inp.text = "run this:\n```shell\nsleep 1.5\n```"
+        # the tool runs until the test releases it, after queuing
+        release = Path(app.workspace) / f"release-{uuid.uuid4().hex[:8]}"
+        inp.text = (
+            f"run this:\n```shell\nwhile [ ! -e {release} ]; do sleep 0.1; done\n```"
+        )
         await pilot.press("enter")
         await wait_for(
             pilot,
@@ -329,6 +338,7 @@ async def test_e2e_queued_url_prompt_confirms_at_queue_time(mock_app, monkeypatc
         await pilot.press("n")  # don't fetch
         await pilot.pause()
         assert len(app.prompt_queue) == 1
+        release.touch()
         await wait_for(
             pilot,
             lambda: not app.generating and app.state == "idle",

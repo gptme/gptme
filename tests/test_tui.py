@@ -3618,3 +3618,20 @@ async def test_command_line_prompts_are_not_steered(tmp_path, monkeypatch):
         await pilot.pause()
         assert app.prompt_queue == ["two"]
         assert app._take_steer_prompts() == []
+
+
+@pytest.mark.asyncio
+async def test_url_dialog_answered_after_interrupt_returns_text(tmp_path, monkeypatch):
+    """A URL dialog left open when the turn was interrupted must not start a
+    new turn once answered: the text goes back to the input."""
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._interrupt_event.set()  # interrupted while the dialog was open
+        app._enqueue_confirmed("see https://example.com", [])
+        await pilot.pause()
+        assert started == []
+        assert app.query_one("#input", ChatInput).text == "see https://example.com"
+        assert app._confirmed_urls == {}

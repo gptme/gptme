@@ -2599,6 +2599,13 @@ class GptmeApp(App):
         self._confirmed_urls[id(msg)] = confirmed or []
         if self.generating:
             self._enqueue_prompt(msg)
+        elif self._interrupt_event.is_set():
+            # the turn was interrupted meanwhile: hand the text back, as for
+            # the rest of the queue, instead of starting a new turn
+            self._confirmed_urls.pop(id(msg))
+            chat_input = self.query_one("#input", ChatInput)
+            existing = chat_input.text.strip()
+            chat_input._set_text(f"{existing}\n{text}" if existing else text)
         else:  # the turn ended while the dialog was open
             self.call_later(self._submit, msg)
 
