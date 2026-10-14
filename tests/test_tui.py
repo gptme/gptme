@@ -1364,6 +1364,8 @@ async def test_finalize_stream_discards_delayed_tokens(tmp_path):
         assert app._stream_widget is None
         assert not app.query(StreamingMessage)
         assert len(app.query(AssistantMessage)) == 1
+        am = app.query_one(AssistantMessage)
+        assert "Answer trailing tokens" in am.content
         assert not app._stream_pending
         assert not app._stream_flush_scheduled
 
