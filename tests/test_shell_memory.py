@@ -235,7 +235,12 @@ def test_command_that_execs_is_killed_and_shell_restarts(fake_low_memory):
     try:
         result: dict = {}
         runner = threading.Thread(
-            target=lambda: result.update(value=shell.run("exec sleep 30", output=False))
+            # a small parent whose worker would hold the memory (exec make -j8)
+            target=lambda: result.update(
+                value=shell.run(
+                    "exec bash -c 'sleep 30 & sleep 31; wait'", output=False
+                )
+            )
         )
         runner.start()
         time.sleep(0.5)

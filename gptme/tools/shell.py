@@ -117,7 +117,7 @@ from .shell_background import (
     start_background_job as start_background_job,
 )
 from .shell_memory import Target as MemoryTarget
-from .shell_memory import kill_group, kill_tree, process_rss
+from .shell_memory import kill_group, kill_tree, process_name
 from .shell_memory import watch as watch_memory
 from .shell_validation import (
     _find_first_unquoted_pipe,
@@ -750,14 +750,12 @@ class ShellSession:
         process = self.process
 
         def kill_command() -> None:
-            children = _descendant_pids(process.pid)
-            rss = process_rss([process.pid, *children])
-            if rss.get(process.pid, 0) > sum(rss.get(pid, 0) for pid in children):
-                # the command replaced the shell (`exec`): stop the shell too;
-                # run() sees it die and starts a fresh one
+            if process_name(process.pid) != "bash":
+                # the command replaced the shell (`exec make -j8`): stop it and
+                # its workers; run() sees the shell die and starts a fresh one
                 kill_group(process.pid)
             else:
-                kill_tree(children)
+                kill_tree(_descendant_pids(process.pid))
 
         watch_memory(
             MemoryTarget(

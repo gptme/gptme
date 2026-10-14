@@ -118,24 +118,19 @@ def group_rss() -> dict[int, int]:
     return rss
 
 
-def process_rss(pids: list[int]) -> dict[int, int]:
-    """Resident memory in bytes of each of these processes still running."""
+def process_name(pid: int) -> str | None:
+    """The executable name of a running process (e.g. "bash"), or None."""
     try:
         out = subprocess.run(
-            ["ps", "-o", "pid=,rss=", "-p", ",".join(map(str, pids))],
+            ["ps", "-o", "comm=", "-p", str(pid)],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
-        ).stdout
+        ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
-        return {}
-    rss: dict[int, int] = {}
-    for line in out.splitlines():
-        with contextlib.suppress(ValueError):
-            pid, kib = (int(x) for x in line.split())
-            rss[pid] = kib * 1024
-    return rss
+        return None
+    return os.path.basename(out).lstrip("-") or None
 
 
 def _gb(n: int) -> str:
