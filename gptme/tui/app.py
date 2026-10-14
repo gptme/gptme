@@ -1785,6 +1785,19 @@ class GptmeApp(App):
         padding: 0;
         background: transparent;
     }
+    /* headers: bold in the text color, one blank line above and none below
+       (Textual's defaults: 2 above, 1 below, a blue underlined H2, a
+       centered H1 on a background) */
+    .message MarkdownHeader {
+        margin: 1 0 0 0;
+        color: $text;
+        background: transparent;
+        text-style: bold;
+        content-align: left middle;
+    }
+    .message MarkdownHeader:first-child {
+        margin-top: 0;
+    }
     .message Static {
         background: transparent;
     }
