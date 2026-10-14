@@ -907,6 +907,25 @@ class StreamingMessage(Vertical):
                     self._segments.append(new_row)
                     self.mount(new_row)
                 row = self._segments[index]
+                # If the kind changed (e.g. prose→thinking during streaming),
+                # the existing widget type may not match. Replace it in place.
+                needs_markdown = kind == "prose"
+                type_ok = (needs_markdown and isinstance(row, Markdown)) or (
+                    not needs_markdown and isinstance(row, Static)
+                )
+                if not type_ok:
+                    if needs_markdown:
+                        replacement: Static | Markdown = Markdown(
+                            text.strip(), classes="stream-prose"
+                        )
+                    else:
+                        css = "thinking-stub" if kind == "thinking" else "tool-stub"
+                        replacement = Static(classes=css)
+                    row.remove()
+                    anchor = self._segments[index - 1] if index > 0 else self._body
+                    self.mount(replacement, after=anchor)
+                    self._segments[index] = replacement
+                    row = replacement
                 row.set_class(kind == "thinking", "thinking-stub")
                 row.set_class(kind == "tool_call", "tool-stub")
                 row.set_class(kind == "prose", "stream-prose")
