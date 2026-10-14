@@ -1240,7 +1240,7 @@ def api_external_sessions():
     """List read-only external sessions discovered by the server."""
     provider = get_external_session_provider()
     if provider is None:
-        return flask.jsonify({"error": "external session provider unavailable"}), 503
+        return flask.jsonify({"sessions": []})
 
     try:
         limit = int(request.args.get("limit", 100))

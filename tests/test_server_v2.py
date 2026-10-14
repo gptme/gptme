@@ -1158,16 +1158,16 @@ def test_v2_external_session_get(client: FlaskClient, fake_external_session_prov
 
 
 def test_v2_external_sessions_unavailable(client: FlaskClient, monkeypatch):
-    """Test external session endpoints when provider is unavailable."""
+    """Test external session list returns empty when provider is unavailable."""
     monkeypatch.setattr(
         "gptme.server.api_v2.get_external_session_provider", lambda: None
     )
 
     response = client.get("/api/v2/external-sessions")
-    assert response.status_code == 503
+    assert response.status_code == 200
     data = response.get_json()
     assert data is not None
-    assert "unavailable" in data["error"]
+    assert data["sessions"] == []
 
 
 def test_v2_external_session_not_found(
