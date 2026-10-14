@@ -1979,7 +1979,6 @@ class GptmeApp(App):
         # assistant message rendered from the stream when its tools started,
         # replaced by the final message once they finish
         self._provisional_assistant: Widget | None = None
-        self._generation_thread: int | None = None
         self._outputs_expanded = False
         self.show_thinking = _show_thinking_default()
         self.show_hidden = _show_hidden_default()
