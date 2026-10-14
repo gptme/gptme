@@ -46,12 +46,18 @@ updates:
           - "patch"
       # Peer-coupled majors must move together: a lone `react` or
       # `@types/react` major fails `npm ci` on ERESOLVE (gptme/gptme#4118).
+      # `react-day-picker` (8.x) and `vaul` (0.9.x) pin React peers below 19,
+      # so they must ride along with the React major or the grouped update
+      # still fails `npm ci`. The minor/patch group leaves both untouched
+      # (8.10.1 won't move, 0.9.x won't cross to 1.x), so only this group can.
       react-majors:
         patterns:
           - "react"
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+          - "react-day-picker"
+          - "vaul"
         update-types:
           - "major"
       # jest, its jsdom environment and ts-jest share a major; bumping only
