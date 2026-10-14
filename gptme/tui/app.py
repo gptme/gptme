@@ -752,6 +752,18 @@ class StreamingMessage(Vertical):
             for index, row in enumerate(self._segments):
                 row.display = index < len(segments)
 
+    def _refresh_thinking_display(self) -> None:
+        """Sync widget visibility after show_thinking changes mid-stream."""
+        if self.show_thinking:
+            visible = self._visible().strip()
+            if visible:
+                self._body.update(Text(visible))
+            self._body.display = True
+            for row in self._segments:
+                row.display = False
+        else:
+            self._update_hidden_segments()
+
     def append_token(self, token: str) -> None:
         self._buffer += token
         visible = self._visible().strip()
@@ -2352,6 +2364,7 @@ class GptmeApp(App):
         self.show_thinking = on
         if self._stream_widget is not None:
             self._stream_widget.show_thinking = on
+            self._stream_widget._refresh_thinking_display()
         if not self.inline:
             for block in self.query(".thinking-block").results(Collapsible):
                 block.collapsed = not on
