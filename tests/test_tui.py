@@ -2697,6 +2697,9 @@ async def test_stream_updates_are_batched(tmp_path, monkeypatch):
     """Chunks from the worker are buffered and rendered at most STREAM_FPS
     times a second: each render re-lays out the whole buffer."""
     import threading
+    import time
+
+    from gptme.tui.app import STREAM_FPS
 
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     renders: list[str] = []
@@ -2714,17 +2717,23 @@ async def test_stream_updates_are_batched(tmp_path, monkeypatch):
 
         monkeypatch.setattr(widget, "append_token", counting_append)
 
-        def stream() -> None:
-            for i in range(500):
-                app._on_token(f"{i} ")
+        n, interval = 200, 0.005  # paced: ~1s of chunks while the UI runs
 
+        def stream() -> None:
+            for i in range(n):
+                app._on_token(f"{i} ")
+                time.sleep(interval)
+
+        start = time.monotonic()
         worker = threading.Thread(target=stream)
         worker.start()
-        worker.join(5)
-        assert not worker.is_alive()  # the worker never waits on the UI
+        while worker.is_alive():
+            await pilot.pause(0.02)
+        elapsed = time.monotonic() - start
         await pilot.pause(0.2)
-        assert "".join(renders) == "".join(f"{i} " for i in range(500))
-        assert len(renders) < 20, len(renders)
+        assert "".join(renders) == "".join(f"{i} " for i in range(n))
+        # one render per chunk would be ~200; the cap allows ~STREAM_FPS/s
+        assert 2 <= len(renders) <= elapsed * STREAM_FPS + 3, (len(renders), elapsed)
 
 
 @pytest.mark.asyncio
