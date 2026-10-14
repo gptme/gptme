@@ -104,6 +104,8 @@ class LessonSessionStats:
     total_matched: int = 0
     unique_lessons: set[str] = field(default_factory=set)
     lesson_titles: dict[str, str] = field(default_factory=dict)  # path -> title
+    turn_prompt: Message | None = None
+    turn_lessons: set[str] = field(default_factory=set)
 
 
 # Context-local storage for session statistics
@@ -273,6 +275,14 @@ def auto_include_lessons_hook(
     except (ValueError, TypeError):
         max_lessons = 20
 
+    # Optional per-turn limit. Unset keeps the old behavior, where a long first
+    # prompt can match enough lessons to spend the whole session budget at once
+    # and leave nothing for lessons matched later (e.g. by tool errors).
+    try:
+        max_per_turn = int(config.get_env("GPTME_LESSONS_MAX_PER_TURN") or "0")
+    except (ValueError, TypeError):
+        max_per_turn = 0
+
     # Get session stats and check if we've hit the limit
     stats = _get_session_stats()
 
@@ -295,6 +305,22 @@ def auto_include_lessons_hook(
             f"Session lesson limit reached ({len(stats.unique_lessons)}/{max_lessons})"
         )
         return
+
+    if max_per_turn > 0:
+        # STEP_PRE repeats after tools; only a new user prompt starts a turn.
+        # Restore the current turn's usage from the log on resume as well.
+        turn_start = next(
+            (i for i in range(len(messages) - 1, -1, -1) if messages[i].role == "user"),
+            None,
+        )
+        turn_prompt = messages[turn_start] if turn_start is not None else None
+        if turn_prompt is not stats.turn_prompt:
+            stats.turn_prompt = turn_prompt
+            stats.turn_lessons = _get_included_lessons_from_log(messages[turn_start:])
+        remaining_turn_budget = max_per_turn - len(stats.turn_lessons)
+        if remaining_turn_budget <= 0:
+            logger.debug("Per-turn lesson limit reached")
+            return
 
     # Extract message content from recent user and assistant messages
     message_content = _extract_message_content(messages)
@@ -385,6 +411,13 @@ def auto_include_lessons_hook(
             )
             new_matches = new_matches[:remaining_budget]
 
+        if max_per_turn > 0 and len(new_matches) > remaining_turn_budget:
+            logger.debug(
+                f"Limiting lessons from {len(new_matches)} to {remaining_turn_budget} "
+                f"(per-turn limit)"
+            )
+            new_matches = new_matches[:remaining_turn_budget]
+
         if not new_matches:
             logger.debug("No new lessons to include")
             return
@@ -415,6 +448,7 @@ def auto_include_lessons_hook(
         for match in new_matches:
             path_str = str(match.lesson.path)
             stats.unique_lessons.add(path_str)
+            stats.turn_lessons.add(path_str)
             stats.lesson_titles[path_str] = match.lesson.title
         stats.total_matched += len(new_matches)
 

@@ -528,6 +528,104 @@ class TestAutoIncludeLessonsHook:
         results = list(auto_include_lessons_hook(manager))
         assert results == []
 
+    @pytest.mark.parametrize("resume", [False, True])
+    @pytest.mark.parametrize("first_match_count", [1, 3])
+    @patch("gptme.tools.lessons._get_lesson_index")
+    @patch("gptme.tools.lessons.get_config")
+    def test_respects_per_turn_limit(
+        self, mock_config, mock_index, first_match_count, resume
+    ):
+        """Per-turn limit leaves session budget for lessons matched later."""
+        config = MagicMock()
+        config.get_env_bool.side_effect = lambda key, default: default
+        config.get_env.side_effect = lambda key: {
+            "GPTME_LESSONS_MAX_SESSION": "20",
+            "GPTME_LESSONS_MAX_PER_TURN": "2",
+        }.get(key)
+        mock_config.return_value = config
+
+        lessons = [
+            _lesson(path=f"/lessons/l{i}.md", title=f"Lesson {i}") for i in range(3)
+        ]
+        mock_idx = MagicMock()
+        mock_idx.lessons = lessons
+        mock_index.return_value = mock_idx
+
+        manager = self._make_manager([_msg("user", "trigger content")])
+
+        with patch("gptme.tools.lessons.LessonMatcher") as MockMatcher:
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = [
+                _match_result(lesson) for lesson in lessons
+            ]
+            MockMatcher.return_value = mock_matcher
+
+            all_matches = mock_matcher.match.return_value
+            mock_matcher.match.return_value = all_matches[:first_match_count]
+            first = list(auto_include_lessons_hook(manager))
+            manager.log.messages.extend(first)
+            manager.log.messages.append(_msg("assistant", "```shell\npwd\n```"))
+            manager.log.messages.append(_msg("system", "Tool output"))
+            if resume:
+                _reset_session_stats()
+            mock_matcher.match.return_value = all_matches
+            # A second tool step can use only the remainder of the same budget.
+            continuation = list(auto_include_lessons_hook(manager))
+            if first_match_count == 1:
+                assert isinstance(continuation[0], Message)
+                assert "Lesson 1" in continuation[0].content
+                assert "Lesson 2" not in continuation[0].content
+                manager.log.messages.extend(continuation)
+            else:
+                assert continuation == []
+            assert list(auto_include_lessons_hook(manager)) == []
+
+            # Identical prompt text still starts a new turn.
+            manager.log.messages.append(_msg("user", "trigger content"))
+            second = list(auto_include_lessons_hook(manager))
+
+        assert isinstance(first[0], Message)
+        assert isinstance(second[0], Message)
+        assert "Lesson 0" in first[0].content
+        assert ("Lesson 1" in first[0].content) == (first_match_count > 1)
+        assert "Lesson 2" not in first[0].content
+        assert "Lesson 2" in second[0].content
+        assert _get_session_stats().unique_lessons == {
+            "/lessons/l0.md",
+            "/lessons/l1.md",
+            "/lessons/l2.md",
+        }
+
+    @pytest.mark.parametrize("limit", [None, "0", "-1", "invalid"])
+    @patch("gptme.tools.lessons._get_lesson_index")
+    @patch("gptme.tools.lessons.get_config")
+    def test_disabled_per_turn_limit(self, mock_config, mock_index, limit):
+        """Unset, non-positive, and invalid values keep uncapped turn behavior."""
+        config = MagicMock()
+        config.get_env_bool.side_effect = lambda key, default: default
+        config.get_env.side_effect = lambda key: {
+            "GPTME_LESSONS_MAX_SESSION": "20",
+            "GPTME_LESSONS_MAX_PER_TURN": limit,
+        }.get(key)
+        mock_config.return_value = config
+        lessons = [_lesson(path=f"/lessons/l{i}.md") for i in range(3)]
+        mock_index.return_value.lessons = lessons
+        manager = self._make_manager([_msg("user", "trigger content")])
+
+        with patch("gptme.tools.lessons.LessonMatcher") as MockMatcher:
+            MockMatcher.return_value.match.return_value = [
+                _match_result(lesson) for lesson in lessons
+            ]
+            results = list(auto_include_lessons_hook(manager))
+
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert _get_session_stats().unique_lessons == {
+            str(lesson.path) for lesson in lessons
+        }
+        for lesson in lessons:
+            assert f"*Path: {lesson.path}*" in results[0].content
+
     @patch("gptme.tools.lessons._get_lesson_index")
     @patch("gptme.tools.lessons.get_config")
     def test_updates_session_stats(self, mock_config, mock_index):

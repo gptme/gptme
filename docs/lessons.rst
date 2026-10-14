@@ -229,6 +229,10 @@ Control lesson behavior with these variables:
     # This is a session-wide limit - once reached, no more lessons are included
     export GPTME_LESSONS_MAX_SESSION=20
 
+    # Maximum new lessons per turn (default: unset, no per-turn limit)
+    # Keeps a long first prompt from spending the whole session budget
+    export GPTME_LESSONS_MAX_PER_TURN=8
+
     # Use hybrid keyword + semantic matching (default: false)
     export GPTME_LESSONS_USE_HYBRID=true
 
