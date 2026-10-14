@@ -402,8 +402,14 @@ class TestHybridSelector:
             )
             mock_reply.assert_called_once()
 
+        # The fallback must be exactly the rule-based ranking, capped at max_results
+        expected = RuleBasedSelector(config).select(
+            query="git workflow best practices",
+            candidates=many_items,
+            max_results=config.max_candidates,
+        )[:5]
+        assert [r.identifier for r in results] == [e.identifier for e in expected]
         assert len(results) == 5
-        assert all(r.identifier.startswith("item") for r in results)
 
     def test_preserves_llm_selection_order(self, mock_llm_response):
         """Test that hybrid selector preserves LLM's selection order."""
