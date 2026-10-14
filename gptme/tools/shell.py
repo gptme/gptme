@@ -30,7 +30,9 @@ Configuration:
         or memory pressure reported by macOS), kill the command the agent
         started that uses the most memory (the running shell command or a
         background job) if it holds at least 5% of RAM, and tell the model
-        why. Catches several heavy commands that only together exhaust
+        why. A killed shell command takes the persistent shell with it; a
+        fresh one starts with the working directory and exported variables
+        restored. Catches several heavy commands that only together exhaust
         memory, which per-process limits can't. On by default (POSIX); set
         to 0 to disable.
 
@@ -117,7 +119,7 @@ from .shell_background import (
     start_background_job as start_background_job,
 )
 from .shell_memory import Target as MemoryTarget
-from .shell_memory import kill_group, kill_tree, process_name
+from .shell_memory import kill_group
 from .shell_memory import watch as watch_memory
 from .shell_validation import (
     _find_first_unquoted_pipe,
@@ -745,23 +747,17 @@ class ShellSession:
             **popen_kwargs,
         )
         _record_shell_pgid(self.process.pid)
-        # The running command shares the shell's process group; on low memory
-        # the guard kills the command (not the shell) and says why in its output.
+        # The running command shares the shell's process group. On low memory
+        # the guard kills the whole group, shell included: killing only the
+        # command's processes misses loops run by bash itself and commands
+        # that `exec` over it. run() sees the shell die and starts a fresh one
+        # (cwd and exports restored); the guard's reason goes in the output.
         process = self.process
-
-        def kill_command() -> None:
-            if process_name(process.pid) != "bash":
-                # the command replaced the shell (`exec make -j8`): stop it and
-                # its workers; run() sees the shell die and starts a fresh one
-                kill_group(process.pid)
-            else:
-                kill_tree(_descendant_pids(process.pid))
-
         watch_memory(
             MemoryTarget(
                 pgid=process.pid,
                 label="the running shell command",
-                kill=kill_command,
+                kill=lambda: kill_group(process.pid),
                 alive=lambda: process.poll() is None,
                 on_killed=self._queue_restart_notice,
             )

@@ -118,21 +118,6 @@ def group_rss() -> dict[int, int]:
     return rss
 
 
-def process_name(pid: int) -> str | None:
-    """The executable name of a running process (e.g. "bash"), or None."""
-    try:
-        out = subprocess.run(
-            ["ps", "-o", "comm=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return os.path.basename(out).lstrip("-") or None
-
-
 def _gb(n: int) -> str:
     return f"{n / 1024**3:.1f} GB"
 
@@ -204,20 +189,6 @@ class MemoryGuard:
 
 _guard: MemoryGuard | None = None
 _guard_lock = threading.Lock()
-
-
-def kill_tree(pids: list[int]) -> None:
-    """SIGTERM then SIGKILL a fixed list of processes.
-
-    The list is taken once: re-listing children after SIGTERM would miss a
-    worker that ignores it and was re-parented when its parent exited.
-    """
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        for pid in pids:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(pid, sig)
-        if sig == signal.SIGTERM:
-            time.sleep(0.2)
 
 
 def kill_group(pgid: int) -> None:

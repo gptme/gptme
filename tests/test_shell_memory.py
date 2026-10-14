@@ -101,30 +101,6 @@ def test_background_job_is_killed_and_told_why(fake_low_memory):
         reset_background_jobs()
 
 
-def test_foreground_command_is_killed_but_shell_survives(fake_low_memory):
-    from gptme.tools.shell import ShellSession
-
-    shell = ShellSession()
-    try:
-        result: dict = {}
-        runner = threading.Thread(
-            target=lambda: result.update(value=shell.run("sleep 30", output=False))
-        )
-        start = time.monotonic()
-        runner.start()
-        time.sleep(0.5)
-        assert fake_low_memory.check() is not None
-        runner.join(10)
-        assert not runner.is_alive()
-        assert time.monotonic() - start < 10
-        notice = shell.consume_restart_notice()
-        assert notice and "Killed the running shell command" in notice
-        assert shell.process.poll() is None  # the shell itself is kept
-        assert shell.run("echo still here", output=False)[1].strip() == "still here"
-    finally:
-        shell.close()
-
-
 def test_guard_can_be_disabled(monkeypatch):
     monkeypatch.setattr(shell_memory, "_guard", None)
     monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "0")
@@ -229,28 +205,42 @@ def test_worker_killed_after_completion_gets_its_own_notice(fake_low_memory):
         reset_background_jobs()
 
 
-def test_command_that_execs_is_killed_and_shell_restarts(fake_low_memory):
-    """`exec` replaces the shell with the command: the guard must stop it."""
+_WORKER = (
+    f"{sys.executable} -c 'import time; b = bytearray(50 * 2**20); time.sleep(30)'"
+)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sleep 30",
+        # a loop run by bash itself starts the next worker when one is killed
+        f"while :; do {_WORKER}; done",
+        # a small parent replacing the shell, outliving bigger workers (make -j8)
+        f"exec sh -c {shlex.quote(f'while :; do {_WORKER}; done')}",
+    ],
+)
+def test_foreground_command_is_stopped_and_shell_restarted(fake_low_memory, command):
     from gptme.tools.shell import ShellSession
 
-    worker = (
-        f"{sys.executable} -c 'import time; b = bytearray(50 * 2**20); time.sleep(30)'"
-    )
-    command = f"exec sh -c {shlex.quote(f'while :; do {worker}; done')}"
     shell = ShellSession()
     try:
+        shell.run("cd /tmp && export GUARD_TEST=kept", output=False)
         result: dict = {}
         runner = threading.Thread(
-            # a small parent that outlives its bigger workers (`exec make -j8`)
             target=lambda: result.update(value=shell.run(command, output=False))
         )
+        start = time.monotonic()
         runner.start()
-        time.sleep(1.5)  # the worker has allocated
+        time.sleep(1.5)  # workers have started and allocated
         assert fake_low_memory.check() is not None
         runner.join(10)
         assert not runner.is_alive()
+        assert time.monotonic() - start < 12
         notice = shell.consume_restart_notice()
         assert notice and "Killed the running shell command" in notice
-        assert shell.run("echo still here", output=False)[1].strip() == "still here"
+        assert "started a fresh shell" in notice
+        out = shell.run('echo "$GUARD_TEST $(pwd -P)"', output=False)[1].strip()
+        assert out == f"kept {os.path.realpath('/tmp')}"
     finally:
         shell.close()
