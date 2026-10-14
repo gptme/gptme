@@ -1,4 +1,6 @@
 import os
+import shlex
+import sys
 import threading
 import time
 
@@ -231,19 +233,19 @@ def test_command_that_execs_is_killed_and_shell_restarts(fake_low_memory):
     """`exec` replaces the shell with the command: the guard must stop it."""
     from gptme.tools.shell import ShellSession
 
+    worker = (
+        f"{sys.executable} -c 'import time; b = bytearray(50 * 2**20); time.sleep(30)'"
+    )
+    command = f"exec sh -c {shlex.quote(f'while :; do {worker}; done')}"
     shell = ShellSession()
     try:
         result: dict = {}
         runner = threading.Thread(
-            # a small parent whose worker would hold the memory (exec make -j8)
-            target=lambda: result.update(
-                value=shell.run(
-                    "exec bash -c 'sleep 30 & sleep 31; wait'", output=False
-                )
-            )
+            # a small parent that outlives its bigger workers (`exec make -j8`)
+            target=lambda: result.update(value=shell.run(command, output=False))
         )
         runner.start()
-        time.sleep(0.5)
+        time.sleep(1.5)  # the worker has allocated
         assert fake_low_memory.check() is not None
         runner.join(10)
         assert not runner.is_alive()
