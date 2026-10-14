@@ -168,6 +168,7 @@ dev = [
     "pytest-dotenv>=0.5.2,<0.6",
     "pytest-cov",
     "pytest-xdist>=3.8,<4",
+    "hypothesis>=6.100,<7",
     "pytest-profiling>=1.7,<2",
     "greenlet",  # needed for playwright coverage
     "mypy",
@@ -213,6 +214,7 @@ pytest-dotenv = "^0.5.2"
 pytest-timeout = "^2.4.0"
 pytest-retry = "^1.7.0"
 pytest-mock = "*"
+hypothesis = "^6.100"
 greenlet = "*"  # dependency of playwright, but needed for coverage
 
 # build
