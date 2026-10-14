@@ -907,16 +907,58 @@ TUI_COMMANDS: dict[str, list[list[str]]] = {
 }
 
 
-def complete_input(text: str) -> list[str]:
-    """Full-line completion candidates, reusing the CLI command completers."""
+def complete_path(text: str) -> list[str]:
+    """Full-text candidates completing the last word as a filesystem path.
 
-    if not text.startswith("/"):
+    Candidates are written so include_paths attaches them: directories get a
+    trailing slash ("journ<Tab>" -> "journal/"; a bare "journal" is prose),
+    bare cwd files without an extension get "./" ("./Makefile"), and names
+    with spaces are backtick-quoted. The input widget keeps the cursor inside
+    a quoted directory, so it can be submitted or completed further.
+    """
+    quoted = text.count("`") % 2 == 1  # completing inside an open `...
+    seg = text[text.rindex("`") + 1 :] if quoted else re.split(r"\s", text)[-1]
+    if not seg:
         return []
+    at = "@" if seg.startswith("@") else ""
+    dir_part, slash, prefix = seg[len(at) :].rpartition("/")
+    dir_part += slash
+    try:
+        entries = list(os.scandir(os.path.expanduser(dir_part or ".")))
+    except OSError:
+        return []
+    candidates = []
+    for e in entries:
+        if not e.name.startswith(prefix):
+            continue
+        if e.name.startswith(".") and not prefix.startswith("."):
+            continue
+        try:
+            is_dir = e.is_dir()
+        except OSError:  # e.g. a symlink loop
+            continue
+        path = at + dir_part + e.name + ("/" if is_dir else "")
+        if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
+            path = "./" + path
+        if quoted:
+            path += "`"
+        elif any(c.isspace() for c in path):
+            path = f"`{path}`"
+        candidates.append(text[: len(text) - len(seg)] + path)
+    return sorted(candidates)
+
+
+def complete_input(text: str) -> list[str]:
+    """Full-line completion candidates: slash-commands (reusing the CLI
+    command completers) or else a path for the last word."""
+
+    if not text.startswith("/") or "/" in text.split(None, 1)[0][1:]:
+        return complete_path(text)  # text, or an absolute path like /tmp/x
     parts = text.split(None, 1)
     if len(parts) == 1 and not text.endswith(" "):
-        # completing the command name itself
+        # completing the command name itself, else a root path like /tm
         commands = set(get_user_commands()) | {f"/{c}" for c in TUI_COMMANDS}
-        return sorted(c for c in commands if c.startswith(text))
+        return sorted(c for c in commands if c.startswith(text)) or complete_path(text)
     # completing command arguments
     arg_text = parts[1] if len(parts) > 1 else ""
     args = arg_text.split()
@@ -930,7 +972,7 @@ def complete_input(text: str) -> list[str]:
         return [base + c for c in choices if c.startswith(partial)]
     completer = get_command_completer(parts[0][1:])
     if completer is None:
-        return []
+        return [] if parts[0] in get_user_commands() else complete_path(text)
     try:
         return sorted(
             base + candidate
@@ -991,6 +1033,7 @@ class ChatInput(TextArea):
         self._tab_candidates: list[str] = []
         self._tab_index = -1
         self._tab_last = ""
+        self._tab_suffix = ""
         self._history_file = get_pt_history_file()
         self._history: list[str] = _load_pt_history(self._history_file)
         self._history_idx = -1  # -1 = not browsing; 0 = most recent
@@ -1205,19 +1248,38 @@ class ChatInput(TextArea):
         self.move_cursor(self.document.end)
 
     def _cycle_completion(self) -> None:
-        if "\n" in self.text:
+        if "\n" in self.text and is_message_command(self.text):
             return  # commands are single-line
         if self._tab_candidates and self.text == self._tab_last:
             # repeated Tab: cycle through candidates
             self._tab_index = (self._tab_index + 1) % len(self._tab_candidates)
             self._set_text(self._tab_candidates[self._tab_index])
         else:
-            candidates = complete_input(self.text)
+            cursor = len(self.document.get_text_range((0, 0), self.cursor_location))
+            before, after = self.text[:cursor], self.text[cursor:]
+            # Complete inside a closed quoted reference without duplicating its
+            # closing quote. Other input retains full-text completion behavior.
+            quoted = before.count("`") % 2 and after.startswith("`")
+            self._tab_suffix = after[1:] if quoted else ""
+            if quoted:
+                candidates = complete_input(before)
+            else:
+                candidates = complete_input(self.text)
             if not candidates:
                 return
+            # Compute the common prefix before adding the untouched suffix:
+            # otherwise differing paths truncate the closing quote and prose.
+            prefix = os.path.commonprefix(
+                [candidate.removesuffix("`") for candidate in candidates]
+                if quoted
+                else candidates
+            )
+            if quoted:
+                prefix += "`"
+            candidates = [candidate + self._tab_suffix for candidate in candidates]
+            prefix += self._tab_suffix
             self._tab_candidates = candidates
             self._tab_index = -1
-            prefix = os.path.commonprefix(candidates)
             if len(candidates) == 1:
                 self._set_text(candidates[0])
                 self._tab_candidates = []
@@ -1226,6 +1288,21 @@ class ChatInput(TextArea):
             else:
                 self._tab_index = 0
                 self._set_text(candidates[0])
+        completed = (
+            self.text[: -len(self._tab_suffix)] if self._tab_suffix else self.text
+        )
+        if (
+            self._tab_suffix
+            or completed.endswith("/`")
+            or (
+                self._tab_candidates
+                and self._tab_index == -1
+                and completed.endswith("`")
+            )
+        ):
+            # Stay at the completed reference, not at the end of trailing prose.
+            lines = completed.removesuffix("`").split("\n")
+            self.move_cursor((len(lines) - 1, len(lines[-1])))
         self._tab_last = self.text
         # Notify the app to show/update the completion overlay
         if len(self._tab_candidates) > 1:

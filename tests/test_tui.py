@@ -398,8 +398,116 @@ def test_complete_input_commands():
     candidates = complete_input("/mod")
     assert "/model" in candidates
     assert all(c.startswith("/mod") for c in candidates)
-    # no completions for regular text
+
+
+def test_complete_input_paths(tmp_path, monkeypatch):
+    """Tab completes the last word as a path; directories get a slash so
+    include_paths treats them as paths (a bare "journal" is prose)."""
+    from gptme.tui.app import complete_input
+
+    (tmp_path / "journal").mkdir()
+    (tmp_path / "journal" / "2026-10-14.md").write_text("x")
+    (tmp_path / "jokes.txt").write_text("x")
+    (tmp_path / ".jhidden").write_text("x")
+    monkeypatch.chdir(tmp_path)
+    assert complete_input("see jo") == ["see jokes.txt", "see journal/"]
+    assert complete_input("see @journal/2") == ["see @journal/2026-10-14.md"]
+    assert complete_input("see .j") == ["see ./.jhidden"]
+    assert complete_input(f"see {tmp_path}/jou") == [f"see {tmp_path}/journal/"]
+    assert complete_input(f"{tmp_path}/jou") == [f"{tmp_path}/journal/"]
+    # no command matches a root path: fall back to path completion
+    assert "/tmp/" in complete_input("/tm")
     assert complete_input("hello") == []
+    assert complete_input("hello ") == []
+    # completed names must be ones include_paths attaches
+    (tmp_path / "Makefile").write_text("x")
+    (tmp_path / "my notes.txt").write_text("x")
+    assert complete_input("see Mak") == ["see ./Makefile"]
+    assert complete_input("see @Mak") == ["see @Makefile"]
+    assert complete_input("see my") == ["see `my notes.txt`"]
+    assert complete_input("see @my") == ["see `@my notes.txt`"]
+    # Completed directories are valid references even when submitted immediately.
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "a b.md").write_text("x")
+    assert complete_input("see my d") == []  # "d" alone is the last word
+    assert complete_input("see my") == ["see `my dir/`", "see `my notes.txt`"]
+    assert complete_input("see `my dir/a") == ["see `my dir/a b.md`"]
+    # a symlink loop is skipped, not raised
+    (tmp_path / "loop").symlink_to(tmp_path / "loop")
+    assert complete_input("see lo") == []
+
+
+def test_complete_input_root_path_prompt(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "journal").mkdir()
+    assert complete_input("/tmp see ./jou") == ["/tmp see ./journal/"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["see ", "see @", "/tmp/notes.md\nsee "])
+async def test_tab_quoted_directory_attaches_and_completes_children(
+    tmp_path, monkeypatch, prefix
+):
+    from gptme.util.context import _find_potential_paths
+
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "my dir"
+    directory.mkdir()
+    (directory / "child.md").write_text("child")
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one(ChatInput)
+        inp.focus()
+        inp._set_text(prefix + "my")
+        await pilot.press("tab")
+        at = "@" if prefix.endswith("@") else ""
+        base = prefix.removesuffix(at) if at else prefix
+        assert inp.text == base + f"`{at}my dir/`"
+        assert "my dir/" in _find_potential_paths(inp.text)
+        assert (
+            len(inp.document.get_text_range((0, 0), inp.cursor_location))
+            == len(inp.text) - 1
+        )
+        await pilot.press("c", "h", "tab")
+        assert inp.text == base + f"`{at}my dir/child.md`"
+        assert "my dir/child.md" in _find_potential_paths(inp.text)
+        assert inp.cursor_location == inp.document.end
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["see ", "see @", "/tmp/notes.md\nsee "])
+@pytest.mark.parametrize("trailing", ["", " then summarize\nwithout losing this"])
+async def test_tab_quoted_path_preserves_trailing_text(
+    tmp_path, monkeypatch, prefix, trailing
+):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "my dir"
+    directory.mkdir()
+    for name in ("child.md", "child2.md"):
+        (directory / name).write_text("child")
+    at = "@" if prefix.endswith("@") else ""
+    base = prefix.removesuffix(at)
+    start = base + f"`{at}my dir/ch"
+    suffix = "`" + trailing
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        inp = app.query_one(ChatInput)
+        inp.focus()
+        inp._set_text(start + suffix)
+        lines = start.split("\n")
+        inp.move_cursor((len(lines) - 1, len(lines[-1])))
+        await pilot.press("tab")
+        assert inp.text == start + "ild" + suffix
+        assert len(inp.document.get_text_range((0, 0), inp.cursor_location)) == len(
+            start + "ild"
+        )
+        for name in ("child.md", "child2.md", "child.md"):
+            await pilot.press("tab")
+            completed = base + f"`{at}my dir/{name}"
+            assert inp.text == completed + suffix
+            assert len(inp.document.get_text_range((0, 0), inp.cursor_location)) == len(
+                completed if trailing else completed + "`"
+            )
 
 
 @pytest.mark.asyncio

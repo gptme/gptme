@@ -780,7 +780,15 @@ def _find_potential_paths(content: str) -> list[str]:
     content_no_xml = re.sub(re_xml_tags, "", content_no_codeblocks)
 
     # List current directory contents for relative path matching
-    cwd_files = [f.name for f in Path.cwd().iterdir()]
+    cwd_entries: set[str] = set()
+    cwd_files: set[str] = set()  # regular files only
+    for f in Path.cwd().iterdir():
+        cwd_entries.add(f.name)
+        try:
+            if f.is_file():
+                cwd_files.add(f.name)
+        except OSError:
+            pass
 
     paths: list[str] = []
     seen_paths: set[str] = set()
@@ -809,14 +817,16 @@ def _find_potential_paths(content: str) -> list[str]:
                 or s.startswith("http")
                 # Contains slash (for backtick-wrapped paths)
                 or "/" in s
-                # Files in current directory or subdirectories
-                or any(s.split("/", 1)[0] == file for file in cwd_files)
+                # Bare names in the current directory only for files with an
+                # extension: "README.md" is a reference, "journal" is likely
+                # prose (use "journal/", "./journal" or "@journal")
+                or ("." in s.strip(".") and s in cwd_files)
             )
 
         return (
             # @-prefixed reference: stripped form must also look like a path
             # (prevents @username social handles from matching)
-            (word.startswith("@") and _is_path_like_bare(w))
+            (word.startswith("@") and (_is_path_like_bare(w) or w in cwd_entries))
             # Plain path reference
             or _is_path_like_bare(w)
         )
