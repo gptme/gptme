@@ -733,30 +733,38 @@ def execute_msg(
     if not classified:
         return
 
-    remaining = iter(classified)
-    for tooluse in remaining:
+    remaining = iter(enumerate(classified))
+    for index, tooluse in remaining:
         runnable = tooluse.is_runnable
         if runnable:
             with terminal_state_title(f"🛠️ running {tooluse.tool}"):
                 t0 = time.monotonic()
                 try:
-                    yield from tooluse.execute(log=log, workspace=workspace)
+                    yield from tooluse.execute(
+                        log=log, workspace=workspace, call_index=index
+                    )
                 except KeyboardInterrupt:
                     clear_interruptible()
-                    yield Message(
-                        "system",
-                        INTERRUPT_CONTENT,
-                        call_id=tooluse.call_id,
+                    yield _stamp_call(
+                        Message(
+                            "system",
+                            INTERRUPT_CONTENT,
+                            call_id=tooluse.call_id,
+                        ),
+                        index,
                     )
                     # Drain the rest: any structured tool_use that's left in the
                     # message still needs a paired tool_result or the next API
                     # request will 400 with a dangling tool_use.
-                    for rem_tu in remaining:
+                    for rem_index, rem_tu in remaining:
                         if rem_tu.call_id is not None:
-                            yield Message(
-                                "system",
-                                f"Tool '{rem_tu.tool}' was not executed (interrupted).",
-                                call_id=rem_tu.call_id,
+                            yield _stamp_call(
+                                Message(
+                                    "system",
+                                    f"Tool '{rem_tu.tool}' was not executed (interrupted).",
+                                    call_id=rem_tu.call_id,
+                                ),
+                                rem_index,
                             )
                     return
                 finally:
@@ -779,11 +787,22 @@ def execute_msg(
                 f"Tool '{tooluse.tool}' is not available for execution."
                 + _enable_hint_for_disabled_tool(tooluse.tool)
             )
-            yield Message(
-                "system",
-                error_msg,
-                call_id=tooluse.call_id,
+            yield _stamp_call(
+                Message("system", error_msg, call_id=tooluse.call_id), index
             )
+
+
+def _stamp_call(msg: Message, index: int) -> Message:
+    """Record which tool call produced a message: its position among the tool
+    calls of the assistant message (``ToolUse.iter_from_content`` order).
+
+    Lets UIs show results under the call that caused them, also for markdown
+    and XML calls, which have no ``call_id``. In metadata, which isn't sent
+    to models (``call_id`` is: providers pair it with an API tool_use).
+    ToolUse.execute does this for the tool's own output (not hook messages);
+    this covers the results execute_msg itself emits.
+    """
+    return msg.replace(metadata={**(msg.metadata or {}), "tool_call": index})
 
 
 def get_tool_for_langtag(lang: str) -> ToolSpec | None:

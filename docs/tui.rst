@@ -94,6 +94,11 @@ current settings.
 - ``/display highlight [on|off]``: syntax-highlight commands in tool-call
   titles and output summaries. On by default; set
   ``GPTME_TUI_DISPLAY_HIGHLIGHT=0`` to turn it off from startup.
+- ``/display turns [on|off]``: show an agent turn as one block: the agent's
+  name once, each step's tool output indented under it. Output from hooks
+  and other notices keeps its own block, and nothing is shown out of order.
+  Off shows one block per message, as stored in the log. On by default; set
+  ``GPTME_TUI_DISPLAY_TURNS=0`` to turn it off from startup.
 
 :kbd:`Ctrl+O` is the shorthand for both: it expands tool output and thinking,
 or collapses both when both are already expanded.

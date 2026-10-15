@@ -248,6 +248,29 @@ def _show_thinking_default() -> bool:
     return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_THINKING", default=False))
 
 
+def _group_turns_default() -> bool:
+    """Whether an agent turn's steps and tool results show as one block
+    (``GPTME_TUI_DISPLAY_TURNS``; off: one block per log message)."""
+    return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_TURNS", default=True))
+
+
+def _flow_kind(msg: Message) -> str:
+    """Where a message sits in a turn: "user", "step" (an assistant step),
+    "result" (output of one of its tool calls) or "other" (e.g. hook output)."""
+    if msg.role in ("user", "assistant"):
+        return "user" if msg.role == "user" else "step"
+    if msg.call_id or "tool_call" in (msg.metadata or {}):
+        return "result"
+    return "other"
+
+
+def _keep_turn_place(widget: Widget, replaced: Widget) -> None:
+    """A widget replacing another (stream -> message) keeps its place in the
+    turn, so the swap doesn't change the layout."""
+    for cls in ("turn-step", "turn-result"):
+        widget.set_class(replaced.has_class(cls), cls)
+
+
 def _highlight_default() -> bool:
     """Whether titles are syntax-highlighted at startup (``GPTME_TUI_DISPLAY_HIGHLIGHT``)."""
     return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_HIGHLIGHT", default=True))
@@ -2030,6 +2053,19 @@ class GptmeApp(App):
         text-wrap: nowrap;
         text-overflow: ellipsis;
     }
+    /* grouped turns (group_turns): steps after the first continue the block
+       without a name or blank line; tool results and the running tool sit
+       indented under the step, in the agent's bar */
+    .message.turn-step, .message.turn-result {
+        margin-top: 0;
+    }
+    .message.turn-step > .role, .message.turn-result > .role {
+        display: none;
+    }
+    .message.turn-result {
+        border-left: thick $primary;
+        padding-left: 3;
+    }
     .message MarkdownFence {
         margin: 0;
     }
@@ -2234,6 +2270,9 @@ class GptmeApp(App):
         self.show_thinking = _show_thinking_default()
         self.show_hidden = _show_hidden_default()
         self.highlight = _highlight_default()
+        self.group_turns = _group_turns_default()
+        # the last chat item's place in the turn (see _place_in_turn)
+        self._flow_prev: str | None = None
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
         self._real_stderr: IO[str] | None = None
@@ -2564,9 +2603,11 @@ class GptmeApp(App):
                 )
             )
             msgs = msgs[-MAX_INITIAL_MESSAGES:]
+        self._flow_prev = None
         for msg in msgs:
             widget = self._widget_for(msg)
             if widget:
+                self._place_in_turn(widget, _flow_kind(msg))
                 chat.mount(widget)
         chat.anchor(False)  # re-evaluated for the new content
         self.call_after_refresh(self._anchor_chat)
@@ -2648,6 +2689,8 @@ class GptmeApp(App):
             self._print_above(*renderables)
             return
         widget = self._widget_for(msg)
+        if widget:
+            self._place_in_turn(widget, _flow_kind(msg))
         delivered = self._delivered_widget if msg.role == "user" else None
         if delivered is not None:
             # a queued prompt becoming the message: take its place
@@ -2661,6 +2704,25 @@ class GptmeApp(App):
         if cost_text:
             self._mount_in_chat(CostMessage(cost_text))
 
+    def _place_in_turn(self, widget: Widget, kind: str) -> None:
+        """Group an agent turn into one block (``group_turns``).
+
+        A step continuing the turn drops its name and the blank line above;
+        a tool result (or the running tool's line) right after a step goes
+        indented under it, in the turn's bar. Anything else (hook output,
+        notices) keeps its own block and ends the grouping, so items never
+        leave log order: a result after hook output isn't pulled up.
+        """
+        prev, self._flow_prev = self._flow_prev, kind
+        if not self.group_turns or prev not in ("step", "result"):
+            return
+        if kind == "step":
+            widget.add_class("turn-step")
+        elif kind == "result":
+            widget.add_class("turn-result")
+            if color := _role_color_hex("assistant"):
+                widget.styles.border_left = ("thick", color)
+
     def _show_info(self, text: str, error: bool = False) -> None:
         if self.inline:
             self._print_above(Text(text, style="red" if error else "bright_black"))
@@ -2670,6 +2732,7 @@ class GptmeApp(App):
             widget = BouncingError(text)
         else:
             widget = InfoMessage(text, error=error)
+        self._place_in_turn(widget, "other")
         self._mount_in_chat(widget)
 
     def _mount_in_chat(
@@ -3119,11 +3182,11 @@ class GptmeApp(App):
         self._update_status()
 
     def _display_command(self, args: list[str]) -> None:
-        """``/display [thinking|outputs|hidden|highlight] [on|off]``: display-only settings.
+        """``/display [thinking|outputs|hidden|highlight|turns] [on|off]``: display-only settings.
 
         No setting lists the current state; no value toggles.
         """
-        usage = "Usage: /display [thinking|outputs|hidden|highlight] [on|off]"
+        usage = "Usage: /display [thinking|outputs|hidden|highlight|turns] [on|off]"
         # name -> (current value, setter, on/off wording)
         settings = {
             "thinking": (self.show_thinking, self._set_thinking, ("shown", "hidden")),
@@ -3138,6 +3201,7 @@ class GptmeApp(App):
                 ("messages shown", "messages hidden"),
             ),
             "highlight": (self.highlight, self._set_highlight, ("on", "off")),
+            "turns": (self.group_turns, self._set_group_turns, ("grouped", "flat")),
         }
         if not args:
             state = ", ".join(
@@ -3164,6 +3228,12 @@ class GptmeApp(App):
         setter(on)
         note = " (applies to new output)" if self.inline else ""
         self._show_info(f"{name.capitalize()} {words[0 if on else 1]}{note}.")
+
+    def _set_group_turns(self, on: bool) -> None:
+        """Grouped: an agent turn is one block, tool results under their step.
+        Flat: one block per log message (closer to the log; for debugging)."""
+        self.group_turns = on
+        self._rebuild_chat()
 
     def _set_hidden(self, on: bool) -> None:
         self.show_hidden = on
@@ -3556,6 +3626,7 @@ class GptmeApp(App):
             self.query_one("#live", Static).update(Text("Generating…", style="dim"))
         elif self._stream_widget is None:
             self._stream_widget = StreamingMessage(self.show_thinking)
+            self._place_in_turn(self._stream_widget, "step")
             self._mount_in_chat(self._stream_widget, replaces=placeholder)
         elif placeholder is not None:
             placeholder.remove()
@@ -3583,6 +3654,7 @@ class GptmeApp(App):
             return
         if self._stream_widget is None:
             self._stream_widget = StreamingMessage(self.show_thinking)
+            self._place_in_turn(self._stream_widget, "step")
             self._mount_in_chat(self._stream_widget)
         self._stream_widget.append_token(token)
 
@@ -3604,6 +3676,7 @@ class GptmeApp(App):
         if self._tool_placeholder is not None:
             return
         self._tool_placeholder = ToolPlaceholder()
+        self._place_in_turn(self._tool_placeholder, "result")
         self._mount_in_chat(self._tool_placeholder)
 
     def _clear_tool_placeholder(self) -> None:
@@ -3636,6 +3709,7 @@ class GptmeApp(App):
         am = AssistantMessage(
             msg.content, show_thinking=self.show_thinking, highlight=self.highlight
         )
+        _keep_turn_place(am, stream_widget)
         chat = self.query_one("#chat", VerticalScroll)
         stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
         self._mount_in_chat(am, replaces=stream_widget)
@@ -3719,6 +3793,7 @@ class GptmeApp(App):
         final = AssistantMessage(
             msg.content, show_thinking=self.show_thinking, highlight=self.highlight
         )
+        _keep_turn_place(final, provisional)
         self._mount_in_chat(final, replaces=provisional)
 
     async def on_worker_state_changed(self, event: Worker.StateChanged) -> None:

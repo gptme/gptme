@@ -318,3 +318,29 @@ async def test_multiline_submit_does_not_jump(app_factory):
         await pilot.pause()
     problems = sorted(blinks(frames) + jumps(frames))
     assert not problems, describe(frames, problems)
+
+
+@pytest.mark.asyncio
+async def test_live_turn_is_grouped_without_blinks(app_factory):
+    """Two steps live: one agent block (name once, results under their step),
+    built frame by frame without blinks or jumps."""
+    from gptme.tui.app import AssistantMessage, SystemMessage
+
+    app = app_factory(steps=2)
+    async with app.run_test(size=SIZE) as pilot:
+        await pilot.pause()
+        frames = record_frames(app)
+        await app._submit(PROSE + TOOL)
+        deadline = time.monotonic() + 20
+        while app.generating or app.state != "idle":
+            assert time.monotonic() < deadline, "turn did not finish"
+            await asyncio.sleep(0.05)
+        await app.wait_rendered()
+        await pilot.pause()
+        chat = app.query_one("#chat")
+        steps = [w for w in chat.children if isinstance(w, AssistantMessage)][-2:]
+        results = [w for w in chat.children if isinstance(w, SystemMessage)][-2:]
+        assert not steps[0].has_class("turn-step") and steps[1].has_class("turn-step")
+        assert all(r.has_class("turn-result") for r in results)
+    problems = sorted(blinks(frames) + jumps(frames))
+    assert not problems, describe(frames, problems)
