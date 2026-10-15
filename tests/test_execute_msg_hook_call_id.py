@@ -288,3 +288,31 @@ def test_keyboard_interrupt_forwards_partial_output(monkeypatch):
     assert interrupt_msgs, "INTERRUPT_CONTENT message must follow the partial output"
     # The interrupt message is the canonical function_call_output for the interrupted call.
     assert interrupt_msgs[0].call_id == call_id
+
+
+def test_each_call_output_records_its_call(fake_echo_tool, monkeypatch):
+    """Two calls of the same tool: each result records which call it came from
+    (metadata["tool_call"], the call's index), so UIs can show it under that
+    call. Hook messages are not marked: they aren't the call's output."""
+    hook_msg = Message("system", "post-hook notification")
+
+    def fake_trigger(hook_type, data, **kwargs):
+        if hook_type == HookType.TOOL_EXECUTE_POST:
+            return [hook_msg]
+        return []
+
+    monkeypatch.setattr("gptme.hooks.trigger_hook", fake_trigger)
+    msg = Message(
+        "assistant",
+        '@echo(call-a): {"text": "hello"}\n@echo(call-b): {"text": "hello"}',
+    )
+    results = list(execute_msg(msg))
+
+    outputs = [r for r in results if r.content == "echo: hello"]
+    assert [(r.call_id, (r.metadata or {}).get("tool_call")) for r in outputs] == [
+        ("call-a", 0),
+        ("call-b", 1),
+    ]
+    hooks = [r for r in results if r.content == "post-hook notification"]
+    assert len(hooks) == 2
+    assert all("tool_call" not in (h.metadata or {}) for h in hooks)

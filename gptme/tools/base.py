@@ -929,12 +929,27 @@ class ToolUse:
         log: Log | None = None,
         workspace: Path | None = None,
         on_result_message: Callable[[Message], None] | None = None,
+        call_index: int | None = None,
     ) -> Generator[Message, None, None]:
-        """Executes a tool-use tag and returns the output."""
+        """Executes a tool-use tag and returns the output.
+
+        ``call_index`` (this call's position among the tool calls of its
+        assistant message) is recorded on the tool's own output as
+        ``metadata["tool_call"]``, not on hook messages, so UIs can show
+        results under their call (see execute_msg).
+        """
         # noreorder
         from ..hooks import HookType, trigger_hook  # fmt: skip
         from ..telemetry import record_tool_call, trace_function  # fmt: skip
         from . import get_tool  # fmt: skip
+
+        def own(msg: Message) -> Message:
+            """Mark a message as this call's output (not a hook's)."""
+            if call_index is None:
+                return msg
+            return msg.replace(
+                metadata={**(msg.metadata or {}), "tool_call": call_index}
+            )
 
         @trace_function(name=f"tool.{self.tool}", attributes={"tool_name": self.tool})
         def _execute_tool():
@@ -1014,12 +1029,14 @@ class ToolUse:
                                             dict(msg.metadata) if msg.metadata else {}
                                         )
                                         metadata["tool"] = self.tool
-                                        yield msg.replace(
-                                            call_id=self.call_id,
-                                            metadata=metadata,
+                                        yield own(
+                                            msg.replace(
+                                                call_id=self.call_id,
+                                                metadata=metadata,
+                                            )
                                         )
                                     else:
-                                        yield msg
+                                        yield own(msg)
                                 if _ki is not None:
                                     raise _ki
                             else:
@@ -1030,7 +1047,7 @@ class ToolUse:
                                     result_msgs.append(msg)
                                     if on_result_message:
                                         on_result_message(msg)
-                                    yield msg
+                                    yield own(msg)
                         elif single_result is not None:
                             result_msgs = [single_result]
                             if on_result_message:
@@ -1042,12 +1059,14 @@ class ToolUse:
                                     else {}
                                 )
                                 metadata["tool"] = self.tool
-                                yield single_result.replace(
-                                    call_id=self.call_id,
-                                    metadata=metadata,
+                                yield own(
+                                    single_result.replace(
+                                        call_id=self.call_id,
+                                        metadata=metadata,
+                                    )
                                 )
                             else:
-                                yield single_result
+                                yield own(single_result)
                     finally:
                         _current_tool_use.reset(token)
 
@@ -1100,19 +1119,23 @@ class ToolUse:
                     # Only attribute the error to this call_id if no real result
                     # was already emitted — a post-hook exception after yielding a
                     # result would create a duplicate function_call_output entry.
-                    yield Message(
-                        "system",
-                        f"Error executing tool '{self.tool}': {e}",
-                        call_id=self.call_id if not result_msgs else None,
-                        metadata={"tool": self.tool},
+                    yield own(
+                        Message(
+                            "system",
+                            f"Error executing tool '{self.tool}': {e}",
+                            call_id=self.call_id if not result_msgs else None,
+                            metadata={"tool": self.tool},
+                        )
                     )
             else:
                 logger.warning(f"Tool '{self.tool}' is not available for execution.")
                 if self.call_id is not None:
-                    yield Message(
-                        "system",
-                        f"Tool '{self.tool}' is not available for execution.",
-                        call_id=self.call_id,
+                    yield own(
+                        Message(
+                            "system",
+                            f"Tool '{self.tool}' is not available for execution.",
+                            call_id=self.call_id,
+                        )
                     )
 
         yield from _execute_tool()

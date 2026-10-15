@@ -3866,3 +3866,116 @@ async def test_tool_status_line_is_one_row_for_long_commands(tmp_path):
         await pilot.pause()
         placeholder = app.query_one(ToolPlaceholder)
         assert placeholder._body.region.height == 1
+
+
+def _turn_history() -> list[Message]:
+    """A turn of small steps: think + call, result, ... as in the log."""
+    step = "<think>\nlook\n</think>\n```shell\n{}\n```"
+
+    def result(text: str, index: int = 0) -> Message:
+        return Message(
+            "system", f"Ran command: `{text}`", metadata={"tool_call": index}
+        )
+
+    return [
+        Message("user", "check the repo"),
+        Message("assistant", step.format("ls")),
+        result("ls"),
+        Message("assistant", step.format("git status")),
+        result("git status"),
+        Message("assistant", "All clean."),
+    ]
+
+
+def _visible_names(app) -> list[str]:
+    return [
+        str(role.render())
+        for role in app.query(".message > .role")
+        if role.parent.display and role.display
+    ]
+
+
+@pytest.mark.asyncio
+async def test_turn_is_one_block_with_results_under_steps(tmp_path):
+    """Grouped (default): the agent's name once per turn, later steps without
+    a name or blank line, tool results indented under their step."""
+    app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        names = _visible_names(app)
+        assert len(names) == 2  # the user, then the agent once
+        steps = list(app.query(AssistantMessage))
+        assert not steps[0].has_class("turn-step")
+        assert all(s.has_class("turn-step") for s in steps[1:])
+        results = list(app.query(SystemMessage))
+        assert all(r.has_class("turn-result") for r in results)
+        # indented under the step, and no blank line in between
+        assert results[0].content_region.x > steps[0].content_region.x
+        assert results[0].region.y == steps[0].region.bottom
+        assert steps[1].region.y == results[0].region.bottom
+
+
+@pytest.mark.asyncio
+async def test_hook_output_in_a_turn_keeps_its_place_and_block(tmp_path):
+    """Output not from a tool call (e.g. a hook) between a step and its result
+    stays where it is, in its own block: nothing is pulled out of order."""
+    history = _turn_history()
+    history.insert(2, Message("system", "Lint hook: 2 warnings"))
+    app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        hook, result, *_ = list(app.query(SystemMessage))
+        assert "Lint hook" in hook.content
+        assert not hook.has_class("turn-result") and not result.has_class("turn-result")
+        assert hook.region.y < result.region.y  # log order
+        # the block was interrupted: the next step names the agent again
+        steps = list(app.query(AssistantMessage))
+        assert not steps[1].has_class("turn-step")
+        assert steps[2].has_class("turn-step")  # and continues from there
+
+
+@pytest.mark.asyncio
+async def test_display_turns_off_shows_one_block_per_message(tmp_path):
+    app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        app._display_command(["turns", "off"])
+        await app.wait_rendered()
+        await pilot.pause()
+        assert not app.query(".turn-step") and not app.query(".turn-result")
+        assert len(_visible_names(app)) == 4  # the user, each agent step
+        app._display_command(["turns", "on"])
+        await app.wait_rendered()
+        await pilot.pause()
+        assert len(_visible_names(app)) == 2
+
+
+@pytest.mark.asyncio
+async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
+    """Re-rendering the chat mid-turn would remove the live stream widget from
+    under the turn: /display turns/hidden/highlight apply when it ends."""
+    app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        app.generating = True
+        app._begin_stream()
+        app._on_stream_token("streaming reply")
+        await app.wait_rendered()
+        stream = app._stream_widget
+        app._display_command(["turns", "off"])
+        await pilot.pause()
+        assert stream is not None and stream.is_attached  # untouched
+        assert app.query(".turn-step")  # not re-rendered yet
+        app._show_info("Error: provider overloaded", error=True)  # ends the turn
+        app.generating = False
+        app._clear_stream_view()
+        await app._generation_done()
+        await app.wait_rendered()
+        await pilot.pause()
+        assert not app.query(".turn-step") and not app.query(".turn-result")
+        # notices from the turn (not in the log) survive the re-render
+        assert any(
+            "provider overloaded" in str(w.render()) for w in app.query(InfoMessage)
+        )
