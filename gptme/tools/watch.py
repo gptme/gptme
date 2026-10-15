@@ -983,7 +983,10 @@ def execute_watch(
             confirmation_workspace=_get_path_fn(code, args, kwargs),
         )
         return
-    yield _watch(code, args, kwargs)
+    # Pass the resolved content (code block or `content` kwarg) so structured
+    # calls to list/cancel/wait/timer/tmux don't fall through with code=None
+    # and raise the usage error.
+    yield _watch(content, args, kwargs)
 
 
 def _deadline(opts: dict[str, str]) -> float | None:

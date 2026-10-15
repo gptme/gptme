@@ -825,7 +825,9 @@ tool: ToolSpec = ToolSpec(
             type="string",
             description=(
                 "A GitHub URL to the PR or issue, as an alternative to embedding "
-                "it inside command (e.g. 'https://github.com/owner/repo/pull/42')."
+                "it inside command (e.g. 'https://github.com/owner/repo/pull/42'). "
+                "Used only by 'pr view/status/checks/merge' and 'issue view'; "
+                "other commands ignore it, so include the target in command."
             ),
             required=False,
         ),

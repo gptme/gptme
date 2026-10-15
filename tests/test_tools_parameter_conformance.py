@@ -93,13 +93,22 @@ def _extract_kwargs_keys_from_functions(source: str) -> set[str]:
 # ToolSpec parameters. Values are per-module short names.
 _ALLOWLIST: dict[str, set[str]] = {}
 
+# Tool modules that could not be imported here because an optional dependency
+# is missing. Kept as explicit cases so a skipped module shows as a visible
+# skip rather than silently reducing the number of passing assertions.
+_SKIPPED_MODULES: list[tuple[str, str]] = []
+
 
 def _build_conformance_cases() -> list[ModuleConformance]:
     cases = []
     for mod_name in _get_tool_module_names():
         try:
             mod = importlib.import_module(mod_name)
-        except Exception:
+        except ImportError as exc:
+            # Missing optional dependency: the module cannot be inspected in
+            # this environment. Any other exception is a real defect and must
+            # fail loudly instead of removing the module from the suite.
+            _SKIPPED_MODULES.append((mod_name, str(exc)))
             continue
         specs = [
             obj
@@ -142,3 +151,17 @@ def test_kwarg_keys_declared(case: ModuleConformance) -> None:
         f"Declared parameters: {sorted(case.declared)}\n"
         "Either add to spec.parameters or add to _ALLOWLIST if intentional."
     )
+
+
+def test_optional_dependency_skips_are_reported() -> None:
+    """Surface tool modules skipped because an optional dependency is missing.
+
+    Silent skips shrink the conformance suite's coverage without any signal;
+    failing the import loudly (above) covers unexpected errors, and this test
+    names the expected imports that could not be inspected in this environment.
+    """
+    if _SKIPPED_MODULES:
+        pytest.skip(
+            "tool modules not inspected (missing optional dependency): "
+            + ", ".join(f"{name} ({reason})" for name, reason in _SKIPPED_MODULES)
+        )
