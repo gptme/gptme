@@ -356,8 +356,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     getItemKey: (virtualIndex) => {
       const index = visibleMessageIndices[virtualIndex];
       const off = conversation$?.logOffset?.peek() ?? 0;
-      const msg = conversation$?.data.log[index]?.peek();
-      return msg ? `${off + index}-${msg.timestamp}` : `${off + index}`;
+      // Completion replaces the locally assigned timestamp with the server's.
+      // Keep the mounted message (and streaming parser) across that update.
+      // A wholesale log replacement still needs fresh rows even at the same
+      // indices; logRevision covers edits, reloads and branch switches.
+      const revision = conversation$?.logRevision?.peek() ?? 0;
+      return `${revision}:${off + index}`;
     },
   });
 
