@@ -820,5 +820,14 @@ tool: ToolSpec = ToolSpec(
             ),
             required=True,
         ),
+        Parameter(
+            name="url",
+            type="string",
+            description=(
+                "A GitHub URL to the PR or issue, as an alternative to embedding "
+                "it inside command (e.g. 'https://github.com/owner/repo/pull/42')."
+            ),
+            required=False,
+        ),
     ],
 )

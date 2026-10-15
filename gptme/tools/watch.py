@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import ToolSpec
+from .base import Parameter, ToolSpec
 from .shell_validation import is_allowlisted, is_denylisted
 
 logger = logging.getLogger(__name__)
@@ -1201,6 +1201,14 @@ tool = ToolSpec(
     execute=execute_watch,
     block_types=["watch"],
     disabled_by_default=True,
+    parameters=[
+        Parameter(
+            name="content",
+            type="string",
+            description="The watch command (e.g. 'run <cmd>' or 'until <cmd> --every 30s'). Alternative to providing the command as a code block.",
+            required=False,
+        ),
+    ],
     hooks={
         "drain_step_pre": ("step.pre", _watch_drain_hook, 940),
         "allowlist": ("tool.confirm", watch_allowlist_hook, 10),

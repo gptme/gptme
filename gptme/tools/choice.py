@@ -173,6 +173,12 @@ tool_choice = ToolSpec(
             description="The question to ask and a newline- or comma-separated list of options to choose from",
             required=True,
         ),
+        Parameter(
+            name="question",
+            type="string",
+            description="Optional question to display above the options (alternative to including it as the first line of options)",
+            required=False,
+        ),
     ],
 )
 
