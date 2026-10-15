@@ -44,6 +44,21 @@ async function appendMessage(page: Page, role: 'assistant' | 'system', content: 
   await nextFrames(page);
 }
 
+async function streamTokens(page: Page, tokens: string[]) {
+  for (const token of tokens) {
+    await page.evaluate(
+      async ({ id, token }) => {
+        const { conversations$ } = await import('/src/stores/conversations.ts');
+        const log$ = conversations$.get(id).data.log;
+        const message$ = log$[log$.peek().length - 1];
+        message$.content.set(message$.content.peek() + token);
+      },
+      { id: conversationId, token }
+    );
+    await nextFrames(page);
+  }
+}
+
 test('streamed reply keeps its DOM when the server supplies the final timestamp', async ({
   page,
 }) => {
@@ -94,19 +109,31 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
     const top = prompt.getBoundingClientRect().top;
     const samples: { missing: boolean; blankReply: boolean; jump: number }[] = [];
     let running = true;
+    let sawContent = false;
+    let lastLength = 0;
     const sample = () => {
       const log = conversations$.get(id).data.log.peek();
       const last = log[log.length - 1];
+      if (log.length !== lastLength) {
+        sawContent = false;
+        lastLength = log.length;
+      }
       const reply = document.querySelector(`[data-message-index="${log.length - 1}"]`);
+      // Any assistant message still streaming must stay painted. Keying on the
+      // first content line covers tool turns ("Checking.") and the streamed
+      // final reply alike. blankReply only fires after that row has painted at
+      // least once, so a mount-lag frame is not a false positive.
+      const firstLine = last.content.split('\n')[0];
+      const painted = firstLine.length > 0 && !!reply?.textContent?.includes(firstLine);
+      if (painted) sawContent = true;
       samples.push({
         missing: !prompt.isConnected,
-        // Give a newly appended row its first render, then catch any later
-        // blank painted frame while that same reply continues streaming.
         blankReply:
           last.role === 'assistant' &&
-          last.content.includes('Checking.') &&
-          /```shell\n(?:pwd|ls)/.test(last.content) &&
-          !reply?.textContent?.includes('Checking.'),
+          !last.isComplete &&
+          firstLine.length > 0 &&
+          sawContent &&
+          !painted,
         jump: Math.abs(prompt.getBoundingClientRect().top - top),
       });
       if (running) requestAnimationFrame(sample);
@@ -123,19 +150,10 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
   }, conversationId);
 
   for (const command of ['pwd', 'ls']) {
-    await appendMessage(page, 'assistant', 'Checking.\n\n```shell\n');
-    for (const token of [command, '\n', '```']) {
-      await page.evaluate(
-        async ({ id, token }) => {
-          const { conversations$ } = await import('/src/stores/conversations.ts');
-          const log$ = conversations$.get(id).data.log;
-          const message$ = log$[log$.peek().length - 1];
-          message$.content.set(message$.content.peek() + token);
-        },
-        { id: conversationId, token }
-      );
-      await nextFrames(page);
-    }
+    // Mount the row empty, then stream: a non-empty initial content finalizes
+    // the markdown parser on mount, so later appends would never render.
+    await appendMessage(page, 'assistant', '');
+    await streamTokens(page, ['Checking.\n\n```shell\n', command, '\n', '```']);
     await page.evaluate(async (id) => {
       const { conversations$ } = await import('/src/stores/conversations.ts');
       const log$ = conversations$.get(id).data.log;
@@ -143,7 +161,17 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
     }, conversationId);
     await appendMessage(page, 'system', `Ran command: ${command}\n\n\`\`\`stdout\nDone\n\`\`\``);
   }
-  await appendMessage(page, 'assistant', 'All clean.');
+  // Stream the final answer too: appended all at once it would bypass the
+  // per-frame blank check.
+  await appendMessage(page, 'assistant', '');
+  await streamTokens(page, ['All', ' clean', '.']);
+  // Complete the reply so the streaming parser flushes its trailing buffer.
+  await page.evaluate(async (id) => {
+    const { conversations$ } = await import('/src/stores/conversations.ts');
+    const log$ = conversations$.get(id).data.log;
+    log$[log$.peek().length - 1].isComplete.set(true);
+  }, conversationId);
+  await nextFrames(page);
   const finalReply = page.locator('[data-message-index="5"]');
   await expect(finalReply).toContainText('All clean.');
   await expect(page.getByRole('button', { name: /2 steps/ })).toBeVisible();
@@ -173,5 +201,22 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
   await page.getByRole('button', { name: /2 steps/ }).click();
   await expect(page.locator('[data-message-index]')).toHaveCount(6);
   await expect(finalReply).toContainText('All clean.');
+  // Each expanded row must carry its own text in log order: counting rows
+  // alone would pass on duplicated, swapped, or missing tool content.
+  const expectedRows: [number, string][] = [
+    [0, 'Keep this prompt in place.'],
+    [1, 'pwd'],
+    [2, 'Ran command: pwd'],
+    [3, 'ls'],
+    [4, 'Ran command: ls'],
+    [5, 'All clean.'],
+  ];
+  for (const [index, text] of expectedRows) {
+    await expect(page.locator(`[data-message-index="${index}"]`)).toContainText(text);
+  }
+  const renderedOrder = await page
+    .locator('[data-message-index]')
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-message-index')));
+  expect(renderedOrder).toEqual(['0', '1', '2', '3', '4', '5']);
   await page.screenshot({ path: testInfo.outputPath('expanded-turn.png') });
 });
