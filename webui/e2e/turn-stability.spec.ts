@@ -86,11 +86,16 @@ test('streamed reply keeps its DOM when the server supplies the final timestamp'
 
   // Conversely, a branch/edit replacing the log at the same positions must
   // reset row-local state rather than retain the previous branch's parser.
+  // Preserve the timestamp so only the log revision can invalidate this row.
   await page.evaluate(async (id) => {
     const { replaceLog } = await import('/src/stores/conversations.ts');
     replaceLog(id, [
       { role: 'user', content: 'A different branch' },
-      { role: 'assistant', content: 'Replacement reply' },
+      {
+        role: 'assistant',
+        content: 'Replacement reply',
+        timestamp: '2026-01-01T00:00:09Z',
+      },
     ]);
   }, conversationId);
   await expect(reply).toContainText('Replacement reply');
@@ -107,34 +112,42 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
     const { conversations$ } = await import('/src/stores/conversations.ts');
     const prompt = document.querySelector('[data-message-index="0"]')!;
     const top = prompt.getBoundingClientRect().top;
-    const samples: { missing: boolean; blankReply: boolean; jump: number }[] = [];
+    const samples: {
+      missing: boolean;
+      blankReply: boolean;
+      jump: number;
+      replyIndex: number | null;
+    }[] = [];
     let running = true;
-    let sawContent = false;
+    let paintedPrefix = '';
     let lastLength = 0;
     const sample = () => {
       const log = conversations$.get(id).data.log.peek();
       const last = log[log.length - 1];
       if (log.length !== lastLength) {
-        sawContent = false;
+        paintedPrefix = '';
         lastLength = log.length;
       }
       const reply = document.querySelector(`[data-message-index="${log.length - 1}"]`);
-      // Any assistant message still streaming must stay painted. Keying on the
-      // first content line covers tool turns ("Checking.") and the streamed
-      // final reply alike. blankReply only fires after that row has painted at
-      // least once, so a mount-lag frame is not a false positive.
-      const firstLine = last.content.split('\n')[0];
-      const painted = firstLine.length > 0 && !!reply?.textContent?.includes(firstLine);
-      if (painted) sawContent = true;
+      // Once text has painted, it must remain through later token updates.
+      // Latch the visible prefix, not the latest store text: React/the parser
+      // may legitimately lag new tokens without losing previously painted text.
+      // The first word stays stable as tokens extend the line, and can paint
+      // before the parser flushes the trailing word on completion.
+      const firstWord = last.content.split(/\s/)[0];
+      if (!paintedPrefix && firstWord && reply?.textContent?.includes(firstWord)) {
+        paintedPrefix = firstWord;
+      }
       samples.push({
         missing: !prompt.isConnected,
         blankReply:
           last.role === 'assistant' &&
           !last.isComplete &&
-          firstLine.length > 0 &&
-          sawContent &&
-          !painted,
+          paintedPrefix.length > 0 &&
+          !reply?.textContent?.includes(paintedPrefix),
         jump: Math.abs(prompt.getBoundingClientRect().top - top),
+        replyIndex:
+          last.role === 'assistant' && !last.isComplete && paintedPrefix ? log.length - 1 : null,
       });
       if (running) requestAnimationFrame(sample);
     };
@@ -180,7 +193,12 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
     const state = (
       window as unknown as {
         turnFrames: {
-          samples: { missing: boolean; blankReply: boolean; jump: number }[];
+          samples: {
+            missing: boolean;
+            blankReply: boolean;
+            jump: number;
+            replyIndex: number | null;
+          }[];
           stop: () => void;
         };
       }
@@ -189,6 +207,10 @@ test('multi-step turn has no blank frames or prompt jumps while tokens arrive', 
     return state.samples;
   });
   expect(frames.length).toBeGreaterThan(10);
+  // A never-painted reply must not make the blank-frame check pass vacuously.
+  expect([
+    ...new Set(frames.flatMap((frame) => (frame.replyIndex === null ? [] : [frame.replyIndex]))),
+  ]).toEqual([1, 3, 5]);
   expect(frames.filter((frame) => frame.missing || frame.blankReply)).toEqual([]);
   expect(Math.max(...frames.map((frame) => frame.jump))).toBeLessThanOrEqual(1);
   await testInfo.attach('turn-frames', {
