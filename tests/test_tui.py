@@ -3798,3 +3798,30 @@ async def test_compact_summarizes_whole_log_and_rerenders(tmp_path, monkeypatch)
         assert any("CHECKPOINT" in s for s in shown), shown
         assert not any("old answer" in s for s in shown), shown
         assert any("last answer" in s for s in shown), shown
+
+
+@pytest.mark.asyncio
+async def test_thinking_and_tool_call_are_compact_and_aligned(tmp_path):
+    """A message that only thinks and calls a tool is three rows: the name,
+    the thinking line, the tool line; the two lines start in the same column
+    (no border line, padding row or extra indent around the tool call)."""
+    from textual.widgets import Collapsible
+
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    content = "<think>\nlet me look\n</think>\n```shell\ncd ~/\n```"
+    manager = make_manager(tmp_path, [Message("assistant", content)])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(80, 20)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        msg = app.query_one(AssistantMessage)
+        thinking, tool = msg.query(Collapsible)
+        assert thinking.has_class("thinking-block")
+        assert tool.has_class("tool-call-block")
+        assert msg.content_region.height == 3
+        assert tool.region.y == thinking.region.bottom
+        title = lambda c: c.query_one("CollapsibleTitle").content_region.x  # noqa: E731
+        assert title(tool) == title(thinking)
+        assert tool.styles.background.a == 0  # no gray box

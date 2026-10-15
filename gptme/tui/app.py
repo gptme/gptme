@@ -1985,6 +1985,13 @@ class GptmeApp(App):
         background: transparent;
         color: $text-muted;
     }
+    /* a tool call is one line like the thinking line above it: no border
+       row (▔▔▔), padding row, extra indent or box (Collapsible defaults) */
+    .tool-call-block {
+        border: none;
+        padding: 0;
+        background: transparent;
+    }
     .thinking-block CollapsibleTitle {
         color: $text-muted;
     }
