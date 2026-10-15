@@ -411,6 +411,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "perf: marks tests as performance benchmarks (run with '-m perf')",
     "eval: marks tests as evals (deselect with '-m \"not eval\"'), these may fail, and will not run in CI",
     "serial",
     "timeout: marks tests with timeout value in seconds",
