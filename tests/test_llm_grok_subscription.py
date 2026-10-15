@@ -456,117 +456,108 @@ def test_grok_46_is_registered():
 # ── client-reuse regression ──────────────────────────────────────────────────
 
 
+def _run_grok_paths(auth):
+    """Run the production _chat_complete and _stream paths for grok-subscription
+    with the downstream OpenAI call stubbed, counting _init_openai_client calls."""
+    from gptme.llm import _chat_complete, _stream, llm_openai
+    from gptme.message import Message
+
+    builds = 0
+    original_init = llm_openai._init_openai_client
+
+    def counting_init(provider, **kwargs):
+        nonlocal builds
+        if provider == "grok-subscription":
+            builds += 1
+        return original_init(provider, **kwargs)
+
+    messages = [Message(role="user", content="hello")]
+
+    def stream_stub(*args, **kwargs):
+        yield "ok"
+
+    with (
+        patch("gptme.llm.llm_grok_subscription.get_auth", return_value=auth),
+        patch("gptme.llm.llm_openai._init_openai_client", side_effect=counting_init),
+        patch("gptme.llm.llm_openai.chat", return_value=("ok", None)),
+        patch("gptme.llm.llm_openai.stream", side_effect=stream_stub),
+    ):
+        try:
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+        finally:
+            llm_openai.clients.pop("grok-subscription", None)
+    return builds
+
+
 def test_grok_client_not_rebuilt_when_token_unchanged():
-    """_init_openai_client must not be called on the second request when the
-    access token hasn't changed — rebuilding unconditionally opens a new httpx
-    connection pool each turn and leaks the previous one."""
-    from unittest.mock import patch
-
-    from gptme.llm import llm_openai
-    from gptme.llm.llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL
-
+    """Two consecutive production-path requests with a stable token must build
+    the client exactly once — rebuilding per-request leaks the old pool."""
     auth = SubscriptionAuth(
         access_token="stable-token",
         refresh_token="rt",
         expires_at=9_999_999_999.0,
     )
-
-    build_count = 0
-
-    original_init = llm_openai._init_openai_client
-
-    def counting_init(provider, **kwargs):
-        nonlocal build_count
-        if provider == "grok-subscription":
-            build_count += 1
-        original_init(provider, **kwargs)
-
-    with (
-        patch("gptme.llm.llm_grok_subscription.get_auth", return_value=auth),
-        patch("gptme.llm.llm_openai._init_openai_client", side_effect=counting_init),
-    ):
-        # Simulate two consecutive per-request guard invocations (chat path).
-        from gptme.llm.llm_openai import clients
-
-        # Seed the clients dict as if init() already ran with the same token.
-        original_init(
-            "grok-subscription",
-            api_key=auth.access_token,
-            base_url=GROK_PROXY_URL,
-            default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
-        )
-        build_count = 0  # reset after seed
-
-        # Run the guard twice — token unchanged, so build_count must stay 0.
-        for _ in range(2):
-            existing = clients.get("grok-subscription")
-            cached_key = (
-                getattr(existing, "_kwargs", {}).get("api_key")
-                if existing is not None
-                else None
-            )
-            if cached_key != auth.access_token:
-                from gptme.llm.llm_openai import _init_openai_client
-
-                _init_openai_client(
-                    "grok-subscription",
-                    api_key=auth.access_token,
-                    base_url=GROK_PROXY_URL,
-                    default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
-                )
-
-    assert build_count == 0, (
-        f"_init_openai_client was called {build_count} time(s) with an unchanged token; "
-        "expected 0 — the client should be reused"
+    builds = _run_grok_paths(auth)
+    assert builds == 1, (
+        f"_init_openai_client was called {builds} time(s) across 4 production-path "
+        "requests with an unchanged token; expected 1"
     )
 
 
 def test_grok_client_rebuilt_when_token_changes():
-    """_init_openai_client must be called when the access token rotates."""
-    from gptme.llm import llm_openai
-    from gptme.llm.llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL
-
-    original_init = llm_openai._init_openai_client
-    build_count = 0
-
-    def counting_init(provider, **kwargs):
-        nonlocal build_count
-        if provider == "grok-subscription":
-            build_count += 1
-        original_init(provider, **kwargs)
-
-    # Seed client with old token.
-    original_init(
-        "grok-subscription",
-        api_key="old-token",
-        base_url=GROK_PROXY_URL,
-        default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+    """A rotated access token must trigger exactly one rebuild."""
+    auth_a = SubscriptionAuth(
+        access_token="old-token", refresh_token="rt", expires_at=9_999_999_999.0
+    )
+    auth_b = SubscriptionAuth(
+        access_token="new-token", refresh_token="rt", expires_at=9_999_999_999.0
     )
 
-    with patch("gptme.llm.llm_openai._init_openai_client", side_effect=counting_init):
-        new_auth = SubscriptionAuth(
-            access_token="new-token",
-            refresh_token="rt",
-            expires_at=9_999_999_999.0,
-        )
-        from gptme.llm.llm_openai import clients
+    # Alternate get_auth results: old token for first pair, new for the rest.
+    responses = iter([auth_a, auth_a, auth_b, auth_b])
 
-        existing = clients.get("grok-subscription")
-        cached_key = (
-            getattr(existing, "_kwargs", {}).get("api_key")
-            if existing is not None
-            else None
-        )
-        if cached_key != new_auth.access_token:
-            from gptme.llm.llm_openai import _init_openai_client
+    def rotating_auth():
+        return next(responses)
 
-            _init_openai_client(
-                "grok-subscription",
-                api_key=new_auth.access_token,
-                base_url=GROK_PROXY_URL,
-                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
-            )
+    from gptme.llm import llm_openai
 
-    assert build_count == 1, (
-        f"Expected exactly 1 rebuild when token changes, got {build_count}"
+    builds = 0
+    original_init = llm_openai._init_openai_client
+
+    def counting_init(provider, **kwargs):
+        nonlocal builds
+        if provider == "grok-subscription":
+            builds += 1
+        return original_init(provider, **kwargs)
+
+    from gptme.llm import _chat_complete, _stream
+    from gptme.message import Message
+
+    messages = [Message(role="user", content="hello")]
+
+    def stream_stub(*args, **kwargs):
+        yield "ok"
+
+    with (
+        patch(
+            "gptme.llm.llm_grok_subscription.get_auth",
+            side_effect=rotating_auth,
+        ),
+        patch("gptme.llm.llm_openai._init_openai_client", side_effect=counting_init),
+        patch("gptme.llm.llm_openai.chat", return_value=("ok", None)),
+        patch("gptme.llm.llm_openai.stream", side_effect=stream_stub),
+    ):
+        try:
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+        finally:
+            llm_openai.clients.pop("grok-subscription", None)
+
+    assert builds == 2, (
+        f"Expected exactly 2 rebuilds (initial + rotation), got {builds}"
     )

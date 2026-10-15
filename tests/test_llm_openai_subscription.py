@@ -1048,3 +1048,66 @@ def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
     assert len(request_json["instructions"]) == cap
     assert request_json["instructions"].startswith(first)
     assert request_json["instructions"].split("\n\n")[1] == second[:-overflow]
+
+
+def test_stream_reuses_connection_across_completed_calls():
+    """Real HTTP/1.1 check: two completed stream() calls against a local server
+    must share a single TCP connection — the module-level Session keeps the
+    pooled socket alive across turns instead of re-handshaking per request."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    connections: list[int] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self):
+            # Drain the request body so keep-alive framing stays valid.
+            length = int(self.headers.get("Content-Length", 0))
+            if length:
+                self.rfile.read(length)
+            connections.append(id(self.connection))
+            body = (
+                b'data: {"type": "response.output_text.delta", "delta": "hi"}\n\n'
+                b"data: [DONE]\n\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    auth = _make_auth()
+    try:
+        with (
+            patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
+            patch(
+                "gptme.llm.llm_openai_subscription.CODEX_ENDPOINT",
+                f"http://127.0.0.1:{server.server_port}/responses",
+            ),
+        ):
+            for _ in range(2):
+                gen = llm_openai_subscription.stream(
+                    [Message(role="user", content="hello")], "gpt-5.4"
+                )
+                while True:
+                    try:
+                        next(gen)
+                    except StopIteration:
+                        break
+    finally:
+        server.shutdown()
+        server.server_close()
+        llm_openai_subscription._http_session.close()
+
+    assert len(connections) == 2, f"expected 2 requests, saw {len(connections)}"
+    assert len(set(connections)) == 1, (
+        "connection was not reused across completed calls — "
+        f"distinct connections: {len(set(connections))}"
+    )
