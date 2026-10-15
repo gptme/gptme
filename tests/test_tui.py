@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.text import Text
 from textual.color import Color
 from textual.filter import ANSIToTruecolor
-from textual.widgets import Collapsible, Markdown, Static
+from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
@@ -24,6 +24,7 @@ from gptme.tui.app import (
     GptmeApp,
     InfoMessage,
     StreamingMessage,
+    StreamProse,
     SystemMessage,
     ToolPlaceholder,
     UserMessage,
@@ -762,33 +763,46 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
     init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
+        await app.wait_rendered()
         await pilot.pause()
         app._begin_stream()
         app._on_stream_token(SHELL_TOOL_MSG)
+        await app.wait_rendered()
         await pilot.pause()
         assert app.query(StreamingMessage)
 
         app._on_tool_start(
             _RunningTool.from_tool_use(ToolUse("shell", [], "echo hello"))
         )
+        await app.wait_rendered()
         await pilot.pause()
         assert not app.query(StreamingMessage)
         assert len(app.query(AssistantMessage)) == 1
         (placeholder,) = app.query(ToolPlaceholder)
         text = str(placeholder._body.render())
-        assert "Running shell  echo hello" in text
+        assert text.startswith("Running shell · 0s") and text.endswith("  echo hello")
         assert "moves to background in" in text or "times out in" in text
         assert app.state == "running shell"
 
         # step() yields the assistant message after its tools finished
         app._on_step_message(Message("assistant", SHELL_TOOL_MSG))
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(AssistantMessage)) == 1  # replaced, not duplicated
-        assert len(app.query(ToolPlaceholder)) == 0
         assert app._running_tool is None
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
+        await app.wait_rendered()
+        await pilot.pause()
+        # the status line stays until the next step's stream takes its place
+        # (removing it first would shrink the chat and make it jump)
+        (placeholder,) = app.query(ToolPlaceholder)
+        done = str(placeholder._body.render())
+        assert done.startswith("Ran shell · ") and done.endswith("  echo hello")
+        app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
+        assert app.query(StreamingMessage)
 
 
 def test_running_tool_render_and_limits(monkeypatch):
@@ -800,9 +814,14 @@ def test_running_tool_render_and_limits(monkeypatch):
         ToolUse("shell", [], "sleep 100\necho done", kwargs=None)
     )
     running.started -= 65
-    text = str(running.render())
-    assert "Running shell  sleep 100 (+1 lines)" in text
-    assert "1m05s" in text and "moves to background in 55s" in text
+    rendered = running.render()
+    text = str(rendered)
+    # one line, timing first: a long command gets cut, not the timing
+    assert "\n" not in text and rendered.no_wrap
+    assert (
+        text
+        == "Running shell · 1m05s · moves to background in 55s  sleep 100 (+1 lines)"
+    )
     # tool-format calls carry the command in kwargs; background ones don't wait
     bg = _RunningTool.from_tool_use(
         ToolUse("shell", [], None, kwargs={"command": "make", "background": "true"})
@@ -855,15 +874,22 @@ async def test_running_tool_line_follows_each_tool(tmp_path):
     init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
+        await app.wait_rendered()
         await pilot.pause()
         app._begin_stream()
         app._on_stream_token(TWO_SHELL_TOOLS_MSG)
         for cmd in ("echo first", "echo second"):
             app._on_tool_start(_RunningTool.from_tool_use(ToolUse("shell", [], cmd)))
+            await app.wait_rendered()
             await pilot.pause()
             (placeholder,) = app.query(ToolPlaceholder)
             assert cmd in str(placeholder._body.render())
         app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
+        await app.wait_rendered()
+        await pilot.pause()
+        assert app._running_tool is None
+        app._begin_stream()  # the next step's stream replaces the status line
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
 
@@ -1219,20 +1245,27 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test(size=(120, 40)) as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
+        # new chat widgets are laid out hidden until rendered; measure once shown
+        while sm.styles.visibility == "hidden":
+            await pilot.pause(0.01)
         intro_y = None
         for chunk in chunks:
             sm.append_token(chunk)
+            await app.wait_rendered()
             await pilot.pause()
             if chunks[0] == "Intro":
                 intro = next(
                     child
                     for child in sm.children
-                    if "Intro"
-                    in (getattr(child, "_markdown", None) or str(child.render()))
+                    if "Intro" in (getattr(child, "text", None) or str(child.render()))
                 )
+                # measure once its text is on screen (it renders off-screen first)
+                while isinstance(intro, StreamProse) and not intro.shown:
+                    await pilot.pause(0.01)
                 if intro_y is None:
                     intro_y = intro.region.y
                 assert intro.region.y == intro_y
@@ -1244,6 +1277,7 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
         assert [child.has_class("thinking-stub") for child in rows] == kinds
         assert all("Generating" not in str(child.render()) for child in rows)
         app._on_step_message(Message("assistant", "".join(chunks)))
+        await app.wait_rendered()
         await pilot.pause()
         am = app.query_one(AssistantMessage)
         final_rows = [child for child in am.children if not child.has_class("role")]
@@ -1255,10 +1289,12 @@ async def test_streaming_hidden_thinking_has_only_one_status_row(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
         sm.append_token("<think>reasoning")
+        await app.wait_rendered()
         await pilot.pause()
         rows = [
             child
@@ -1279,9 +1315,8 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
         """(is_thinking_stub, text) for each visible segment row."""
 
         def get_text(row) -> str:
-            # Markdown stores content in _markdown (set synchronously by update()).
-            if isinstance(row, Markdown):
-                return row._markdown or ""
+            if isinstance(row, StreamProse):
+                return row.text
             return str(row.render())
 
         return [
@@ -1292,8 +1327,10 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
 
     async with app.run_test() as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         app._on_stream_token("<think>reasoning</think>Answer")
+        await app.wait_rendered()
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
@@ -1306,16 +1343,19 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
 
         # Body mode: body shows full text, all segments hidden
         app._set_thinking(True)
+        await app.wait_rendered()
         await pilot.pause()
         assert sm._body.display
         assert "reasoning" in str(sm._body.render())
         assert all(not row.display for row in sm._segments)
         app._on_stream_token(" continues")
+        await app.wait_rendered()
         await pilot.pause()
         assert "Answer continues" in str(sm._body.render())
 
         # Back to segment mode
         app._set_thinking(False)
+        await app.wait_rendered()
         await pilot.pause()
         assert not sm._body.display
         assert visible_segments(sm) == [
@@ -1323,11 +1363,13 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
             (False, "Answer continues"),
         ]
         app._on_stream_token(" hidden-mode tail")
+        await app.wait_rendered()
         await pilot.pause()
         assert visible_segments(sm)[1] == (False, "Answer continues hidden-mode tail")
 
         # Back to body mode: body shows all accumulated tokens
         app._set_thinking(True)
+        await app.wait_rendered()
         await pilot.pause()
         assert sm._body.display
         assert "hidden-mode tail" in str(sm._body.render())
@@ -1341,6 +1383,7 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test(size=(120, 40)) as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
 
         sm = app._stream_widget
@@ -1350,6 +1393,7 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
         # Stream thinking block followed by prose
         sm.append_token("<think>reasoning line 1\nreasoning line 2\n</think>")
         sm.append_token("Some visible prose")
+        await app.wait_rendered()
         await pilot.pause()
 
         # Thinking stub should be visible in position, above the body
@@ -1362,7 +1406,7 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
         # The body should show the visible prose
         assert any(
             "Some visible prose"
-            in (getattr(child, "_markdown", None) or str(child.render()))
+            in (getattr(child, "text", None) or str(child.render()))
             for child in sm.children
         )
 
@@ -1375,13 +1419,16 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
 
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test(size=(120, 40)) as pilot:
+        await app.wait_rendered()
         await pilot.pause()
 
         # Simulate a prior user message so there's a neighbor widget
         app._on_step_message(Message("user", "hello"))
+        await app.wait_rendered()
         await pilot.pause()
 
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
 
         sm = app._stream_widget
@@ -1391,6 +1438,7 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
         stream_idx = list(chat.children).index(sm)
         trailing = Static("Trailing sibling")
         await chat.mount(trailing)
+        await app.wait_rendered()
         await pilot.pause()
 
         # The replacement must already be attached when removal is requested.
@@ -1405,9 +1453,14 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
             assert children[stream_idx + 2] is trailing
             return original_remove()
 
-        with patch.object(sm, "remove", side_effect=check_replacement_before_remove):
+        # removal happens once the replacement has rendered (_reveal)
+        with patch.object(
+            sm, "remove", side_effect=check_replacement_before_remove
+        ) as remove:
             app._on_step_message(Message("assistant", "hello back"))
-        await pilot.pause()
+            await app.wait_rendered()
+            await pilot.pause()
+        remove.assert_called_once()
 
         # StreamingMessage is gone; AssistantMessage is at the same position
         assert len(app.query(StreamingMessage)) == 0
@@ -1430,6 +1483,7 @@ async def test_zombie_flush_after_finalize_is_noop(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         app._on_stream_token("Answer")
         # Simulate tokens that arrived after the final message was queued but
@@ -1441,6 +1495,7 @@ async def test_zombie_flush_after_finalize_is_noop(tmp_path):
         app._on_step_message(Message("assistant", "Answer trailing tokens"))
         # Zombie flush — must be a no-op after finalization.
         app._flush_stream()
+        await app.wait_rendered()
         await pilot.pause()
         assert app._stream_widget is None
         assert not app.query(StreamingMessage)
@@ -2765,6 +2820,12 @@ async def test_rebuild_chat_keeps_queued_prompt_visible(tmp_path, monkeypatch):
         await app._generation_done()
         await pilot.pause()
         assert app.prompt_queue == []
+        # the queued widget stays until the sent message, once rendered,
+        # takes its place
+        for _ in range(100):
+            if not any("queued" in w.classes for w in app.query(UserMessage)):
+                break
+            await pilot.pause(0.01)
         assert not any("queued" in w.classes for w in app.query(UserMessage))
         assert [m.content for m in app.manager.log if m.role == "user"] == [
             "one",
@@ -3741,3 +3802,67 @@ async def test_compact_summarizes_whole_log_and_rerenders(tmp_path, monkeypatch)
         assert any("CHECKPOINT" in s for s in shown), shown
         assert not any("old answer" in s for s in shown), shown
         assert any("last answer" in s for s in shown), shown
+
+
+@pytest.mark.asyncio
+async def test_thinking_and_tool_call_are_compact_and_aligned(tmp_path):
+    """A message that only thinks and calls a tool is three rows: the name,
+    the thinking line, the tool line; the two lines start in the same column
+    (no border line, padding row or extra indent around the tool call)."""
+    from textual.widgets import Collapsible
+
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    content = "<think>\nlet me look\n</think>\n```shell\ncd ~/\n```"
+    manager = make_manager(tmp_path, [Message("assistant", content)])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(80, 20)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        msg = app.query_one(AssistantMessage)
+        thinking, tool = msg.query(Collapsible)
+        assert thinking.has_class("thinking-block")
+        assert tool.has_class("tool-call-block")
+        assert msg.content_region.height == 3
+        assert tool.region.y == thinking.region.bottom
+        title = lambda c: c.query_one("CollapsibleTitle").content_region.x  # noqa: E731
+        assert title(tool) == title(thinking)
+        assert tool.styles.background.a == 0  # no gray box
+
+
+@pytest.mark.asyncio
+async def test_take_steer_prompts_inline(tmp_path):
+    """Inline mode has no chat widget: delivering queued prompts mid-turn
+    (also with a tool status running) must not touch it."""
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import _RunningTool
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._on_tool_start(_RunningTool.from_tool_use(ToolUse("shell", [], "ls")))
+        for prompt in ["first", "second"]:
+            app._enqueue_prompt(prompt)
+        taken = app._take_steer_prompts()
+        assert [m.content for m in taken] == ["first", "second"]
+        assert app.prompt_queue == []
+
+
+@pytest.mark.asyncio
+async def test_tool_status_line_is_one_row_for_long_commands(tmp_path):
+    """A long command is cut with an ellipsis, not wrapped: the status line
+    keeps the height of the stream that replaces it."""
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import _RunningTool
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(60, 20)) as pilot:
+        await pilot.pause()
+        app._on_tool_start(
+            _RunningTool.from_tool_use(ToolUse("shell", [], "echo " + "x" * 200))
+        )
+        await app.wait_rendered()
+        await pilot.pause()
+        placeholder = app.query_one(ToolPlaceholder)
+        assert placeholder._body.region.height == 1
