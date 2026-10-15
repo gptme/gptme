@@ -1904,8 +1904,9 @@ STATUSLINE_REFRESH = 10
 
 # Max stream re-renders per second; each re-lays out the whole buffer.
 STREAM_FPS = 20
-# Longest a new chat widget stays hidden waiting for its Markdown to render.
-REVEAL_TIMEOUT = 1.0
+# Longest a new chat widget stays hidden waiting for its Markdown to render:
+# a backstop (rendering takes a few frames), generous for loaded CI machines.
+REVEAL_TIMEOUT = 3.0
 
 
 class _SequentialPrompt(str):

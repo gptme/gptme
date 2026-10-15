@@ -209,7 +209,14 @@ SCENARIOS = {
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scenario", list(SCENARIOS))
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        # streaming like a real model takes seconds: master CI only
+        pytest.param(name, marks=pytest.mark.slow) if delay else name
+        for name, (_, _, delay) in SCENARIOS.items()
+    ],
+)
 async def test_turn_has_no_blinks_or_jumps(app_factory, scenario):
     prompt, steps, word_delay = SCENARIOS[scenario]
     frames = await run_turn(app_factory(steps, word_delay), prompt)
