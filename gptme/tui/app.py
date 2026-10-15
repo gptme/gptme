@@ -2715,6 +2715,10 @@ class GptmeApp(App):
         """
         prev, self._flow_prev = self._flow_prev, kind
         if not self.group_turns or prev not in ("step", "result"):
+            if kind == "result":
+                # shown on its own (e.g. after hook output): the block is
+                # interrupted, so the next step shows the agent's name again
+                self._flow_prev = "other"
             return
         if kind == "step":
             widget.add_class("turn-step")

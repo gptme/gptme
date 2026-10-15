@@ -3930,6 +3930,10 @@ async def test_hook_output_in_a_turn_keeps_its_place_and_block(tmp_path):
         assert "Lint hook" in hook.content
         assert not hook.has_class("turn-result") and not result.has_class("turn-result")
         assert hook.region.y < result.region.y  # log order
+        # the block was interrupted: the next step names the agent again
+        steps = list(app.query(AssistantMessage))
+        assert not steps[1].has_class("turn-step")
+        assert steps[2].has_class("turn-step")  # and continues from there
 
 
 @pytest.mark.asyncio
