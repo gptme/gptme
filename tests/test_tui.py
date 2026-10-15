@@ -1453,10 +1453,14 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
             assert children[stream_idx + 2] is trailing
             return original_remove()
 
-        with patch.object(sm, "remove", side_effect=check_replacement_before_remove):
+        # removal happens once the replacement has rendered (_reveal)
+        with patch.object(
+            sm, "remove", side_effect=check_replacement_before_remove
+        ) as remove:
             app._on_step_message(Message("assistant", "hello back"))
-        await app.wait_rendered()
-        await pilot.pause()
+            await app.wait_rendered()
+            await pilot.pause()
+        remove.assert_called_once()
 
         # StreamingMessage is gone; AssistantMessage is at the same position
         assert len(app.query(StreamingMessage)) == 0
@@ -3825,3 +3829,21 @@ async def test_thinking_and_tool_call_are_compact_and_aligned(tmp_path):
         title = lambda c: c.query_one("CollapsibleTitle").content_region.x  # noqa: E731
         assert title(tool) == title(thinking)
         assert tool.styles.background.a == 0  # no gray box
+
+
+@pytest.mark.asyncio
+async def test_take_steer_prompts_inline(tmp_path):
+    """Inline mode has no chat widget: delivering queued prompts mid-turn
+    (also with a tool status running) must not touch it."""
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import _RunningTool
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path, inline=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._on_tool_start(_RunningTool.from_tool_use(ToolUse("shell", [], "ls")))
+        for prompt in ["first", "second"]:
+            app._enqueue_prompt(prompt)
+        taken = app._take_steer_prompts()
+        assert [m.content for m in taken] == ["first", "second"]
+        assert app.prompt_queue == []

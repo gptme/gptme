@@ -2371,18 +2371,24 @@ class GptmeApp(App):
             taken.append(msg)
         if taken:
             self._drop_delivered_widget()
-            # the delivered prompts sit where they were queued, below the
-            # tool status line; the next step's output belongs after them
-            chat = self.query_one("#chat", VerticalScroll)
-            placeholder = self._tool_placeholder
-            if placeholder is not None and placeholder.parent is chat:
-                insert = self._queued_widgets[0] if self._queued_widgets else None
-                if insert is not None and insert.parent is chat:
-                    chat.move_child(placeholder, before=insert)
-                else:
-                    chat.move_child(placeholder, after=chat.children[-1])
+            if not self.inline:  # inline mode has no chat widget
+                self._move_tool_line_below_delivered()
             self._update_status()
         return taken
+
+    def _move_tool_line_below_delivered(self) -> None:
+        """Delivered prompts sit where they were queued, below the tool
+        status line; the next step's output (which replaces that line)
+        belongs after them."""
+        chat = self.query_one("#chat", VerticalScroll)
+        placeholder = self._tool_placeholder
+        if placeholder is None or placeholder.parent is not chat:
+            return
+        insert = self._queued_widgets[0] if self._queued_widgets else None
+        if insert is not None and insert.parent is chat:
+            chat.move_child(placeholder, before=insert)
+        else:
+            chat.move_child(placeholder, after=chat.children[-1])
 
     def _pop_queued_prompt(self) -> str | Message:
         """Take the next queued prompt. Its widget stays until the user
