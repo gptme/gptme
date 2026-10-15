@@ -227,14 +227,17 @@ def _build_tool_specs_for_server(
                 if isinstance(param_schema, dict):
                     description = param_schema.get("description", "")
                     ptype = param_schema.get("type", "string")
+                    enum_values = param_schema.get("enum") or None
                 else:
                     description = ""
                     ptype = "string"
+                    enum_values = None
                 parameters.append(
                     Parameter(
                         name=param_name,
                         description=description,
                         type=ptype,
+                        enum=enum_values,
                         required=param_name in required_params,
                     )
                 )

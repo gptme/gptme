@@ -92,6 +92,28 @@ class TestParameters2Dict:
         assert result["properties"]["name"]["type"] == "string"
         assert result["properties"]["enabled"]["type"] == "boolean"
 
+    @pytest.mark.parametrize(
+        ("param_type", "values"),
+        [
+            ("string", ["fast", "slow"]),
+            ("integer", [0, 2]),
+            ("boolean", [False, True]),
+            ("number", [0.5, 1.25]),
+        ],
+    )
+    def test_preserves_enum_values(self, param_type: str, values: list[Any]) -> None:
+        params = [Parameter(name="value", type=param_type, enum=values)]
+        result: dict[str, Any] = parameters2dict(params)
+        actual = result["properties"]["value"]["enum"]
+        assert actual == values
+        assert [type(value) for value in actual] == [type(value) for value in values]
+
+    @pytest.mark.parametrize("values", [None, []])
+    def test_omits_missing_or_empty_enum(self, values: list[Any] | None) -> None:
+        params = [Parameter(name="value", type="string", enum=values)]
+        result: dict[str, Any] = parameters2dict(params)
+        assert "enum" not in result["properties"]["value"]
+
 
 # --- apply_cache_control tests ---
 
