@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.text import Text
 from textual.color import Color
 from textual.filter import ANSIToTruecolor
-from textual.widgets import Collapsible, Static
+from textual.widgets import Collapsible, Markdown, Static
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
@@ -1228,7 +1228,10 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
             await pilot.pause()
             if chunks[0] == "Intro":
                 intro = next(
-                    child for child in sm.children if "Intro" in str(child.render())
+                    child
+                    for child in sm.children
+                    if "Intro"
+                    in (getattr(child, "_markdown", None) or str(child.render()))
                 )
                 if intro_y is None:
                     intro_y = intro.region.y
@@ -1274,8 +1277,15 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
 
     def visible_segments(sm) -> list[tuple[bool, str]]:
         """(is_thinking_stub, text) for each visible segment row."""
+
+        def get_text(row) -> str:
+            # Markdown stores content in _markdown (set synchronously by update()).
+            if isinstance(row, Markdown):
+                return row._markdown or ""
+            return str(row.render())
+
         return [
-            (row.has_class("thinking-stub"), str(row.render()))
+            (row.has_class("thinking-stub"), get_text(row))
             for row in sm._segments
             if row.display
         ]
@@ -1350,7 +1360,11 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
         assert "Thinking" in stub_text
 
         # The body should show the visible prose
-        assert any("Some visible prose" in str(child.render()) for child in sm.children)
+        assert any(
+            "Some visible prose"
+            in (getattr(child, "_markdown", None) or str(child.render()))
+            for child in sm.children
+        )
 
 
 @pytest.mark.asyncio
@@ -1478,6 +1492,55 @@ async def test_finalize_stream_height_does_not_collapse(tmp_path):
         # markdown-vs-raw-text reflow; anything larger is the old layout-jump bug.
         assert height_after >= height_before - 3, (
             f"height collapsed from {height_before} to {height_after} rows "
+            f"(dropped {height_before - height_after})"
+        )
+
+
+@pytest.mark.asyncio
+async def test_finalize_prose_stream_height_stable(tmp_path):
+    """Prose streaming with Markdown widget: height at finalize must not shrink.
+
+    The streaming preview uses a Markdown widget for prose (not Static), so
+    heights match the final AssistantMessage render.  Regression guard for the
+    prose reflow described in #4331 (remaining after #4342 fixed tool calls).
+    """
+    prose = (
+        "This is a longer prose response that spans multiple lines.\n\n"
+        "It has a second paragraph too, to exercise markdown reflow.\n\n"
+        "And a third paragraph to make the height measurement meaningful."
+    )
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._begin_stream()
+        await pilot.pause()
+
+        sm = app._stream_widget
+        assert sm is not None
+
+        for line in prose.splitlines(keepends=True):
+            sm.append_token(line)
+        await pilot.pause()
+
+        # Give the Markdown widget time to complete its async render
+        await pilot.pause()
+
+        height_before = sm.content_size.height
+
+        # Finalize the stream
+        app._on_step_message(Message("assistant", prose))
+        await pilot.pause()
+        await pilot.pause()
+
+        am = app.query_one(AssistantMessage)
+        height_after = am.content_size.height
+
+        # With Markdown used during streaming, height must not collapse at finalize.
+        # One-directional: the original bug (#4331) was collapse, not growth.
+        # Growth can occur when the async Markdown render wasn't complete before
+        # finalize — that is not a regression, so we only guard against shrinkage.
+        assert height_after >= height_before - 1, (
+            f"prose height collapsed from {height_before} to {height_after} rows "
             f"(dropped {height_before - height_after})"
         )
 
