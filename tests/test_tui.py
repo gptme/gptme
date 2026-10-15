@@ -1263,6 +1263,9 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
                     for child in sm.children
                     if "Intro" in (getattr(child, "text", None) or str(child.render()))
                 )
+                # measure once its text is on screen (it renders off-screen first)
+                while isinstance(intro, StreamProse) and not intro.shown:
+                    await pilot.pause(0.01)
                 if intro_y is None:
                     intro_y = intro.region.y
                 assert intro.region.y == intro_y
