@@ -24,6 +24,7 @@ import subprocess
 import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
+from pathlib import Path
 from typing import Any
 
 from .shell_memory import Target as MemoryTarget
@@ -368,6 +369,48 @@ class KernelBackend:
         )
         return result.returncode == 0
 
+    @staticmethod
+    def _find_uv() -> str | None:
+        """Return the path to the uv executable, or None if not found."""
+        import shutil
+
+        return shutil.which("uv")
+
+    @staticmethod
+    def _is_uv_project() -> bool:
+        """Return True if the current directory looks like a uv-managed project."""
+        cwd = Path.cwd()
+        return (cwd / "uv.lock").exists() or (
+            (cwd / "pyproject.toml").exists()
+            and not (cwd / "poetry.lock").exists()
+            and KernelBackend._find_uv() is not None
+        )
+
+    @staticmethod
+    def _build_uv_kernel_cmd() -> list[str] | None:
+        """Build a kernel command using 'uv run --with ipykernel'.
+
+        uv injects ipykernel ephemerally — it does not modify the project's
+        pyproject.toml or lock file — so the project env stays clean while the
+        kernel still runs in the project's interpreter.
+
+        Returns None if uv is not available.
+        """
+        uv = KernelBackend._find_uv()
+        if uv is None:
+            return None
+        return [
+            uv,
+            "run",
+            "--with",
+            "ipykernel",
+            "python",
+            "-m",
+            "ipykernel_launcher",
+            "-f",
+            "{connection_file}",
+        ]
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -410,14 +453,31 @@ class KernelBackend:
                 "-f",
                 "{connection_file}",
             ]
-        else:
-            if project_python:
-                logger.warning(
-                    "Project Python %s lacks ipykernel; falling back to gptme's Python",
-                    project_python,
+        elif project_python or self._is_uv_project():
+            # Project venv found but lacks ipykernel, or this is a uv project
+            # without an activated venv.  Try `uv run --with ipykernel` so the
+            # kernel runs inside the project's environment without requiring the
+            # user to manually add ipykernel as a dependency.
+            uv_cmd = self._build_uv_kernel_cmd()
+            if uv_cmd:
+                logger.info(
+                    "Project Python lacks ipykernel; using 'uv run --with ipykernel'"
                 )
+                self._km.kernel_cmd = uv_cmd
             else:
-                logger.info("No project venv found; using gptme's Python for kernel")
+                if project_python:
+                    logger.warning(
+                        "Project Python %s lacks ipykernel and uv is not available; "
+                        "falling back to gptme's Python",
+                        project_python,
+                    )
+                else:
+                    logger.info(
+                        "uv project detected but uv is not available; "
+                        "using gptme's Python for kernel"
+                    )
+        else:
+            logger.info("No project venv found; using gptme's Python for kernel")
 
         # Pass env only when we actually want to override something; passing
         # None causes jupyter_client's provisioner to crash (it calls .get on it).
