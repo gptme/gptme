@@ -27,13 +27,13 @@ _VALID_MODES = {"trim", "summarize"} | set(_DEPRECATED_MODES)
 
 
 def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
-    """Command handler for /compact - compact the conversation using rule-based trimming or LLM-powered summarization.
+    """Command handler for /compact - compact the conversation using LLM-powered summarization (default) or rule-based trimming.
 
     Usage:
-        /compact [trim|summarize] [instructions...]
+        /compact [summarize|trim] [instructions...]
 
     The optional instructions are appended to the checkpoint prompt when using
-    the summarize method (or the default). This is the per-invocation equivalent
+    the summarize method (the default). This is the per-invocation equivalent
     of the [context] compact_instructions project config key.
     """
 
@@ -41,21 +41,23 @@ def cmd_compact_handler(ctx) -> Generator[Message, None, None]:
 
     # Parse arguments
     # Usage: /compact [mode] [instructions...]
-    #   mode: trim | summarize (or deprecated aliases auto / resume)
+    #   mode: summarize (default) | trim (or deprecated aliases resume / auto)
     #   instructions: optional text appended to the summarize checkpoint prompt
+    # Trim is opt-in: it often frees little, while summarize always compacts.
     args = ctx.args or []
-    method = args[0] if args else "trim"
+    method = args[0] if args else "summarize"
     extra_instructions = " ".join(args[1:]) if len(args) > 1 else None
 
     if method not in _VALID_MODES | set(_DEPRECATED_MODES):
         yield Message(
             "system",
-            "Invalid compact method. Use 'trim' for rule-based compaction or 'summarize' for LLM-powered summarization.\n"
-            "Usage: /compact [trim|summarize] [instructions...]",
+            "Invalid compact method. Use 'summarize' (default) for LLM-powered summarization or 'trim' for rule-based compaction.\n"
+            "Usage: /compact [summarize|trim] [instructions...]",
         )
         return
 
-    msgs = ctx.manager.log.messages[:-1]  # Exclude the /compact command itself
+    # the undo above already removed the /compact command itself
+    msgs = ctx.manager.log.messages
 
     # Handle deprecated aliases with a warning
     if method in _DEPRECATED_MODES:
@@ -107,6 +109,15 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     m = get_default_model()
     original_tokens = len_tokens(msgs, m.model) if m else 0
     compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
+
+    if compacted_count == original_count and compacted_tokens >= original_tokens:
+        # nothing freed: keep the log as it was rather than rewrite it
+        yield Message(
+            "system",
+            "Trim compaction freed nothing; the conversation is unchanged. "
+            "Use '/compact' (summarize) to compact it with an LLM summary.",
+        )
+        return
 
     # Replace the conversation history
     ctx.manager.log = Log(compacted_msgs)

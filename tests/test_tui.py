@@ -3699,3 +3699,45 @@ async def test_url_dialog_answered_after_interrupt_returns_text(tmp_path, monkey
         assert started == []
         assert app.query_one("#input", ChatInput).text == "see https://example.com"
         assert app._confirmed_urls == {}
+
+
+@pytest.mark.asyncio
+async def test_compact_summarizes_whole_log_and_rerenders(tmp_path, monkeypatch):
+    """/compact summarizes by default, keeps the last message, and the chat
+    shows the compacted log afterwards."""
+    from gptme.logmanager import Log
+    from gptme.tools import init_tools
+
+    init_tools(["autocompact"])
+    history = [
+        Message("user", "old question"),
+        Message("assistant", "old answer"),
+        Message("user", "last question"),
+        Message("assistant", "last answer"),
+    ]
+    seen: list[list[Message]] = []
+
+    def fake_resume(mgr, msgs, **kwargs):
+        seen.append(list(msgs))
+        mgr.log = Log([Message("assistant", "CHECKPOINT"), *msgs[-1:]])
+        mgr.write()
+        yield Message("system", "compacted")
+        return True, "summarize"
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+    app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "/compact"
+        await pilot.press("enter")
+        for _ in range(50):
+            await pilot.pause(0.05)
+            if not app.generating:
+                break
+        await pilot.pause()
+        assert seen and [m.content for m in seen[0]] == [m.content for m in history]
+        shown = [str(w.content) for w in app.query(AssistantMessage)]
+        assert any("CHECKPOINT" in s for s in shown), shown
+        assert not any("old answer" in s for s in shown), shown
+        assert any("last answer" in s for s in shown), shown

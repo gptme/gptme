@@ -529,21 +529,20 @@ Manually trigger conversation compaction to reduce context size.
 
 .. code-block:: text
 
-   /compact             # Rule-based trim (strips reasoning, truncates large tool outputs)
-   /compact trim        # Same as above
-   /compact summarize   # LLM-powered summarization (creates a RESUME.md and restarts context)
+   /compact             # LLM-powered summarization (default)
+   /compact summarize   # Same as above (creates a RESUME.md and restarts context)
+   /compact trim        # Rule-based trim (strips reasoning, truncates large tool outputs)
 
 Two strategies are available:
 
-- **trim** (default) — rule-based: strips old reasoning blocks, truncates massive tool
-  results, and compresses long assistant messages. Fast and deterministic; no LLM call.
-  Trim only runs when the rule-based heuristic determines it is worthwhile; if the
-  conversation is over the context limit but savings would be low, it will suggest
-  ``/compact summarize`` instead.
+- **summarize** (default) — LLM-powered: asks the model to produce a ``RESUME.md``
+  capturing key decisions, open tasks, and relevant file paths, then starts a fresh
+  context from that summary. More thorough but requires a model call.
 
-- **summarize** — LLM-powered: asks the model to produce a ``RESUME.md`` capturing
-  key decisions, open tasks, and relevant file paths, then starts a fresh context
-  from that summary. More thorough but requires a model call.
+- **trim** — rule-based: strips old reasoning blocks, truncates massive tool
+  results, and compresses long assistant messages. Fast and deterministic; no LLM call.
+  Trim only runs when the rule-based heuristic determines it is worthwhile, and
+  leaves the conversation unchanged if it would free nothing.
 
 .. deprecated::
    ``/compact auto`` and ``/compact resume`` are deprecated aliases for ``trim``

@@ -1848,32 +1848,104 @@ def test_keep_head_success_path_pins_head_messages():
 # Tests for improved mode naming (issue #3618)
 
 
-def test_cmd_compact_default_mode_is_trim():
-    """Default /compact with no args uses 'trim' mode, not the old 'auto'."""
+def test_cmd_compact_default_mode_is_summarize():
+    """Plain /compact summarizes: trim often frees little (it is opt-in)."""
     from unittest.mock import MagicMock, patch
 
     from gptme.tools.autocompact.handlers import cmd_compact_handler
 
     mock_ctx = MagicMock()
-    mock_ctx.args = []  # No mode arg — should default to 'trim'
+    mock_ctx.args = []
     mock_ctx.manager.log.messages = [
         Message("user", "hi"),
         Message("assistant", "hello"),
-        Message("user", "/compact"),  # the command itself
     ]
 
-    with (
-        patch(
-            "gptme.tools.autocompact.handlers.should_auto_compact",
-            return_value="none",
-        ),
-    ):
-        results = list(cmd_compact_handler(mock_ctx))
+    with patch("gptme.tools.autocompact.handlers._compact_summarize") as mock_s:
+        mock_s.return_value = iter([Message("system", "summarized")])
+        list(cmd_compact_handler(mock_ctx))
 
-    # With should_auto_compact returning 'none', trim path gives "not needed" message
-    assert any("Trim compaction not needed" in msg.content for msg in results), (
-        f"Expected trim-mode message, got: {[m.content for m in results]}"
+    mock_s.assert_called_once()
+
+
+def _real_compact_ctx(tmp_path, args: list[str], history: list[Message]):
+    """A /compact command context over a real LogManager, the command message
+    appended last as the chat loop does."""
+    from unittest.mock import MagicMock
+
+    from gptme.logmanager import LogManager
+
+    manager = LogManager(
+        [*history, Message("user", " ".join(["/compact", *args]))],
+        logdir=tmp_path / "conversation",
     )
+    ctx = MagicMock()
+    ctx.manager = manager
+    ctx.args = args
+    return ctx
+
+
+_HISTORY = [
+    Message("system", "system prompt"),
+    Message("user", "question"),
+    Message("assistant", "the last answer"),
+]
+
+
+@pytest.mark.parametrize("args", [[], ["summarize"], ["resume"]])
+def test_cmd_compact_summarize_keeps_last_message(tmp_path, monkeypatch, args):
+    """The summarizer sees the whole conversation, up to its last message.
+    (The command undoes itself; slicing off one more dropped the last reply.)"""
+    from gptme.logmanager import Log
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    seen: list[list[str]] = []
+
+    def fake_resume(mgr, msgs, **kwargs):
+        seen.append([m.content for m in msgs])
+        mgr.log = Log([Message("assistant", "checkpoint"), *msgs[-1:]])
+        yield Message("system", "compacted")
+        return True, "summarize"
+
+    monkeypatch.setattr("gptme.tools.autocompact.handlers._resume_via_llm", fake_resume)
+    list(cmd_compact_handler(_real_compact_ctx(tmp_path, args, _HISTORY)))
+
+    assert seen == [[m.content for m in _HISTORY]]
+
+
+def test_cmd_compact_trim_keeps_last_message(tmp_path, monkeypatch):
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers.should_auto_compact",
+        lambda msgs, **kw: "rule_based",
+    )
+    ctx = _real_compact_ctx(tmp_path, ["trim"], _HISTORY)
+    list(cmd_compact_handler(ctx))
+
+    assert ctx.manager.log.messages[-1].content == "the last answer"
+
+
+def test_cmd_compact_trim_that_frees_nothing_leaves_log_unchanged(
+    tmp_path, monkeypatch
+):
+    """No '✅ … 0.0% reduction': say nothing was freed and keep the log."""
+    from gptme.tools.autocompact.handlers import cmd_compact_handler
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers.should_auto_compact",
+        lambda msgs, **kw: "rule_based",
+    )
+    ctx = _real_compact_ctx(tmp_path, ["trim"], _HISTORY)
+    results = list(cmd_compact_handler(ctx))
+
+    assert [m.content for m in ctx.manager.log.messages] == [
+        m.content for m in _HISTORY
+    ]
+    assert len(results) == 1
+    assert "freed nothing" in results[0].content
+    assert "✅" not in results[0].content
+    assert not (ctx.manager.logdir / "compaction.jsonl").exists()
 
 
 def test_cmd_compact_trim_mode_explicit():
