@@ -2274,6 +2274,8 @@ class GptmeApp(App):
         self.highlight = _highlight_default()
         self.group_turns = _group_turns_default()
         self._rebuild_pending = False  # see _rebuild_chat
+        # notices shown meanwhile (not in the log): re-shown after the rebuild
+        self._notices_since_pending: list[tuple[str, bool]] = []
         # the last chat item's place in the turn (see _place_in_turn)
         self._flow_prev: str | None = None
         self._stdio_sink: IO[str] | None = None
@@ -2731,6 +2733,8 @@ class GptmeApp(App):
                 widget.styles.border_left = ("thick", color)
 
     def _show_info(self, text: str, error: bool = False) -> None:
+        if self._rebuild_pending:
+            self._notices_since_pending.append((text, error))
         if self.inline:
             self._print_above(Text(text, style="red" if error else "bright_black"))
             return
@@ -3305,11 +3309,15 @@ class GptmeApp(App):
             # running turn: rebuild once it ends (_generation_done)
             self._rebuild_pending = True
             return
+        notices, self._notices_since_pending = self._notices_since_pending, []
         self._rebuild_pending = False
         chat = self.query_one("#chat", VerticalScroll)
         chat.remove_children()
         self._render_history()
         self._remount_queued_prompts()
+        # e.g. the error that ended the turn: not in the log, keep it shown
+        for text, error in notices:
+            self._show_info(text, error=error)
 
     def _remount_queued_prompts(self) -> None:
         """Queued prompts live only in the TUI, not the log.

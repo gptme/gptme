@@ -3968,9 +3968,14 @@ async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
         await pilot.pause()
         assert stream is not None and stream.is_attached  # untouched
         assert app.query(".turn-step")  # not re-rendered yet
+        app._show_info("Error: provider overloaded", error=True)  # ends the turn
         app.generating = False
         app._clear_stream_view()
         await app._generation_done()
         await app.wait_rendered()
         await pilot.pause()
         assert not app.query(".turn-step") and not app.query(".turn-result")
+        # notices from the turn (not in the log) survive the re-render
+        assert any(
+            "provider overloaded" in str(w.render()) for w in app.query(InfoMessage)
+        )
