@@ -1055,8 +1055,10 @@ def test_stream_reuses_connection_across_completed_calls():
     must share a single TCP connection — the module-level Session keeps the
     pooled socket alive across turns instead of re-handshaking per request."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from socket import socket
 
-    connections: list[int] = []
+    # Retain the sockets so separate connections cannot reuse an object id.
+    connections: list[socket] = []
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -1066,7 +1068,7 @@ def test_stream_reuses_connection_across_completed_calls():
             length = int(self.headers.get("Content-Length", 0))
             if length:
                 self.rfile.read(length)
-            connections.append(id(self.connection))
+            connections.append(self.connection)
             body = (
                 b'data: {"type": "response.output_text.delta", "delta": "hi"}\n\n'
                 b"data: [DONE]\n\n"
