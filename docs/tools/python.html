@@ -635,13 +635,16 @@
 <p>It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.</p>
 <dl class="simple">
 <dt>Configuration:</dt><dd><dl class="simple">
-<dt>GPTME_IPYTHON_TIMEOUT: Seconds a code block may run before it is interrupted</dt><dd><p>(default 600, 0 disables). Processes the block started are killed too,
-and <code class="docutils literal notranslate"><span class="pre">time.sleep</span></code> is interruptible while a block runs; other blocking
-calls (e.g. a socket read) only stop once they return.</p>
+<dt>GPTME_IPYTHON_TIMEOUT: Seconds an in-process code block may run before it is</dt><dd><p>interrupted (default 600, 0 disables). Processes the block started are
+killed too, and <code class="docutils literal notranslate"><span class="pre">time.sleep</span></code> is interruptible while a block runs;
+other blocking calls (e.g. a socket read) only stop once they return.</p>
 </dd>
 </dl>
 </dd>
 </dl>
+<p>Set <code class="docutils literal notranslate"><span class="pre">GPTME_IPYTHON_BACKEND=kernel</span></code> to run cells in a separate Jupyter kernel
+process, which enables reliable SIGINT interrupts and project-environment
+isolation (<code class="docutils literal notranslate"><span class="pre">%pip</span> <span class="pre">install</span></code> goes to the project venv, not gptme’s).</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool to execute Python code in an interactive IPython session.
 It responds with the execution output and final result.
