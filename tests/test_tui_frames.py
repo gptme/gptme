@@ -33,7 +33,9 @@ class Frame:
     state: str
     lines: list[str]  # the whole screen
     chat: list[str]  # the chat's rows (the input box grows and shrinks)
-    # screen row of each visible chat item (message, stream, status line)
+    # rows from each visible chat item (message, stream, status line) to the
+    # chat's bottom edge: the chat is anchored there, so a viewport resize
+    # (the input box growing or shrinking) doesn't count as content moving
     rows: dict[int, tuple[int, str]]
     layout: str = ""  # the chat's items and their regions, for failure output
 
@@ -51,7 +53,7 @@ def record_frames(app: GptmeApp) -> list[Frame]:
             region = chat_widget.region
             chat = lines[region.y : region.bottom]
             rows = {
-                id(w): (w.region.y, type(w).__name__)
+                id(w): (region.bottom - w.region.y, type(w).__name__)
                 for w in chat_widget.children
                 if w.display and w.region.height
             }
@@ -102,12 +104,13 @@ def jumps(frames: list[Frame]) -> list[tuple[int, str]]:
         before, after = frames[i - 1].rows, frames[i].rows
         both = before.keys() & after.keys()
         for key in both:
-            (y0, name), (y1, _) = before[key], after[key]
+            (d0, name), (d1, _) = before[key], after[key]
+            # closer to the bottom = moved down; passing an item = reordered
             passed = any(
-                before[k][0] > y0 and after[k][0] < y1 for k in both if k != key
+                before[k][0] < d0 and after[k][0] > d1 for k in both if k != key
             )
-            if y1 > y0 and not passed:
-                problems.append((i, f"{name} moved down {y1 - y0} rows"))
+            if d1 < d0 and not passed:
+                problems.append((i, f"{name} moved down {d0 - d1} rows"))
     return problems
 
 
@@ -254,5 +257,28 @@ async def test_prompt_queued_during_tool_waits_below_it_then_joins(app_factory):
         assert "also check the docs" in tail[3].content
         assert "also check the docs" in tail[4].content
         assert isinstance(tail[2], SystemMessage)
+    problems = sorted(blinks(frames) + jumps(frames))
+    assert not problems, describe(frames, problems)
+
+
+@pytest.mark.asyncio
+async def test_multiline_submit_does_not_jump(app_factory):
+    """Submitting clears (and shrinks) a multi-line input box; the chat must
+    not slide down before the submitted message shows up."""
+    app = app_factory()
+    async with app.run_test(size=SIZE) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        inp.text = PROSE
+        await pilot.pause()
+        frames = record_frames(app)
+        await pilot.press("enter")
+        deadline = time.monotonic() + 20
+        while app.generating or app.state != "idle":
+            assert time.monotonic() < deadline, "turn did not finish"
+            await asyncio.sleep(0.05)
+        await pilot.pause()
+        await asyncio.sleep(0.3)
+        await pilot.pause()
     problems = sorted(blinks(frames) + jumps(frames))
     assert not problems, describe(frames, problems)

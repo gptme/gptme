@@ -40,6 +40,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from textual import events
+from textual._arrange import DockArrangeResult
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -702,15 +703,43 @@ async def _rendered(widget: Widget, markdowns: Sequence[Awaitable[object]]) -> N
 
 
 def _stage(widget: Widget) -> None:
-    """Lay a widget out without showing it or moving its siblings."""
-    widget.styles.position = "absolute"
-    widget.styles.width = "100%"
-    widget.styles.visibility = "hidden"
+    """Keep a widget out of view (and out of the layout) until revealed.
+
+    Not ``position: absolute``: an absolute child still counts towards its
+    parent's auto height, reserving blank space.
+    """
+    widget.display = False
 
 
 def _unstage(widget: Widget) -> None:
-    widget.styles.position = "relative"
-    widget.styles.visibility = "visible"
+    widget.display = True
+
+
+class ChatScroll(VerticalScroll):
+    """The chat's scroll area, anchored at the bottom.
+
+    Works around Textual (8.2) placing an anchored container's content for
+    its previous height for one frame when the container resizes: the
+    compositor reads ``container_size`` before updating it. When the input
+    box shrinks (a multi-line prompt was sent), the chat grows and would
+    show a blank band at the bottom for a frame. ``arrange()`` already
+    receives the new size, so ``container_size`` reports that.
+    """
+
+    _arranged_height: int | None = None
+
+    def arrange(self, size: Size, optimal: bool = False) -> DockArrangeResult:
+        if not optimal:
+            self._arranged_height = size.height
+        return super().arrange(size, optimal)
+
+    @property
+    def container_size(self) -> Size:
+        size = self._container_size
+        if self._arranged_height is None:
+            return size
+        # arranged inside the scrollbars; container_size includes them
+        return Size(size.width, self._arranged_height + self.scrollbar_size_horizontal)
 
 
 class ChatMarkdown(Markdown):
@@ -2196,7 +2225,7 @@ class GptmeApp(App):
             yield Static(id="queued")
             yield from self._compose_input()
             return
-        yield VerticalScroll(id="chat")
+        yield ChatScroll(id="chat")
         with Vertical(id="bottom"):
             yield Static("", id="completions")
             yield from self._compose_input()
@@ -2627,6 +2656,22 @@ class GptmeApp(App):
             self._reveal(widget, mounted, previous, replaces)
         )
 
+    def _hold_input_height(self) -> None:
+        """Keep the input box's height until what was submitted shows up.
+
+        Clearing a multi-line input shrinks it at once, growing the chat,
+        while the submitted message appears a few frames later (once
+        rendered): the chat would slide down and back. Both change in the
+        same frame instead (_reveal), or after REVEAL_TIMEOUT.
+        """
+        chat_input = self.query_one("#input", ChatInput)
+        chat_input.styles.min_height = chat_input.outer_size.height
+        self.set_timer(REVEAL_TIMEOUT, self._release_input_height)
+
+    def _release_input_height(self) -> None:
+        with contextlib.suppress(NoMatches):
+            self.query_one("#input", ChatInput).styles.min_height = None
+
     async def wait_rendered(self) -> None:
         """Wait until chat widgets added so far are shown (and what they
         replace removed)."""
@@ -2664,6 +2709,7 @@ class GptmeApp(App):
             with self.batch_update():
                 if widget.is_attached:
                     _unstage(widget)
+                self._release_input_height()
                 if replaces is not None and replaces.is_attached:
                     replaces.remove()
 
@@ -2810,6 +2856,7 @@ class GptmeApp(App):
     async def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
         chat_input = self.query_one("#input", ChatInput)
+        self._hold_input_height()
         chat_input.text = ""
         if text:
             chat_input._push_history(text)
