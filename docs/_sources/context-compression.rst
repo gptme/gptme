@@ -102,18 +102,19 @@ You can also manually compact a conversation:
 
 .. code-block:: text
 
-    /compact           # Rule-based trim (default)
-    /compact trim      # Same as above
-    /compact summarize # LLM-powered summarization
+    /compact           # LLM-powered summarization (default)
+    /compact summarize # Same as above
+    /compact trim      # Rule-based trim
 
 Two strategies are available:
 
-- **trim** (default) — rule-based: stubs stale tool outputs, truncates massive tool
+- **trim** — rule-based: stubs stale tool outputs, truncates massive tool
   results, and compresses eligible assistant messages without rewriting thinking.
   Fast and deterministic; no LLM call.
-  If savings would be low, gptme will suggest ``/compact summarize`` instead.
+  If savings would be low, gptme will suggest ``/compact summarize`` instead;
+  if trimming would free nothing, the conversation is left unchanged.
 
-- **summarize** — LLM-powered: produces a structured checkpoint (objective,
+- **summarize** (default) — LLM-powered: produces a structured checkpoint (objective,
   decisions, current state, open items, files to reload), then rebuilds context
   from that checkpoint plus the most recent ``keep_recent_tokens`` of history
   (default 20k). Tool results outside that retained tail become compact
