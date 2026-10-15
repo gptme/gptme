@@ -960,6 +960,11 @@ class StreamProse(Vertical):
         """The latest text, whether shown yet or not."""
         return self._wanted
 
+    @property
+    def shown(self) -> bool:
+        """Whether any of its text is on screen yet."""
+        return self._shown is not None
+
     def on_mount(self) -> None:
         self._render_next()
 
@@ -975,7 +980,13 @@ class StreamProse(Vertical):
         _stage(markdown)
         self._pending = markdown
         self.mount(markdown)
-        asyncio.create_task(self._swap_in(markdown))
+        task = asyncio.create_task(self._swap_in(markdown))
+        # held by the app (asyncio keeps only weak references to tasks), which
+        # also lets GptmeApp.wait_rendered() wait for it
+        tasks: set[asyncio.Task] | None = getattr(self.app, "_render_tasks", None)
+        if tasks is not None:
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
 
     async def _swap_in(self, markdown: ChatMarkdown) -> None:
         with contextlib.suppress(asyncio.TimeoutError):
@@ -988,6 +999,9 @@ class StreamProse(Vertical):
             _unstage(markdown)
             if self._shown is not None:
                 self._shown.remove()
+            elif isinstance(self.parent, StreamingMessage):
+                # first text: replaces the "Generating…" line in this frame
+                self.parent._sync_body(shown=True)
         self._shown, self._pending = markdown, None
         if markdown._markdown != self._wanted:
             self._render_next()
@@ -1028,8 +1042,8 @@ class StreamingMessage(Vertical):
                 for row in self._segments:
                     row.display = False
             return
-        # Segment mode: collapse thinking into stubs, hide body.
-        self._body.display = not segments
+        # Segment mode: collapse thinking into stubs; the body ("Generating…")
+        # stays until a row is on screen (after the loop), so it never shrinks
         with self.app.batch_update():
             for index, (kind, text) in enumerate(segments):
                 if index == len(self._segments):
@@ -1086,6 +1100,17 @@ class StreamingMessage(Vertical):
             # Reuse existing rows; hide any the parser no longer emits.
             for index, row in enumerate(self._segments):
                 row.display = index < len(segments)
+            self._sync_body()
+
+    def _sync_body(self, shown: bool = False) -> None:
+        """Show the body ("Generating…") until a segment row is on screen."""
+        if self.show_thinking:
+            return  # body mode: the body shows the stream itself
+        rows = self._segments[: len(_streaming_all_segments(self._buffer))]
+        shown = shown or any(
+            row.shown if isinstance(row, StreamProse) else True for row in rows
+        )
+        self._body.display = not shown
 
     def _refresh_thinking_display(self) -> None:
         """Sync widget visibility after show_thinking changes mid-stream."""
@@ -2180,6 +2205,8 @@ class GptmeApp(App):
         self._tool_placeholder: ToolPlaceholder | None = None
         # chat widgets wait hidden until rendered; revealed in mount order
         self._reveal_tail: asyncio.Task | None = None
+        # streamed prose updates rendering off-screen (StreamProse)
+        self._render_tasks: set[asyncio.Task] = set()
         # the tool call running now (set by the TOOL_EXECUTE_PRE hook)
         self._running_tool: _RunningTool | None = None
         self._running_tool_timer: Timer | None = None
@@ -2673,11 +2700,15 @@ class GptmeApp(App):
             self.query_one("#input", ChatInput).styles.min_height = None
 
     async def wait_rendered(self) -> None:
-        """Wait until chat widgets added so far are shown (and what they
-        replace removed)."""
-        while (tail := self._reveal_tail) is not None and not tail.done():
-            with contextlib.suppress(Exception):
-                await tail
+        """Wait until chat widgets and streamed text added so far are shown
+        (and what they replace removed)."""
+        while True:
+            pending = [t for t in self._render_tasks if not t.done()]
+            if (tail := self._reveal_tail) is not None and not tail.done():
+                pending.append(tail)
+            if not pending:
+                return
+            await asyncio.gather(*pending, return_exceptions=True)
 
     def _chat_insert_point(self) -> Widget | None:
         """Where new conversation content goes: above the tool status line,

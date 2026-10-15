@@ -127,8 +127,25 @@ def describe(frames: list[Frame], problems: list[tuple[int, str]]) -> str:
 
 @pytest.fixture
 def app_factory(tmp_path, monkeypatch):
-    def make(steps: int = 1) -> GptmeApp:
+    def make(steps: int = 1, word_delay: float = 0.0) -> GptmeApp:
         monkeypatch.setenv("GPTME_MAX_STEPS", str(steps))
+        if word_delay:
+            # stream like a real model: many renders at STREAM_FPS, not one
+            from gptme.llm import llm_mock
+
+            fast = llm_mock.stream
+
+            def slow(*args, **kwargs):
+                words = fast(*args, **kwargs)
+                try:
+                    while True:
+                        word = next(words)
+                        time.sleep(word_delay)
+                        yield word
+                except StopIteration as done:
+                    return done.value
+
+            monkeypatch.setattr(llm_mock, "stream", slow)
         init(
             "mock/echo",
             interactive=True,
@@ -180,19 +197,22 @@ PROSE = (
 TOOL = "\n\n```shell\necho all pass\n```"
 THINKING = "<think>\n" + "\n".join(f"thought {i}" for i in range(12)) + "\n</think>\n"
 
+# prompt (echoed back as the reply), steps, delay per streamed word
 SCENARIOS = {
-    "reply": (PROSE, 1),
-    "tool": (PROSE + TOOL, 1),
-    "two_steps": (PROSE + TOOL, 2),
-    "thinking_tool": (THINKING + PROSE + TOOL, 1),
+    "reply": (PROSE, 1, 0.0),
+    "tool": (PROSE + TOOL, 1, 0.0),
+    "two_steps": (PROSE + TOOL, 2, 0.0),
+    "thinking_tool": (THINKING + PROSE + TOOL, 1, 0.0),
+    "slow_stream_tool": (PROSE + TOOL, 1, 0.01),
+    "slow_stream_thinking_two_steps": (THINKING + PROSE + TOOL, 2, 0.01),
 }
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
 async def test_turn_has_no_blinks_or_jumps(app_factory, scenario):
-    prompt, steps = SCENARIOS[scenario]
-    frames = await run_turn(app_factory(steps), prompt)
+    prompt, steps, word_delay = SCENARIOS[scenario]
+    frames = await run_turn(app_factory(steps, word_delay), prompt)
     assert len(frames) >= 2
     problems = sorted(blinks(frames) + jumps(frames))
     assert not problems, describe(frames, problems)

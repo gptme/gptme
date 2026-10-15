@@ -763,15 +763,18 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
     init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
+        await app.wait_rendered()
         await pilot.pause()
         app._begin_stream()
         app._on_stream_token(SHELL_TOOL_MSG)
+        await app.wait_rendered()
         await pilot.pause()
         assert app.query(StreamingMessage)
 
         app._on_tool_start(
             _RunningTool.from_tool_use(ToolUse("shell", [], "echo hello"))
         )
+        await app.wait_rendered()
         await pilot.pause()
         assert not app.query(StreamingMessage)
         assert len(app.query(AssistantMessage)) == 1
@@ -783,10 +786,12 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
 
         # step() yields the assistant message after its tools finished
         app._on_step_message(Message("assistant", SHELL_TOOL_MSG))
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(AssistantMessage)) == 1  # replaced, not duplicated
         assert app._running_tool is None
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
+        await app.wait_rendered()
         await pilot.pause()
         # the status line stays until the next step's stream takes its place
         # (removing it first would shrink the chat and make it jump)
@@ -794,6 +799,7 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
         done = str(placeholder._body.render())
         assert done.startswith("Ran shell · ") and done.endswith("  echo hello")
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
         assert app.query(StreamingMessage)
@@ -868,18 +874,22 @@ async def test_running_tool_line_follows_each_tool(tmp_path):
     init_tools()
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
+        await app.wait_rendered()
         await pilot.pause()
         app._begin_stream()
         app._on_stream_token(TWO_SHELL_TOOLS_MSG)
         for cmd in ("echo first", "echo second"):
             app._on_tool_start(_RunningTool.from_tool_use(ToolUse("shell", [], cmd)))
+            await app.wait_rendered()
             await pilot.pause()
             (placeholder,) = app.query(ToolPlaceholder)
             assert cmd in str(placeholder._body.render())
         app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
+        await app.wait_rendered()
         await pilot.pause()
         assert app._running_tool is None
         app._begin_stream()  # the next step's stream replaces the status line
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
 
@@ -1235,6 +1245,7 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test(size=(120, 40)) as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
@@ -1244,6 +1255,7 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
         intro_y = None
         for chunk in chunks:
             sm.append_token(chunk)
+            await app.wait_rendered()
             await pilot.pause()
             if chunks[0] == "Intro":
                 intro = next(
@@ -1262,6 +1274,7 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
         assert [child.has_class("thinking-stub") for child in rows] == kinds
         assert all("Generating" not in str(child.render()) for child in rows)
         app._on_step_message(Message("assistant", "".join(chunks)))
+        await app.wait_rendered()
         await pilot.pause()
         am = app.query_one(AssistantMessage)
         final_rows = [child for child in am.children if not child.has_class("role")]
@@ -1273,10 +1286,12 @@ async def test_streaming_hidden_thinking_has_only_one_status_row(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
         sm.append_token("<think>reasoning")
+        await app.wait_rendered()
         await pilot.pause()
         rows = [
             child
@@ -1309,8 +1324,10 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
 
     async with app.run_test() as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         app._on_stream_token("<think>reasoning</think>Answer")
+        await app.wait_rendered()
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
@@ -1323,16 +1340,19 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
 
         # Body mode: body shows full text, all segments hidden
         app._set_thinking(True)
+        await app.wait_rendered()
         await pilot.pause()
         assert sm._body.display
         assert "reasoning" in str(sm._body.render())
         assert all(not row.display for row in sm._segments)
         app._on_stream_token(" continues")
+        await app.wait_rendered()
         await pilot.pause()
         assert "Answer continues" in str(sm._body.render())
 
         # Back to segment mode
         app._set_thinking(False)
+        await app.wait_rendered()
         await pilot.pause()
         assert not sm._body.display
         assert visible_segments(sm) == [
@@ -1340,11 +1360,13 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
             (False, "Answer continues"),
         ]
         app._on_stream_token(" hidden-mode tail")
+        await app.wait_rendered()
         await pilot.pause()
         assert visible_segments(sm)[1] == (False, "Answer continues hidden-mode tail")
 
         # Back to body mode: body shows all accumulated tokens
         app._set_thinking(True)
+        await app.wait_rendered()
         await pilot.pause()
         assert sm._body.display
         assert "hidden-mode tail" in str(sm._body.render())
@@ -1358,6 +1380,7 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test(size=(120, 40)) as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
 
         sm = app._stream_widget
@@ -1367,6 +1390,7 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
         # Stream thinking block followed by prose
         sm.append_token("<think>reasoning line 1\nreasoning line 2\n</think>")
         sm.append_token("Some visible prose")
+        await app.wait_rendered()
         await pilot.pause()
 
         # Thinking stub should be visible in position, above the body
@@ -1392,13 +1416,16 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
 
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test(size=(120, 40)) as pilot:
+        await app.wait_rendered()
         await pilot.pause()
 
         # Simulate a prior user message so there's a neighbor widget
         app._on_step_message(Message("user", "hello"))
+        await app.wait_rendered()
         await pilot.pause()
 
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
 
         sm = app._stream_widget
@@ -1408,6 +1435,7 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
         stream_idx = list(chat.children).index(sm)
         trailing = Static("Trailing sibling")
         await chat.mount(trailing)
+        await app.wait_rendered()
         await pilot.pause()
 
         # The replacement must already be attached when removal is requested.
@@ -1424,6 +1452,7 @@ async def test_finalize_stream_in_place_no_dom_gap(tmp_path):
 
         with patch.object(sm, "remove", side_effect=check_replacement_before_remove):
             app._on_step_message(Message("assistant", "hello back"))
+        await app.wait_rendered()
         await pilot.pause()
 
         # StreamingMessage is gone; AssistantMessage is at the same position
@@ -1447,6 +1476,7 @@ async def test_zombie_flush_after_finalize_is_noop(tmp_path):
     app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
     async with app.run_test() as pilot:
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         app._on_stream_token("Answer")
         # Simulate tokens that arrived after the final message was queued but
@@ -1458,6 +1488,7 @@ async def test_zombie_flush_after_finalize_is_noop(tmp_path):
         app._on_step_message(Message("assistant", "Answer trailing tokens"))
         # Zombie flush — must be a no-op after finalization.
         app._flush_stream()
+        await app.wait_rendered()
         await pilot.pause()
         assert app._stream_widget is None
         assert not app.query(StreamingMessage)
