@@ -8,6 +8,7 @@ a real terminal.
 """
 
 import asyncio
+import shlex
 import time
 from dataclasses import dataclass
 
@@ -239,7 +240,7 @@ async def test_prompt_queued_during_tool_waits_below_it_then_joins(
     release = tmp_path / "release"
     prompt = (
         PROSE
-        + f"\n\n```shell\nuntil [ -e {release} ]; do sleep 0.05; done; echo all pass\n```"
+        + f"\n\n```shell\nuntil [ -e {shlex.quote(str(release))} ]; do sleep 0.05; done; echo all pass\n```"
     )
     async with app.run_test(size=SIZE) as pilot:
         await pilot.pause()
