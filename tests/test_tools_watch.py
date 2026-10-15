@@ -537,6 +537,36 @@ def test_command_from_watch_content():
     assert _command_from_watch_content("list") is None
 
 
+def test_execute_watch_structured_content(tmp_path):
+    """A structured ``content`` kwarg (no code block) must reach every verb.
+
+    Regression: ``execute_watch`` resolved ``content`` from kwargs but passed the
+    original ``code=None`` to ``_watch``, so ``{"content": "list"}`` raised the
+    usage error instead of listing.
+    """
+    from gptme.tools import watch as watch_mod
+
+    def _run(content: str) -> list[Message]:
+        token = _current_log_var.set(_FakeManager(tmp_path))  # type: ignore[arg-type]
+        try:
+            return list(watch_mod.execute_watch(None, None, {"content": content}))
+        finally:
+            _current_log_var.reset(token)
+
+    listing = _run("list")
+    assert len(listing) == 1
+    assert "No armed watches" in listing[0].content
+
+    armed = _run("timer 10m brew")
+    assert len(armed) == 1
+    assert "Armed watch" in armed[0].content
+    wid = armed[0].content.split()[2]
+
+    cancelled = _run(f"cancel {wid}")
+    assert len(cancelled) == 1
+    assert "Cancelled watch" in cancelled[0].content
+
+
 def test_watch_allowlist_hook_auto_confirms_allowlisted():
     from gptme.hooks.confirm import ConfirmAction
     from gptme.tools.base import ToolUse

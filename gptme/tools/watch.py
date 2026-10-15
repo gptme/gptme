@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import ToolSpec
+from .base import Parameter, ToolSpec
 from .shell_validation import is_allowlisted, is_denylisted
 
 logger = logging.getLogger(__name__)
@@ -983,7 +983,10 @@ def execute_watch(
             confirmation_workspace=_get_path_fn(code, args, kwargs),
         )
         return
-    yield _watch(code, args, kwargs)
+    # Pass the resolved content (code block or `content` kwarg) so structured
+    # calls to list/cancel/wait/timer/tmux don't fall through with code=None
+    # and raise the usage error.
+    yield _watch(content, args, kwargs)
 
 
 def _deadline(opts: dict[str, str]) -> float | None:
@@ -1201,6 +1204,14 @@ tool = ToolSpec(
     execute=execute_watch,
     block_types=["watch"],
     disabled_by_default=True,
+    parameters=[
+        Parameter(
+            name="content",
+            type="string",
+            description="The watch command (e.g. 'run <cmd>' or 'until <cmd> --every 30s'). Alternative to providing the command as a code block.",
+            required=False,
+        ),
+    ],
     hooks={
         "drain_step_pre": ("step.pre", _watch_drain_hook, 940),
         "allowlist": ("tool.confirm", watch_allowlist_hook, 10),

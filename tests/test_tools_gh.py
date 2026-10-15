@@ -873,11 +873,16 @@ class TestExecuteGh:
         assert messages[0].content == "Error: No command provided"
 
     def test_tool_spec_exposes_command_parameter(self):
-        """The structured schema advertises `command`, matching execution."""
+        """The structured schema advertises `command` as required and `url` as optional."""
         from gptme.tools.gh import tool
 
-        assert [p.name for p in tool.parameters] == ["command"]
-        assert tool.parameters[0].required
+        param_names = [p.name for p in tool.parameters]
+        assert "command" in param_names
+        assert "url" in param_names
+        command_param = next(p for p in tool.parameters if p.name == "command")
+        assert command_param.required
+        url_param = next(p for p in tool.parameters if p.name == "url")
+        assert not url_param.required
 
     def test_examples_use_command_kwarg_in_tool_format(self):
         """Tool-format examples render the `command` parameter, not `{}`."""
