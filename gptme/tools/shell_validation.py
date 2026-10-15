@@ -1015,18 +1015,23 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
     Run shellcheck on command if available.
 
     Returns: Tuple of (has_issues: bool, should_block: bool, message: str)
-    - has_issues: True if any shellcheck issues found
-    - should_block: True if critical error codes found that should prevent execution
-    - message: Description of issues found
+    - has_issues: True if there are findings to show
+    - should_block: True if the command is broken and must not run
+    - message: Description of the findings
+
+    Blocks on ``error``-severity findings, which mean the command is broken
+    or wrong rather than unidiomatic: parse errors (an unclosed quote, a
+    heredoc without its terminator) and bugs like unquoted ``$@`` or a
+    string compared with ``-eq``. Also blocks on the codes in
+    GPTME_SHELLCHECK_ERROR_CODES (default: SC1011, SC2006). Other findings (style, quoting advice) are hidden: in
+    one-off agent commands they were nearly always ignored and only cost
+    context. Show them with GPTME_SHELLCHECK_WARNINGS=1.
 
     Note:
         - Requires shellcheck (sudo apt install shellcheck)
         - Can be disabled with GPTME_SHELLCHECK=off
         - Non-blocking if shellcheck unavailable
-        - SC2164 (cd error handling) excluded by default
         - Custom excludes via GPTME_SHELLCHECK_EXCLUDE (comma-separated codes)
-        - Error codes via GPTME_SHELLCHECK_ERROR_CODES (comma-separated, default: SC2006)
-        - Error codes block execution, other codes show warnings only
     """
     # Check if disabled via environment variable
     if os.environ.get("GPTME_SHELLCHECK", "").lower() in ("off", "false", "0"):
@@ -1036,7 +1041,7 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
     if not shutil.which("shellcheck"):
         return False, False, ""
 
-    # Default excluded codes
+    # Default excluded codes (only matter with GPTME_SHELLCHECK_WARNINGS)
     # SC2002: Useless cat. Consider 'cmd < file | ..' or 'cmd file | ..' instead
     # SC2016: Expressions don't expand in single quotes, use double quotes for that.
     # SC2164: Use 'cd ... || exit' in case cd fails (too noisy for interactive commands)
@@ -1050,11 +1055,10 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
     all_excludes = default_excludes + custom_excludes
     exclude_str = ",".join(all_excludes)
 
-    # Default error codes (should block execution)
+    # Codes that block besides error-severity findings
     # SC1011: This apostrophe terminated the single quoted string!
-    # SC1073: Couldn't parse this single quoted string. Fix to allow more checks.
     # SC2006: Use $(...) notation instead of legacy backticks (causes formatting issues in commits/PRs)
-    default_error_codes = ["SC1011", "SC1073", "SC2006"]
+    default_error_codes = ["SC1011", "SC2006"]
 
     # Get custom error codes from environment variable
     custom_error_codes_str = os.environ.get("GPTME_SHELLCHECK_ERROR_CODES", "")
@@ -1062,9 +1066,14 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
         custom_error_codes = [
             code.strip() for code in custom_error_codes_str.split(",") if code.strip()
         ]
-        error_codes = list(set(default_error_codes + custom_error_codes))
+        error_codes = set(default_error_codes + custom_error_codes)
     else:
-        error_codes = default_error_codes
+        error_codes = set(default_error_codes)
+    show_warnings = os.environ.get("GPTME_SHELLCHECK_WARNINGS", "").lower() in (
+        "1",
+        "true",
+        "on",
+    )
 
     # Write command to temp file
 
@@ -1089,29 +1098,36 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
 
         if result.returncode != 0 and result.stdout:
             output = result.stdout.replace(temp_path, "<command>")
+            # gcc format: <file>:<line>:<col>: <severity>: <message> [SCxxxx]
+            findings = [
+                (match.group(1), match.group(2), line)
+                for line in output.splitlines()
+                if (match := re.search(r": (\w+): .*\[(SC\d+)\]$", line))
+            ]
+            blocking = [
+                (code, line)
+                for severity, code, line in findings
+                if code in error_codes or severity == "error"
+            ]
 
-            # Extract error codes from shellcheck output
-
-            triggered_codes = set()
-            for line in output.splitlines():
-                # Match shellcheck error codes (e.g., SC2006, SC2086)
-                match = re.search(r"\[SC\d+\]", line)
-                if match:
-                    # Extract just the code (e.g., "SC2006")
-                    code = match.group().strip("[]")
-                    triggered_codes.add(code)
-
-            # Check if any triggered codes are error codes (should block)
-            blocking_codes = triggered_codes.intersection(set(error_codes))
-
-            if blocking_codes:
-                # Critical issues that should block execution
-                codes_str = ", ".join(sorted(blocking_codes))
-                message = f"Shellcheck found critical issues that prevent execution:\n{md_codeblock('', output)}\n\nBlocking codes: {codes_str}"
+            if blocking:
+                codes_str = ", ".join(sorted({code for code, _ in blocking}))
+                lines = "\n".join(line for _, line in blocking)
+                message = f"Shellcheck found critical issues that prevent execution:\n{md_codeblock('', lines)}\n\nBlocking codes: {codes_str}"
+                if any(code == "SC1044" for code, _ in blocking):
+                    message += (
+                        "\n\nA here document is missing its end marker (it "
+                        "must be alone on its line, unindented unless <<- is "
+                        "used). Bash would have run it with whatever came "
+                        "after as its content. To write a file, the save tool "
+                        "avoids quoting and heredoc pitfalls."
+                    )
                 return True, True, message
-            # Non-critical warnings
-            message = f"Shellcheck found potential issues:\n{md_codeblock('', output)}"
-            return True, False, message
+            if show_warnings:
+                message = (
+                    f"Shellcheck found potential issues:\n{md_codeblock('', output)}"
+                )
+                return True, False, message
 
         return False, False, ""
     except (OSError, subprocess.SubprocessError):
