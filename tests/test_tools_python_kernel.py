@@ -708,12 +708,63 @@ def test_build_uv_kernel_cmd_includes_with_ipykernel(monkeypatch):
     assert "{connection_file}" in cmd
 
 
+class _FakeKC:
+    """Minimal stand-in for ``BlockingKernelClient`` — no real channels."""
+
+    def start_channels(self):
+        pass
+
+    def wait_for_ready(self, timeout=None):
+        pass
+
+    def stop_channels(self):
+        pass
+
+
+def _run_ensure_started_and_capture_cmd(monkeypatch) -> list[str]:
+    """Run ``_ensure_started`` with a real KernelManager and return the launch cmd.
+
+    Uses a real ``jupyter_client.KernelManager`` subclass so the assertion checks
+    the command jupyter_client would actually launch (built from
+    ``kernel_spec.argv`` via ``format_kernel_cmd``), not an attribute it ignores.
+    """
+    import jupyter_client
+    from jupyter_client import KernelManager as RealKernelManager
+
+    captured: list[list[str]] = []
+
+    class RecordingKM(RealKernelManager):
+        def start_kernel(self, **_kw):
+            # Record exactly what the real launch path builds, then skip the
+            # actual subprocess launch.
+            captured.append(self.format_kernel_cmd(extra_arguments=[]))
+
+        def client(self):
+            return _FakeKC()
+
+        def is_alive(self):
+            return True
+
+        def shutdown_kernel(self, **_kw):
+            pass
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", RecordingKM)
+
+    kb = KernelBackend()
+    # Stub out _exec_silent so the bootstrap step doesn't run.
+    monkeypatch.setattr(kb, "_exec_silent", lambda *_a, **_kw: None)
+
+    kb._ensure_started()
+    kb._bridge.stop()
+
+    assert len(captured) == 1
+    return captured[0]
+
+
 def test_ensure_started_uses_uv_when_project_python_lacks_ipykernel(
     monkeypatch, tmp_path
 ):
-    """When project Python lacks ipykernel, _ensure_started uses uv run --with ipykernel."""
-    import sys
-
+    """When project Python lacks ipykernel, the launched kernel uses uv run --with ipykernel."""
     # Simulate a project venv whose Python lacks ipykernel.
     fake_python = str(tmp_path / "python")
     monkeypatch.setattr(
@@ -722,48 +773,40 @@ def test_ensure_started_uses_uv_when_project_python_lacks_ipykernel(
     monkeypatch.setattr(KernelBackend, "_has_ipykernel", staticmethod(lambda _: False))
     monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
 
-    captured: list[list[str]] = []
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch)
 
-    class FakeKM:
-        kernel_cmd: list[str] = []
-
-        def start_kernel(self, **_kw):
-            captured.append(list(self.kernel_cmd))
-
-        def client(self):
-            return FakeKC()
-
-        def is_alive(self):
-            return True
-
-        def shutdown_kernel(self, **_kw):
-            pass
-
-    class FakeKC:
-        def start_channels(self):
-            pass
-
-        def wait_for_ready(self, timeout=None):
-            pass
-
-        def stop_channels(self):
-            pass
-
-    kb = KernelBackend()
-    # Patch jupyter_client import and bridge so we never start a real kernel.
-    import types
-
-    fake_jc = types.ModuleType("jupyter_client")
-    fake_jc.KernelManager = FakeKM  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "jupyter_client", fake_jc)
-
-    # Stub out _exec_silent so the bootstrap step doesn't run.
-    monkeypatch.setattr(kb, "_exec_silent", lambda *_a, **_kw: None)
-
-    kb._ensure_started()
-    kb._bridge.stop()
-
-    assert len(captured) == 1
-    cmd = captured[0]
+    assert cmd[:2] == ["/usr/bin/uv", "run"]
     assert "--with" in cmd
     assert "ipykernel" in cmd
+    assert "ipykernel_launcher" in cmd
+
+
+def test_ensure_started_uv_when_uv_project_without_venv(monkeypatch, tmp_path):
+    """A uv project with no activated venv launches via uv run --with ipykernel."""
+    (tmp_path / "uv.lock").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch)
+
+    assert cmd[:2] == ["/usr/bin/uv", "run"]
+    assert "--with" in cmd and "ipykernel" in cmd
+
+
+def test_ensure_started_uses_project_python_when_ipykernel_present(
+    monkeypatch, tmp_path
+):
+    """Project Python with ipykernel is used directly as the kernel command."""
+    project_python = str(tmp_path / "python")
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: project_python)
+    )
+    monkeypatch.setattr(KernelBackend, "_has_ipykernel", staticmethod(lambda _: True))
+
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch)
+
+    assert cmd[0] == project_python
+    assert "ipykernel_launcher" in cmd

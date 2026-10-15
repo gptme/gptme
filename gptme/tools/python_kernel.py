@@ -411,6 +411,25 @@ class KernelBackend:
             "{connection_file}",
         ]
 
+    def _set_kernel_cmd(self, cmd: list[str]) -> None:
+        """Point the kernel launch at *cmd*.
+
+        jupyter_client 8.x builds the launch command from ``kernel_spec.argv``
+        (via ``KernelManager.format_kernel_cmd``); assigning
+        ``KernelManager.kernel_cmd`` is silently ignored, so the default kernel
+        spec would launch instead. Mutate the spec's argv so the intended
+        interpreter/environment is actually used.
+        """
+        assert self._km is not None
+        kernel_spec = self._km.kernel_spec
+        if kernel_spec is None:
+            # No kernelspec resolved (empty kernel_name). Surface a clear error
+            # rather than silently launching the wrong interpreter.
+            raise RuntimeError(
+                "Cannot set kernel command: no kernel spec is configured"
+            )
+        kernel_spec.argv = list(cmd)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -446,13 +465,15 @@ class KernelBackend:
 
         if project_python and self._has_ipykernel(project_python):
             logger.info("Starting kernel with project Python: %s", project_python)
-            self._km.kernel_cmd = [
-                project_python,
-                "-m",
-                "ipykernel_launcher",
-                "-f",
-                "{connection_file}",
-            ]
+            self._set_kernel_cmd(
+                [
+                    project_python,
+                    "-m",
+                    "ipykernel_launcher",
+                    "-f",
+                    "{connection_file}",
+                ]
+            )
         elif project_python or self._is_uv_project():
             # Project venv found but lacks ipykernel, or this is a uv project
             # without an activated venv.  Try `uv run --with ipykernel` so the
@@ -463,7 +484,7 @@ class KernelBackend:
                 logger.info(
                     "Project Python lacks ipykernel; using 'uv run --with ipykernel'"
                 )
-                self._km.kernel_cmd = uv_cmd
+                self._set_kernel_cmd(uv_cmd)
             else:
                 if project_python:
                     logger.warning(
