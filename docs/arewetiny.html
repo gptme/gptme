@@ -367,6 +367,7 @@
 <li class="toctree-l1"><a class="reference internal" href="misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="timeline.html">Timeline</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="releases/v0.35.0.html">v0.35.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.34.0.html">v0.34.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.33.0.html">v0.33.0</a></li>
 <li class="toctree-l2"><a class="reference internal" href="releases/v0.32.1.html">v0.32.1</a></li>
@@ -678,20 +679,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory '/home/runner/work/gptme/gptme'
 Benchmarking import time for gptme
 time uv run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep "import time" | cut -d'|' -f 2- | sort -n | tail -n 10
-     213261 |     gptme.lessons
-     213491 |   gptme.lessons.selector
-     213923 | gptme
-     252248 |     anthropic.types
-     391853 |           anthropic.types.beta
-     391892 |         anthropic.types.beta.beta_message
-     394262 |       anthropic.lib.middleware._fallbacks
-     394420 |     anthropic.lib.middleware
-     975984 |   anthropic
-     976007 | anthropic._types
+     217088 |     gptme.lessons
+     217329 |   gptme.lessons.selector
+     217762 | gptme
+     233255 |     anthropic.types
+     356064 |           anthropic.types.beta
+     356094 |         anthropic.types.beta.beta_message
+     358308 |       anthropic.lib.middleware._fallbacks
+     358431 |     anthropic.lib.middleware
+     923434 |   anthropic
+     923457 | anthropic._types
 
-real	0m1.788s
-user	0m1.498s
-sys	0m0.268s
+real	0m1.721s
+user	0m1.491s
+sys	0m0.260s
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
 </div>
@@ -699,21 +700,21 @@ make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 make[2]: Entering directory '/home/runner/work/gptme/gptme'
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     264.1 ms ±   2.8 ms    [User: 228.4 ms, System: 35.6 ms]
-  Range (min … max):   260.3 ms … 269.7 ms    10 runs
+  Time (mean ± σ):     273.2 ms ±   3.9 ms    [User: 234.9 ms, System: 38.1 ms]
+  Range (min … max):   268.9 ms … 279.4 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):      1.582 s ±  0.048 s    [User: 1.380 s, System: 0.201 s]
-  Range (min … max):    1.530 s …  1.695 s    10 runs
+  Time (mean ± σ):      1.581 s ±  0.040 s    [User: 1.363 s, System: 0.217 s]
+  Range (min … max):    1.515 s …  1.660 s    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      2.017 s ±  0.031 s    [User: 1.689 s, System: 0.700 s]
-  Range (min … max):    1.972 s …  2.059 s    10 runs
+  Time (mean ± σ):      2.034 s ±  0.074 s    [User: 1.653 s, System: 0.786 s]
+  Range (min … max):    1.931 s …  2.158 s    10 runs
  
 Summary
   import gptme.cli.main ran
-    5.99 ± 0.19 times faster than gptme --help
-    7.64 ± 0.14 times faster than full start/exit cycle
+    5.79 ± 0.17 times faster than gptme --help
+    7.45 ± 0.29 times faster than full start/exit cycle
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
 </div>
@@ -3784,7 +3785,7 @@ Clone found (python)
 │ Total:     │ 539            │ 217999      │ 1062031      │ 197          │ 2586 (1.19%)     │ 13649 (1.29%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 197 clones.
-time: 500.752ms
+time: 485.933ms
 make[3]: Leaving directory '/home/runner/work/gptme/gptme'
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
