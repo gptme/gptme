@@ -3950,3 +3950,27 @@ async def test_display_turns_off_shows_one_block_per_message(tmp_path):
         await app.wait_rendered()
         await pilot.pause()
         assert len(_visible_names(app)) == 2
+
+
+@pytest.mark.asyncio
+async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
+    """Re-rendering the chat mid-turn would remove the live stream widget from
+    under the turn: /display turns/hidden/highlight apply when it ends."""
+    app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        app.generating = True
+        app._begin_stream()
+        app._on_stream_token("streaming reply")
+        await app.wait_rendered()
+        stream = app._stream_widget
+        app._display_command(["turns", "off"])
+        await pilot.pause()
+        assert stream is not None and stream.is_attached  # untouched
+        assert app.query(".turn-step")  # not re-rendered yet
+        app.generating = False
+        app._clear_stream_view()
+        await app._generation_done()
+        await app.wait_rendered()
+        await pilot.pause()
+        assert not app.query(".turn-step") and not app.query(".turn-result")

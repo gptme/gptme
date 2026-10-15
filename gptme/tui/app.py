@@ -1927,6 +1927,8 @@ STATUSLINE_REFRESH = 10
 
 # Max stream re-renders per second; each re-lays out the whole buffer.
 STREAM_FPS = 20
+# /display settings that re-render the chat (deferred while a turn runs)
+REBUILDING_SETTINGS = ("hidden", "highlight", "turns")
 # Longest a new chat widget stays hidden waiting for its Markdown to render:
 # a backstop (rendering takes a few frames), generous for loaded CI machines.
 REVEAL_TIMEOUT = 3.0
@@ -2271,6 +2273,7 @@ class GptmeApp(App):
         self.show_hidden = _show_hidden_default()
         self.highlight = _highlight_default()
         self.group_turns = _group_turns_default()
+        self._rebuild_pending = False  # see _rebuild_chat
         # the last chat item's place in the turn (see _place_in_turn)
         self._flow_prev: str | None = None
         self._stdio_sink: IO[str] | None = None
@@ -3114,6 +3117,8 @@ class GptmeApp(App):
         self.generating = False
         if self._quitting:
             return
+        if self._rebuild_pending:
+            self._rebuild_chat()
         self._set_state("idle")
         self._finish_command(cmd, before, result)
         if not self.generating and not self._quitting:
@@ -3231,6 +3236,10 @@ class GptmeApp(App):
             return
         setter(on)
         note = " (applies to new output)" if self.inline else ""
+        if name == "turns" and self.inline:
+            note = " (full-screen mode only: inline output isn't grouped)"
+        elif self.generating and not self.inline and name in REBUILDING_SETTINGS:
+            note = " (once this turn ends)"
         self._show_info(f"{name.capitalize()} {words[0 if on else 1]}{note}.")
 
     def _set_group_turns(self, on: bool) -> None:
@@ -3291,6 +3300,12 @@ class GptmeApp(App):
         if self.inline:
             # scrollback can't be rewritten; the change is noted via output
             return
+        if self.generating:
+            # the live stream/tool widgets would be removed from under the
+            # running turn: rebuild once it ends (_generation_done)
+            self._rebuild_pending = True
+            return
+        self._rebuild_pending = False
         chat = self.query_one("#chat", VerticalScroll)
         chat.remove_children()
         self._render_history()
@@ -3824,6 +3839,8 @@ class GptmeApp(App):
         self._stop_running_tool()
         self._provisional_assistant = None
         self._settle_tool_placeholder(running)
+        if self._rebuild_pending:
+            self._rebuild_chat()  # a display change made during the turn
         await self._dispatch_queue()
 
     def _settle_tool_placeholder(self, running: _RunningTool | None) -> None:
