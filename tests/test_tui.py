@@ -784,11 +784,17 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
         app._on_step_message(Message("assistant", SHELL_TOOL_MSG))
         await pilot.pause()
         assert len(app.query(AssistantMessage)) == 1  # replaced, not duplicated
-        assert len(app.query(ToolPlaceholder)) == 0
         assert app._running_tool is None
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
         await pilot.pause()
+        # the status line stays until the next step's stream takes its place
+        # (removing it first would shrink the chat and make it jump)
+        (placeholder,) = app.query(ToolPlaceholder)
+        assert "Ran shell  echo hello" in str(placeholder._body.render())
+        app._begin_stream()
+        await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
+        assert app.query(StreamingMessage)
 
 
 def test_running_tool_render_and_limits(monkeypatch):
@@ -864,6 +870,9 @@ async def test_running_tool_line_follows_each_tool(tmp_path):
             (placeholder,) = app.query(ToolPlaceholder)
             assert cmd in str(placeholder._body.render())
         app._on_step_message(Message("assistant", TWO_SHELL_TOOLS_MSG))
+        await pilot.pause()
+        assert app._running_tool is None
+        app._begin_stream()  # the next step's stream replaces the status line
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
 

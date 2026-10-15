@@ -18,7 +18,7 @@ import os.path
 import re
 import signal
 import sys
-from collections.abc import Generator
+from collections.abc import Awaitable, Generator
 from dataclasses import dataclass
 
 try:
@@ -680,6 +680,26 @@ def _apply_role_color(widget: Widget, role: str) -> None:
         widget.query_one(".role").styles.color = color
 
 
+class ChatMarkdown(Markdown):
+    """Markdown that tells when its first render is done.
+
+    Textual parses Markdown off-thread and mounts its blocks later, so a new
+    Markdown widget shows blank space for a frame or more. Chat widgets stay
+    hidden until theirs have rendered (see GptmeApp._mount_in_chat).
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.rendered = asyncio.Event()
+
+    def on_markdown_table_of_contents_updated(
+        self, event: Markdown.TableOfContentsUpdated
+    ) -> None:
+        # posted when an update (the first one included) has mounted its blocks
+        if event.markdown is self:
+            self.rendered.set()
+
+
 class UserMessage(Vertical):
     """A user message, rendered with a distinct border."""
 
@@ -692,7 +712,7 @@ class UserMessage(Vertical):
         if "queued" in self.classes:
             label += " (queued)"
         yield Static(Text(label), classes="role")
-        yield Markdown(self.content)
+        yield ChatMarkdown(self.content)
 
     def on_mount(self) -> None:
         _apply_role_color(self, "user")
@@ -763,13 +783,13 @@ class AssistantMessage(Vertical):
         )
 
         if not has_thinking and not has_tool_calls:
-            yield Markdown(self.content)
+            yield ChatMarkdown(self.content)
             return
 
         for is_think, text in think_segs:
             if is_think:
                 yield Collapsible(
-                    Markdown(text),
+                    ChatMarkdown(text),
                     title="Thinking",
                     collapsed=not self.show_thinking,
                     classes="thinking-block",
@@ -777,7 +797,7 @@ class AssistantMessage(Vertical):
             else:
                 for is_tool, fmt, seg in _split_all_tool_calls(text):
                     if not is_tool:
-                        yield Markdown(seg)
+                        yield ChatMarkdown(seg)
                     elif fmt == "tool":
                         title, code, lang = _tool_call_renderable(seg)
                         yield Collapsible(
@@ -850,7 +870,7 @@ class SystemMessage(Vertical):
             )
             return
         yield Collapsible(
-            Markdown(_drop_summary_line(self.content)),
+            ChatMarkdown(_drop_summary_line(self.content)),
             title=_summary_title(_summarize(self.content), self.highlight),  # type: ignore[arg-type]
             collapsed=True,
         )
@@ -900,7 +920,7 @@ class StreamingMessage(Vertical):
                     new_row: Static | Markdown
                     if kind == "prose":
                         # Pass text to constructor so _on_mount uses it (not "").
-                        new_row = Markdown(text.strip(), classes="stream-prose")
+                        new_row = ChatMarkdown(text.strip(), classes="stream-prose")
                     else:
                         css = "thinking-stub" if kind == "thinking" else "tool-stub"
                         new_row = Static(classes=css)
@@ -915,7 +935,7 @@ class StreamingMessage(Vertical):
                 )
                 if not type_ok:
                     if needs_markdown:
-                        replacement: Static | Markdown = Markdown(
+                        replacement: Static | Markdown = ChatMarkdown(
                             text.strip(), classes="stream-prose"
                         )
                     else:
@@ -1005,6 +1025,15 @@ class _RunningTool:
             text.append(f" · {what} in {_duration(left)}", style="dim")
         return text
 
+    def render_finished(self, verb: str = "Ran") -> Text:
+        """As render(), but done: same two lines, so the chat keeps its height."""
+        text = Text(f"{verb} {self.tool}", style="bold")
+        if self.summary:
+            text.append(f"  {self.summary}")
+        elapsed = _duration(time.monotonic() - self.started)
+        text.append(f"\nafter {elapsed}", style="dim")
+        return text
+
 
 def _first_line(content: str, maxlen: int = 100) -> str:
     """First line of a command, truncated, noting any further lines."""
@@ -1051,6 +1080,7 @@ class ToolPlaceholder(Vertical):
     def __init__(self) -> None:
         super().__init__(classes="message system tool-placeholder")
         self._body = Static(Text("Running tool…"), classes="progress-placeholder")
+        self.finished = False  # its tools have run
 
     def compose(self) -> ComposeResult:
         yield Static(Text("Tool"), classes="role")
@@ -1060,6 +1090,10 @@ class ToolPlaceholder(Vertical):
         self._body.update(Text(f"Running {tool_name}…"))
 
     def set_running(self, text: Text) -> None:
+        self._body.update(text)
+
+    def set_finished(self, text: Text) -> None:
+        self.finished = True
         self._body.update(text)
 
 
@@ -1726,6 +1760,8 @@ STATUSLINE_REFRESH = 10
 
 # Max stream re-renders per second; each re-lays out the whole buffer.
 STREAM_FPS = 20
+# Longest a new chat widget stays hidden waiting for its Markdown to render.
+REVEAL_TIMEOUT = 1.0
 
 
 class _SequentialPrompt(str):
@@ -2003,6 +2039,9 @@ class GptmeApp(App):
         # URLs confirmed for fetching when a prompt was queued, by id(Message)
         self._confirmed_urls: dict[int, list[str]] = {}
         self._queued_widgets: list[Widget] = []
+        # a queued prompt's widget, popped from the queue and waiting to be
+        # replaced in place by the user message it becomes
+        self._delivered_widget: Widget | None = None
         self.generating = False
         self.state = "idle"
         self._interrupt_event = threading.Event()
@@ -2020,6 +2059,8 @@ class GptmeApp(App):
         self._stream_flush_scheduled = False
         self._stream_last_flush = 0.0
         self._tool_placeholder: ToolPlaceholder | None = None
+        # chat widgets wait hidden until rendered; revealed in mount order
+        self._reveal_tail: asyncio.Task | None = None
         # the tool call running now (set by the TOOL_EXECUTE_PRE hook)
         self._running_tool: _RunningTool | None = None
         self._running_tool_timer: Timer | None = None
@@ -2143,7 +2184,7 @@ class GptmeApp(App):
         if not self.inline:
             widget = UserMessage(_queued_prompt_text(prompt), queued=True)
             self._queued_widgets.append(widget)
-            self.query_one("#chat", VerticalScroll).mount(widget)
+            self._mount_in_chat(widget, at_end=True)
         self._update_status()
 
     def _take_steer_prompts(self) -> list[Message]:
@@ -2175,18 +2216,40 @@ class GptmeApp(App):
             self._show_message(msg)
             taken.append(msg)
         if taken:
+            self._drop_delivered_widget()
+            # the delivered prompts sit where they were queued, below the
+            # tool status line; the next step's output belongs after them
+            chat = self.query_one("#chat", VerticalScroll)
+            placeholder = self._tool_placeholder
+            if placeholder is not None and placeholder.parent is chat:
+                insert = self._queued_widgets[0] if self._queued_widgets else None
+                if insert is not None and insert.parent is chat:
+                    chat.move_child(placeholder, before=insert)
+                else:
+                    chat.move_child(placeholder, after=chat.children[-1])
             self._update_status()
         return taken
 
     def _pop_queued_prompt(self) -> str | Message:
+        """Take the next queued prompt. Its widget stays until the user
+        message it becomes replaces it in place (see _show_message)."""
         prompt = self.prompt_queue.pop(0)
+        self._drop_delivered_widget()
         if self._queued_widgets:
-            self._queued_widgets.pop(0).remove()
+            self._delivered_widget = self._queued_widgets.pop(0)
         return prompt
+
+    def _drop_delivered_widget(self) -> None:
+        """Remove a popped prompt's widget that no user message replaced
+        (e.g. it was a command)."""
+        if (widget := self._delivered_widget) is not None:
+            self._delivered_widget = None
+            widget.remove()
 
     async def _submit_user_input(self, prompt: str | Message) -> None:
         """Submit a prompt, or run it as a slash-command like typed input."""
         if not isinstance(prompt, Message) and is_message_command(prompt):
+            self._drop_delivered_widget()  # commands aren't shown as messages
             self._handle_command(prompt)
             if self.generating or self._quitting or not self.prompt_queue:
                 return
@@ -2419,7 +2482,15 @@ class GptmeApp(App):
             self._print_above(*renderables)
             return
         widget = self._widget_for(msg)
-        if widget:
+        delivered = self._delivered_widget if msg.role == "user" else None
+        if delivered is not None:
+            # a queued prompt becoming the message: take its place
+            self._delivered_widget = None
+            if widget:
+                self._mount_in_chat(widget, replaces=delivered)
+            else:
+                delivered.remove()
+        elif widget:
             self._mount_in_chat(widget)
         if cost_text:
             self._mount_in_chat(CostMessage(cost_text))
@@ -2435,15 +2506,69 @@ class GptmeApp(App):
             widget = InfoMessage(text, error=error)
         self._mount_in_chat(widget)
 
-    def _mount_in_chat(self, widget: Widget) -> None:
+    def _mount_in_chat(
+        self,
+        widget: Widget,
+        *,
+        before: Widget | None = None,
+        replaces: Widget | None = None,
+        at_end: bool = False,
+    ) -> None:
+        """Add a widget to the chat once it has rendered, never half-built.
+
+        Markdown renders a frame or more after mounting, showing blank space
+        meanwhile. The widget is mounted hidden and shown when its Markdown
+        is ready, after any widget mounted before it; ``replaces`` is removed
+        in that same frame, so a swap never shows a gap or a jump.
+
+        Placement: the conversation grows above the running tool's status
+        line, and both stay above queued prompts (``at_end``), which wait at
+        the bottom until delivered.
+        """
         chat = self.query_one("#chat", VerticalScroll)
-        # keep the tool status line last while a tool batch runs, instead of
-        # removing and remounting it around every result
+        if before is None:
+            before = replaces
+        if before is None and not at_end:
+            before = self._chat_insert_point()
+        widget.display = False
+        mounted = chat.mount(widget, before=before) if before else chat.mount(widget)
+        previous = self._reveal_tail
+        self._reveal_tail = asyncio.create_task(
+            self._reveal(widget, mounted, previous, replaces)
+        )
+
+    def _chat_insert_point(self) -> Widget | None:
+        """Where new conversation content goes: above the tool status line,
+        else above the queued prompts; None for the end of the chat."""
+        chat = self.query_one("#chat", VerticalScroll)
         placeholder = self._tool_placeholder
         if placeholder is not None and placeholder.parent is chat:
-            chat.mount(widget, before=placeholder)
-        else:
-            chat.mount(widget)
+            return placeholder
+        queued = [w for w in self._queued_widgets if w.parent is chat]
+        return queued[0] if queued else None
+
+    async def _reveal(
+        self,
+        widget: Widget,
+        mounted: Awaitable[object],
+        previous: "asyncio.Task | None",
+        replaces: Widget | None,
+    ) -> None:
+        try:
+            if previous is not None:
+                with contextlib.suppress(Exception):
+                    await previous
+            await mounted
+            markdowns = [md.rendered.wait() for md in widget.query(ChatMarkdown)]
+            if markdowns:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(asyncio.gather(*markdowns), REVEAL_TIMEOUT)
+        finally:
+            with self.batch_update():
+                if widget.is_attached:
+                    widget.display = True
+                if replaces is not None and replaces.is_attached:
+                    replaces.remove()
 
     def _restore_terminal(self) -> None:
         """Reassert raw mode if tool execution reset the tty (e.g. ipython).
@@ -2912,7 +3037,7 @@ class GptmeApp(App):
         for prompt in self.prompt_queue:
             widget = UserMessage(_queued_prompt_text(prompt), queued=True)
             self._queued_widgets.append(widget)
-            self._mount_in_chat(widget)
+            self._mount_in_chat(widget, at_end=True)
 
     async def _submit(self, prompt: str | Message) -> None:
         if isinstance(prompt, Message):
@@ -3216,14 +3341,21 @@ class GptmeApp(App):
 
     def _begin_stream(self) -> None:
         # A new model step starts only after the previous tool batch finished.
-        self._clear_tool_placeholder()
+        # The stream takes the tool status line's place: removing that first
+        # would shrink the chat and make everything above it jump.
+        placeholder = None if self.inline else self._tool_placeholder
+        self._tool_placeholder = None
+        if placeholder is None:
+            self._clear_tool_placeholder()
         self._message_pre_rendered = False
         self._set_state("generating")
         if self.inline:
             self.query_one("#live", Static).update(Text("Generating…", style="dim"))
         elif self._stream_widget is None:
             self._stream_widget = StreamingMessage(self.show_thinking)
-            self._mount_in_chat(self._stream_widget)
+            self._mount_in_chat(self._stream_widget, replaces=placeholder)
+        elif placeholder is not None:
+            placeholder.remove()
 
     def _stream_preview(self) -> str:
         if self.show_thinking:
@@ -3303,9 +3435,7 @@ class GptmeApp(App):
         )
         chat = self.query_one("#chat", VerticalScroll)
         stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
-        with self.batch_update():
-            chat.mount(am, before=stream_widget)
-            stream_widget.remove()
+        self._mount_in_chat(am, replaces=stream_widget)
         if stick:
             self.call_after_refresh(chat.scroll_end, animate=False)
         cost_text = inline_cost_text(msg)
@@ -3341,9 +3471,14 @@ class GptmeApp(App):
 
     def _on_step_message(self, msg: Message) -> None:
         if msg.role == "assistant" and self._running_tool is not None:
-            # step() yields the assistant message once all its tools finished
+            # step() yields the assistant message once all its tools finished;
+            # the status line stays until the next step's stream replaces it
+            # (or the turn ends), so the chat doesn't shrink in between
+            if self._tool_placeholder is not None:
+                self._tool_placeholder.set_finished(
+                    self._running_tool.render_finished()
+                )
             self._stop_running_tool()
-            self._clear_tool_placeholder()
             self._set_state("generating")
         if msg.role == "assistant" and self._provisional_assistant is not None:
             self._replace_provisional_assistant(msg)
@@ -3379,10 +3514,7 @@ class GptmeApp(App):
         final = AssistantMessage(
             msg.content, show_thinking=self.show_thinking, highlight=self.highlight
         )
-        chat = self.query_one("#chat", VerticalScroll)
-        with self.batch_update():
-            chat.mount(final, before=provisional)
-            provisional.remove()
+        self._mount_in_chat(final, replaces=provisional)
 
     async def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group != "generation":
@@ -3404,10 +3536,25 @@ class GptmeApp(App):
         self.generating = False
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
+        running = self._running_tool
         self._stop_running_tool()
         self._provisional_assistant = None
-        self._clear_tool_placeholder()
+        self._settle_tool_placeholder(running)
         await self._dispatch_queue()
+
+    def _settle_tool_placeholder(self, running: _RunningTool | None) -> None:
+        """At turn end, keep a tool's status line as a record of what ran
+        rather than remove it: removing would shrink the chat (a jump).
+        One for a tool that never started (e.g. declined) is removed."""
+        placeholder = None if self.inline else self._tool_placeholder
+        if placeholder is None:
+            self._clear_tool_placeholder()
+            return
+        self._tool_placeholder = None
+        if running is not None:  # interrupted while running
+            placeholder.set_finished(running.render_finished("Stopped"))
+        elif not placeholder.finished:
+            placeholder.remove()
 
     async def _dispatch_queue(self) -> None:
         """After a turn or command: send the next queued prompt, or hand the
@@ -3424,6 +3571,7 @@ class GptmeApp(App):
                     )
             self.prompt_queue.clear()
             self._confirmed_urls.clear()
+            self._drop_delivered_widget()
             for w in self._queued_widgets:
                 w.remove()
             self._queued_widgets.clear()
