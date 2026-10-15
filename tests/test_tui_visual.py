@@ -245,6 +245,7 @@ async def test_stream_state_snapshot(tmp_path, snapshot_update):
     async with app.run_test(size=TERM_SIZE) as pilot:
         await pilot.pause()
         app._begin_stream()
+        await app.wait_rendered()
         await pilot.pause()
         svg = app.export_screenshot()
     _snapshot_check("tui_stream", svg, update=snapshot_update)

@@ -247,7 +247,10 @@ async def test_e2e_running_tool_is_shown(mock_app, tmp_path):
             what="generation to finish",
         )
         assert len(app.query(AssistantMessage)) == 1
-        assert not app.query(ToolPlaceholder)
+        # the turn stopped after the tool (max steps): its line stays as a
+        # record of what ran, rather than vanish and shrink the chat
+        (placeholder,) = app.query(ToolPlaceholder)
+        assert "Ran shell" in str(placeholder._body.render())
         assert any("slept-ok" in m.content for m in app.manager.log)
 
 

@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.text import Text
 from textual.color import Color
 from textual.filter import ANSIToTruecolor
-from textual.widgets import Collapsible, Markdown, Static
+from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
 from gptme.message import Message
@@ -24,6 +24,7 @@ from gptme.tui.app import (
     GptmeApp,
     InfoMessage,
     StreamingMessage,
+    StreamProse,
     SystemMessage,
     ToolPlaceholder,
     UserMessage,
@@ -776,7 +777,7 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
         assert len(app.query(AssistantMessage)) == 1
         (placeholder,) = app.query(ToolPlaceholder)
         text = str(placeholder._body.render())
-        assert "Running shell  echo hello" in text
+        assert text.startswith("Running shell · 0s") and text.endswith("  echo hello")
         assert "moves to background in" in text or "times out in" in text
         assert app.state == "running shell"
 
@@ -790,7 +791,8 @@ async def test_running_tool_is_shown_while_it_runs(tmp_path):
         # the status line stays until the next step's stream takes its place
         # (removing it first would shrink the chat and make it jump)
         (placeholder,) = app.query(ToolPlaceholder)
-        assert "Ran shell  echo hello" in str(placeholder._body.render())
+        done = str(placeholder._body.render())
+        assert done.startswith("Ran shell · ") and done.endswith("  echo hello")
         app._begin_stream()
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
@@ -806,9 +808,14 @@ def test_running_tool_render_and_limits(monkeypatch):
         ToolUse("shell", [], "sleep 100\necho done", kwargs=None)
     )
     running.started -= 65
-    text = str(running.render())
-    assert "Running shell  sleep 100 (+1 lines)" in text
-    assert "1m05s" in text and "moves to background in 55s" in text
+    rendered = running.render()
+    text = str(rendered)
+    # one line, timing first: a long command gets cut, not the timing
+    assert "\n" not in text and rendered.no_wrap
+    assert (
+        text
+        == "Running shell · 1m05s · moves to background in 55s  sleep 100 (+1 lines)"
+    )
     # tool-format calls carry the command in kwargs; background ones don't wait
     bg = _RunningTool.from_tool_use(
         ToolUse("shell", [], None, kwargs={"command": "make", "background": "true"})
@@ -1231,6 +1238,9 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
         await pilot.pause()
         sm = app._stream_widget
         assert sm is not None
+        # new chat widgets are laid out hidden until rendered; measure once shown
+        while sm.styles.visibility == "hidden":
+            await pilot.pause(0.01)
         intro_y = None
         for chunk in chunks:
             sm.append_token(chunk)
@@ -1239,8 +1249,7 @@ async def test_streaming_thinking_segments_keep_final_order(tmp_path, chunks, ki
                 intro = next(
                     child
                     for child in sm.children
-                    if "Intro"
-                    in (getattr(child, "_markdown", None) or str(child.render()))
+                    if "Intro" in (getattr(child, "text", None) or str(child.render()))
                 )
                 if intro_y is None:
                     intro_y = intro.region.y
@@ -1288,9 +1297,8 @@ async def test_thinking_toggle_refreshes_active_stream(tmp_path, monkeypatch):
         """(is_thinking_stub, text) for each visible segment row."""
 
         def get_text(row) -> str:
-            # Markdown stores content in _markdown (set synchronously by update()).
-            if isinstance(row, Markdown):
-                return row._markdown or ""
+            if isinstance(row, StreamProse):
+                return row.text
             return str(row.render())
 
         return [
@@ -1371,7 +1379,7 @@ async def test_streaming_thinking_stub_visible_when_thinking_hidden(tmp_path):
         # The body should show the visible prose
         assert any(
             "Some visible prose"
-            in (getattr(child, "_markdown", None) or str(child.render()))
+            in (getattr(child, "text", None) or str(child.render()))
             for child in sm.children
         )
 
@@ -2774,6 +2782,12 @@ async def test_rebuild_chat_keeps_queued_prompt_visible(tmp_path, monkeypatch):
         await app._generation_done()
         await pilot.pause()
         assert app.prompt_queue == []
+        # the queued widget stays until the sent message, once rendered,
+        # takes its place
+        for _ in range(100):
+            if not any("queued" in w.classes for w in app.query(UserMessage)):
+                break
+            await pilot.pause(0.01)
         assert not any("queued" in w.classes for w in app.query(UserMessage))
         assert [m.content for m in app.manager.log if m.role == "user"] == [
             "one",

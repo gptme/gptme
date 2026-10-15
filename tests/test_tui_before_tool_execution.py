@@ -44,6 +44,7 @@ async def test_reply_visible_before_tools_and_not_duplicated(
 
         # This callback runs before execute_msg; _on_step_message has not fired.
         app._on_before_tool_execution(msg)
+        await app.wait_rendered()  # the reply replaces the stream once rendered
         await pilot.pause()
         assert len(app.query(StreamingMessage)) == 0
         assert len(app.query(AssistantMessage)) == 1
@@ -73,15 +74,18 @@ async def test_reply_visible_before_tools_and_not_duplicated(
         await pilot.pause()
         assert len(app.query(AssistantMessage)) == 1
         assert app.query_one(AssistantMessage) is reply
-        assert len(app.query(ToolPlaceholder)) == (0 if tool_hook else 1)
+        # the status line stays (finished) until the next stream replaces it
+        assert len(app.query(ToolPlaceholder)) == 1
         assert app._running_tool is None
         assert app._running_tool_timer is None
 
         app._on_step_message(Message("system", "```stdout\nhello\n```"))
         app._begin_stream()
+        await app.wait_rendered()  # the stream takes the status line's place
         await pilot.pause()
         assert len(app.query(ToolPlaceholder)) == 0
         app._on_step_message(Message("assistant", "Done."))
+        await app.wait_rendered()
         await pilot.pause()
         assert len(app.query(AssistantMessage)) == 2
 
