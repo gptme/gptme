@@ -1851,6 +1851,18 @@ needs_shellcheck = pytest.mark.skipif(
 )
 
 
+@pytest.fixture
+def default_shellcheck(monkeypatch):
+    """Shellcheck with its default settings, whatever the developer's env."""
+    for var in (
+        "GPTME_SHELLCHECK",
+        "GPTME_SHELLCHECK_EXCLUDE",
+        "GPTME_SHELLCHECK_ERROR_CODES",
+        "GPTME_SHELLCHECK_WARNINGS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 @needs_shellcheck
 @pytest.mark.parametrize(
     "cmd",
@@ -1862,16 +1874,14 @@ needs_shellcheck = pytest.mark.skipif(
         "for f in $(ls); do echo $f; done",  # SC2045: fragile, error severity
     ],
 )
-def test_shellcheck_blocks_broken_commands(monkeypatch, cmd):
-    monkeypatch.delenv("GPTME_SHELLCHECK", raising=False)
+def test_shellcheck_blocks_broken_commands(default_shellcheck, cmd):
     has_issues, should_block, message = check_with_shellcheck(cmd)
     assert has_issues and should_block
     assert "prevent execution" in message
 
 
 @needs_shellcheck
-def test_shellcheck_heredoc_block_explains(monkeypatch):
-    monkeypatch.delenv("GPTME_SHELLCHECK", raising=False)
+def test_shellcheck_heredoc_block_explains(default_shellcheck):
     _, _, message = check_with_shellcheck("cat <<EOF > notes.md\nhello\n")
     assert "SC1044" in message and "end marker" in message
 
@@ -1881,11 +1891,9 @@ def test_shellcheck_heredoc_block_explains(monkeypatch):
     "cmd",
     ["ls | grep foo", "for f in *; do echo $f; done", "ps aux | grep python"],
 )
-def test_shellcheck_style_findings_are_not_shown(monkeypatch, cmd):
+def test_shellcheck_style_findings_are_not_shown(default_shellcheck, monkeypatch, cmd):
     """Style and quoting advice was ignored by agents ~99% of the time and
     only cost context: not shown unless GPTME_SHELLCHECK_WARNINGS is set."""
-    monkeypatch.delenv("GPTME_SHELLCHECK", raising=False)
-    monkeypatch.delenv("GPTME_SHELLCHECK_WARNINGS", raising=False)
     assert check_with_shellcheck(cmd) == (False, False, "")
     monkeypatch.setenv("GPTME_SHELLCHECK_WARNINGS", "1")
     has_issues, should_block, message = check_with_shellcheck(cmd)
