@@ -451,3 +451,113 @@ def test_grok_46_is_registered():
     assert meta.provider == "grok-subscription"
     assert meta.model == "grok-4.6"
     assert meta.context == 500_000
+
+
+# ── client-reuse regression ──────────────────────────────────────────────────
+
+
+def _run_grok_paths(auth):
+    """Run the production _chat_complete and _stream paths for grok-subscription
+    with the downstream OpenAI call stubbed, counting _init_openai_client calls."""
+    from gptme.llm import _chat_complete, _stream, llm_openai
+    from gptme.message import Message
+
+    builds = 0
+    original_init = llm_openai._init_openai_client
+
+    def counting_init(provider, **kwargs):
+        nonlocal builds
+        if provider == "grok-subscription":
+            builds += 1
+        return original_init(provider, **kwargs)
+
+    messages = [Message(role="user", content="hello")]
+
+    def stream_stub(*args, **kwargs):
+        yield "ok"
+
+    with (
+        patch("gptme.llm.llm_grok_subscription.get_auth", return_value=auth),
+        patch("gptme.llm.llm_openai._init_openai_client", side_effect=counting_init),
+        patch("gptme.llm.llm_openai.chat", return_value=("ok", None)),
+        patch("gptme.llm.llm_openai.stream", side_effect=stream_stub),
+    ):
+        try:
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+        finally:
+            llm_openai.clients.pop("grok-subscription", None)
+    return builds
+
+
+def test_grok_client_not_rebuilt_when_token_unchanged():
+    """Two consecutive production-path requests with a stable token must build
+    the client exactly once — rebuilding per-request leaks the old pool."""
+    auth = SubscriptionAuth(
+        access_token="stable-token",
+        refresh_token="rt",
+        expires_at=9_999_999_999.0,
+    )
+    builds = _run_grok_paths(auth)
+    assert builds == 1, (
+        f"_init_openai_client was called {builds} time(s) across 4 production-path "
+        "requests with an unchanged token; expected 1"
+    )
+
+
+def test_grok_client_rebuilt_when_token_changes():
+    """A rotated access token must trigger exactly one rebuild."""
+    auth_a = SubscriptionAuth(
+        access_token="old-token", refresh_token="rt", expires_at=9_999_999_999.0
+    )
+    auth_b = SubscriptionAuth(
+        access_token="new-token", refresh_token="rt", expires_at=9_999_999_999.0
+    )
+
+    # Alternate get_auth results: old token for first pair, new for the rest.
+    responses = iter([auth_a, auth_a, auth_b, auth_b])
+
+    def rotating_auth():
+        return next(responses)
+
+    from gptme.llm import llm_openai
+
+    builds = 0
+    original_init = llm_openai._init_openai_client
+
+    def counting_init(provider, **kwargs):
+        nonlocal builds
+        if provider == "grok-subscription":
+            builds += 1
+        return original_init(provider, **kwargs)
+
+    from gptme.llm import _chat_complete, _stream
+    from gptme.message import Message
+
+    messages = [Message(role="user", content="hello")]
+
+    def stream_stub(*args, **kwargs):
+        yield "ok"
+
+    with (
+        patch(
+            "gptme.llm.llm_grok_subscription.get_auth",
+            side_effect=rotating_auth,
+        ),
+        patch("gptme.llm.llm_openai._init_openai_client", side_effect=counting_init),
+        patch("gptme.llm.llm_openai.chat", return_value=("ok", None)),
+        patch("gptme.llm.llm_openai.stream", side_effect=stream_stub),
+    ):
+        try:
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            _chat_complete(messages, "grok-subscription/grok-4.6", tools=None)
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+            list(_stream(messages, "grok-subscription/grok-4.6", tools=None))
+        finally:
+            llm_openai.clients.pop("grok-subscription", None)
+
+    assert builds == 2, (
+        f"Expected exactly 2 rebuilds (initial + rotation), got {builds}"
+    )

@@ -63,6 +63,9 @@ from .retry_policy import retry_delay_for_error
 
 logger = logging.getLogger(__name__)
 
+# Module-level session reuses TCP/TLS connections across requests (one per process).
+_http_session = requests.Session()
+
 # OAuth Configuration (from opencode)
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OAUTH_AUTH_URL = "https://auth.openai.com/oauth/authorize"
@@ -717,7 +720,7 @@ def stream(
     max_stream_retries = max(0, min(max_stream_retries, 100))
 
     def _open_response() -> requests.Response:
-        resp = requests.post(
+        resp = _http_session.post(
             CODEX_ENDPOINT,
             json=request_body,
             headers=headers,
