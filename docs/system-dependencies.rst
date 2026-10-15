@@ -150,7 +150,7 @@ These are picked up automatically when present on your ``PATH``.
      - The gh tool, for GitHub issues, PRs, and CI
      - See `GitHub CLI installation <https://cli.github.com/>`_
    * - ``shellcheck``
-     - Linting shell commands before the shell tool runs them
+     - Refusing broken shell commands (e.g. unclosed quotes) before the shell tool runs them
      - ``apt install shellcheck`` / ``brew install shellcheck``
    * - Playwright browsers
      - The browser tool's Playwright backend (requires the ``browser`` extra)

@@ -36,6 +36,14 @@ Configuration:
         memory, which per-process limits can't. On by default (POSIX); set
         to 0 to disable.
 
+    GPTME_SHELLCHECK: If shellcheck is installed, commands are checked before
+        they run. Broken or wrong commands (error-severity findings: an
+        unclosed quote, a heredoc without its end marker, unquoted $@, …) are
+        refused, with SC1011 and SC2006 and any codes in
+        GPTME_SHELLCHECK_ERROR_CODES. Other findings are not shown unless
+        GPTME_SHELLCHECK_WARNINGS=1. GPTME_SHELLCHECK_EXCLUDE takes codes to
+        skip; GPTME_SHELLCHECK=off disables the check.
+
     GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
     head/tail token budget for stdout truncation. Defaults: 2000 / 8000.
     GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS / GPTME_SHELL_TRUNC_STDERR_POST_TOKENS:

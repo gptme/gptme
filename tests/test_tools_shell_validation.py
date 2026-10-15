@@ -4,6 +4,7 @@ Tests the allowlist/denylist logic, quote/heredoc parsing, pipe detection,
 and redirection detection in gptme/tools/shell_validation.py.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from gptme.tools.shell_validation import (
     _has_file_redirection,
     _has_sensitive_args,
     _is_in_quoted_region,
+    check_with_shellcheck,
     is_allowlisted,
     is_denylisted,
     strip_transparent_wrappers,
@@ -1842,3 +1844,58 @@ class TestTransparentWrappers:
         """The denylist is a regex over the raw text: no wrapper or bashlex
         parse failure can hide a denied command from it."""
         assert is_denylisted(cmd)[0]
+
+
+needs_shellcheck = pytest.mark.skipif(
+    not shutil.which("shellcheck"), reason="shellcheck not installed"
+)
+
+
+@pytest.fixture
+def default_shellcheck(monkeypatch):
+    """Shellcheck with its default settings, whatever the developer's env."""
+    for var in (
+        "GPTME_SHELLCHECK",
+        "GPTME_SHELLCHECK_EXCLUDE",
+        "GPTME_SHELLCHECK_ERROR_CODES",
+        "GPTME_SHELLCHECK_WARNINGS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+@needs_shellcheck
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        'echo "unterminated',
+        "cat <<EOF > notes.md\nhello\n",  # heredoc never terminated
+        "rm $@",  # SC2068: arguments re-split (error severity, not a parse error)
+        "echo `date`",  # SC2006, configured to block
+        "for f in $(ls); do echo $f; done",  # SC2045: fragile, error severity
+    ],
+)
+def test_shellcheck_blocks_broken_commands(default_shellcheck, cmd):
+    has_issues, should_block, message = check_with_shellcheck(cmd)
+    assert has_issues and should_block
+    assert "prevent execution" in message
+
+
+@needs_shellcheck
+def test_shellcheck_heredoc_block_explains(default_shellcheck):
+    _, _, message = check_with_shellcheck("cat <<EOF > notes.md\nhello\n")
+    assert "SC1044" in message and "end marker" in message
+
+
+@needs_shellcheck
+@pytest.mark.parametrize(
+    "cmd",
+    ["ls | grep foo", "for f in *; do echo $f; done", "ps aux | grep python"],
+)
+def test_shellcheck_style_findings_are_not_shown(default_shellcheck, monkeypatch, cmd):
+    """Style and quoting advice was ignored by agents ~99% of the time and
+    only cost context: not shown unless GPTME_SHELLCHECK_WARNINGS is set."""
+    assert check_with_shellcheck(cmd) == (False, False, "")
+    monkeypatch.setenv("GPTME_SHELLCHECK_WARNINGS", "1")
+    has_issues, should_block, message = check_with_shellcheck(cmd)
+    assert has_issues and not should_block
+    assert "potential issues" in message
