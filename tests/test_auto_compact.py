@@ -1914,16 +1914,41 @@ def test_cmd_compact_summarize_keeps_last_message(tmp_path, monkeypatch, args):
 
 
 def test_cmd_compact_trim_keeps_last_message(tmp_path, monkeypatch):
+    """A trim that shortens the log is saved, and still ends with the last answer."""
+    from types import SimpleNamespace
+
     from gptme.tools.autocompact.handlers import cmd_compact_handler
 
     monkeypatch.setattr(
         "gptme.tools.autocompact.handlers.should_auto_compact",
         lambda msgs, **kw: "rule_based",
     )
-    ctx = _real_compact_ctx(tmp_path, ["trim"], _HISTORY)
-    list(cmd_compact_handler(ctx))
 
-    assert ctx.manager.log.messages[-1].content == "the last answer"
+    class ShorteningProvider:
+        def compress(self, msgs, config):
+            return SimpleNamespace(
+                messages=[
+                    m.replace(content="[truncated]") if "huge" in m.content else m
+                    for m in msgs
+                ]
+            )
+
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.handlers.get_context_provider",
+        lambda name: ShorteningProvider(),
+    )
+    history = [
+        Message("system", "system prompt"),
+        Message("user", "question"),
+        Message("system", "huge tool output " * 1000),
+        Message("assistant", "the last answer"),
+    ]
+    ctx = _real_compact_ctx(tmp_path, ["trim"], history)
+    results = list(cmd_compact_handler(ctx))
+
+    assert "Trim compaction completed" in results[-1].content
+    contents = [m.content for m in ctx.manager.log.messages]
+    assert contents == ["system prompt", "question", "[truncated]", "the last answer"]
 
 
 def test_cmd_compact_trim_that_frees_nothing_leaves_log_unchanged(

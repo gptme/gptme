@@ -110,8 +110,9 @@ def _compact_trim(ctx, msgs: list[Message]) -> Generator[Message, None, None]:
     original_tokens = len_tokens(msgs, m.model) if m else 0
     compacted_tokens = len_tokens(compacted_msgs, m.model) if m else 0
 
-    if compacted_count == original_count and compacted_tokens >= original_tokens:
+    if [m.content for m in compacted_msgs] == [m.content for m in msgs]:
         # nothing freed: keep the log as it was rather than rewrite it
+        # (by content: token counts are 0 when no default model is set)
         yield Message(
             "system",
             "Trim compaction freed nothing; the conversation is unchanged. "
