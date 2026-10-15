@@ -1084,6 +1084,9 @@ def test_stream_reuses_connection_across_completed_calls():
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     auth = _make_auth()
+    # Use a test-local Session: closing the module-level singleton would destroy
+    # its connection pool for the rest of the test process.
+    test_session = requests.Session()
     try:
         with (
             patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
@@ -1091,6 +1094,7 @@ def test_stream_reuses_connection_across_completed_calls():
                 "gptme.llm.llm_openai_subscription.CODEX_ENDPOINT",
                 f"http://127.0.0.1:{server.server_port}/responses",
             ),
+            patch.object(llm_openai_subscription, "_http_session", test_session),
         ):
             for _ in range(2):
                 gen = llm_openai_subscription.stream(
@@ -1104,7 +1108,7 @@ def test_stream_reuses_connection_across_completed_calls():
     finally:
         server.shutdown()
         server.server_close()
-        llm_openai_subscription._http_session.close()
+        test_session.close()
 
     assert len(connections) == 2, f"expected 2 requests, saw {len(connections)}"
     assert len(set(connections)) == 1, (
