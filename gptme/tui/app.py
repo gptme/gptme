@@ -2024,6 +2024,12 @@ class GptmeApp(App):
     .message > .progress-placeholder {
         color: $text-muted;
     }
+    /* the tool status is one line however long the command: cut, not
+       wrapped (a taller line would make the chat jump when replaced) */
+    .tool-placeholder > .progress-placeholder {
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
     .message MarkdownFence {
         margin: 0;
     }

@@ -3847,3 +3847,22 @@ async def test_take_steer_prompts_inline(tmp_path):
         taken = app._take_steer_prompts()
         assert [m.content for m in taken] == ["first", "second"]
         assert app.prompt_queue == []
+
+
+@pytest.mark.asyncio
+async def test_tool_status_line_is_one_row_for_long_commands(tmp_path):
+    """A long command is cut with an ellipsis, not wrapped: the status line
+    keeps the height of the stream that replaces it."""
+    from gptme.tools.base import ToolUse
+    from gptme.tui.app import _RunningTool
+
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(60, 20)) as pilot:
+        await pilot.pause()
+        app._on_tool_start(
+            _RunningTool.from_tool_use(ToolUse("shell", [], "echo " + "x" * 200))
+        )
+        await app.wait_rendered()
+        await pilot.pause()
+        placeholder = app.query_one(ToolPlaceholder)
+        assert placeholder._body.region.height == 1

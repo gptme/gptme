@@ -226,14 +226,21 @@ async def test_turn_has_no_blinks_or_jumps(app_factory, scenario):
 
 
 @pytest.mark.asyncio
-async def test_prompt_queued_during_tool_waits_below_it_then_joins(app_factory):
+async def test_prompt_queued_during_tool_waits_below_it_then_joins(
+    app_factory, tmp_path
+):
     """A prompt queued while a tool runs sits at the bottom, below the
     running tool, and becomes a message in place at the next step: the tool's
     output and the queue meet in the middle, nothing jumps around."""
     from gptme.tui.app import SystemMessage, ToolPlaceholder, UserMessage
 
     app = app_factory(steps=2)  # step 2 answers the queued prompt
-    prompt = PROSE + "\n\n```shell\nsleep 0.5; echo all pass\n```"
+    # the tool runs until the test has checked the queued prompt's place
+    release = tmp_path / "release"
+    prompt = (
+        PROSE
+        + f"\n\n```shell\nuntil [ -e {release} ]; do sleep 0.05; done; echo all pass\n```"
+    )
     async with app.run_test(size=SIZE) as pilot:
         await pilot.pause()
         frames = record_frames(app)
@@ -259,6 +266,7 @@ async def test_prompt_queued_during_tool_waits_below_it_then_joins(app_factory):
         assert tool_line, kinds
         assert list(chat).index(queued[0]) > list(chat).index(tool_line[0]), kinds
 
+        release.touch()
         while app.generating or app.state != "idle":
             assert time.monotonic() < deadline, "turn did not finish"
             await asyncio.sleep(0.05)
