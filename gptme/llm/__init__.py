@@ -622,22 +622,29 @@ def _chat_complete(
             via_gptme=True,
         )
 
-    # grok-subscription: refresh the cached OpenAI client if the token is
-    # about to expire before delegating to the shared OpenAI chat path.
-    # This mirrors the same guard in _stream() so non-streaming requests
-    # don't keep sending an expired token and receiving 401 responses.
+    # grok-subscription: refresh the cached OpenAI client only when the
+    # access token changed (expired + refreshed). Rebuilding unconditionally
+    # on every request opens a new httpx connection pool each turn and never
+    # closes the previous one.
     if provider == "grok-subscription":
         from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
-        from .llm_openai import _init_openai_client
+        from .llm_openai import _init_openai_client, clients
 
         try:
             auth = get_auth()
-            _init_openai_client(
-                "grok-subscription",
-                api_key=auth.access_token,
-                base_url=GROK_PROXY_URL,
-                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+            existing = clients.get("grok-subscription")
+            cached_key = (
+                getattr(existing, "_kwargs", {}).get("api_key")
+                if existing is not None
+                else None
             )
+            if cached_key != auth.access_token:
+                _init_openai_client(
+                    "grok-subscription",
+                    api_key=auth.access_token,
+                    base_url=GROK_PROXY_URL,
+                    default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+                )
         except Exception:
             pass  # let chat_openai surface the auth error naturally
 
@@ -778,22 +785,29 @@ def _stream(
         )
         return _StreamWithMetadata(gen, model, partial=gptme_partial)
 
-    # grok-subscription: refresh the cached OpenAI client if the token is
-    # about to expire before delegating to the shared OpenAI stream path.
-    # Without this, a long-running CLI or server reuses a stale client and
-    # receives 401 responses until the process is restarted.
+    # grok-subscription: refresh the cached OpenAI client only when the
+    # access token changed (expired + refreshed). Rebuilding unconditionally
+    # on every request opens a new httpx connection pool each turn and never
+    # closes the previous one.
     if provider == "grok-subscription":
         from .llm_grok_subscription import GROK_CLIENT_VERSION, GROK_PROXY_URL, get_auth
-        from .llm_openai import _init_openai_client
+        from .llm_openai import _init_openai_client, clients
 
         try:
             auth = get_auth()
-            _init_openai_client(
-                "grok-subscription",
-                api_key=auth.access_token,
-                base_url=GROK_PROXY_URL,
-                default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+            existing = clients.get("grok-subscription")
+            cached_key = (
+                getattr(existing, "_kwargs", {}).get("api_key")
+                if existing is not None
+                else None
             )
+            if cached_key != auth.access_token:
+                _init_openai_client(
+                    "grok-subscription",
+                    api_key=auth.access_token,
+                    base_url=GROK_PROXY_URL,
+                    default_headers={"x-grok-client-version": GROK_CLIENT_VERSION},
+                )
         except Exception:
             pass  # let stream_openai surface the auth error naturally
 

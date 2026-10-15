@@ -49,7 +49,10 @@ def _run_stream(events: list[dict[str, Any]]) -> str:
 
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
-        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=response),
+        patch(
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
+        ),
     ):
         return "".join(
             llm_openai_subscription.stream(
@@ -161,7 +164,8 @@ def test_stream_builds_shared_responses_request_shape():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
         ) as mock_post,
     ):
         list(llm_openai_subscription.stream(messages, "gpt-5.4", tools=[save_tool]))
@@ -217,7 +221,8 @@ def test_stream_preserves_both_call_ids_for_multi_tool_assistant_turn():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
         ) as mock_post,
     ):
         list(llm_openai_subscription.stream(messages, "gpt-5.4", tools=[save_tool]))
@@ -242,7 +247,8 @@ def test_stream_forwards_max_tokens_as_max_output_tokens():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
         ) as mock_post,
     ):
         list(
@@ -264,7 +270,8 @@ def test_stream_omits_max_output_tokens_when_not_provided():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
         ) as mock_post,
     ):
         list(
@@ -288,7 +295,7 @@ def test_stream_uses_generous_read_timeout_for_reasoning_models(monkeypatch):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=response,
         ) as mock_post,
     ):
@@ -310,7 +317,7 @@ def test_stream_read_timeout_env_override(monkeypatch):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=response,
         ) as mock_post,
     ):
@@ -337,7 +344,7 @@ def test_stream_read_timeout_invalid_env_falls_back_to_default(monkeypatch, bad_
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=response,
         ) as mock_post,
     ):
@@ -410,7 +417,7 @@ def test_stream_retries_idle_timeout_before_first_event(_backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=[_TimeoutThenEventsResponse(), ok],
         ) as mock_post,
     ):
@@ -431,7 +438,7 @@ def test_stream_does_not_retry_after_first_event():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=_EventThenTimeoutResponse(),
         ) as mock_post,
         pytest.raises(requests.exceptions.ReadTimeout),
@@ -452,7 +459,7 @@ def test_stream_retries_exhausted_reraises(monkeypatch, _backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=[
                 _TimeoutThenEventsResponse(),
                 _TimeoutThenEventsResponse(),
@@ -496,7 +503,9 @@ def test_stream_non_200_raises_http_error(_backoff_delays):
 
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
-        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=resp),
+        patch(
+            "gptme.llm.llm_openai_subscription._http_session.post", return_value=resp
+        ),
         pytest.raises(requests.HTTPError, match="Codex API error 429") as ei,
     ):
         list(
@@ -516,7 +525,10 @@ def _drain_stream(events: list[dict[str, Any]]) -> tuple[str, Any]:
 
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
-        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=response),
+        patch(
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
+        ),
     ):
         gen = llm_openai_subscription.stream(
             [Message(role="user", content="hello")], "gpt-5.4"
@@ -609,7 +621,10 @@ def test_stream_closes_response_after_done_event():
 
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
-        patch("gptme.llm.llm_openai_subscription.requests.post", return_value=response),
+        patch(
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
+        ),
     ):
         list(
             llm_openai_subscription.stream(
@@ -638,7 +653,7 @@ def test_stream_closes_response_on_retry(_backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=[timed_out, ok],
         ),
     ):
@@ -657,7 +672,7 @@ def _stream_session_ids(n: int, model: str = "gpt-5.4") -> list[str]:
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=responses,
         ) as mock_post,
     ):
@@ -831,7 +846,7 @@ def test_stream_retries_503_on_initial_request(_backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=[unavailable, ok],
         ) as mock_post,
     ):
@@ -855,7 +870,7 @@ def test_stream_429_honors_retry_after(_backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=[limited, ok],
         ),
     ):
@@ -874,7 +889,7 @@ def test_stream_does_not_retry_non_transient_status(_backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=unauthorized,
         ) as mock_post,
         pytest.raises(requests.HTTPError, match="Codex API error 401"),
@@ -913,7 +928,7 @@ def test_stream_closes_response_when_error_body_read_fails(_backoff_delays):
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             side_effect=[broken, ok],
         ),
     ):
@@ -945,7 +960,7 @@ def test_stream_interrupt_during_request_aborts_retry(monkeypatch):
 
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
-        patch("gptme.llm.llm_openai_subscription.requests.post", side_effect=post),
+        patch("gptme.llm.llm_openai_subscription._http_session.post", side_effect=post),
         pytest.raises(requests.HTTPError),
     ):
         "".join(
@@ -1023,7 +1038,8 @@ def test_stream_clamps_joined_system_instructions_to_codex_char_cap():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+            "gptme.llm.llm_openai_subscription._http_session.post",
+            return_value=response,
         ) as mock_post,
     ):
         list(llm_openai_subscription.stream(messages, "gpt-5.6-sol"))
