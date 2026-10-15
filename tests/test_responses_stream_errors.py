@@ -144,7 +144,7 @@ def test_subscription_cli_failure_is_nonzero_and_closes_stream(
             patch("gptme.llm.init_llm"),
             patch.object(llm_openai_subscription, "get_auth", return_value=auth),
             patch.object(
-                llm_openai_subscription.requests, "post", return_value=response
+                llm_openai_subscription._http_session, "post", return_value=response
             ) as post,
         ):
             args = ["--model", "openai-subscription/gpt-5.6-sol"]

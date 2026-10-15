@@ -160,7 +160,7 @@ def _drain_subscription(events: list[dict[str, Any]]) -> tuple[str, Any]:
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=_FakeSSE(events),
         ),
     ):
@@ -229,7 +229,7 @@ def test_subscription_non_streaming_chat_complete_keeps_served_model():
     with (
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch(
-            "gptme.llm.llm_openai_subscription.requests.post",
+            "gptme.llm.llm_openai_subscription._http_session.post",
             return_value=_FakeSSE(events),
         ),
     ):
