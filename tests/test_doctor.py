@@ -1274,7 +1274,12 @@ class TestCheckApiKeys:
 class TestCheckDefaultModel:
     """Test default-model/provider consistency checks."""
 
-    def test_uses_current_working_directory_project_config(self, tmp_path, monkeypatch):
+    @patch("gptme.cli.doctor.get_config")
+    def test_uses_current_working_directory_project_config(
+        self, mock_config, tmp_path, monkeypatch
+    ):
+        # Exercise standalone doctor, not a project left active by another test.
+        mock_config.return_value = Config(user=UserConfig())
         (tmp_path / "gptme.toml").write_text(
             '[env]\nMODEL = "anthropic/claude-sonnet-4-6"\n'
         )
@@ -1368,9 +1373,11 @@ class TestCheckDefaultModel:
         assert "Could not verify provider authentication" in result.message
         assert "Unknown provider" not in result.message
 
+    @patch("gptme.cli.doctor.get_config")
     def test_project_provider_key_uses_effective_doctor_config(
-        self, tmp_path, monkeypatch
+        self, mock_config, tmp_path, monkeypatch
     ):
+        mock_config.return_value = Config(user=UserConfig())
         (tmp_path / "gptme.toml").write_text(
             '[env]\nMODEL = "anthropic/claude-sonnet-4-6"\n'
             'ANTHROPIC_API_KEY = "project-key"\n'

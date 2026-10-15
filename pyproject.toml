@@ -79,6 +79,10 @@ datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 sandbox = [
     "wasmtime>=47.0.1",  # Wasmtime WASI Python sandbox (GPTME_SANDBOX=wasmtime)
 ]
+kernel = [
+    "jupyter_client>=8.0,<9",  # Jupyter kernel protocol (GPTME_IPYTHON_BACKEND=kernel)
+    "ipykernel>=6.0,<7",       # IPython kernel for out-of-process execution
+]
 sounds = ["sounddevice", "scipy"]
 computer = []  # pillow (non-opt); AT-SPI2 accessibility needs system pkg: apt install python3-pyatspi
 pyinstaller = [
@@ -315,6 +319,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "playwright.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "jupyter_client.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ipykernel.*"
 ignore_missing_imports = true
 
 
