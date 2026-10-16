@@ -48,7 +48,15 @@ jest.mock('@tanstack/react-virtual', () => ({
 }));
 
 const mockBuildStepRoles = jest.fn((_messages: Message[]) => new Map());
-let mockStepRoles = new Map<number, { type: 'grouped'; groupId: number }>();
+let mockStepRoles = new Map<
+  number,
+  {
+    type: 'grouped' | 'group-start' | 'tool-result';
+    groupId: number;
+    count?: number;
+    tools?: string[];
+  }
+>();
 
 jest.mock('@/utils/stepGrouping', () => ({
   ...jest.requireActual('@/utils/stepGrouping'),
@@ -336,6 +344,7 @@ describe('group turns setting', () => {
 
   afterEach(() => {
     delete mockSettings.groupTurns;
+    mockStepRoles = new Map();
   });
 
   it('skips role computation and un-hides grouped rows when grouping is turned off, then resumes when turned back on', () => {
@@ -374,6 +383,51 @@ describe('group turns setting', () => {
     });
     expect(mockBuildStepRoles).toHaveBeenCalledTimes(2);
     expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    view.unmount();
+  });
+
+  it('discards expansion state when grouping is turned off and back on', () => {
+    // Index 0 is the group header; index 1 is the collapsed tool-result row.
+    mockStepRoles = new Map([
+      [0, { type: 'group-start', groupId: 0, count: 1, tools: [] }],
+      [1, { type: 'tool-result', groupId: 0 }],
+    ]);
+    act(() => {
+      mockConversation$.data.log.set([
+        message('assistant', 'Working'),
+        message('system', 'Tool result'),
+      ]);
+    });
+
+    const view = renderComponent();
+    // Collapsed: only the group header row renders.
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(1);
+
+    // Expand the group → the collapsed tool-result row appears.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /step/i }));
+    });
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    // Turn grouping off → flat view (no roles, both rows visible).
+    act(() => {
+      mockSettings.groupTurns = false;
+    });
+    act(() => {
+      view.rerender(<ConversationContent conversationId="demo/test" />);
+    });
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    // Turn grouping back on → the group must start collapsed again, not revive
+    // the group expanded before the toggle.
+    act(() => {
+      mockSettings.groupTurns = true;
+    });
+    act(() => {
+      view.rerender(<ConversationContent conversationId="demo/test" />);
+    });
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(1);
 
     view.unmount();
   });

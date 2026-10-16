@@ -244,6 +244,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     expandedGroups$.set(new Set<number>());
   }, [conversationId, expandedGroups$]);
 
+  // Turning grouping off discards the expansion state, so re-enabling grouping
+  // starts from a fresh collapsed view instead of reviving stale group IDs.
+  // (Plain read + guarded write — this must not subscribe, or every expand
+  // would re-run the structural effect that computes step roles.)
+  useEffect(() => {
+    if (!(settings.groupTurns ?? true) && expandedGroups$.get().size > 0) {
+      expandedGroups$.set(new Set<number>());
+    }
+  }, [settings.groupTurns, expandedGroups$]);
+
   const toggleGroup = (groupId: number) => {
     const prev = expandedGroups$.get();
     const next = new Set(prev);
