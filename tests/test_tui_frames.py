@@ -281,18 +281,18 @@ async def test_prompt_queued_during_tool_waits_below_it_then_joins(
             w
             for w in app.query_one("#chat").children
             if w.display and not isinstance(w, InfoMessage)  # e.g. max steps
-        ][-5:]
+        ][-4:]
         assert [type(w).__name__ for w in tail] == [
             "UserMessage",
             "AssistantMessage",
-            "SystemMessage",
             "UserMessage",
             "AssistantMessage",
         ]
-        assert not tail[3].has_class("queued")
+        assert not tail[2].has_class("queued")
+        assert "also check the docs" in tail[2].content
         assert "also check the docs" in tail[3].content
-        assert "also check the docs" in tail[4].content
-        assert isinstance(tail[2], SystemMessage)
+        # the tool's output under its call, above the delivered prompt
+        assert tail[1].query(SystemMessage)
     problems = sorted(blinks(frames) + jumps(frames))
     assert not problems, describe(frames, problems)
 
@@ -339,8 +339,44 @@ async def test_live_turn_is_grouped_without_blinks(app_factory):
         await pilot.pause()
         chat = app.query_one("#chat")
         steps = [w for w in chat.children if isinstance(w, AssistantMessage)][-2:]
-        results = [w for w in chat.children if isinstance(w, SystemMessage)][-2:]
+        results = list(steps[0].query(SystemMessage)) + list(
+            steps[1].query(SystemMessage)
+        )
         assert not steps[0].has_class("turn-step") and steps[1].has_class("turn-step")
+        assert len(results) == 2
         assert all(r.has_class("turn-result") for r in results)
+    problems = sorted(blinks(frames) + jumps(frames))
+    assert not problems, describe(frames, problems)
+
+
+@pytest.mark.asyncio
+async def test_live_results_go_under_their_calls_without_blinks(
+    app_factory, monkeypatch
+):
+    """A step with two tool calls, live: each result shows up under its own
+    call (not both after the last), without blinks or jumps."""
+    from gptme.tui.app import AssistantMessage, SystemMessage
+
+    # several calls in one step, as from a model calling tools in parallel
+    monkeypatch.setenv("GPTME_BREAK_ON_TOOLUSE", "false")
+    calls = "\n\n```shell\necho first\n```\n\n```shell\necho second\n```"
+    app = app_factory()
+    async with app.run_test(size=SIZE) as pilot:
+        await pilot.pause()
+        frames = record_frames(app)
+        await app._submit(PROSE + calls)
+        deadline = time.monotonic() + 20
+        while app.generating or app.state != "idle":
+            assert time.monotonic() < deadline, "turn did not finish"
+            await asyncio.sleep(0.05)
+        await app.wait_rendered()
+        await pilot.pause()
+        step = app.query(AssistantMessage).last()
+        first_call, second_call = list(step.query(".tool-call-block"))
+        first, second = list(step.query(SystemMessage))
+        assert "first" in first.content and "second" in second.content
+        assert first_call.region.bottom == first.region.y
+        assert first.region.bottom == second_call.region.y
+        assert second_call.region.bottom == second.region.y
     problems = sorted(blinks(frames) + jumps(frames))
     assert not problems, describe(frames, problems)

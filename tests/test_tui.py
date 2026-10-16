@@ -14,7 +14,7 @@ from textual.filter import ANSIToTruecolor
 from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
-from gptme.message import Message
+from gptme.message import Message, MessageMetadata
 from gptme.tui.app import (
     AssistantMessage,
     BouncingError,
@@ -3913,10 +3913,111 @@ async def test_turn_is_one_block_with_results_under_steps(tmp_path):
         assert all(s.has_class("turn-step") for s in steps[1:])
         results = list(app.query(SystemMessage))
         assert all(r.has_class("turn-result") for r in results)
-        # indented under the step, and no blank line in between
+        # indented under the step's call, and no blank line in between
         assert results[0].content_region.x > steps[0].content_region.x
-        assert results[0].region.y == steps[0].region.bottom
-        assert steps[1].region.y == results[0].region.bottom
+        assert steps[0] in results[0].ancestors
+        assert results[0].region.bottom == steps[0].region.bottom
+        assert steps[1].region.y == steps[0].region.bottom
+
+
+def _two_call_step(*, results: list[Message]) -> list[Message]:
+    """A step calling two tools, then their results (as in the log)."""
+    step = (
+        "<think>\nlook around\n</think>\n"
+        "```shell\nsed -n 1,10p a.py\n```\n\n```shell\nls hooks/\n```"
+    )
+    return [
+        Message("user", "look around"),
+        Message("assistant", step),
+        *results,
+        Message("assistant", "Found it."),
+    ]
+
+
+def _ran(command: str, call: int | None) -> Message:
+    metadata: MessageMetadata = {} if call is None else {"tool_call": call}
+    return Message(
+        "system", f"Ran command: `{command}`\n\nout 1\nout 2", metadata=metadata
+    )
+
+
+def _call_titles(step) -> list:
+    return list(step.query(".tool-call-block"))
+
+
+@pytest.mark.asyncio
+async def test_results_go_under_the_call_they_came_from(tmp_path):
+    """A step with two tool calls: each result under its own call, not both
+    after the last call."""
+    history = _two_call_step(
+        results=[_ran("sed -n 1,10p a.py", 0), _ran("ls hooks/", 1)]
+    )
+    app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        step = app.query(AssistantMessage).first()
+        first_call, second_call = _call_titles(step)
+        first, second = list(app.query(SystemMessage))
+        assert "sed" in first.content and "ls hooks" in second.content
+        assert first_call.region.bottom == first.region.y
+        assert first.region.bottom == second_call.region.y
+        assert second_call.region.bottom == second.region.y
+        # indented under the call, in the step's bar
+        assert first.content_region.x > first_call.content_region.x
+        assert not first.styles.border_left[0]
+
+
+@pytest.mark.asyncio
+async def test_result_not_matched_to_a_call_goes_under_the_step(tmp_path):
+    """A result naming a call the step doesn't show (e.g. one its text
+    doesn't render as a call) goes after the step, indented the same as one
+    under its call."""
+    history = _two_call_step(results=[_ran("sed -n 1,10p a.py", 0)])
+    history += [
+        Message("user", "again"),
+        Message("assistant", "```shell\nls\n```"),
+        _ran("ls", 3),  # no such call
+    ]
+    app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        chat = app.query_one("#chat")
+        under_call, unmatched = list(app.query(SystemMessage))
+        assert under_call.parent is not chat
+        assert unmatched.parent is chat and unmatched.has_class("turn-result")
+        assert unmatched.content_region.x == under_call.content_region.x
+
+
+@pytest.mark.asyncio
+async def test_final_step_replacing_the_streamed_one_keeps_results(tmp_path):
+    """The step shown when its tools started (streamed) is replaced by the
+    final message after they ran: results stay under their calls."""
+    history = _two_call_step(results=[])[:2]
+    app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        provisional = app.query(AssistantMessage).last()
+        app._provisional_assistant = provisional
+        app._show_message(_ran("sed -n 1,10p a.py", 0))
+        app._show_message(_ran("ls hooks/", 1))
+        await app.wait_rendered()
+        assert len(provisional.query(SystemMessage)) == 2
+        # the final content differs (e.g. trailing text the stream hadn't shown)
+        final_msg = Message("assistant", provisional.content + "\n\nDone.")
+        app._on_step_message(final_msg)
+        await app.wait_rendered()
+        await pilot.pause()
+        assert not provisional.is_attached
+        step = app.query(AssistantMessage).last()
+        assert "Done." in step.content
+        first_call, second_call = _call_titles(step)
+        first, second = list(step.query(SystemMessage))
+        assert first_call.region.bottom == first.region.y
+        assert second_call.region.bottom == second.region.y
+        # and the next result in the turn still finds the final step
+        assert app._turn_step is step
 
 
 @pytest.mark.asyncio
