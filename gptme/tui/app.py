@@ -264,6 +264,12 @@ def _flow_kind(msg: Message) -> str:
     return "other"
 
 
+def _call_index(msg: Message) -> int | None:
+    """Which tool call of its step a result came from (see execute_msg)."""
+    call = (msg.metadata or {}).get("tool_call")
+    return call if isinstance(call, int) else None
+
+
 def _keep_turn_place(widget: Widget, replaced: Widget) -> None:
     """A widget replacing another (stream -> message) keeps its place in the
     turn, so the swap doesn't change the layout."""
@@ -855,12 +861,44 @@ class AssistantMessage(Vertical):
         self.content = content.strip()
         self.show_thinking = show_thinking
         self.highlight = highlight
+        # under each tool call, where its results go in a grouped turn
+        self.result_slots: list[CallResults] = []
+        # (call index, message) of the results placed there
+        self.results: list[tuple[int, Message]] = []
+        self._call_ids: list[str | None] | None = None  # of the executed calls
+        self._body = self._build_body()
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
+        yield from self._body
+
+    def call_slot(
+        self, call: int | None, call_id: str | None, tool_format: ToolFormat
+    ) -> "CallResults | None":
+        """Where results of one of the message's tool calls go: the call's
+        index (execute_msg's), else its ID (logs from before the index), if
+        the calls shown are the ones executed."""
+        if self._call_ids is None:
+            uses = ToolUse.iter_from_content(
+                self.content, tool_format_override=tool_format
+            )
+            self._call_ids = [use.call_id for use in uses]
+        ids = self._call_ids
+        # tool-format calls mixed with markdown blocks are executed markdown
+        # first, not in the order shown: no telling which call is which
+        mixed = None in ids and any(ids)
+        if mixed or len(ids) != len(self.result_slots):
+            return None
+        if call is None and call_id is not None and call_id in ids:
+            call = ids.index(call_id)
+        if call is not None and 0 <= call < len(self.result_slots):
+            return self.result_slots[call]
+        return None
+
+    def _build_body(self) -> list[Widget]:
         think_segs = _split_thinking(self.content)
         has_thinking = any(is_think for is_think, _ in think_segs)
         has_tool_calls = any(
@@ -869,8 +907,7 @@ class AssistantMessage(Vertical):
 
         if not has_thinking and not has_tool_calls:
             self.add_class("has-text")
-            yield ChatMarkdown(self.content)
-            return
+            return [ChatMarkdown(self.content)]
 
         parts: list[tuple[str, Widget]] = []
         for is_think, text in think_segs:
@@ -905,10 +942,29 @@ class AssistantMessage(Vertical):
         kinds = [kind for kind, _ in parts]
         # a later step that says something is set apart from the tool steps
         self.set_class("prose" in kinds, "has-text")
-        for index, (_, widget) in enumerate(parts):
+        body: list[Widget] = []
+        for index, (kind, widget) in enumerate(parts):
             for cls in _prose_gaps(kinds, index):
                 widget.add_class(cls)
-            yield widget
+            body.append(widget)
+            if kind == "tool":
+                slot = CallResults()
+                self.result_slots.append(slot)
+                body.append(slot)
+        return body
+
+
+class CallResults(Vertical):
+    """A tool call's results, under the call in a grouped turn (empty and
+    zero height otherwise)."""
+
+    def __init__(self) -> None:
+        super().__init__(classes="call-results")
+        # placed before the slot was mounted (e.g. while loading history)
+        self.pending: list[Widget] = []
+
+    def compose(self) -> ComposeResult:
+        yield from self.pending
 
 
 def _prose_gaps(kinds: list[str], index: int) -> list[str]:
@@ -2121,6 +2177,14 @@ class GptmeApp(App):
         border-left: thick $primary;
         padding-left: 3;
     }
+    .call-results {
+        height: auto;
+    }
+    /* a result under its call, in the step's bar (no bar of its own) */
+    .call-results > .message.turn-result {
+        border-left: none;
+        padding-left: 2;
+    }
     .message MarkdownFence {
         margin: 0;
     }
@@ -2331,6 +2395,8 @@ class GptmeApp(App):
         self._notices_since_pending: list[tuple[str, bool]] = []
         # the last chat item's place in the turn (see _place_in_turn)
         self._flow_prev: str | None = None
+        # the turn's latest step, whose tool calls take their results
+        self._turn_step: Widget | None = None
         self._stdio_sink: IO[str] | None = None
         self._real_stdout: IO[str] | None = None
         self._real_stderr: IO[str] | None = None
@@ -2662,11 +2728,18 @@ class GptmeApp(App):
             )
             msgs = msgs[-MAX_INITIAL_MESSAGES:]
         self._flow_prev = None
+        self._turn_step = None
         for msg in msgs:
             widget = self._widget_for(msg)
-            if widget:
-                self._place_in_turn(widget, _flow_kind(msg))
+            if not widget:
+                continue
+            slot = self._place_in_turn(widget, _flow_kind(msg), msg)
+            if slot is None:
                 chat.mount(widget)
+            elif slot.is_attached:
+                slot.mount(widget)
+            else:
+                slot.pending.append(widget)
         chat.anchor(False)  # re-evaluated for the new content
         self.call_after_refresh(self._anchor_chat)
 
@@ -2747,8 +2820,7 @@ class GptmeApp(App):
             self._print_above(*renderables)
             return
         widget = self._widget_for(msg)
-        if widget:
-            self._place_in_turn(widget, _flow_kind(msg))
+        slot = self._place_in_turn(widget, _flow_kind(msg), msg) if widget else None
         delivered = self._delivered_widget if msg.role == "user" else None
         if delivered is not None:
             # a queued prompt becoming the message: take its place
@@ -2758,32 +2830,54 @@ class GptmeApp(App):
             else:
                 delivered.remove()
         elif widget:
-            self._mount_in_chat(widget)
+            self._mount_in_chat(widget, into=slot)
         if cost_text:
             self._mount_in_chat(CostMessage(cost_text))
 
-    def _place_in_turn(self, widget: Widget, kind: str) -> None:
+    def _place_in_turn(
+        self, widget: Widget, kind: str, msg: Message | None = None
+    ) -> "CallResults | None":
         """Group an agent turn into one block (``group_turns``).
 
         A step continuing the turn drops its name and the blank line above;
-        a tool result (or the running tool's line) right after a step goes
-        indented under it, in the turn's bar. Anything else (hook output,
-        notices) keeps its own block and ends the grouping, so items never
-        leave log order: a result after hook output isn't pulled up.
+        a tool result goes indented under the tool call it came from (the
+        running tool's line under the step), in the turn's bar. Anything
+        else (hook output, notices) keeps its own block and ends the
+        grouping, so items never leave log order: a result after hook output
+        isn't pulled up.
+
+        Returns the slot under the call to mount a result in, None for the
+        chat.
         """
         prev, self._flow_prev = self._flow_prev, kind
+        if kind == "step":
+            self._turn_step = widget
         if not self.group_turns or prev not in ("step", "result"):
             if kind == "result":
                 # shown on its own (e.g. after hook output): the block is
                 # interrupted, so the next step shows the agent's name again
                 self._flow_prev = "other"
-            return
+            return None
         if kind == "step":
             widget.add_class("turn-step")
         elif kind == "result":
             widget.add_class("turn-result")
+            step = self._turn_step
+            if isinstance(step, AssistantMessage) and msg is not None:
+                call, call_id = _call_index(msg), msg.call_id
+                if slot := step.call_slot(call, call_id, self.tool_format):
+                    step.results.append((step.result_slots.index(slot), msg))
+                    return slot
+            # e.g. the running tool's line: under the step
             if color := _role_color_hex("assistant"):
                 widget.styles.border_left = ("thick", color)
+        return None
+
+    def _take_turn_place(self, widget: Widget, replaced: Widget) -> None:
+        """``widget`` replaces ``replaced`` (stream -> message) in its turn."""
+        _keep_turn_place(widget, replaced)
+        if self._turn_step is replaced:
+            self._turn_step = widget
 
     def _show_info(self, text: str, error: bool = False) -> None:
         if self._rebuild_pending:
@@ -2806,6 +2900,7 @@ class GptmeApp(App):
         before: Widget | None = None,
         replaces: Widget | None = None,
         at_end: bool = False,
+        into: "CallResults | None" = None,
     ) -> None:
         """Add a widget to the chat once it has rendered, never half-built.
 
@@ -2816,15 +2911,24 @@ class GptmeApp(App):
 
         Placement: the conversation grows above the running tool's status
         line, and both stay above queued prompts (``at_end``), which wait at
-        the bottom until delivered.
+        the bottom until delivered. A tool result can go ``into`` the slot
+        under its call instead.
         """
+        if into is not None and not into.is_attached:
+            into.pending.append(widget)  # shown with the message it is in
+            return
         chat = self.query_one("#chat", VerticalScroll)
         if before is None:
             before = replaces
-        if before is None and not at_end:
+        if before is None and not at_end and into is None:
             before = self._chat_insert_point()
         _stage(widget)
-        mounted = chat.mount(widget, before=before) if before else chat.mount(widget)
+        if into is not None:
+            mounted = into.mount(widget)
+        elif before is not None:
+            mounted = chat.mount(widget, before=before)
+        else:
+            mounted = chat.mount(widget)
         previous = self._reveal_tail
         self._reveal_tail = asyncio.create_task(
             self._reveal(widget, mounted, previous, replaces)
@@ -3797,7 +3901,7 @@ class GptmeApp(App):
         am = AssistantMessage(
             msg.content, show_thinking=self.show_thinking, highlight=self.highlight
         )
-        _keep_turn_place(am, stream_widget)
+        self._take_turn_place(am, stream_widget)
         chat = self.query_one("#chat", VerticalScroll)
         stick = chat.scroll_offset.y >= chat.max_scroll_y - 2
         self._mount_in_chat(am, replaces=stream_widget)
@@ -3878,11 +3982,28 @@ class GptmeApp(App):
         if msg.hide and not self.show_hidden:
             provisional.remove()
             return
+        if not isinstance(provisional, AssistantMessage):
+            return
+        if provisional.content == msg.content.strip():
+            return  # already shown as it is, with its tools' results
         final = AssistantMessage(
             msg.content, show_thinking=self.show_thinking, highlight=self.highlight
         )
-        _keep_turn_place(final, provisional)
+        if not self._carry_results(provisional, final):
+            return  # the calls differ: keep the results under their calls
+        self._take_turn_place(final, provisional)
         self._mount_in_chat(final, replaces=provisional)
+
+    def _carry_results(self, old: "AssistantMessage", new: "AssistantMessage") -> bool:
+        """Show results placed under ``old``'s tool calls under ``new``'s."""
+        if len(old.result_slots) != len(new.result_slots):
+            return False
+        for call, result in old.results:
+            if widget := self._widget_for(result):
+                widget.add_class("turn-result")
+                new.result_slots[call].pending.append(widget)
+                new.results.append((call, result))
+        return True
 
     async def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         if event.worker.group != "generation":
