@@ -2078,6 +2078,19 @@ class TestReviewFindingFromDictMalformedContainers:
 class TestReviewArtifactFromDictMalformedShapes:
     """Guard against non-dict root/pr containers in ReviewArtifact.from_dict."""
 
+    @pytest.mark.parametrize("count", [None, "not-a-count", [], {}])
+    @pytest.mark.parametrize("status", list(ReviewStatus))
+    def test_malformed_rejected_count_cannot_look_complete(self, count, status):
+        artifact = ReviewArtifact.from_dict(
+            {"review_status": status.value, "rejected_finding_count": count}
+        )
+        assert artifact.rejected_finding_count == 0
+        assert artifact.validation_errors == 1
+        expected = (
+            ReviewStatus.INCOMPLETE if status == ReviewStatus.COMPLETE else status
+        )
+        assert artifact.review_status == expected
+
     def test_bool_pr_number_is_rejected(self):
         artifact = ReviewArtifact.from_dict(
             {
@@ -3054,6 +3067,18 @@ class TestForgeNeutralArtifactIngestion:
             f.body for f in artifact.findings
         ]
 
+    def test_finding_ids_survive_core_round_trip(self):
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        assert [f.independence_key for f in artifact.findings] == [
+            "deadbeef",
+            "cafebabe",
+        ]
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert [f.independence_key for f in restored.findings] == [
+            "deadbeef",
+            "cafebabe",
+        ]
+
     def test_core_schema_round_trips_merge_safety(self):
         artifact = ReviewArtifact(
             pr_owner="gptme",
@@ -3181,7 +3206,8 @@ def _local_review_artifact():
     """A minimal ``ai-review-local`` artifact matching Bob's production shape.
 
     Uses P1/P2/P3/P4 severity, top-level ``repo``, and finding-level
-    ``class`` and ``agreement`` fields.
+    ``class``, ``agreement``, ``independence_key``, and ``passes`` fields.
+    Also includes artifact-level ``rejected_findings`` and ``dropped`` fields.
     """
     return {
         "schema_version": 1,
@@ -3204,6 +3230,8 @@ def _local_review_artifact():
                 "security": False,
                 "class": "bug",
                 "agreement": 3,
+                "independence_key": "deepseek/deepseek-v4-flash:general",
+                "passes": 3,
                 "quote": "return result.value",
                 "suggestion": "Add a None-guard before dereferencing.",
             },
@@ -3214,8 +3242,18 @@ def _local_review_artifact():
                 "severity": "P2",
                 "class": "bug",
                 "agreement": 2,
+                "independence_key": "deepseek/deepseek-v4-flash:validation",
+                "passes": 3,
             },
         ],
+        "rejected_findings": [
+            {"body": "Nitpick about variable name.", "severity": "P4"},
+        ],
+        "dropped": {
+            "unverified_absence": 0,
+            "misquoted": 1,
+            "out_of_scope": 0,
+        },
     }
 
 
@@ -3323,3 +3361,74 @@ class TestLocalReviewArtifactIngestion:
         reloaded = ReviewArtifact.from_dict(artifact.to_dict())
         assert reloaded.findings[0].category == "bug"
         assert reloaded.findings[0].agreement == 3
+
+    def test_independence_key_preserved(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert (
+            artifact.findings[0].independence_key
+            == "deepseek/deepseek-v4-flash:general"
+        )
+        assert (
+            artifact.findings[1].independence_key
+            == "deepseek/deepseek-v4-flash:validation"
+        )
+
+    def test_passes_preserved(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].passes == 3
+        assert artifact.findings[1].passes == 3
+
+    def test_target_kind_is_ai_review_local(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.target_kind == "ai-review-local"
+
+    def test_diff_fingerprint_built_from_shas(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        expected = "origin/master/" + "a" * 40 + "/" + "b" * 40
+        assert artifact.diff_fingerprint == expected
+
+    def test_rejected_finding_count_from_list(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.rejected_finding_count == 1
+
+    def test_dropped_counts_preserved(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.dropped_counts == {
+            "unverified_absence": 0,
+            "misquoted": 1,
+            "out_of_scope": 0,
+        }
+
+    def test_union_fields_round_trip(self):
+        """All union fields survive to_dict / from_dict round-trip through core schema."""
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        reloaded = ReviewArtifact.from_dict(artifact.to_dict())
+        assert (
+            reloaded.findings[0].independence_key
+            == "deepseek/deepseek-v4-flash:general"
+        )
+        assert reloaded.findings[0].passes == 3
+        assert reloaded.target_kind == "ai-review-local"
+        assert reloaded.diff_fingerprint == "origin/master/" + "a" * 40 + "/" + "b" * 40
+        assert reloaded.rejected_finding_count == 1
+        assert reloaded.dropped_counts == {
+            "unverified_absence": 0,
+            "misquoted": 1,
+            "out_of_scope": 0,
+        }
+
+    def test_missing_independence_key_defaults_to_empty(self):
+        data = _local_review_artifact()
+        for f in data["findings"]:
+            f.pop("independence_key", None)
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert all(f.independence_key == "" for f in artifact.findings)
+
+    def test_missing_passes_defaults_to_zero(self):
+        data = _local_review_artifact()
+        for f in data["findings"]:
+            f.pop("passes", None)
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert all(f.passes == 0 for f in artifact.findings)
