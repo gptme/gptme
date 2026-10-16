@@ -268,7 +268,25 @@ jest.mock('../ChatInput', () => ({
 }));
 
 jest.mock('../ChatMessage', () => ({
-  ChatMessage: () => <div data-testid="chat-message" />,
+  ChatMessage: ({
+    message$,
+    messageIndex,
+    onEdit,
+    onDelete,
+  }: {
+    message$: { get: () => Message };
+    messageIndex?: number;
+    onEdit?: unknown;
+    onDelete?: unknown;
+  }) => (
+    <div
+      data-testid="chat-message"
+      data-message={messageIndex}
+      data-editable={onEdit && onDelete ? 'yes' : 'no'}
+    >
+      {message$.get()?.content}
+    </div>
+  ),
 }));
 
 jest.mock('../OpenConversationPathButton', () => ({
@@ -429,6 +447,108 @@ describe('group turns setting', () => {
     });
     expect(document.querySelectorAll('[data-index]')).toHaveLength(1);
 
+    view.unmount();
+  });
+});
+
+describe('consecutive user messages', () => {
+  beforeEach(() => {
+    mockConversation$.set(makeConversationState().peek());
+    mockStepRoles = new Map();
+  });
+
+  it('renders a run of user messages as one message', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'Fix the tests'),
+        message('user', 'also the docs'),
+        message('assistant', 'On it'),
+        message('user', 'thanks'),
+      ]);
+    });
+    const view = renderComponent();
+
+    const rows = screen.getAllByTestId('chat-message');
+    expect(rows.map((row) => row.textContent)).toEqual([
+      'Fix the tests\n\nalso the docs',
+      'On it',
+      'thanks',
+    ]);
+    // actions act on the run's last message; edit and delete aren't offered
+    expect(rows[0]).toHaveAttribute('data-message', '1');
+    expect(rows[0]).toHaveAttribute('data-editable', 'no');
+    expect(rows[2]).toHaveAttribute('data-editable', 'yes');
+    expect(lastVirtualizerCount).toBe(3);
+
+    // a prompt sent while the agent works joins the run before it
+    act(() => {
+      mockConversation$.data.log.push(message('user', 'and the changelog'));
+    });
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'Fix the tests\n\nalso the docs',
+      'On it',
+      'thanks\n\nand the changelog',
+    ]);
+    view.unmount();
+  });
+
+  it('keeps a prompt that failed to send on its own row', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'one'),
+        { ...message('user', 'two'), _status: 'failed' },
+        message('user', 'three'),
+      ]);
+    });
+    const view = renderComponent();
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one',
+      'two',
+      'three',
+    ]);
+    // and one that fails after it was merged leaves the run
+    act(() => {
+      mockConversation$.data.log[1]._status.set('sent');
+    });
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one\n\ntwo\n\nthree',
+    ]);
+    act(() => {
+      mockConversation$.data.log[2]._status.set('failed');
+    });
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one\n\ntwo',
+      'three',
+    ]);
+    view.unmount();
+  });
+
+  it('keeps an unclosed code fence from swallowing the next prompt', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'this fails:\n```python\nimport foo'),
+        message('user', 'why?'),
+      ]);
+    });
+    const view = renderComponent();
+    expect(screen.getByTestId('chat-message').textContent).toBe(
+      'this fails:\n```python\nimport foo\n```\n\nwhy?'
+    );
+    view.unmount();
+  });
+
+  it('joins user messages separated only by hidden ones', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'one'),
+        { ...message('system', 'hidden note'), hide: true },
+        message('user', 'two'),
+      ]);
+    });
+    const view = renderComponent();
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one\n\ntwo',
+    ]);
     view.unmount();
   });
 });

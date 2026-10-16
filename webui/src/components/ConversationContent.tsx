@@ -4,6 +4,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from './ChatMessage';
+import { MergedUserMessage } from './MergedUserMessage';
+import { mergeUserRuns } from '@/utils/messageUtils';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
 import { useConversation } from '@/hooks/useConversation';
@@ -336,7 +338,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Virtualize only rows that can render content. Hidden messages otherwise
   // reserve their estimate until ResizeObserver measures a zero-height wrapper,
   // creating blank regions and shifting scroll positions.
-  const visibleMessageIndices = useMemo(() => {
+  // Compute fork points once (reactive: recomputes when branches/currentBranch change)
+  const forkPoints$ = useObservable(() => {
+    const branches = conversation$?.data.branches?.get();
+    const currentBranch = conversation$?.currentBranch?.get() || 'main';
+    if (!branches || Object.keys(branches).length <= 1) return new Map();
+    return computeForkPoints(currentBranch, branches);
+  });
+
+  // Which prompts failed to send (a failed one isn't merged): their _status
+  // only, so streamed content doesn't re-run this.
+  const failedPromptsKey = use$(() => {
+    const log = conversation$?.data.log;
+    const count = log?.peek()?.length ?? 0;
+    const failed: number[] = [];
+    for (let i = 0; i < count; i++) {
+      if (log?.[i]?._status?.get() === 'failed') failed.push(i);
+    }
+    return failed.join(',');
+  });
+  const forkPointsValue = use$(forkPoints$);
+
+  // Consecutive user messages render as one row (userRuns: the run's indices
+  // by its first); the run's later messages get no row of their own.
+  const { rows: visibleMessageIndices, runs: userRuns } = useMemo(() => {
     const indices: number[] = [];
     const firstNonSystemIndex = firstNonSystemIndex$.peek();
 
@@ -357,8 +382,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         continue;
       indices.push(index);
     }
-    return indices;
+    const failed = new Set(failedPromptsKey.split(',').filter(Boolean).map(Number));
+    return mergeUserRuns(
+      indices,
+      // a failed prompt keeps its own row, with its error and Retry
+      (index) => conversation$?.data.log[index]?.peek()?.role === 'user' && !failed.has(index),
+      (index) => forkPointsValue.has(logOffsetValue + index)
+    );
   }, [
+    failedPromptsKey,
+    forkPointsValue,
     conversation$,
     expandedGroups,
     firstNonSystemIndex$,
@@ -393,8 +426,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // visible index mapping without stale-closure issues.
   const virtualizerRef = useRef(virtualizer);
   const visibleMessageIndicesRef = useRef(visibleMessageIndices);
+  const userRunsRef = useRef(userRuns);
   virtualizerRef.current = virtualizer;
   visibleMessageIndicesRef.current = visibleMessageIndices;
+  userRunsRef.current = userRuns;
 
   // Pending rAF handle for scroll-to-bottom — cancelled before re-scheduling so
   // a burst of log updates queues at most one scroll per animation frame.
@@ -414,14 +449,6 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Observable for if the user is scrolled away from the bottom
   // (used to show the scroll-to-bottom button)
   const isScrolledUp$ = useObservable(false);
-
-  // Compute fork points once (reactive: recomputes when branches/currentBranch change)
-  const forkPoints$ = useObservable(() => {
-    const branches = conversation$?.data.branches?.get();
-    const currentBranch = conversation$?.currentBranch?.get() || 'main';
-    if (!branches || Object.keys(branches).length <= 1) return new Map();
-    return computeForkPoints(currentBranch, branches);
-  });
 
   // Reset the autoScrollAborted flag when generation is complete or starts again
   useObserveEffect(conversation$?.isGenerating, () => {
@@ -599,9 +626,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     (msgIndex: number) => {
       clearSearchHighlights();
       const logOff = conversation$?.logOffset?.get() ?? 0;
-      const localIndex = msgIndex - logOff;
+      let localIndex = msgIndex - logOff;
+      for (const [head, run] of userRunsRef.current) {
+        if (run.includes(localIndex)) localIndex = head;
+      }
       const virtualIndex = visibleMessageIndicesRef.current.indexOf(localIndex);
       if (virtualIndex === -1) return;
+      const rowIndex = logOff + localIndex;
 
       virtualizerRef.current.scrollToIndex(virtualIndex, { align: 'center' });
 
@@ -610,7 +641,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       let attemptsRemaining = 10;
       const applyHighlight = () => {
         const el = scrollContainerRef.current?.querySelector<HTMLElement>(
-          `[data-message-index="${msgIndex}"]`
+          `[data-message-index="${rowIndex}"]`
         );
         if (el) {
           el.style.outline = '2px solid rgba(234,179,8,0.6)';
@@ -1018,7 +1049,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             while (prevIdx >= 0 && isMessageHidden(prevIdx)) prevIdx--;
             const previousMessage$ = prevIdx >= 0 ? conversation$.data.log[prevIdx] : undefined;
 
-            let nextIdx = index + 1;
+            const run = userRuns.get(index);
+            let nextIdx = (run ? run[run.length - 1] : index) + 1;
             while (conversation$.data.log[nextIdx]?.peek() && isMessageHidden(nextIdx)) nextIdx++;
             const nextMessage$ = conversation$.data.log[nextIdx]?.peek()
               ? conversation$.data.log[nextIdx]
@@ -1060,6 +1092,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               : undefined;
             const agentName = conversation$.data.agent?.name?.peek();
             const agentColor = conversation$.data.agent?.color?.peek();
+            const messageProps = {
+              previousMessage$,
+              nextMessage$,
+              conversationId,
+              serverId,
+              agentAvatarUrl,
+              agentName,
+              agentColor,
+              onRetry: isReadOnly ? undefined : retryMessage,
+              onEdit: isReadOnly ? undefined : editMessage,
+              onDelete: isReadOnly ? undefined : deleteMessage,
+              onRerun: isReadOnly ? undefined : rerunFromMessage,
+              onRegenerate: isReadOnly ? undefined : regenerateMessage,
+              onFork: isReadOnly ? undefined : handleForkMessage,
+              messageIndex: absoluteIndex,
+              hideAvatar:
+                (stepRole?.type === 'group-start' && expandedGroups.has(stepRole.groupId)) ||
+                stepRole?.type === 'tool-result',
+              isToolResult:
+                stepRole?.type === 'tool-result' ||
+                (stepRole?.type === 'group-start' &&
+                  stepRole.isToolOutput === true &&
+                  expandedGroups.has(stepRole.groupId)),
+            };
 
             return (
               <div
@@ -1072,37 +1128,26 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 <div data-message-index={absoluteIndex}>
                   {/* Show summary bar above first message when group is expanded */}
                   {groupSummary}
-                  <ChatMessage
-                    message$={msg$}
-                    previousMessage$={previousMessage$}
-                    nextMessage$={nextMessage$}
-                    conversationId={conversationId}
-                    serverId={serverId}
-                    agentAvatarUrl={agentAvatarUrl}
-                    agentName={agentName}
-                    agentColor={agentColor}
-                    onRetry={isReadOnly ? undefined : retryMessage}
-                    onEdit={isReadOnly ? undefined : editMessage}
-                    onDelete={isReadOnly ? undefined : deleteMessage}
-                    onRerun={isReadOnly ? undefined : rerunFromMessage}
-                    onRegenerate={isReadOnly ? undefined : regenerateMessage}
-                    onFork={isReadOnly ? undefined : handleForkMessage}
-                    messageIndex={absoluteIndex}
-                    hideAvatar={
-                      (stepRole?.type === 'group-start' && expandedGroups.has(stepRole.groupId)) ||
-                      stepRole?.type === 'tool-result'
-                    }
-                    isToolResult={
-                      stepRole?.type === 'tool-result' ||
-                      (stepRole?.type === 'group-start' &&
-                        stepRole.isToolOutput === true &&
-                        expandedGroups.has(stepRole.groupId))
-                    }
-                  />
+                  {run ? (
+                    // one message for the run; editing or deleting it would
+                    // need to change several log messages, so it's not offered
+                    <MergedUserMessage
+                      messages$={run.map((i) => conversation$.data.log[i])}
+                      runKey={run.join(',')}
+                      {...messageProps}
+                      onEdit={undefined}
+                      onDelete={undefined}
+                      messageIndex={logOffsetValue + run[run.length - 1]}
+                    />
+                  ) : (
+                    <ChatMessage message$={msg$} {...messageProps} />
+                  )}
                   {/* Branch indicator at fork points */}
                   <Memo>
                     {() => {
-                      const forkInfo = forkPoints$.get().get(absoluteIndex);
+                      // a run ends at a fork point: it can only be the last
+                      const last = run ? logOffsetValue + run[run.length - 1] : absoluteIndex;
+                      const forkInfo = forkPoints$.get().get(last);
                       if (!forkInfo) return null;
                       return (
                         <div className="mx-auto max-w-3xl">

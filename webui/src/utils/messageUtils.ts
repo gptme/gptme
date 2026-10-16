@@ -44,3 +44,42 @@ export const useMessageChainType = (
   }, [message$, previousMessage$, nextMessage$]);
   return messageChainType$;
 };
+
+/**
+ * Group consecutive user messages among the visible rows, to render each run
+ * as one message (several prompts sent in a row, e.g. queued while the agent
+ * was working, read as one). Returns the rows with each run's later messages
+ * removed, and each run's indices keyed by its first.
+ *
+ * `joinable(index)`: a user message that can be shown merged (not e.g. one
+ * that failed to send). `endsRun(index)`: nothing joins after it (e.g. a
+ * branch fork point, whose switcher goes right below it).
+ */
+export const mergeUserRuns = (
+  visible: number[],
+  joinable: (index: number) => boolean,
+  endsRun: (index: number) => boolean = () => false
+): { rows: number[]; runs: Map<number, number[]> } => {
+  const rows: number[] = [];
+  const runs = new Map<number, number[]>();
+  let run: number[] | null = null;
+  for (const index of visible) {
+    if (!joinable(index)) {
+      run = null;
+      rows.push(index);
+      continue;
+    }
+    if (run) {
+      run.push(index);
+    } else {
+      run = [index];
+      runs.set(index, run);
+      rows.push(index);
+    }
+    if (endsRun(index)) run = null;
+  }
+  for (const [head, indices] of runs) {
+    if (indices.length < 2) runs.delete(head);
+  }
+  return { rows, runs };
+};
