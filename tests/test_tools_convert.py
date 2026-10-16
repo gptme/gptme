@@ -1244,3 +1244,17 @@ def test_execute_convert_reports_os_error(tmp_path):
 
     assert result.role == "system"
     assert result.content == "Conversion error: output directory is read-only"
+
+
+def test_convert_expands_home_in_paths(tmp_path, monkeypatch):
+    """`~` works in convert's paths, as for the other file tools."""
+    from gptme.tools.convert import _execute_convert
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "notes.txt").write_text("hello")
+    msg = _execute_convert(
+        None,
+        None,
+        {"input_path": "~/notes.txt", "output_path": "~/notes.md", "dry_run": "true"},
+    )
+    assert "input file not found" not in msg.content

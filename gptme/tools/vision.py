@@ -74,6 +74,8 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
 
     if isinstance(image_path, str):
         image_path = Path(image_path)
+    if isinstance(image_path, Path):
+        image_path = image_path.expanduser()
 
     # Confine before exists() so out-of-bound paths do not leak file presence.
     if denied := _vision_path_denied(image_path):

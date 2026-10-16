@@ -868,8 +868,8 @@ def _execute_convert(
             "Error: both `input_path` and `output_path` are required.",
         )
 
-    src = Path(src_raw)
-    dest = Path(dest_raw)
+    src = Path(src_raw).expanduser()
+    dest = Path(dest_raw).expanduser()
     if not src.exists():
         return Message("system", f"Error: input file not found: {src}")
 
@@ -998,8 +998,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "convert":
-        src = Path(args.input)
-        dest = Path(args.output)
+        src = Path(args.input).expanduser()
+        dest = Path(args.output).expanduser()
         if not src.exists():
             print(f"Error: input file not found: {src}")
             return 1
