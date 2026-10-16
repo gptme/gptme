@@ -31,6 +31,7 @@ from gptme.llm.models import set_default_model
 from gptme.logmanager import LogManager
 from gptme.message import Message, set_output_format
 from gptme.tools import init_tools
+from gptme.tools import python as python_tool
 from gptme.tui.app import (
     AssistantMessage,
     ChatInput,
@@ -129,6 +130,13 @@ async def test_e2e_tool_confirm_execute(mock_app, tmp_path):
 @pytest.fixture
 def mock_app_ipython(tmp_path, monkeypatch):
     """mock_app with the ipython tool too."""
+    # These tests assert the in-process interrupt contract: Ctrl+C raises
+    # KeyboardInterrupt into the TUI worker thread and the traceback is logged.
+    # The kernel backend stops the cell too but reports an "Interrupted" turn
+    # instead, so pin the backend here. Auto-detection would otherwise switch
+    # CI (which runs `uv run`, so VIRTUAL_ENV / `.venv` are present) to the
+    # kernel backend and make this in-process contract untestable.
+    monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
     monkeypatch.setenv("GPTME_MAX_STEPS", "1")
     init(
         "mock/echo",
