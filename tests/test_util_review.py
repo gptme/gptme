@@ -3018,6 +3018,11 @@ class TestForgeNeutralArtifactIngestion:
         # Both the confirmed defect and the needs_validation finding are actionable.
         assert [f.body for f in artifact.open_findings] == [first.body, second.body]
 
+    def test_category_preserved(self):
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        assert artifact.findings[0].category == "correctness"
+        assert artifact.findings[1].category == "test-coverage"
+
     def test_merge_safety_verdict_is_preserved(self):
         artifact = ReviewArtifact.from_dict(
             _forge_neutral_artifact(merge_safety="unsafe")
@@ -3170,3 +3175,151 @@ class TestForgeNeutralArtifactIngestion:
         assert result.exit_code == 0, result.output
         assert "UNSAFE" in result.output
         assert "no open findings" in result.output.lower()
+
+
+def _local_review_artifact():
+    """A minimal ``ai-review-local`` artifact matching Bob's production shape.
+
+    Uses P1/P2/P3/P4 severity, top-level ``repo``, and finding-level
+    ``class`` and ``agreement`` fields.
+    """
+    return {
+        "schema_version": 1,
+        "kind": "ai-review-local",
+        "lane": "pre-pr",
+        "repo": "gptme/gptme",
+        "base": "origin/master",
+        "merge_base": "a" * 40,
+        "head": "b" * 40,
+        "includes_uncommitted": False,
+        "model": "openrouter/deepseek/deepseek-v4-flash",
+        "engine": "llm",
+        "score": 4,
+        "findings": [
+            {
+                "body": "Null pointer dereference in the hot path.",
+                "file": "gptme/util/review.py",
+                "line": 42,
+                "severity": "P1",
+                "security": False,
+                "class": "bug",
+                "agreement": 3,
+                "quote": "return result.value",
+                "suggestion": "Add a None-guard before dereferencing.",
+            },
+            {
+                "body": "Missing input validation.",
+                "file": "gptme/cli/cmd_review_pr.py",
+                "line": 10,
+                "severity": "P2",
+                "class": "bug",
+                "agreement": 2,
+            },
+        ],
+    }
+
+
+class TestLocalReviewArtifactIngestion:
+    """Tests for ``ReviewArtifact.from_dict`` with ``kind: "ai-review-local"``."""
+
+    def test_pr_identity_extracted_from_top_level_repo(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.pr_owner == "gptme"
+        assert artifact.pr_repo == "gptme"
+        assert artifact.pr_number == 0  # no PR number in pre-PR artifacts
+
+    def test_p1_maps_to_critical(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].severity == FindingSeverity.CRITICAL
+
+    def test_p2_maps_to_error(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[1].severity == FindingSeverity.ERROR
+
+    def test_category_preserved_from_class_field(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].category == "bug"
+        assert artifact.findings[1].category == "bug"
+
+    def test_agreement_preserved(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].agreement == 3
+        assert artifact.findings[1].agreement == 2
+
+    @pytest.mark.parametrize("agreement", ["3", 3.0, True, None, [], {}])
+    def test_malformed_agreement_marks_incomplete(self, agreement):
+        data = _local_review_artifact()
+        data["findings"][0]["agreement"] = agreement
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+        assert artifact.findings[0].agreement == 0
+        assert artifact.findings[0].body == data["findings"][0]["body"]
+        assert artifact.findings[1].agreement == 2
+
+    @pytest.mark.parametrize("agreement", ["3", 3.0, True, None, [], {}])
+    def test_core_malformed_agreement_marks_incomplete(self, agreement):
+        data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
+        data["findings"][0]["agreement"] = agreement
+        with pytest.raises(ValueError, match="ReviewFinding.agreement must be an int"):
+            ReviewFinding.from_dict(data["findings"][0])
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+        assert len(artifact.findings) == 1
+        assert artifact.findings[0].agreement == 2
+
+    def test_missing_agreement_defaults_to_zero(self):
+        data = _local_review_artifact()
+        for finding in data["findings"]:
+            finding.pop("agreement")
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+        assert all(f.agreement == 0 for f in artifact.findings)
+        reloaded = ReviewArtifact.from_dict(artifact.to_dict())
+        assert reloaded.review_status == ReviewStatus.COMPLETE
+        assert reloaded.validation_errors == 0
+        assert all(f.agreement == 0 for f in reloaded.findings)
+
+    def test_review_status_complete_when_all_findings_valid(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+
+    def test_malformed_location_marks_incomplete(self):
+        """A non-string file or non-int line must not be silently accepted."""
+        data = _local_review_artifact()
+        data["findings"][0]["file"] = 42
+        data["findings"][1]["line"] = "10"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 2
+        # The finding survives with a normalised (empty/None) location.
+        assert artifact.findings[0].file == ""
+        assert artifact.findings[1].line is None
+
+    def test_unknown_severity_marks_incomplete(self):
+        data = _local_review_artifact()
+        data["findings"][0]["severity"] = "P9"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors >= 1
+        # The valid P2 finding still makes it through
+        assert len(artifact.findings) == 1
+        assert artifact.findings[0].severity == FindingSeverity.ERROR
+
+    def test_p1_does_not_silently_downgrade_to_warning(self):
+        """Regression: before the reader, P1 fell through to FindingSeverity.WARNING."""
+        data = _local_review_artifact()
+        data["findings"] = [data["findings"][0]]  # only the P1 finding
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.findings[0].severity == FindingSeverity.CRITICAL
+        assert artifact.findings[0].severity != FindingSeverity.WARNING
+
+    def test_finding_round_trips_through_core_schema(self):
+        """category and agreement survive a to_dict / from_dict round-trip."""
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        reloaded = ReviewArtifact.from_dict(artifact.to_dict())
+        assert reloaded.findings[0].category == "bug"
+        assert reloaded.findings[0].agreement == 3
