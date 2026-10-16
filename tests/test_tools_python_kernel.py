@@ -321,6 +321,33 @@ def test_should_use_kernel_auto_caches_result(monkeypatch, tmp_path):
         py_mod._kernel_mode_cache = orig_cache
 
 
+def test_should_use_kernel_auto_recomputes_on_chdir(monkeypatch, tmp_path):
+    """Auto-detection re-probes when the working directory changes."""
+    import gptme.tools.python as py_mod
+
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / ".venv").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    orig_key = py_mod._kernel_mode_cache_key
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        py_mod._kernel_mode_cache_key = None
+        assert py_mod._should_use_kernel() is False
+        # Switching into a project workspace must re-evaluate, not stay cached.
+        monkeypatch.chdir(other)
+        assert py_mod._should_use_kernel() is True
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+        py_mod._kernel_mode_cache_key = orig_key
+
+
 # ---------------------------------------------------------------------------
 # BridgeServer unit tests
 # ---------------------------------------------------------------------------

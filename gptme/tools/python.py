@@ -77,14 +77,22 @@ _IPYTHON_BACKEND = os.environ.get("GPTME_IPYTHON_BACKEND", "auto").lower()
 # Cached result of auto-detection; None means not yet determined.
 _kernel_mode_cache: bool | None = None
 
+# Workspace key (cwd, VIRTUAL_ENV) the cached result was computed for. The
+# auto-detection probes (_detect_venv, _is_uv_project) depend on both, so the
+# cache must be recomputed when either changes — otherwise a session that
+# starts outside a project and later moves into one would stay on the
+# in-process backend despite auto mode's contract.
+_kernel_mode_cache_key: tuple[str, str | None] | None = None
+
 
 def _should_use_kernel() -> bool:
     """Return True if cells should run in a separate Jupyter kernel process.
 
     Explicit configuration always wins.  In auto mode the result is cached
-    after the first call so repeated cells don't redo the filesystem probes.
+    per workspace (cwd + VIRTUAL_ENV) so repeated cells in the same workspace
+    don't redo the filesystem probes, while a workspace switch re-evaluates.
     """
-    global _kernel_mode_cache
+    global _kernel_mode_cache, _kernel_mode_cache_key
 
     if _IPYTHON_BACKEND == "kernel":
         return True
@@ -95,7 +103,8 @@ def _should_use_kernel() -> bool:
     # Any of these signals is enough: a .venv / VIRTUAL_ENV (even without a
     # working Python inside — the kernel will fall through to uv run), or a
     # uv-managed project (uv.lock / [tool.uv]).
-    if _kernel_mode_cache is None:
+    cache_key = (os.getcwd(), os.environ.get("VIRTUAL_ENV"))
+    if _kernel_mode_cache is None or _kernel_mode_cache_key != cache_key:
         from .python_kernel import KernelBackend
 
         has_venv = _detect_venv() is not None
@@ -107,6 +116,7 @@ def _should_use_kernel() -> bool:
             for name in ("jupyter_client", "ipykernel")
         )
         _kernel_mode_cache = (has_venv or is_uv) and available
+        _kernel_mode_cache_key = cache_key
         if _kernel_mode_cache:
             logger.info("Auto-activating kernel backend: project environment detected")
         else:
