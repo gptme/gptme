@@ -33,6 +33,7 @@ def test_registration_defers_backend_selection(
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     monkeypatch.setattr(py, "_IPYTHON_BACKEND", "auto")
     monkeypatch.setattr(py, "_kernel_mode_cache", None)
+    monkeypatch.setattr(py, "_kernel_mode_frozen", False)
     monkeypatch.setattr(py, "registered_functions", {})
 
     def helper() -> int:
