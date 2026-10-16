@@ -9,6 +9,7 @@ from typing import Literal
 
 from ..hooks import confirm
 from ..message import Message
+from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
     Parameter,
@@ -232,7 +233,7 @@ def execute_save_impl(
 
     yield Message(
         "system",
-        f"Saved to {path_display}"
+        f"Saved to {path_with_tilde(path_display)}"
         + (" (overwritten)" if overwrite else "")
         + (" (created missing folder)" if missing_parent_created else "")
         + hint,
@@ -301,7 +302,7 @@ def execute_append_impl(
 
     with open(path, "a", encoding="utf-8", newline="") as f:
         f.write(content)
-    yield Message("system", f"Appended to {path_display}")
+    yield Message("system", f"Appended to {path_with_tilde(path_display)}")
 
 
 def _validate_and_execute(

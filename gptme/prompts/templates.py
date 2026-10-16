@@ -274,6 +274,7 @@ When the output of a command is of interest, end the code block and message, so 
 
 Always use absolute paths when referring to files, as relative paths can become invalid when the working directory changes.
 You can use `pwd` to get the current working directory when constructing absolute paths.
+`~` for the home directory is fine, also in file paths given to tools (e.g. `~/project/file.py`).
 {code_editing_strategy}
 {placeholder_guidance}
 Do not suggest opening a browser or editor, instead do it using available tools.

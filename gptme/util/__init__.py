@@ -204,11 +204,11 @@ def document_prompt_function(*args, **kwargs):
 
 
 def path_with_tilde(path: Path) -> Path:
-    home = str(Path.home())
-    path_str = str(path)
-    if path_str.startswith(home):
-        return Path(path_str.replace(home, "~", 1))
-    return path
+    """The path with the home directory as ``~`` (``/home/me/x`` -> ``~/x``)."""
+    try:
+        return Path("~") / Path(path).relative_to(Path.home())
+    except ValueError:  # not under home (or relative): as is
+        return path
 
 
 @functools.lru_cache

@@ -210,3 +210,19 @@ Assistant: Done"""
     assert "extra output" not in result
     assert "User: run ls" in result
     assert "Assistant: Done" in result
+
+
+def test_path_with_tilde(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from gptme.util import path_with_tilde
+
+    home = tmp_path / "home" / "me"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    assert path_with_tilde(home / "x" / "y.py") == Path("~/x/y.py")
+    # a sibling sharing the prefix is not under home
+    assert (
+        path_with_tilde(tmp_path / "home" / "me2" / "x")
+        == tmp_path / "home" / "me2" / "x"
+    )
+    assert path_with_tilde(Path("rel/x")) == Path("rel/x")

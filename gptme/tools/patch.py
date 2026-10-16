@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..config import get_config
 from ..message import Message
+from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
     Parameter,
@@ -384,7 +385,7 @@ def execute_patch_impl(
         warnings_str = "\n".join(warnings)
         yield Message(
             "system",
-            f"Patch successfully applied to `{path}`\n{warnings_str}".strip(),
+            f"Patch successfully applied to `{path_with_tilde(path)}`\n{warnings_str}".strip(),
         )
 
     except FileNotFoundError:
