@@ -3018,6 +3018,11 @@ class TestForgeNeutralArtifactIngestion:
         # Both the confirmed defect and the needs_validation finding are actionable.
         assert [f.body for f in artifact.open_findings] == [first.body, second.body]
 
+    def test_category_preserved(self):
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        assert artifact.findings[0].category == "correctness"
+        assert artifact.findings[1].category == "test-coverage"
+
     def test_merge_safety_verdict_is_preserved(self):
         artifact = ReviewArtifact.from_dict(
             _forge_neutral_artifact(merge_safety="unsafe")
@@ -3245,6 +3250,18 @@ class TestLocalReviewArtifactIngestion:
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
         assert artifact.review_status == ReviewStatus.COMPLETE
         assert artifact.validation_errors == 0
+
+    def test_malformed_location_marks_incomplete(self):
+        """A non-string file or non-int line must not be silently accepted."""
+        data = _local_review_artifact()
+        data["findings"][0]["file"] = 42
+        data["findings"][1]["line"] = "10"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 2
+        # The finding survives with a normalised (empty/None) location.
+        assert artifact.findings[0].file == ""
+        assert artifact.findings[1].line is None
 
     def test_unknown_severity_marks_incomplete(self):
         data = _local_review_artifact()

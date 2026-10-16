@@ -552,6 +552,9 @@ class ReviewArtifact:
         ``INCOMPLETE`` rather than returning a partial, apparently-complete
         review (which review-watch would otherwise treat as clean).
 
+        ``category`` is preserved as :attr:`ReviewFinding.category` so
+        ``review-watch`` can group findings by class.
+
         A *local* target (a working-tree review with no PR) maps to empty PR
         coordinates; ``review-watch`` requires a hosted PR and will still need
         ``--repo``/``--pr`` supplied explicitly.
@@ -600,6 +603,8 @@ class ReviewArtifact:
                 errors += 1
                 continue
             file_raw = f_raw.get("file_path", "")
+            category_raw = f_raw.get("category", "")
+            category = category_raw if isinstance(category_raw, str) else ""
             severity = _FORGE_NEUTRAL_SEVERITY.get(
                 str(f_raw.get("severity", "")).lower()
             )
@@ -619,6 +624,7 @@ class ReviewArtifact:
                     line=_parse_line_range(f_raw.get("line_range")),
                     severity=severity,
                     status=status,
+                    category=category,
                 )
             )
 
@@ -651,9 +657,10 @@ class ReviewArtifact:
         field is preserved as ``category``; ``agreement`` (multi-pass consensus
         count) is carried through to ``ReviewFinding.agreement``.
 
-        Fail-closed: any unrecognised severity marks the finding as a
-        deserialization error and the artifact as ``INCOMPLETE`` rather than
-        silently downgrading a P1 to ``warning``.
+        Fail-closed: any unrecognised severity, non-string ``file``, or
+        non-integer ``line`` counts as a deserialization error and marks the
+        artifact ``INCOMPLETE`` rather than silently downgrading a P1 to
+        ``warning`` or dropping a location while still reporting ``COMPLETE``.
         """
         errors = 0
 
@@ -688,8 +695,15 @@ class ReviewArtifact:
                 errors += 1
                 continue
             file_raw = f_raw.get("file", "")
+            if not isinstance(file_raw, str):
+                # Mirror the core reader's fail-closed path handling: a
+                # non-string path would otherwise be silently dropped while
+                # the artifact still claimed COMPLETE.
+                errors += 1
+                file_raw = ""
             line_raw = f_raw.get("line")
             if line_raw is not None and type(line_raw) is not int:
+                errors += 1
                 line_raw = None
             category_raw = f_raw.get("class", "")
             category = category_raw if isinstance(category_raw, str) else ""
