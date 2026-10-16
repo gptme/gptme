@@ -2078,6 +2078,19 @@ class TestReviewFindingFromDictMalformedContainers:
 class TestReviewArtifactFromDictMalformedShapes:
     """Guard against non-dict root/pr containers in ReviewArtifact.from_dict."""
 
+    @pytest.mark.parametrize("count", [None, "not-a-count", [], {}])
+    @pytest.mark.parametrize("status", list(ReviewStatus))
+    def test_malformed_rejected_count_cannot_look_complete(self, count, status):
+        artifact = ReviewArtifact.from_dict(
+            {"review_status": status.value, "rejected_finding_count": count}
+        )
+        assert artifact.rejected_finding_count == 0
+        assert artifact.validation_errors == 1
+        expected = (
+            ReviewStatus.INCOMPLETE if status == ReviewStatus.COMPLETE else status
+        )
+        assert artifact.review_status == expected
+
     def test_bool_pr_number_is_rejected(self):
         artifact = ReviewArtifact.from_dict(
             {

@@ -565,11 +565,6 @@ class ReviewArtifact:
             pr_repo_val = ""
             deserialization_errors += 1
 
-        # Re-evaluate status after coercion errors — a malformed pr.owner,
-        # pr.repo, pr.number or review_duration_s still counts as a deserialization problem.
-        if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
-            review_status = ReviewStatus.INCOMPLETE
-
         merge_safety = MergeSafety.UNKNOWN
         merge_safety_raw = d.get("merge_safety")
         if merge_safety_raw is not None:
@@ -598,6 +593,10 @@ class ReviewArtifact:
         dropped_counts = (
             dropped_counts_raw if isinstance(dropped_counts_raw, dict) else {}
         )
+
+        # Re-evaluate status after all metadata coercion, including suppression counts.
+        if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
+            review_status = ReviewStatus.INCOMPLETE
 
         return cls(
             pr_owner=pr_owner_val,
