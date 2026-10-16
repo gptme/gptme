@@ -431,5 +431,47 @@ describe('buildStepRoles', () => {
       // The hidden message at absolute 101 should not appear in the map
       expect(roles.has(101)).toBe(false);
     });
+
+    it('marks isToolOutput when the first step is a bare tool output (absolute-keyed)', () => {
+      // Regression for the "first tool-result loses its indent" fix: a turn that
+      // begins with a tool-result system message (no leading assistant step) must
+      // flag the group-start so the expanded view indents it like the other
+      // tool-result rows. The flag is computed from the LOCAL index (firstIdx),
+      // so it must still resolve correctly under a nonzero logOffset.
+      const messages = [
+        msg('user', 'continue'), // local 0, absolute 200
+        msg('system', '```stdout\nhi\n```'), // local 1, absolute 201 — first step
+        msg('assistant', 'running another tool'), // local 2, absolute 202 - step
+        msg('system', 'Saved to file.py'), // local 3, absolute 203 - step
+        msg('assistant', 'done'), // local 4, absolute 204 - response
+      ];
+      const roles = buildStepRoles(messages, neverHidden, 200);
+
+      const start = roles.get(201);
+      expect(start?.type).toBe('group-start');
+      if (start?.type === 'group-start') {
+        expect(start.isToolOutput).toBe(true);
+        expect(start.groupId).toBe(201);
+      }
+      expect(roles.get(202)?.type).toBe('grouped');
+      expect(roles.get(203)?.type).toBe('tool-result');
+      expect(roles.get(204)?.type).toBe('response');
+    });
+
+    it('does not set isToolOutput when the first step is an assistant message', () => {
+      const messages = [
+        msg('user', 'continue'), // local 0, absolute 300
+        msg('assistant', 'using tool'), // local 1, absolute 301 — first step
+        msg('system', 'saved file'), // local 2, absolute 302 - step
+        msg('assistant', 'done'), // local 3, absolute 303 - response
+      ];
+      const roles = buildStepRoles(messages, neverHidden, 300);
+
+      const start = roles.get(301);
+      expect(start?.type).toBe('group-start');
+      if (start?.type === 'group-start') {
+        expect(start.isToolOutput).toBeUndefined();
+      }
+    });
   });
 });
