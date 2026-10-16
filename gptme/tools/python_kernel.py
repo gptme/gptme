@@ -27,7 +27,7 @@ from contextvars import Context, copy_context
 from typing import Any
 
 from .shell_memory import Target as MemoryTarget
-from .shell_memory import kill_group
+from .shell_memory import group_alive, kill_group
 from .shell_memory import watch as watch_memory
 
 logger = logging.getLogger(__name__)
@@ -435,7 +435,6 @@ class KernelBackend:
 
         self._started = True
         logger.info("Kernel started")
-        self._watch_memory()
 
         try:
             # Push bridge bootstrap with current port and auth token.
@@ -454,6 +453,10 @@ class KernelBackend:
             self.shutdown()
             raise
 
+        # Register the guard only once the kernel is up and bootstrapped, so a
+        # failed start never leaves _started set with a half-initialized kernel.
+        self._watch_memory()
+
     def _watch_memory(self) -> None:
         """Have the shell memory guard watch the kernel's process group.
 
@@ -461,6 +464,11 @@ class KernelBackend:
         kernel plus anything a cell spawns. If memory runs low the guard may kill
         it like any other agent-started group (see shell_memory.py).
         """
+        # The guard is POSIX-only (it reads /proc and kills process groups), and
+        # os.getpgid is Unix-only; return before touching process groups so the
+        # first cell on Windows cannot raise AttributeError here.
+        if os.name != "posix":
+            return
         km = self._km
         provisioner = getattr(km, "provisioner", None)
         pid = getattr(provisioner, "pid", None)
@@ -481,7 +489,11 @@ class KernelBackend:
                 pgid=pgid,
                 label="the IPython kernel",
                 kill=lambda: kill_group(pgid),
-                alive=km.is_alive,
+                # Watch the whole group, not just the kernel leader: a cell can
+                # spawn workers that outlive a kernel crash or kill. With
+                # km.is_alive the guard would drop the target (and stop watching
+                # those workers) as soon as the leader exits.
+                alive=lambda: group_alive(pgid),
                 on_killed=self._on_memory_killed,
             )
         )

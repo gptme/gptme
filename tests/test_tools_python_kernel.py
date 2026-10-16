@@ -564,6 +564,15 @@ def test_kernel_registers_its_process_group_with_memory_guard(backend):
     assert target.alive() is False
 
 
+def test_watch_memory_is_noop_on_non_posix(backend, monkeypatch):
+    """The guard must not be registered on Windows (os.getpgid is Unix-only)."""
+    backend.execute("1")  # start the kernel for real
+    monkeypatch.setattr(os, "name", "nt")
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend._watch_memory()
+    assert watch.call_count == 0
+
+
 def test_kernel_death_mid_cell_is_reported_promptly(backend):
     """A kernel that dies while a cell runs must not block until the timeout."""
     import time
