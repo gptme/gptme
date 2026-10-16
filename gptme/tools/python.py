@@ -84,13 +84,22 @@ _kernel_mode_cache: bool | None = None
 # in-process backend despite auto mode's contract.
 _kernel_mode_cache_key: tuple[str, str | None] | None = None
 
+# Set once a cell has executed with a chosen backend.  From then on the choice
+# is frozen: the kernel and in-process backends hold separate Python state
+# (variables, imports), so silently switching because the working directory
+# changed would discard the user's session.  A directory change before the
+# first cell still re-evaluates (auto mode's workspace contract).
+_kernel_mode_frozen = False
+
 
 def _should_use_kernel() -> bool:
     """Return True if cells should run in a separate Jupyter kernel process.
 
     Explicit configuration always wins.  In auto mode the result is cached
     per workspace (cwd + VIRTUAL_ENV) so repeated cells in the same workspace
-    don't redo the filesystem probes, while a workspace switch re-evaluates.
+    don't redo the filesystem probes, while a workspace switch re-evaluates —
+    until the first cell executes, after which the choice is frozen (see
+    ``_kernel_mode_frozen``).
     """
     global _kernel_mode_cache, _kernel_mode_cache_key
 
@@ -98,6 +107,11 @@ def _should_use_kernel() -> bool:
         return True
     if _IPYTHON_BACKEND == "inprocess":
         return False
+
+    # auto mode: once a cell has run, keep the backend stable even if the
+    # working directory later changes.
+    if _kernel_mode_frozen:
+        return bool(_kernel_mode_cache)
 
     # auto mode: activate kernel when a project environment is found.
     # Any of these signals is enough: a .venv / VIRTUAL_ENV (even without a
@@ -124,6 +138,19 @@ def _should_use_kernel() -> bool:
                 "No usable project kernel environment found; using in-process IPython backend"
             )
     return _kernel_mode_cache
+
+
+def _resolve_kernel_backend() -> bool:
+    """Return the backend for a cell and freeze the choice for the process.
+
+    ``execute_python`` calls this instead of ``_should_use_kernel`` so that
+    once the first cell runs, a later ``os.chdir`` cannot flip backends and
+    silently drop the session state held by the other interpreter.
+    """
+    global _kernel_mode_frozen
+    use_kernel = _should_use_kernel()
+    _kernel_mode_frozen = True
+    return use_kernel
 
 
 # Default byte cap for python tool output (10 MiB)
@@ -614,7 +641,7 @@ def execute_python(
         return
 
     # Kernel mode: execute in a separate Jupyter kernel process
-    if _should_use_kernel():
+    if _resolve_kernel_backend():
         cwd = Path.cwd()
         pre_images = _snapshot_images(cwd)
         msgs = list(_execute_python_kernel(code))

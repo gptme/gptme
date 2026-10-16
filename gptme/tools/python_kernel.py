@@ -324,8 +324,13 @@ class _GptmeDisplayHookWrapper:
                 if all(type(_m).__name__ == 'Message' and 'gptme' in getattr(type(_m), '__module__', '') for _m in value):
                     _msgs = list(value)
             if _msgs is not None:
-                _gptme_rpc('_gptme_deliver_messages', _gptme_pickle.dumps(_msgs))
-                return
+                try:
+                    _gptme_rpc('_gptme_deliver_messages', _gptme_pickle.dumps(_msgs))
+                    return
+                except Exception:
+                    # Bridge unavailable/busy: fall back to the normal repr so a
+                    # successful Message-returning cell does not become an error.
+                    pass
         _gptme_orig_hook(value)
     def set_parent(self, parent):
         import sys as _gptme_sys2

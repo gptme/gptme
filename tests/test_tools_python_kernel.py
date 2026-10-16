@@ -31,6 +31,22 @@ def backend():
     kb.shutdown()
 
 
+@pytest.fixture(autouse=True)
+def _reset_auto_kernel_state():
+    """Reset module-level auto-detection state so tests don't leak into each other.
+
+    ``execute_python`` freezes the backend choice once a cell runs, so a test
+    that executes a cell would otherwise leave later auto-detection tests
+    observing a stale frozen decision.
+    """
+    import gptme.tools.python as py_mod
+
+    py_mod._kernel_mode_cache = None
+    py_mod._kernel_mode_cache_key = None
+    py_mod._kernel_mode_frozen = False
+    return
+
+
 # ---------------------------------------------------------------------------
 # Basic execution
 # ---------------------------------------------------------------------------
@@ -346,6 +362,39 @@ def test_should_use_kernel_auto_recomputes_on_chdir(monkeypatch, tmp_path):
         py_mod._IPYTHON_BACKEND = orig_backend
         py_mod._kernel_mode_cache = orig_cache
         py_mod._kernel_mode_cache_key = orig_key
+
+
+def test_should_use_kernel_frozen_after_first_cell(monkeypatch, tmp_path):
+    """A directory change after the first cell must not switch backends."""
+    import gptme.tools.python as py_mod
+
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / ".venv").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    orig_key = py_mod._kernel_mode_cache_key
+    orig_frozen = py_mod._kernel_mode_frozen
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        py_mod._kernel_mode_cache_key = None
+        py_mod._kernel_mode_frozen = False
+        # First cell: no project env here -> in-process, and the choice freezes.
+        assert py_mod._resolve_kernel_backend() is False
+        # Moving into a project directory must NOT flip to the kernel backend,
+        # which would discard the in-process session's variables.
+        monkeypatch.chdir(other)
+        assert py_mod._should_use_kernel() is False
+        assert py_mod._resolve_kernel_backend() is False
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+        py_mod._kernel_mode_cache_key = orig_key
+        py_mod._kernel_mode_frozen = orig_frozen
 
 
 # ---------------------------------------------------------------------------
