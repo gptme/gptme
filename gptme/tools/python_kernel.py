@@ -6,7 +6,8 @@ Runs IPython cells in a separate kernel process, enabling:
 - Project environment isolation (%pip install goes to project env)
 - Process isolation (kernel crash doesn't take down gptme)
 
-Enable with: GPTME_IPYTHON_BACKEND=kernel
+Activated automatically when a project environment is detected (auto mode),
+or explicitly with GPTME_IPYTHON_BACKEND=kernel.
 
 The kernel is started lazily on first use and restarted on crash.
 A socket-based bridge lets kernel-side code call registered gptme
@@ -285,6 +286,67 @@ def _gptme_rpc(fn_name, *args, **kwargs):
     if 'error' in _result:
         raise RuntimeError(f"Bridge call {{fn_name}} failed: {{_result['error']}}")
     return _result['result']
+
+# Wrap ip.displayhook to intercept gptme Message / list[Message] cell results
+# and deliver them back to gptme via the bridge.  This prevents the kernel
+# from sending an execute_result with a useless repr while still surfacing the
+# structured object on the gptme side (execute_python already routes Messages).
+#
+# ipykernel resets sys.displayhook = ip.displayhook before each cell, so
+# patching sys.displayhook alone does not survive across cells.  We replace
+# ip.displayhook with a wrapper that delegates everything except Messages; the
+# reset then installs our wrapper into sys.displayhook automatically.
+#
+# Duck-typing avoids importing gptme.message in project kernels that may not
+# have gptme installed.
+
+_gptme_orig_hook = get_ipython().displayhook
+
+class _GptmeDisplayHookWrapper:
+    '''Thin proxy around ZMQShellDisplayHook that intercepts Message results.
+
+    ipykernel's ZMQShellDisplayHook.set_parent() resets sys.displayhook = self
+    (the original hook) before every cell execution. We intercept set_parent to
+    repair sys.displayhook back to this wrapper immediately afterward.
+    '''
+    def __call__(self, value):
+        if value is not None:
+            _t = type(value)
+            _tn = _t.__name__
+            _mod = getattr(_t, '__module__', '')
+            _msgs = None
+            if _tn == 'Message' and 'gptme' in _mod:
+                _msgs = [value]
+            elif _tn == 'list' and value:
+                if all(type(_m).__name__ == 'Message' and 'gptme' in getattr(type(_m), '__module__', '') for _m in value):
+                    _msgs = list(value)
+            if _msgs is not None:
+                _gptme_rpc('_gptme_deliver_messages', _gptme_pickle.dumps(_msgs))
+                return
+        _gptme_orig_hook(value)
+    def set_parent(self, parent):
+        import sys as _gptme_sys2
+        _gptme_orig_hook.set_parent(parent)   # this resets sys.displayhook = orig
+        _gptme_sys2.displayhook = self         # repair: restore wrapper
+    def __getattr__(self, name):
+        return getattr(_gptme_orig_hook, name)
+    def __setattr__(self, name, value):
+        if name.startswith('_GptmeDisplayHookWrapper__') or name == '_gptme_orig_hook':
+            object.__setattr__(self, name, value)
+        else:
+            setattr(_gptme_orig_hook, name, value)
+
+import sys as _gptme_sys
+_gptme_ip = get_ipython()
+_gptme_hook_wrapper = _GptmeDisplayHookWrapper()
+# Replace all three references IPython/ipykernel uses so none can revert
+# sys.displayhook back to the original before or during a cell execution:
+#   ip.displayhook     — used by ipykernel for set_parent / publish
+#   ip.display_trap.hook — installed as sys.displayhook inside DisplayTrap.set()
+#   sys.displayhook    — used by Python's exec for expression results
+_gptme_ip.displayhook = _gptme_hook_wrapper
+_gptme_ip.display_trap.hook = _gptme_hook_wrapper
+_gptme_sys.displayhook = _gptme_hook_wrapper
 """
 
 _STUB_TEMPLATE = (
@@ -593,6 +655,17 @@ class KernelBackend:
         except RuntimeError:
             self.shutdown()
             raise
+
+        # Register the special message-delivery bridge handler (server-side only;
+        # no kernel stub is pushed — the displayhook calls it by name directly).
+        bridge = self._bridge
+        _deliver_import = pickle  # capture module reference for the closure
+
+        def _gptme_deliver_messages(serialized: bytes) -> None:
+            msgs = _deliver_import.loads(serialized)
+            bridge.messages.extend(msgs)
+
+        self._bridge.register(_gptme_deliver_messages)
 
         # Register the guard only once the kernel is up and bootstrapped, so a
         # failed start never leaves _started set with a half-initialized kernel.
