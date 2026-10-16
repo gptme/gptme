@@ -1,6 +1,7 @@
 """Tests for the gptme doctor command."""
 
 import json
+import logging
 import sys
 import types
 from collections import UserDict
@@ -2724,12 +2725,24 @@ class TestCheckPlugins:
         """gptme-doctor --json includes per-plugin details in the output."""
         from gptme.plugins.plugin import GptmePlugin
 
-        empty_plugin = GptmePlugin(name="empty_plugin", tools=[])
-        ep = SimpleNamespace(name="empty_plugin", load=lambda: empty_plugin)
+        # Keep the JSON contract independent of worker ordering: prior tests in
+        # the same xdist worker can leave logging configured to write to stdout
+        # (CLI tests call init_logging(stderr=False), and some attach child-logger
+        # handlers), and any record emitted during the doctor run would be
+        # interleaved into the captured stdout, breaking json.loads below.
+        # Disable logging for the invocation so captured stdout carries only the
+        # JSON payload, regardless of which logger or handler earlier tests left.
+        disabled_before = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        try:
+            empty_plugin = GptmePlugin(name="empty_plugin", tools=[])
+            ep = SimpleNamespace(name="empty_plugin", load=lambda: empty_plugin)
 
-        runner = CliRunner()
-        with patch("importlib.metadata.entry_points", return_value=[ep]):
-            result = runner.invoke(main, ["--json"])
+            runner = CliRunner()
+            with patch("importlib.metadata.entry_points", return_value=[ep]):
+                result = runner.invoke(main, ["--json"])
+        finally:
+            logging.disable(disabled_before)
 
         # exit code reflects overall health; we only care that JSON is valid
         assert result.output, "expected JSON output"
