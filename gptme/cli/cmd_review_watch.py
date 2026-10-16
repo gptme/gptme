@@ -38,7 +38,13 @@ from pathlib import Path
 import click
 
 from ..util.gh import infer_owner_repo, is_trusted_reviewer, run_gh_json
-from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding, ReviewStatus
+from ..util.review import (
+    FindingStatus,
+    MergeSafety,
+    ReviewArtifact,
+    ReviewFinding,
+    ReviewStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -817,6 +823,12 @@ def review_watch(
             f"#{effective_pr_number}: {len(open_findings)} open finding(s).",
             err=True,
         )
+        if artifact.merge_safety is MergeSafety.UNSAFE:
+            click.echo(
+                "  ⚠️  Artifact merge-safety verdict is UNSAFE — the reviewer "
+                "judged this PR unsafe to merge as-is.",
+                err=True,
+            )
 
         # Filter findings by trusted reviewers if specified.
         # Pass repo context so findings with a github_comment_id are verified

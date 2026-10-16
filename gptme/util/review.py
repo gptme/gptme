@@ -87,6 +87,19 @@ class FindingStatus(str, Enum):
     """A fix session is currently working on this finding."""
 
 
+class MergeSafety(str, Enum):
+    """Merge-safety verdict carried by a forge-neutral review artifact.
+
+    Mirrors the ``MergeSafety`` enum in gptme-contrib's ``pr_review`` schema so
+    a forge-neutral artifact can be ingested without losing its merge verdict.
+    """
+
+    SAFE = "safe"
+    UNSAFE = "unsafe"
+    NEEDS_REVIEW = "needs_review"
+    UNKNOWN = "unknown"
+
+
 @dataclass
 class ReviewFinding:
     """A single review finding produced by an AI reviewer.
@@ -196,6 +209,67 @@ class ReviewStatus(str, Enum):
     """Review session failed or timed out, but some findings were extracted from partial output."""
 
 
+#: Severity translation for the forge-neutral (gptme-contrib) artifact schema.
+#: That schema uses five levels ordered low → high; this module uses four. The
+#: mapping is lossy by design and exists only for the migration reader below.
+_FORGE_NEUTRAL_SEVERITY: dict[str, FindingSeverity] = {
+    "critical": FindingSeverity.CRITICAL,
+    "high": FindingSeverity.ERROR,
+    "medium": FindingSeverity.WARNING,
+    "low": FindingSeverity.NOTE,
+    "info": FindingSeverity.NOTE,
+}
+
+#: Disposition translation for the forge-neutral artifact schema. Core models
+#: the lifecycle as ``FindingStatus``; ``needs_validation`` maps to the core
+#: ``OPEN`` state (still actionable by review-watch).
+_FORGE_NEUTRAL_DISPOSITION: dict[str, FindingStatus] = {
+    "confirmed": FindingStatus.CONFIRMED,
+    "needs_validation": FindingStatus.OPEN,
+    "dropped": FindingStatus.DROPPED,
+}
+
+
+def _is_forge_neutral(d: dict) -> bool:
+    """Detect gptme-contrib's forge-neutral ``pr_review`` artifact shape.
+
+    That schema declares an immutable ``target`` object (hosted PR or local
+    checkout) and a string ``schema_version`` (``"v1"``); this module's own
+    artifacts use an integer ``schema_version`` and a ``pr`` object. The two
+    shapes are unambiguous, so detection is safe.
+    """
+    return isinstance(d.get("target"), dict) and not isinstance(
+        d.get("schema_version"), int
+    )
+
+
+def _parse_line_range(raw: object) -> int | None:
+    """Extract the first line number from a ``"42"`` or ``"42-49"`` range."""
+    if not isinstance(raw, str):
+        return None
+    head = raw.split("-", 1)[0].strip()
+    try:
+        return int(head)
+    except ValueError:
+        return None
+
+
+def _forge_neutral_body(finding: dict) -> str:
+    """Compose a finding body from the forge-neutral title/description/evidence.
+
+    The forge-neutral schema splits a finding across several mandatory prose
+    fields; this module carries a single ``body``, so they are joined in
+    review order. Returns an empty string when nothing usable is present,
+    which the reader treats as a validation error.
+    """
+    parts = [
+        value.strip()
+        for key in ("title", "description", "evidence")
+        if isinstance((value := finding.get(key)), str) and value.strip()
+    ]
+    return "\n\n".join(parts)
+
+
 @dataclass
 class ReviewArtifact:
     """Structured output of a review pass, consumed by review-watch.
@@ -206,6 +280,13 @@ class ReviewArtifact:
 
     The artifact can be serialised to/from JSON for disk persistence and
     inter-process handoff.
+
+    ``from_dict`` also accepts the richer *forge-neutral* artifact emitted by
+    gptme-contrib's ``pr_review`` (a string ``schema_version``, an immutable
+    ``target``, per-finding ``disposition``, and a ``merge_safety`` verdict).
+    That shape is mapped onto this schema by :meth:`_from_forge_neutral` so
+    ``review-watch --artifact`` can consume it directly; unmappable input is
+    marked ``INCOMPLETE`` rather than silently treated as a clean review.
 
     Example JSON schema::
 
@@ -237,6 +318,9 @@ class ReviewArtifact:
 
     #: Whether the review completed fully or was interrupted.
     review_status: ReviewStatus = ReviewStatus.COMPLETE
+
+    #: Merge-safety verdict from the reviewer, when one was produced.
+    merge_safety: MergeSafety = MergeSafety.UNKNOWN
 
     #: Exit reason from the reviewer session ("done", "error", "timeout").
     session_exit_reason: str = ""
@@ -283,6 +367,7 @@ class ReviewArtifact:
                 "number": self.pr_number,
             },
             "review_status": self.review_status.value,
+            "merge_safety": self.merge_safety.value,
             "session_exit_reason": self.session_exit_reason,
             "session_error": self.session_error,
             "review_duration_s": self.review_duration_s,
@@ -303,6 +388,8 @@ class ReviewArtifact:
             raise TypeError(
                 f"ReviewArtifact.from_dict expects a dict, got {type(d).__name__!r}"
             )
+        if _is_forge_neutral(d):
+            return cls._from_forge_neutral(d)
         pr = d.get("pr", {})
         if not isinstance(pr, dict):
             pr = {}
@@ -377,16 +464,126 @@ class ReviewArtifact:
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
             review_status = ReviewStatus.INCOMPLETE
 
+        merge_safety = MergeSafety.UNKNOWN
+        merge_safety_raw = d.get("merge_safety")
+        if merge_safety_raw is not None:
+            try:
+                merge_safety = MergeSafety(merge_safety_raw)
+            except (TypeError, ValueError):
+                # An unrecognised verdict is not gate-relevant on its own, but it
+                # signals a producer/schema mismatch — count it like any other
+                # coercion error so the artifact is not reported as COMPLETE.
+                deserialization_errors += 1
+                review_status = ReviewStatus.INCOMPLETE
+
         return cls(
             pr_owner=pr_owner_val,
             pr_repo=pr_repo_val,
             pr_number=pr_number_val,
             findings=findings,
             review_status=review_status,
+            merge_safety=merge_safety,
             session_exit_reason=d.get("session_exit_reason", ""),
             session_error=d.get("session_error", ""),
             review_duration_s=review_duration_s,
             validation_errors=stored_validation_errors + deserialization_errors,
+        )
+
+    @classmethod
+    def _from_forge_neutral(cls, d: dict) -> ReviewArtifact:
+        """Ingest a gptme-contrib forge-neutral ``pr_review`` artifact.
+
+        Maps the richer, forge-neutral schema (immutable ``target``,
+        per-finding ``disposition``, ``merge_safety`` verdict) onto this
+        module's canonical schema, so ``review-watch --artifact`` can consume a
+        production reviewer artifact without a bespoke adapter.
+
+        Fields this schema does not model (``confidence``, ``fix_hint``,
+        per-run model/prompt/timestamps) are deliberately dropped: they are not
+        gate-relevant to ``review-watch``. The mapping is **fail-closed** — any
+        unmappable target, finding, or verdict marks the artifact
+        ``INCOMPLETE`` rather than returning a partial, apparently-complete
+        review (which review-watch would otherwise treat as clean).
+
+        A *local* target (a working-tree review with no PR) maps to empty PR
+        coordinates; ``review-watch`` requires a hosted PR and will still need
+        ``--repo``/``--pr`` supplied explicitly.
+        """
+        errors = 0
+
+        target = d.get("target")
+        target = target if isinstance(target, dict) else {}
+        pr_owner = ""
+        pr_repo = ""
+        pr_number = 0
+        if target.get("kind") == "local":
+            repo_name = target.get("repo_name", "")
+            if isinstance(repo_name, str) and "/" in repo_name:
+                pr_owner, pr_repo = repo_name.split("/", 1)
+            elif isinstance(repo_name, str):
+                pr_repo = repo_name
+        else:
+            repo = target.get("repo", "")
+            if isinstance(repo, str) and "/" in repo:
+                pr_owner, pr_repo = repo.split("/", 1)
+            else:
+                errors += 1
+            number = target.get("pr_number", 0)
+            if type(number) is int:
+                pr_number = number
+            else:
+                errors += 1
+
+        findings: list[ReviewFinding] = []
+        findings_raw = d.get("findings", [])
+        if not isinstance(findings_raw, list):
+            findings_raw = []
+            errors += 1
+        for f_raw in findings_raw:
+            if not isinstance(f_raw, dict):
+                errors += 1
+                continue
+            body = _forge_neutral_body(f_raw)
+            if not body:
+                # No prose means the finding cannot be acted on; count it like
+                # any other skipped finding rather than emitting an empty body.
+                errors += 1
+                continue
+            file_raw = f_raw.get("file_path", "")
+            findings.append(
+                ReviewFinding(
+                    body=body,
+                    file=file_raw if isinstance(file_raw, str) else "",
+                    line=_parse_line_range(f_raw.get("line_range")),
+                    severity=_FORGE_NEUTRAL_SEVERITY.get(
+                        str(f_raw.get("severity", "")).lower(),
+                        FindingSeverity.WARNING,
+                    ),
+                    status=_FORGE_NEUTRAL_DISPOSITION.get(
+                        str(f_raw.get("disposition", "")).lower(),
+                        FindingStatus.OPEN,
+                    ),
+                )
+            )
+
+        merge_safety = MergeSafety.UNKNOWN
+        merge_raw = d.get("merge_safety")
+        if merge_raw is not None:
+            try:
+                merge_safety = MergeSafety(merge_raw)
+            except (TypeError, ValueError):
+                errors += 1
+
+        return cls(
+            pr_owner=pr_owner,
+            pr_repo=pr_repo,
+            pr_number=pr_number,
+            findings=findings,
+            review_status=(
+                ReviewStatus.INCOMPLETE if errors else ReviewStatus.COMPLETE
+            ),
+            merge_safety=merge_safety,
+            validation_errors=errors,
         )
 
     @classmethod

@@ -20,6 +20,7 @@ from gptme.util import gh as gh_util
 from gptme.util.review import (
     FindingSeverity,
     FindingStatus,
+    MergeSafety,
     ReviewArtifact,
     ReviewFinding,
     ReviewStatus,
@@ -2922,3 +2923,192 @@ class TestReviewCheckoutProvenance:
         result = CliRunner().invoke(util_main, ["review", "pr", "--help"])
         assert result.exit_code == 0
         assert "--allow-checkout-mismatch" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Forge-neutral (gptme-contrib pr_review) artifact ingestion
+# ---------------------------------------------------------------------------
+
+
+def _forge_neutral_artifact(*, merge_safety="needs_review"):
+    """A minimal gptme-contrib ``pr_review`` (forge-neutral) artifact dict.
+
+    Uses the live v1 shape: a string ``schema_version``, an immutable
+    ``target`` object, and findings split across title/description/evidence
+    with a five-level severity and a disposition.
+    """
+    return {
+        "schema_version": "v1",
+        "target": {
+            "kind": "hosted",
+            "forge": "github",
+            "repo": "gptme/gptme",
+            "pr_number": 1234,
+            "base_sha": "a" * 40,
+            "head_sha": "b" * 40,
+        },
+        "model": "claude-sonnet-4-6",
+        "prompt_version": "v3",
+        "started_at": "2026-10-16T00:00:00Z",
+        "completed_at": "2026-10-16T00:01:00Z",
+        "summary": "One high finding.",
+        "merge_safety": merge_safety,
+        "findings": [
+            {
+                "id": "deadbeef",
+                "category": "correctness",
+                "severity": "high",
+                "confidence": 0.9,
+                "file_path": "gptme/util/review.py",
+                "line_range": "42-49",
+                "title": "Off-by-one in range check",
+                "description": "The upper bound is exclusive here.",
+                "evidence": "if i < len(xs) - 1:",
+                "fix_hint": "use <=",
+                "disposition": "confirmed",
+                "published": False,
+            },
+            {
+                "id": "cafebabe",
+                "category": "test-coverage",
+                "severity": "low",
+                "confidence": 0.5,
+                "file_path": "tests/test_x.py",
+                "line_range": "10",
+                "title": "Missing edge case",
+                "description": "Add a test for the empty list.",
+                "evidence": "def test_empty(): ...",
+                "disposition": "needs_validation",
+                "published": False,
+            },
+        ],
+        "dry_run": True,
+        "published_at": None,
+    }
+
+
+class TestForgeNeutralArtifactIngestion:
+    def test_hosted_target_maps_pr_identity(self):
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        assert artifact.pr_owner == "gptme"
+        assert artifact.pr_repo == "gptme"
+        assert artifact.pr_number == 1234
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+
+    def test_findings_are_mapped_field_for_field(self):
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        assert len(artifact.findings) == 2
+
+        first = artifact.findings[0]
+        assert first.file == "gptme/util/review.py"
+        assert first.line == 42  # leading line of the "42-49" range
+        assert first.severity == FindingSeverity.ERROR  # "high"
+        assert first.status == FindingStatus.CONFIRMED  # "confirmed"
+        assert "Off-by-one in range check" in first.body
+        assert "The upper bound is exclusive here." in first.body
+
+        second = artifact.findings[1]
+        assert second.line == 10
+        assert second.severity == FindingSeverity.NOTE  # "low"
+        assert second.status == FindingStatus.OPEN  # "needs_validation"
+        # Only needs_validation/confirmed findings remain actionable.
+        assert [f.body for f in artifact.open_findings] == [second.body]
+
+    def test_merge_safety_verdict_is_preserved(self):
+        artifact = ReviewArtifact.from_dict(
+            _forge_neutral_artifact(merge_safety="unsafe")
+        )
+        assert artifact.merge_safety is MergeSafety.UNSAFE
+
+    def test_local_target_maps_repo_without_pr_number(self):
+        data = _forge_neutral_artifact()
+        data["target"] = {
+            "kind": "local",
+            "checkout": "/tmp/checkout",
+            "repo_name": "gptme/gptme-contrib",
+            "base_sha": "a" * 40,
+            "head_sha": None,
+            "diff_fingerprint": "f" * 16,
+        }
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.pr_owner == "gptme"
+        assert artifact.pr_repo == "gptme-contrib"
+        assert artifact.pr_number == 0
+
+    def test_mapped_artifact_round_trips_as_core_schema(self):
+        """The ingested artifact re-serialises in core's own schema."""
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert restored.merge_safety is artifact.merge_safety
+        assert restored.pr_number == 1234
+        assert [f.body for f in restored.findings] == [
+            f.body for f in artifact.findings
+        ]
+
+    def test_core_schema_round_trips_merge_safety(self):
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=1,
+            merge_safety=MergeSafety.SAFE,
+        )
+        assert artifact.to_dict()["merge_safety"] == "safe"
+        assert (
+            ReviewArtifact.from_json(artifact.to_json()).merge_safety
+            is MergeSafety.SAFE
+        )
+
+    def test_missing_repo_marks_incomplete(self):
+        data = _forge_neutral_artifact()
+        data["target"]["repo"] = "gptme"  # no "owner/name" separator
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+
+    def test_finding_without_prose_marks_incomplete(self):
+        data = _forge_neutral_artifact()
+        data["findings"][0].pop("title")
+        data["findings"][0].pop("description")
+        data["findings"][0].pop("evidence")
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert len(artifact.findings) == 1
+
+    def test_unknown_merge_safety_marks_incomplete(self):
+        data = _forge_neutral_artifact(merge_safety="ship_it")
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.merge_safety is MergeSafety.UNKNOWN
+
+    def test_non_int_schema_version_without_target_stays_core(self):
+        """Detection must not misfire on core-shaped dicts missing pr metadata."""
+        data = {
+            "schema_version": "v2",
+            "review_status": "complete",
+            "findings": [],
+        }
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.pr_number == 0
+        assert artifact.review_status == ReviewStatus.COMPLETE
+
+    def test_review_watch_consumes_forge_neutral_artifact(self, tmp_path, monkeypatch):
+        """review-watch reads a forge-neutral artifact and reports the unsafe verdict."""
+        from gptme.cli import cmd_review_watch
+
+        path = tmp_path / "forge-neutral.json"
+        path.write_text(json.dumps(_forge_neutral_artifact(merge_safety="unsafe")))
+
+        monkeypatch.setattr(
+            cmd_review_watch,
+            "spawn_review_session",
+            lambda **_: {"exit_reason": "done", "duration_s": 0.1},
+        )
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        result = CliRunner().invoke(
+            util_main, ["review", "watch", "--artifact", str(path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "gptme/gptme#1234" in result.output
+        assert "UNSAFE" in result.output
