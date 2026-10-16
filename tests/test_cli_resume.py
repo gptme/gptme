@@ -127,7 +127,62 @@ def test_synthesize_prompt_structure(populated_logs: tuple[Path, list[Path]]):
     assert "Continue your work" in prompt
 
 
+def test_synthesize_prompt_respects_max_chars(tmp_path: Path):
+    """max_chars bounds the whole prompt, not just the task section."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    session = _make_session(logs, "long-task", task="Fix the bug in utils.py. " * 200)
+    prompt = synthesize_prompt(session, max_chars=400)
+    assert len(prompt) <= 400
+    # The task is truncated to fit, but its header still carries a body.
+    assert "[ORIGINAL TASK]" in prompt
+    assert "[ORIGINAL TASK]\n\n" not in prompt
+
+
+def test_synthesize_prompt_omits_section_without_room(tmp_path: Path):
+    """A section header is never emitted with an empty body."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    session = _make_session(logs, "long-task", task="Fix the bug. " * 200)
+    prompt = synthesize_prompt(session, max_chars=230)
+    assert len(prompt) <= 230
+    assert "[ORIGINAL TASK]\n\n" not in prompt
+
+
+@pytest.mark.parametrize("max_chars", [-1, 0, 1, 200])
+def test_synthesize_prompt_rejects_budget_below_framing(tmp_path: Path, max_chars: int):
+    session = _make_session(tmp_path, "small-budget", task="Fix the bug.")
+    with pytest.raises(ValueError, match="too small.*framing"):
+        synthesize_prompt(session, max_chars=max_chars)
+
+
+def test_synthesize_prompt_framing_budget_boundary(tmp_path: Path):
+    session = _make_session(tmp_path, "metadata-only")
+    (session / "conversation.jsonl").write_text("")
+    # Metadata is variable-sized: neither a fixed minimum nor final slicing
+    # can preserve the framing and enforce the limit for every session.
+    (session / "config.toml").write_text('name = "' + "long-name" * 100 + '"\n')
+    tool = session / "tool-outputs" / "shell"
+    tool.mkdir(parents=True)
+    (tool / "call.txt").write_text("output")
+    prompt = synthesize_prompt(session)
+    assert synthesize_prompt(session, max_chars=len(prompt)) == prompt
+    with pytest.raises(ValueError, match="too small.*framing"):
+        synthesize_prompt(session, max_chars=len(prompt) - 1)
+
+
 # ── CLI tests ───────────────────────────────────────────────────────────
+
+
+def test_resume_rejects_budget_below_framing(populated_logs, monkeypatch):
+    logs_dir, _ = populated_logs
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    result = CliRunner().invoke(resume, ["--max-chars", "200"])
+    assert result.exit_code == 2
+    assert "--max-chars" in result.output
+    assert "too small" in result.output
+    assert "framing" in result.output
+    assert "<<RESUMED SESSION>>" not in result.stdout
 
 
 def test_resume_no_logs_dir(tmp_path: Path, monkeypatch):
