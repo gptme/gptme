@@ -81,9 +81,21 @@ class TestEpisodeCounter:
     def test_verify_failure_does_not_reset(self):
         from gptme.tools.complete import _VERIFY_FAILED_MARKER
 
-        verify_fail = Message("user", f"{_VERIFY_FAILED_MARKER}: exit code 1.")
+        verify_fail = Message(
+            "user", f"<system>{_VERIFY_FAILED_MARKER}: exit code 1.</system>"
+        )
         msgs = [PROMPT, *_blocks(2), verify_fail, _block()]
         assert count_policy_blocks(msgs) == 3
+
+    def test_user_pasting_bare_verify_marker_resets(self):
+        from gptme.tools.complete import _VERIFY_FAILED_MARKER
+
+        # A real user message that starts with the literal marker phrase (but
+        # lacks the reserved <system> wrapper) is new authority, not harness
+        # output, and must start a fresh episode.
+        pasted = Message("user", f"{_VERIFY_FAILED_MARKER}: exit code 1.")
+        msgs = [PROMPT, *_blocks(2), pasted, _block()]
+        assert count_policy_blocks(msgs) == 1
 
     def test_episode_without_user_message_is_whole_log(self):
         msgs = [Message("system", "sys prompt"), _block()]
