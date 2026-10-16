@@ -19,6 +19,7 @@ from gptme.tui.app import (
     AssistantMessage,
     BouncingError,
     ChatInput,
+    ChatMarkdown,
     ConfirmScreen,
     CostMessage,
     GptmeApp,
@@ -3937,16 +3938,16 @@ async def test_hook_output_in_a_turn_keeps_its_place_and_block(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_display_turns_off_shows_one_block_per_message(tmp_path):
+async def test_display_grouping_off_shows_one_block_per_message(tmp_path):
     app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
     async with app.run_test(size=(80, 40)) as pilot:
         await app.wait_rendered()
-        app._display_command(["turns", "off"])
+        app._display_command(["grouping", "off"])
         await app.wait_rendered()
         await pilot.pause()
         assert not app.query(".turn-step") and not app.query(".turn-result")
         assert len(_visible_names(app)) == 4  # the user, each agent step
-        app._display_command(["turns", "on"])
+        app._display_command(["grouping", "on"])
         await app.wait_rendered()
         await pilot.pause()
         assert len(_visible_names(app)) == 2
@@ -3964,7 +3965,7 @@ async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
         app._on_stream_token("streaming reply")
         await app.wait_rendered()
         stream = app._stream_widget
-        app._display_command(["turns", "off"])
+        app._display_command(["grouping", "off"])
         await pilot.pause()
         assert stream is not None and stream.is_attached  # untouched
         assert app.query(".turn-step")  # not re-rendered yet
@@ -3979,3 +3980,28 @@ async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
         assert any(
             "provider overloaded" in str(w.render()) for w in app.query(InfoMessage)
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_text_stands_out_among_thinking_and_tool_calls(tmp_path):
+    """The agent's own text gets a blank line above and below it among
+    thinking and tool lines; tool titles are muted like thinking."""
+    from textual.widgets import Collapsible
+
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    content = "<think>\nhm\n</think>\nI'll check the files.\n```shell\nls\n```"
+    manager = make_manager(tmp_path, [Message("assistant", content)])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(80, 20)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        msg = app.query_one(AssistantMessage)
+        thinking, tool = msg.query(Collapsible)
+        prose = msg.query_one(ChatMarkdown)
+        assert prose.region.y == thinking.region.bottom + 1
+        assert tool.region.y == prose.region.bottom + 1
+        title = tool.query_one("CollapsibleTitle")
+        muted = thinking.query_one("CollapsibleTitle").styles.color
+        assert title.styles.color == muted
