@@ -1,6 +1,7 @@
 """Tests for the gptme doctor command."""
 
 import json
+import logging
 import sys
 import types
 from collections import UserDict
@@ -2724,11 +2725,20 @@ class TestCheckPlugins:
         """gptme-doctor --json includes per-plugin details in the output."""
         from gptme.plugins.plugin import GptmePlugin
 
+        # Keep the JSON contract independent of worker ordering: a prior test in
+        # the same xdist worker can leave a root logging handler bound to stdout
+        # (CLI tests call init_logging(stderr=False)), and any INFO record would
+        # be interleaved into the captured stdout, breaking json.loads below.
+        root_logger = logging.getLogger()
+
         empty_plugin = GptmePlugin(name="empty_plugin", tools=[])
         ep = SimpleNamespace(name="empty_plugin", load=lambda: empty_plugin)
 
         runner = CliRunner()
-        with patch("importlib.metadata.entry_points", return_value=[ep]):
+        with (
+            patch("importlib.metadata.entry_points", return_value=[ep]),
+            patch.object(root_logger, "handlers", []),
+        ):
             result = runner.invoke(main, ["--json"])
 
         # exit code reflects overall health; we only care that JSON is valid
