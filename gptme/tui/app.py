@@ -3157,7 +3157,15 @@ class GptmeApp(App):
 
     def _command_worker(self, msg: Message, cmd: str, before: list[Message]) -> None:
         result = self._execute_command(msg, cmd)
-        self.call_from_thread(self._background_command_done, cmd, before, result)
+        # from (a copy of) the chat context, like the generation worker: the
+        # callback, and widgets it mounts (e.g. the chat re-rendered after
+        # /compact), run in the context it's sent from, and this thread's own
+        # is empty: config would be a default one, without the agent's name.
+        # A copy: the callback enters _chat_ctx itself (a context can't be
+        # entered twice at once).
+        self._chat_ctx.copy().run(
+            self.call_from_thread, self._background_command_done, cmd, before, result
+        )
 
     def _background_command_done(
         self, cmd: str, before: list[Message], result: _CommandResult

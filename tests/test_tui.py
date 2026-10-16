@@ -4023,3 +4023,48 @@ async def test_later_step_with_text_is_set_apart_from_tool_steps(tmp_path):
         # says something: a blank line inside the block (the bar continues)
         assert steps[2].region.y == results[1].region.bottom
         assert steps[2].content_region.y == results[1].region.bottom + 1
+
+
+@pytest.mark.asyncio
+async def test_chat_redrawn_after_a_command_keeps_the_agent_name(tmp_path, monkeypatch):
+    """Commands (e.g. /compact) run off the UI thread; the chat re-rendered
+    after one must see the session's config (the agent's name), not a
+    default one from the worker thread's empty context."""
+    from gptme.config import ChatConfig, Config
+    from gptme.config.core import _config_var
+    from gptme.config.models import AgentConfig
+
+    monkeypatch.setattr(
+        ChatConfig, "agent_config", property(lambda self: AgentConfig(name="Bob"))
+    )
+    token = _config_var.set(Config(chat=ChatConfig()))
+    try:
+        history = [
+            Message("user", "hi"),
+            Message("assistant", "hello"),
+            Message("user", "again"),
+            Message("assistant", "back"),
+        ]
+        app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+        async with app.run_test() as pilot:
+            await app.wait_rendered()
+            await pilot.pause()
+            before = [
+                str(m.query_one(".role").render()) for m in app.query(AssistantMessage)
+            ]
+            assert before == ["Bob", "Bob"], before
+            inp = app.query_one("#input", ChatInput)
+            inp.text = "/undo"  # changes the log: the chat is re-rendered
+            await pilot.press("enter")
+            for _ in range(100):
+                await pilot.pause(0.02)
+                if not app.generating:
+                    break
+            await app.wait_rendered()
+            await pilot.pause()
+            labels = [
+                str(m.query_one(".role").render()) for m in app.query(AssistantMessage)
+            ]
+            assert labels and all(label == "Bob" for label in labels), labels
+    finally:
+        _config_var.reset(token)
