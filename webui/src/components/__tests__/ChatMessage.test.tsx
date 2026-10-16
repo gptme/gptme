@@ -165,6 +165,34 @@ describe('ChatMessage', () => {
     expect(messageElement).toBeInTheDocument();
   });
 
+  it.each([false, true])(
+    'preserves desktop padding and applies tool-result styling only when enabled (%s)',
+    (isToolResult) => {
+      const message$ = observable<Message>({
+        role: 'system',
+        content: 'Saved example.py',
+      });
+
+      const { container } = renderWithProviders(
+        <ChatMessage
+          message$={message$}
+          conversationId={testConversationId}
+          isToolResult={isToolResult}
+          hideAvatar={isToolResult}
+        />
+      );
+      const contentWrapper = container.querySelector('.group\\/message')?.parentElement;
+      expect(contentWrapper).toHaveClass('md:px-12');
+      for (const className of ['border-l-2', 'border-border/40', 'md:ml-4']) {
+        if (isToolResult) {
+          expect(contentWrapper).toHaveClass(className);
+        } else {
+          expect(contentWrapper).not.toHaveClass(className);
+        }
+      }
+    }
+  );
+
   it('renders copy button on messages', () => {
     const message$ = observable<Message>({
       role: 'assistant',
