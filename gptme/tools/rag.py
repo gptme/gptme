@@ -216,10 +216,11 @@ def rag_search(
     """
     cmd = ["gptme-rag", "search", query]
     if return_full:
-        # shows full context of the search results
-        cmd.extend(["--raw"])
+        # full document content, without syntax highlighting
+        cmd.extend(["--format", "full", "--raw"])
     if top_k is not None:
-        cmd.extend(["--top-k", str(top_k)])
+        # gptme-rag's search option is --n-results/-n (there is no --top-k)
+        cmd.extend(["--n-results", str(top_k)])
     persist_dir = _project_persist_dir(project)
     if persist_dir is not None:
         cmd.extend(["--persist-dir", str(persist_dir)])
