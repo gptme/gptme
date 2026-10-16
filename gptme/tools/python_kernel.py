@@ -14,6 +14,7 @@ functions. Message-returning helpers deliver their attachments directly back
 to gptme rather than reducing them to a kernel text representation.
 """
 
+import contextlib
 import logging
 import os
 import pickle
@@ -520,6 +521,12 @@ class KernelBackend:
             self._kc.start_channels()
             self._kc.wait_for_ready(timeout=30)
         except RuntimeError as exc:
+            if self._kc is not None:
+                # Stop the failed client's channels before replacing it, so
+                # repeated failures don't leak sockets and heartbeat threads.
+                with contextlib.suppress(Exception):
+                    self._kc.stop_channels()
+                self._kc = None
             self._km.shutdown_kernel(now=True)
             if using_uv and default_kernel_argv is not None:
                 # The uv path can fail (e.g. an offline environment with no warm
@@ -539,6 +546,10 @@ class KernelBackend:
                     self._kc.start_channels()
                     self._kc.wait_for_ready(timeout=30)
                 except RuntimeError as exc2:
+                    if self._kc is not None:
+                        with contextlib.suppress(Exception):
+                            self._kc.stop_channels()
+                        self._kc = None
                     self._km.shutdown_kernel(now=True)
                     raise RuntimeError(f"Kernel failed to start: {exc2}") from exc2
             else:
