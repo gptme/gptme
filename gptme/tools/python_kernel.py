@@ -379,13 +379,26 @@ class KernelBackend:
 
     @staticmethod
     def _is_uv_project() -> bool:
-        """Return True if the current directory looks like a uv-managed project."""
+        """Return True if the current directory looks like a uv-managed project.
+
+        Requires an explicit uv marker — a ``uv.lock`` file or a ``[tool.uv]``
+        section in ``pyproject.toml``. A plain pip project that merely has a
+        ``pyproject.toml`` must not be treated as uv-managed: ``uv run`` would
+        then create a ``.venv`` in a project the user never opted into uv.
+        """
         cwd = Path.cwd()
-        return (cwd / "uv.lock").exists() or (
-            (cwd / "pyproject.toml").exists()
-            and not (cwd / "poetry.lock").exists()
-            and KernelBackend._find_uv() is not None
-        )
+        if (cwd / "uv.lock").exists():
+            return True
+        pyproject = cwd / "pyproject.toml"
+        if not pyproject.exists() or (cwd / "poetry.lock").exists():
+            return False
+        if KernelBackend._find_uv() is None:
+            return False
+        try:
+            text = pyproject.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return False
+        return "[tool.uv]" in text or "[tool.uv." in text
 
     @staticmethod
     def _build_uv_kernel_cmd() -> list[str] | None:

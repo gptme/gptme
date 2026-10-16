@@ -674,9 +674,19 @@ def test_is_uv_project_false_when_no_lock(tmp_path, monkeypatch):
     assert KernelBackend._is_uv_project() is False
 
 
-def test_is_uv_project_true_with_pyproject_no_poetry(tmp_path, monkeypatch):
-    """_is_uv_project returns True for pyproject.toml without poetry.lock when uv available."""
+def test_is_uv_project_false_for_plain_pyproject(tmp_path, monkeypatch):
+    """A plain pyproject.toml (no uv marker) is not a uv project."""
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test'\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is False
+
+
+def test_is_uv_project_true_with_tool_uv_section(tmp_path, monkeypatch):
+    """_is_uv_project returns True when pyproject.toml has a [tool.uv] section."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'test'\n\n[tool.uv]\ndev-dependencies = []\n"
+    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
     assert KernelBackend._is_uv_project() is True
