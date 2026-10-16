@@ -4,7 +4,7 @@ The assistant can execute Python code blocks.
 It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.
 
 Configuration:
-    GPTME_IPYTHON_TIMEOUT: Seconds an in-process code block may run before it is
+    GPTME_IPYTHON_TIMEOUT: Seconds a code block may run before it is
         interrupted (default 600, 0 disables). Processes the block started are
         killed too, and ``time.sleep`` is interruptible while a block runs;
         other blocking calls (e.g. a socket read) only stop once they return.
@@ -14,7 +14,8 @@ cells (default ``auto``):
 
 - ``auto``: use the kernel backend when a project environment is detected
   (a ``.venv`` directory, an active ``VIRTUAL_ENV``, or a ``uv.lock`` /
-  ``[tool.uv]`` project marker).  Falls back to in-process when none is found.
+  ``[tool.uv]`` project marker) and the ``kernel`` extra is installed.
+  Falls back to in-process when no environment or kernel dependencies are found.
 - ``kernel``: always use the kernel backend.
 - ``inprocess``: always use the in-process backend.
 
@@ -99,12 +100,18 @@ def _should_use_kernel() -> bool:
 
         has_venv = _detect_venv() is not None
         is_uv = KernelBackend._is_uv_project()
-        _kernel_mode_cache = has_venv or is_uv
+        # Auto mode must not break installations without the optional extra.
+        # Both are needed for the host's default-kernel fallback as well.
+        available = all(
+            importlib.util.find_spec(name) is not None
+            for name in ("jupyter_client", "ipykernel")
+        )
+        _kernel_mode_cache = (has_venv or is_uv) and available
         if _kernel_mode_cache:
             logger.info("Auto-activating kernel backend: project environment detected")
         else:
             logger.debug(
-                "No project environment found; using in-process IPython backend"
+                "No usable project kernel environment found; using in-process IPython backend"
             )
     return _kernel_mode_cache
 
@@ -309,11 +316,8 @@ def register_function(func: T, *, tool_name: str | None = None) -> T:
     # if ipython is already initialized, push the function to it to make it available
     if _ipython is not None:
         _ipython.push({func.__name__: func})
-    # In kernel mode, register as a bridge-callable stub in the kernel
-    if _should_use_kernel():
-        from .python_kernel import get_backend
-
-        get_backend().register_bridge_function(func)
+    # Do not select a backend here: tool initialization runs before chat()
+    # switches into the selected workspace. Bridge stubs are synced at execution.
     return func
 
 
@@ -482,12 +486,11 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     from .python_kernel import get_backend
 
     backend = get_backend()
-    timeout = _get_timeout()
-    execute_kwargs: dict = {}
-    if timeout is not None:
-        execute_kwargs["timeout"] = timeout
+    for name, func in registered_functions.items():
+        if backend._bridge._functions.get(name) is not func:
+            backend.register_bridge_function(func)
     try:
-        result = backend.execute(code, **execute_kwargs)
+        result = backend.execute(code, timeout=_get_timeout())
     except RuntimeError as exc:
         yield Message(
             "system",
@@ -502,7 +505,13 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     # If the cell returned Message / list[Message] objects directly (via the
     # kernel's displayhook wrapper), deliver them and skip the summary, exactly
     # as the in-process path does on isinstance(result.result, list) returns.
-    if backend._bridge.messages and result.result_text is None and not result.stdout:
+    if (
+        backend._bridge.messages
+        and result.result_text is None
+        and not result.stdout
+        and not result.stderr
+        and not result.error
+    ):
         yield from backend._bridge.messages
         return
 

@@ -179,7 +179,10 @@ class BridgeServer:
                     # Helpers run in the host process: never change its global cwd
                     # for work that can outlive an interrupted kernel cell.
                     with self._call_lock:
-                        if call.get("cwd", os.getcwd()) != os.getcwd():
+                        if (
+                            fn_name != "_gptme_deliver_messages"
+                            and call.get("cwd", os.getcwd()) != os.getcwd()
+                        ):
                             raise RuntimeError(
                                 "Bridge helper working directory differs from the host; "
                                 "change directory through the shell before calling helpers"
@@ -794,8 +797,8 @@ class KernelBackend:
                     )
                 return
 
-    def execute(self, code: str, timeout: float = 120) -> KernelExecResult:
-        """Execute a code cell and return captured outputs."""
+    def execute(self, code: str, timeout: float | None = 120) -> KernelExecResult:
+        """Execute a code cell and return captured outputs; None disables timeout."""
         self._ensure_started()
 
         # A previous cell may itself have used %cd/os.chdir, so synchronize on
@@ -820,13 +823,13 @@ class KernelBackend:
         self._bridge.cell_context = copy_context()
         msg_id = self._kc.execute(code, silent=False, store_history=True)
         self._bridge.active_cell = msg_id
-        deadline = _monotonic() + timeout
+        deadline = _monotonic() + timeout if timeout is not None else None
 
         timed_out = False
         died = False
         while True:
-            remaining = deadline - _monotonic()
-            if remaining <= 0:
+            remaining = deadline - _monotonic() if deadline is not None else 0.5
+            if deadline is not None and remaining <= 0:
                 logger.warning("Kernel execute timed out after %.0fs", timeout)
                 self.interrupt()
                 timed_out = True

@@ -63,6 +63,8 @@ def test_ipython_registered_read_only_function_reaches_cli_auto_approval(
     function_name = spec.functions[0].name
     token = _loaded_tools_var.set([spec, python_tool.tool])
     old_owners = dict(python_tool.registered_function_tools)
+    # This test stops at the in-process execution boundary after confirmation.
+    monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
     seen: list[ConfirmAction] = []
     try:
         python_tool.registered_function_tools[function_name] = tool_name
