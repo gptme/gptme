@@ -21,6 +21,7 @@ turns no-op if a hidden system message already contains this hook's sentinel
 as a line prefix.
 """
 
+import json
 import logging
 import re
 import subprocess
@@ -354,7 +355,18 @@ def _unquote_git_path(line: str) -> str:
                 continue
         out.extend(ch.encode("utf-8", "surrogateescape"))
         i += 1
-    return out.decode("utf-8", errors="replace")
+    return out.decode("utf-8", errors="surrogateescape")
+
+
+def _redact_untracked_path(line: str) -> str:
+    """Redact decoded names, preserving Git's spelling when unchanged."""
+    decoded = _unquote_git_path(line)
+    redacted = redact_secret_values_in_path(decoded)
+    if redacted == decoded:
+        return line
+    # Redaction must see through C-quoting, but the displayed result must not
+    # introduce literal control characters or non-UTF-8 bytes into the log.
+    return json.dumps(redacted) if line.startswith('"') else redacted
 
 
 def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
@@ -379,10 +391,7 @@ def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     text, truncated = result
     raw = [line for line in text.splitlines() if line.strip()]
     more = truncated or len(raw) > _MAX_UNTRACKED_PATHS
-    paths = [
-        redact_secret_values_in_path(_unquote_git_path(line))
-        for line in raw[:_MAX_UNTRACKED_PATHS]
-    ]
+    paths = [_redact_untracked_path(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
     return paths, more
 
 

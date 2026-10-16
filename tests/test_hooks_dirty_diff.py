@@ -188,6 +188,41 @@ def test_hook_redacts_secrets_in_cquoted_untracked_filename(git_repo):
     assert "ghp_abc" not in out[0].content
 
 
+@pytest.mark.parametrize(
+    ("name", "spelling"),
+    [
+        ("line\nbreak.py", '"line\\nbreak.py"'),
+        ("tab\tname.py", '"tab\\tname.py"'),
+        ('with"quote.py', '"with\\"quote.py"'),
+        ("invalid\udcff.py", '"invalid\\377.py"'),
+    ],
+)
+def test_hook_preserves_untracked_path_spelling(git_repo, name, spelling):
+    import os
+
+    if os.name == "nt":
+        pytest.skip("These filenames require POSIX filesystem semantics")
+    (git_repo / name).write_text("x\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert f"- {spelling}\n" in out[0].content
+    assert "�" not in out[0].content
+
+
+def test_redacted_untracked_path_escapes_control_characters():
+    import json
+
+    from gptme.hooks.dirty_diff import _redact_untracked_path
+
+    result = _redact_untracked_path('"GITHUB_TOKEN=ghp_abc notes\\tfile.py"')
+
+    assert "ghp_abc" not in result
+    assert "\t" not in result
+    assert json.loads(result) == "GITHUB_TOKEN=[REDACTED] notes\tfile.py"
+
+
 def test_unquote_git_path_octal_and_escapes():
     from gptme.hooks.dirty_diff import _unquote_git_path
 
