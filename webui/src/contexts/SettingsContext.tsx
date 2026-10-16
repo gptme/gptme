@@ -67,6 +67,12 @@ export interface Settings {
    * Equivalent to --no-confirm in the CLI (also known as "YOLO mode").
    */
   noConfirmMode: boolean;
+  /**
+   * When true (default), consecutive assistant steps and their tool results within
+   * a turn are collapsed into a single expandable group — one block per turn.
+   * Disable to fall back to one-block-per-message view for debugging.
+   */
+  groupTurns: boolean;
 }
 
 interface SettingsContextType {
@@ -90,6 +96,7 @@ const defaultSettings: Settings = {
   sttAuthToken: '',
   voiceServerUrl: '',
   noConfirmMode: false,
+  groupTurns: true,
 };
 
 function loadSettingsFromStorage(): Settings {

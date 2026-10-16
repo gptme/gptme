@@ -20,6 +20,10 @@ export type StepRole =
       /** Rich detail for each tool call step (in order). Present when we have assistant
        *  messages with codeblock content to parse. */
       steps?: ToolStepDetail[];
+      /** True when the group-start message is itself a tool output (e.g. a bare tool
+       *  result with no preceding assistant step). When expanded, indent it like other
+       *  tool-result rows so the first and remaining rows share consistent indentation. */
+      isToolOutput?: boolean;
     }
   | { type: 'grouped'; groupId: number } // hidden step (collapsed)
   | { type: 'tool-result'; groupId: number } // tool result indented under its step (hidden when collapsed)
@@ -214,6 +218,13 @@ export function buildStepRoles(
       // Only include steps when we have useful detail (don't bloat the object)
       if (allSteps.length > 0) {
         groupStart.steps = allSteps;
+      }
+
+      // When the first step is itself a tool-output system message (no leading
+      // assistant step), mark it so the expanded view can indent it consistently.
+      const firstStepMsg = messages[firstIdx];
+      if (firstStepMsg?.role === 'system' && detectTool(firstStepMsg.content) !== null) {
+        groupStart.isToolOutput = true;
       }
 
       roles.set(absFirstIdx, groupStart);
