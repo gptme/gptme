@@ -541,3 +541,56 @@ def test_kernel_execute_display_output(backend):
     )
     assert "hello display" in result.stdout
     assert result.error is None
+
+
+# ---------------------------------------------------------------------------
+# Memory guard + kernel death (gptme/gptme#4355: "the memory guard watches the
+# kernel's process group")
+# ---------------------------------------------------------------------------
+
+
+def test_kernel_registers_its_process_group_with_memory_guard(backend):
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend.execute("1")
+    assert watch.call_count == 1
+    target = watch.call_args.args[0]
+    kernel_pid = backend._km.provisioner.pid
+    assert target.pgid == os.getpgid(kernel_pid)
+    # The kernel runs in its own session: never register gptme's own group.
+    assert target.pgid != os.getpgid(0)
+    assert "kernel" in target.label
+    assert target.alive() is True
+    backend.shutdown()
+    assert target.alive() is False
+
+
+def test_kernel_death_mid_cell_is_reported_promptly(backend):
+    """A kernel that dies while a cell runs must not block until the timeout."""
+    import time
+
+    start = time.monotonic()
+    result = backend.execute(
+        "import os, signal; os.kill(os.getpid(), signal.SIGKILL)", timeout=30
+    )
+    elapsed = time.monotonic() - start
+    assert elapsed < 10, f"blocked {elapsed:.1f}s waiting on a dead kernel"
+    assert result.error is not None
+    assert result.error["ename"] == "KernelDied"
+    # The next cell restarts the kernel transparently.
+    assert backend.execute("1 + 1").result_text == "2"
+
+
+def test_memory_guard_kill_reason_reaches_the_model(backend):
+    """When the guard kills the kernel, its explanation surfaces in the output."""
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend.execute("x = 1")
+    target = watch.call_args.args[0]
+    # Same order as MemoryGuard.check(): explain, then kill.
+    target.on_killed("Killed the IPython kernel: system memory was nearly exhausted")
+    target.kill()
+    result = backend.execute("1 + 1")
+    assert result.result_text == "2"
+    assert "Killed the IPython kernel" in result.stderr
+    assert "earlier cells are lost" in result.stderr
+    # Reported once, not on every later cell.
+    assert "Killed the IPython kernel" not in backend.execute("2 + 2").stderr

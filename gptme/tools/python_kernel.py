@@ -26,6 +26,10 @@ from collections.abc import Callable
 from contextvars import Context, copy_context
 from typing import Any
 
+from .shell_memory import Target as MemoryTarget
+from .shell_memory import kill_group
+from .shell_memory import watch as watch_memory
+
 logger = logging.getLogger(__name__)
 
 _MAX_BRIDGE_CONNECTIONS = 16
@@ -327,6 +331,9 @@ class KernelBackend:
         self._registered_stubs: list[str] = []
         # Track last synced working directory; None forces a sync on first execute.
         self._last_cwd: str | None = None
+        # Explanation from the memory guard after it killed the kernel; reported
+        # to the model once, with the next cell's output.
+        self._memory_notice: str | None = None
 
     # ------------------------------------------------------------------
     # Environment detection
@@ -428,6 +435,7 @@ class KernelBackend:
 
         self._started = True
         logger.info("Kernel started")
+        self._watch_memory()
 
         try:
             # Push bridge bootstrap with current port and auth token.
@@ -445,6 +453,50 @@ class KernelBackend:
         except RuntimeError:
             self.shutdown()
             raise
+
+    def _watch_memory(self) -> None:
+        """Have the shell memory guard watch the kernel's process group.
+
+        jupyter_client starts the kernel in its own session, so the group is the
+        kernel plus anything a cell spawns. If memory runs low the guard may kill
+        it like any other agent-started group (see shell_memory.py).
+        """
+        km = self._km
+        provisioner = getattr(km, "provisioner", None)
+        pid = getattr(provisioner, "pid", None)
+        if not pid:
+            return
+        pgid = getattr(provisioner, "pgid", None)
+        if not pgid:
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                return
+        if pgid == os.getpgid(0):
+            # Never register our own group: killing it would take gptme down.
+            logger.debug("Kernel shares gptme's process group; not guarding it")
+            return
+        watch_memory(
+            MemoryTarget(
+                pgid=pgid,
+                label="the IPython kernel",
+                kill=lambda: kill_group(pgid),
+                alive=km.is_alive,
+                on_killed=self._on_memory_killed,
+            )
+        )
+
+    def _on_memory_killed(self, reason: str) -> None:
+        notice = (
+            f"{reason} The kernel restarts with the next cell; variables and "
+            "imports from earlier cells are lost."
+        )
+        existing = self._memory_notice
+        self._memory_notice = notice if not existing else existing + "\n" + notice
+
+    def _take_memory_notice(self) -> str | None:
+        notice, self._memory_notice = self._memory_notice, None
+        return notice
 
     def is_alive(self) -> bool:
         return self._started and self._km is not None and self._km.is_alive()
@@ -496,6 +548,8 @@ class KernelBackend:
             try:
                 msg = self._kc.get_shell_msg(timeout=min(remaining, 1.0))
             except Exception:
+                if not self.is_alive():
+                    raise RuntimeError("Kernel process exited during setup") from None
                 continue
             if msg["parent_header"].get("msg_id") == msg_id:
                 content = msg.get("content", {})
@@ -535,6 +589,7 @@ class KernelBackend:
         deadline = _monotonic() + timeout
 
         timed_out = False
+        died = False
         while True:
             remaining = deadline - _monotonic()
             if remaining <= 0:
@@ -546,7 +601,14 @@ class KernelBackend:
                 # Short poll so we don't block too long after an external interrupt
                 msg = self._kc.get_iopub_msg(timeout=min(remaining, 0.5))
             except Exception:
-                # No iopub message within the poll window; check shell for execute_reply
+                # No iopub message within the poll window. A kernel killed by
+                # the memory guard, OOM or a crash sends nothing: check it is
+                # still there rather than waiting for the timeout.
+                if not self.is_alive():
+                    logger.warning("Kernel process exited while running a cell")
+                    died = True
+                    break
+                # Check shell for execute_reply
                 try:
                     shell_msg = self._kc.get_shell_msg(timeout=0)
                     if shell_msg["parent_header"].get("msg_id") == msg_id:
@@ -629,6 +691,24 @@ class KernelBackend:
                     "evalue": f"Cell execution timed out after {timeout:.0f}s and was interrupted",
                     "traceback": [],
                 }
+
+        if died and error is None:
+            error = {
+                "ename": "KernelDied",
+                "evalue": self._take_memory_notice()
+                or (
+                    "The kernel process exited while running this cell (crash, "
+                    "out-of-memory kill or external signal). It restarts with "
+                    "the next cell; variables and imports from earlier cells "
+                    "are lost."
+                ),
+                "traceback": [],
+            }
+
+        # A guard kill between cells: the kernel restarted in _ensure_started,
+        # so tell the model why its state is gone.
+        if (notice := self._take_memory_notice()) is not None:
+            stderr_parts.append(("\n" if stderr_parts else "") + notice + "\n")
 
         def _with_marker(parts: list[str], buffered: int, total: int) -> str:
             text = "".join(parts)
