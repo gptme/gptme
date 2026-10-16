@@ -3054,6 +3054,18 @@ class TestForgeNeutralArtifactIngestion:
             f.body for f in artifact.findings
         ]
 
+    def test_finding_ids_survive_core_round_trip(self):
+        artifact = ReviewArtifact.from_dict(_forge_neutral_artifact())
+        assert [f.independence_key for f in artifact.findings] == [
+            "deadbeef",
+            "cafebabe",
+        ]
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert [f.independence_key for f in restored.findings] == [
+            "deadbeef",
+            "cafebabe",
+        ]
+
     def test_core_schema_round_trips_merge_safety(self):
         artifact = ReviewArtifact(
             pr_owner="gptme",

@@ -685,6 +685,8 @@ class ReviewArtifact:
             file_raw = f_raw.get("file_path", "")
             category_raw = f_raw.get("category", "")
             category = category_raw if isinstance(category_raw, str) else ""
+            finding_id = f_raw.get("id", "")
+            independence_key = finding_id if isinstance(finding_id, str) else ""
             severity = _FORGE_NEUTRAL_SEVERITY.get(
                 str(f_raw.get("severity", "")).lower()
             )
@@ -705,6 +707,7 @@ class ReviewArtifact:
                     severity=severity,
                     status=status,
                     category=category,
+                    independence_key=independence_key,
                 )
             )
 
