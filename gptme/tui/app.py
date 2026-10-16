@@ -868,6 +868,7 @@ class AssistantMessage(Vertical):
         )
 
         if not has_thinking and not has_tool_calls:
+            self.add_class("has-text")
             yield ChatMarkdown(self.content)
             return
 
@@ -902,20 +903,23 @@ class AssistantMessage(Vertical):
                     )
                     parts.append(("tool", call))
         kinds = [kind for kind, _ in parts]
+        # a later step that says something is set apart from the tool steps
+        self.set_class("prose" in kinds, "has-text")
         for index, (_, widget) in enumerate(parts):
-            for cls in _prose_gaps(kinds, index, self.has_class("turn-step")):
+            for cls in _prose_gaps(kinds, index):
                 widget.add_class(cls)
             yield widget
 
 
-def _prose_gaps(kinds: list[str], index: int, continues_turn: bool) -> list[str]:
-    """Space around the agent's own text among thinking and tool lines, so it
-    stands out as what to read: a blank line above and below, except at the
-    message's edges (a step continuing a turn starts with one above)."""
+def _prose_gaps(kinds: list[str], index: int) -> list[str]:
+    """Space between the agent's own text and tool lines in a step, so the
+    text stands out: a blank line between a tool call and text after it, and
+    between text and a tool call after it. Thinking directly above the text
+    needs none (see also ``.turn-step.has-text``)."""
     if kinds[index] != "prose":
         return []
     gaps = []
-    if (index > 0 and kinds[index - 1] != "prose") or (index == 0 and continues_turn):
+    if index > 0 and kinds[index - 1] == "tool":
         gaps.append("prose-gap-above")
     if index + 1 < len(kinds) and kinds[index + 1] != "prose":
         gaps.append("prose-gap-below")
@@ -1136,9 +1140,10 @@ class StreamingMessage(Vertical):
         ]
         kinds = [kind for _, kind in shown]
         gaps = {
-            index: _prose_gaps(kinds, position, self.has_class("turn-step"))
+            index: _prose_gaps(kinds, position)
             for position, (index, _) in enumerate(shown)
         }
+        self.set_class("prose" in kinds, "has-text")
         for index, row in enumerate(self._segments[: len(segments)]):
             row.set_class("prose-gap-above" in gaps.get(index, []), "prose-gap-above")
             row.set_class("prose-gap-below" in gaps.get(index, []), "prose-gap-below")
@@ -2094,6 +2099,11 @@ class GptmeApp(App):
        indented under the step, in the agent's bar */
     .message.turn-step, .message.turn-result {
         margin-top: 0;
+    }
+    /* a later step with text: a blank line sets it apart from the tool steps
+       before it (steps that only think and call tools stay compact) */
+    .message.turn-step.has-text {
+        padding: 1 0 0 1;  /* padding, not margin: the bar continues */
     }
     .message.turn-step > .role, .message.turn-result > .role {
         display: none;

@@ -1531,12 +1531,14 @@ async def test_finalize_stream_height_does_not_collapse(tmp_path):
         # Stream the entire 60-line save call token by token (chunked for speed)
         for line in _SAVE_60_LINES.splitlines(keepends=True):
             sm.append_token(line)
+        await app.wait_rendered()
         await pilot.pause()
 
         height_before = sm.content_size.height
 
         # Finalize
         app._on_step_message(Message("assistant", _SAVE_60_LINES))
+        await app.wait_rendered()
         await pilot.pause()
 
         am = app.query_one(AssistantMessage)
@@ -3984,8 +3986,8 @@ async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
 
 @pytest.mark.asyncio
 async def test_agent_text_stands_out_among_thinking_and_tool_calls(tmp_path):
-    """The agent's own text gets a blank line above and below it among
-    thinking and tool lines; tool titles are muted like thinking."""
+    """The agent's own text is set apart from tool lines by a blank line (not
+    from the thinking line above it); tool titles are muted like thinking."""
     from textual.widgets import Collapsible
 
     from gptme.tools import init_tools
@@ -4000,8 +4002,24 @@ async def test_agent_text_stands_out_among_thinking_and_tool_calls(tmp_path):
         msg = app.query_one(AssistantMessage)
         thinking, tool = msg.query(Collapsible)
         prose = msg.query_one(ChatMarkdown)
-        assert prose.region.y == thinking.region.bottom + 1
+        assert prose.region.y == thinking.region.bottom  # thinking: no gap
         assert tool.region.y == prose.region.bottom + 1
         title = tool.query_one("CollapsibleTitle")
         muted = thinking.query_one("CollapsibleTitle").styles.color
         assert title.styles.color == muted
+
+
+@pytest.mark.asyncio
+async def test_later_step_with_text_is_set_apart_from_tool_steps(tmp_path):
+    """In a grouped turn, steps that only think and call tools are compact; a
+    step that says something gets a blank line above it."""
+    app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        steps = list(app.query(AssistantMessage))
+        results = list(app.query(SystemMessage))
+        assert steps[1].content_region.y == results[0].region.bottom  # compact
+        # says something: a blank line inside the block (the bar continues)
+        assert steps[2].region.y == results[1].region.bottom
+        assert steps[2].content_region.y == results[1].region.bottom + 1
