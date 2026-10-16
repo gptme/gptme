@@ -375,6 +375,28 @@ def test_rag_search_with_project_passes_persist_dir(tmp_path):
     assert cmd[persist_dir_idx + 1] == str(tmp_path / "rag" / "myproject")
 
 
+def test_rag_search_top_k_uses_n_results_flag():
+    """top_k maps to gptme-rag's --n-results option, which is the real flag."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "results\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        rag_search("query", top_k=3)
+    cmd = mock_run.call_args[0][0]
+    assert "--top-k" not in cmd
+    assert cmd[cmd.index("--n-results") + 1] == "3"
+
+
+def test_rag_search_return_full_requests_full_format():
+    """return_full asks gptme-rag for full content, not just raw output."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "results\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        rag_search("query", return_full=True)
+    cmd = mock_run.call_args[0][0]
+    assert cmd[cmd.index("--format") + 1] == "full"
+    assert "--raw" in cmd
+
+
 def test_rag_status_no_project_calls_cli():
     """Without project, delegates to gptme-rag status CLI."""
     mock_proc = MagicMock()
