@@ -1796,6 +1796,21 @@ def test_context_journal_no_entries(tmp_path):
     assert "No journal entries" in result.output
 
 
+def test_context_journal_rejects_nonpositive_days(tmp_path):
+    """--days must be a positive integer instead of a silent no-op."""
+    runner = CliRunner()
+    journal_dir = tmp_path / "journal"
+    journal_dir.mkdir()
+    (journal_dir / "2026-01-01-topic.md").write_text("# Entry\n")
+
+    for value in ("0", "-1"):
+        result = runner.invoke(
+            main, ["context", "journal", "--path", str(journal_dir), "--days", value]
+        )
+        assert result.exit_code == 2, result.output
+        assert "days" in result.output.lower()
+
+
 def test_context_journal_rejects_file_path(tmp_path):
     """context journal should reject a file passed to --path."""
     runner = CliRunner()
