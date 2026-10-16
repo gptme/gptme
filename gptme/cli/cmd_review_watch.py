@@ -38,7 +38,13 @@ from pathlib import Path
 import click
 
 from ..util.gh import infer_owner_repo, is_trusted_reviewer, run_gh_json
-from ..util.review import FindingStatus, ReviewArtifact, ReviewFinding, ReviewStatus
+from ..util.review import (
+    FindingStatus,
+    MergeSafety,
+    ReviewArtifact,
+    ReviewFinding,
+    ReviewStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -801,6 +807,16 @@ def review_watch(
             click.echo(
                 f"  ⚠️  Warning: Processing INCOMPLETE artifact ({detail_str}). "
                 "Not all issues may have been reviewed.",
+                err=True,
+            )
+
+        # Surface the merge-safety verdict before the open-findings early return:
+        # an artifact can be marked UNSAFE while carrying no open findings, and
+        # swallowing the verdict behind "nothing to fix" would hide it.
+        if artifact.merge_safety is MergeSafety.UNSAFE:
+            click.echo(
+                "  ⚠️  Artifact merge-safety verdict is UNSAFE — the reviewer "
+                "judged this PR unsafe to merge as-is.",
                 err=True,
             )
 
