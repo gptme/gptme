@@ -176,6 +176,27 @@ def test_hook_redacts_secrets_in_untracked_filenames(git_repo):
     assert "ghp_supersecretvalue" not in out[0].content
 
 
+def test_hook_redacts_secrets_in_cquoted_untracked_filename(git_repo):
+    # A name containing a double-quote is C-quoted by `git ls-files`; without
+    # unquoting, the leading `"` defeats the redactor's anchored regex.
+    (git_repo / 'GITHUB_TOKEN=ghp_abc"').write_text("x\n")
+
+    out = _run([], git_repo)
+
+    assert len(out) == 1
+    assert "GITHUB_TOKEN=[REDACTED]" in out[0].content
+    assert "ghp_abc" not in out[0].content
+
+
+def test_unquote_git_path_octal_and_escapes():
+    from gptme.hooks.dirty_diff import _unquote_git_path
+
+    assert _unquote_git_path("plain.py") == "plain.py"
+    assert _unquote_git_path('"with\\"quote.py"') == 'with"quote.py'
+    assert _unquote_git_path('"back\\\\slash.py"') == "back\\slash.py"
+    assert _unquote_git_path('"caf\\303\\251.py"') == "café.py"
+
+
 def test_hook_bounds_untracked_enumeration(git_repo):
     from gptme.hooks.dirty_diff import _MAX_UNTRACKED_PATHS
 
@@ -231,6 +252,62 @@ def test_git_capture_bounded_times_out(git_repo, monkeypatch):
     monkeypatch.setattr(dirty_diff, "_DIFF_TIMEOUT_SECONDS", 0.05)
 
     assert dirty_diff._git_capture_bounded(git_repo, "ls-files", max_lines=50) is None
+
+
+def test_git_capture_bounded_reaps_after_timeout(git_repo, monkeypatch):
+    import threading
+
+    from gptme.hooks import dirty_diff
+
+    class _BlockingStdout:
+        def __init__(self, stop: threading.Event):
+            self._stop = stop
+
+        def __iter__(self):
+            self._stop.wait()
+            return
+            yield  # pragma: no cover
+
+        def close(self):
+            pass
+
+    class _FakeProc:
+        def __init__(self):
+            self._stop = threading.Event()
+            self.stdout = _BlockingStdout(self._stop)
+            self.returncode: int | None = None
+            self.wait_calls = 0
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.returncode = -9
+            self._stop.set()
+
+        def wait(self, timeout=None):
+            self.wait_calls += 1
+            return self.returncode
+
+    fake = _FakeProc()
+    monkeypatch.setattr(dirty_diff.subprocess, "Popen", lambda *a, **k: fake)
+    monkeypatch.setattr(dirty_diff, "_DIFF_TIMEOUT_SECONDS", 0.05)
+
+    assert dirty_diff._git_capture_bounded(git_repo, "ls-files", max_lines=50) is None
+    # The killed child must be reaped, not left as a zombie.
+    assert fake.wait_calls >= 1
+
+
+def test_hook_no_double_inject_on_resume_with_nonempty_log(git_repo):
+    # Resumed session: manager log is non-empty but does not yet contain the
+    # historical inject, which lives in initial_msgs. Must not re-inject.
+    prior = Message("system", "some prior context", hide=False)
+    sentinel_msg = Message("system", "<!-- gptme-dirty-diff -->\nold diff", hide=True)
+    manager = _FakeManager([prior], git_repo)
+
+    out = _run([sentinel_msg], git_repo, manager=manager)
+
+    assert out == []
 
 
 def test_redact_diff_handles_content_starting_with_marker():

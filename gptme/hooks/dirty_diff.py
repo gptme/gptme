@@ -167,6 +167,12 @@ def _git_capture_bounded(
         logger.debug("dirty diff: git %s timed out for %s", args, workspace)
         proc.kill()
         reader.join(_DIFF_TIMEOUT_SECONDS)
+        try:
+            proc.wait(timeout=_DIFF_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.debug(
+                "dirty diff: git %s could not be reaped for %s", args, workspace
+            )
         return None
     if proc.poll() is None:
         # Reader stopped at the cap with the child still writing; it would
@@ -306,6 +312,51 @@ def _get_dirty_diff(workspace: Path) -> tuple[str, bool] | None:
     return (diff, truncated) if diff.strip() else None
 
 
+_GIT_PATH_ESCAPES = {
+    "a": "\a",
+    "b": "\b",
+    "t": "\t",
+    "n": "\n",
+    "v": "\v",
+    "f": "\f",
+    "r": "\r",
+    '"': '"',
+    "\\": "\\",
+}
+
+
+def _unquote_git_path(line: str) -> str:
+    """Undo git's C-style path quoting.
+
+    ``git ls-files`` (and diff headers) C-quote names containing ``"``/``\\``/
+    control bytes, emitting e.g. ``"GITHUB_TOKEN=ghp_abc\\""``. Without
+    unquoting, the leading ``"`` defeats the line-anchored
+    ``_PATH_ASSIGN_RE`` in the redactor and the secret value is shown as-is.
+    """
+    if len(line) < 2 or not (line.startswith('"') and line.endswith('"')):
+        return line
+    inner = line[1:-1]
+    # Octal escapes are raw UTF-8 bytes, so decode at the byte level.
+    out = bytearray()
+    i = 0
+    while i < len(inner):
+        ch = inner[i]
+        if ch == "\\" and i + 1 < len(inner):
+            nxt = inner[i + 1]
+            if nxt in _GIT_PATH_ESCAPES:
+                out.extend(_GIT_PATH_ESCAPES[nxt].encode("utf-8"))
+                i += 2
+                continue
+            m = re.match(r"[0-7]{1,3}", inner[i + 1 :])
+            if m:
+                out.append(int(m.group(), 8))
+                i += 1 + len(m.group())
+                continue
+        out.extend(ch.encode("utf-8", "surrogateescape"))
+        i += 1
+    return out.decode("utf-8", errors="replace")
+
+
 def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     """Return untracked file paths (names only) for `workspace`.
 
@@ -328,7 +379,10 @@ def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     text, truncated = result
     raw = [line for line in text.splitlines() if line.strip()]
     more = truncated or len(raw) > _MAX_UNTRACKED_PATHS
-    paths = [redact_secret_values_in_path(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
+    paths = [
+        redact_secret_values_in_path(_unquote_git_path(line))
+        for line in raw[:_MAX_UNTRACKED_PATHS]
+    ]
     return paths, more
 
 
@@ -351,7 +405,10 @@ def inject_dirty_diff(
         if workspace is None:
             return
         msgs = _messages_from_context(initial_msgs, manager)
-        if _already_injected(msgs):
+        # On resume the manager log can be non-empty but not yet contain the
+        # historical inject (it may still live in initial_msgs) — check both
+        # so a resumed session doesn't get a second copy.
+        if _already_injected(msgs) or _already_injected(list(initial_msgs or [])):
             return
         workspace = Path(workspace)
         diff_result = _get_dirty_diff(workspace)
