@@ -3969,6 +3969,33 @@ async def test_results_go_under_the_call_they_came_from(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_result_from_before_call_index_goes_under_its_call_by_id(tmp_path):
+    """Logs from before results named their call's index: a tool-format
+    result still finds its call by the call's ID."""
+    calls = "\n".join(
+        f'@shell({cid}): {{"command": "{cmd}"}}'
+        for cid, cmd in (("c1", "ls"), ("c2", "pwd"))
+    )
+    history = [
+        Message("user", "look"),
+        Message("assistant", calls),
+        Message("system", "Ran command: `ls`\n\na\nb", call_id="c1"),
+        Message("system", "Ran command: `pwd`\n\n/x\n/y", call_id="c2"),
+    ]
+    app = GptmeApp(
+        make_manager(tmp_path, history), workspace=tmp_path, tool_format="tool"
+    )
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        step = app.query(AssistantMessage).last()
+        first_call, second_call = _call_titles(step)
+        first, second = list(step.query(SystemMessage))
+        assert first_call.region.bottom == first.region.y
+        assert second_call.region.bottom == second.region.y
+
+
+@pytest.mark.asyncio
 async def test_result_not_matched_to_a_call_goes_under_the_step(tmp_path):
     """A result naming a call the step doesn't show (e.g. one its text
     doesn't render as a call) goes after the step, indented the same as one

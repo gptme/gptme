@@ -865,7 +865,7 @@ class AssistantMessage(Vertical):
         self.result_slots: list[CallResults] = []
         # (call index, message) of the results placed there
         self.results: list[tuple[int, Message]] = []
-        self._calls_match: bool | None = None
+        self._call_ids: list[str | None] | None = None  # of the executed calls
         self._body = self._build_body()
 
     def on_mount(self) -> None:
@@ -875,13 +875,22 @@ class AssistantMessage(Vertical):
         yield Static(Text(_role_label("assistant")), classes="role")
         yield from self._body
 
-    def call_slot(self, call: int) -> "CallResults | None":
-        """Where results of the message's ``call``-th tool call go, if its
-        calls as shown are the ones executed (the index is execute_msg's)."""
-        if self._calls_match is None:
-            executed = sum(1 for _ in ToolUse.iter_from_content(self.content))
-            self._calls_match = executed == len(self.result_slots)
-        if self._calls_match and 0 <= call < len(self.result_slots):
+    def call_slot(
+        self, call: int | None, call_id: str | None, tool_format: ToolFormat
+    ) -> "CallResults | None":
+        """Where results of one of the message's tool calls go: the call's
+        index (execute_msg's), else its ID (logs from before the index), if
+        the calls shown are the ones executed."""
+        if self._call_ids is None:
+            uses = ToolUse.iter_from_content(
+                self.content, tool_format_override=tool_format
+            )
+            self._call_ids = [use.call_id for use in uses]
+        if len(self._call_ids) != len(self.result_slots):
+            return None
+        if call is None and call_id is not None and call_id in self._call_ids:
+            call = self._call_ids.index(call_id)
+        if call is not None and 0 <= call < len(self.result_slots):
             return self.result_slots[call]
         return None
 
@@ -2850,14 +2859,12 @@ class GptmeApp(App):
         elif kind == "result":
             widget.add_class("turn-result")
             step = self._turn_step
-            call = _call_index(msg) if msg is not None else None
-            if isinstance(step, AssistantMessage) and call is not None:
-                if (slot := step.call_slot(call)) is not None:
-                    assert msg is not None
-                    step.results.append((call, msg))
+            if isinstance(step, AssistantMessage) and msg is not None:
+                call, call_id = _call_index(msg), msg.call_id
+                if slot := step.call_slot(call, call_id, self.tool_format):
+                    step.results.append((step.result_slots.index(slot), msg))
                     return slot
-            # e.g. the running tool's line, or a log from before results
-            # named their call: under the step
+            # e.g. the running tool's line: under the step
             if color := _role_color_hex("assistant"):
                 widget.styles.border_left = ("thick", color)
         return None
