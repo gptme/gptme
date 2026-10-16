@@ -464,6 +464,12 @@ class KernelBackend:
         extra_env: dict[str, str] = {}
 
         self._km = KernelManager()
+        # Snapshot the default launch command so a failed uv-based launch can
+        # fall back to gptme's Python instead of regressing to a hard error.
+        default_kernel_argv = (
+            list(self._km.kernel_spec.argv) if self._km.kernel_spec else None
+        )
+        using_uv = False
 
         if project_python and self._has_ipykernel(project_python):
             logger.info("Starting kernel with project Python: %s", project_python)
@@ -487,6 +493,7 @@ class KernelBackend:
                     "Project Python lacks ipykernel; using 'uv run --with ipykernel'"
                 )
                 self._set_kernel_cmd(uv_cmd)
+                using_uv = True
             else:
                 if project_python:
                     logger.warning(
@@ -507,14 +514,35 @@ class KernelBackend:
         start_kwargs: dict = {"extra_arguments": []}
         if extra_env:
             start_kwargs["env"] = extra_env
-        self._km.start_kernel(**start_kwargs)
-        self._kc = self._km.client()
-        self._kc.start_channels()
         try:
+            self._km.start_kernel(**start_kwargs)
+            self._kc = self._km.client()
+            self._kc.start_channels()
             self._kc.wait_for_ready(timeout=30)
         except RuntimeError as exc:
             self._km.shutdown_kernel(now=True)
-            raise RuntimeError(f"Kernel failed to start: {exc}") from exc
+            if using_uv and default_kernel_argv is not None:
+                # The uv path can fail (e.g. an offline environment with no warm
+                # uv cache). Retry with the default spec so a working kernel is
+                # still available, matching pre-fallback behaviour.
+                logger.warning(
+                    "'uv run --with ipykernel' failed to start the kernel (%s); "
+                    "falling back to gptme's Python",
+                    exc,
+                )
+                self._km = KernelManager()
+                if self._km.kernel_spec is not None:
+                    self._km.kernel_spec.argv = default_kernel_argv
+                try:
+                    self._km.start_kernel(**start_kwargs)
+                    self._kc = self._km.client()
+                    self._kc.start_channels()
+                    self._kc.wait_for_ready(timeout=30)
+                except RuntimeError as exc2:
+                    self._km.shutdown_kernel(now=True)
+                    raise RuntimeError(f"Kernel failed to start: {exc2}") from exc2
+            else:
+                raise RuntimeError(f"Kernel failed to start: {exc}") from exc
 
         self._started = True
         logger.info("Kernel started")

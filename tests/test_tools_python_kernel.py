@@ -800,6 +800,65 @@ def test_ensure_started_uv_when_uv_project_without_venv(monkeypatch, tmp_path):
     assert "--with" in cmd and "ipykernel" in cmd
 
 
+def test_ensure_started_falls_back_to_default_when_uv_launch_fails(
+    monkeypatch, tmp_path
+):
+    """A failed uv-based launch retries with gptme's default Python instead of erroring."""
+    import jupyter_client
+    from jupyter_client import KernelManager as RealKernelManager
+
+    fake_python = str(tmp_path / "python")
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: fake_python)
+    )
+    monkeypatch.setattr(KernelBackend, "_has_ipykernel", staticmethod(lambda _: False))
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+
+    attempts = {"n": 0}
+    captured: list[list[str]] = []
+
+    class FlakyKC:
+        """Kernel client that fails readiness on the first launch attempt."""
+
+        def start_channels(self):
+            pass
+
+        def stop_channels(self):
+            pass
+
+        def wait_for_ready(self, timeout=None):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("simulated uv launch failure")
+
+    class RecordingKM(RealKernelManager):
+        def start_kernel(self, **_kw):
+            captured.append(self.format_kernel_cmd(extra_arguments=[]))
+
+        def client(self):
+            return FlakyKC()
+
+        def is_alive(self):
+            return True
+
+        def shutdown_kernel(self, **_kw):
+            pass
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", RecordingKM)
+
+    kb = KernelBackend()
+    monkeypatch.setattr(kb, "_exec_silent", lambda *_a, **_kw: None)
+
+    kb._ensure_started()
+    kb._bridge.stop()
+
+    # First attempt used uv; the retry used the default spec (not uv).
+    assert len(captured) == 2
+    assert captured[0][:2] == ["/usr/bin/uv", "run"]
+    assert captured[1][0] != "/usr/bin/uv"
+    assert "ipykernel_launcher" in captured[1]
+
+
 def test_ensure_started_uses_project_python_when_ipykernel_present(
     monkeypatch, tmp_path
 ):
