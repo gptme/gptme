@@ -2,9 +2,9 @@ name: Security Advisories
 
 on:
   push:
-    branches: [master]
+    branches: [master, 'feat/*']
   pull_request:
-    branches: [master]
+    branches: [master, 'feat/*']
   schedule:
     - cron: '0 8 * * 1'  # Weekly, Monday 8am UTC
   workflow_dispatch:

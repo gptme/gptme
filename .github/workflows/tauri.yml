@@ -2,13 +2,13 @@ name: Tauri
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
     paths:
       - 'tauri/**'
       - 'webui/**'
       - '.github/workflows/tauri.yml'
   pull_request:
-    branches: [ master ]
+    branches: [ master, 'feat/*' ]
     paths:
       - 'tauri/**'
       - 'webui/**'
