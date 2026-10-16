@@ -325,9 +325,9 @@ def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     )
     if result is None:
         return [], False
-    text, _ = result
+    text, truncated = result
     raw = [line for line in text.splitlines() if line.strip()]
-    more = len(raw) > _MAX_UNTRACKED_PATHS
+    more = truncated or len(raw) > _MAX_UNTRACKED_PATHS
     paths = [redact_secret_values_in_path(line) for line in raw[:_MAX_UNTRACKED_PATHS]]
     return paths, more
 
