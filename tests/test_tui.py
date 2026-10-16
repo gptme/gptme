@@ -19,6 +19,7 @@ from gptme.tui.app import (
     AssistantMessage,
     BouncingError,
     ChatInput,
+    ChatMarkdown,
     ConfirmScreen,
     CostMessage,
     GptmeApp,
@@ -1530,12 +1531,14 @@ async def test_finalize_stream_height_does_not_collapse(tmp_path):
         # Stream the entire 60-line save call token by token (chunked for speed)
         for line in _SAVE_60_LINES.splitlines(keepends=True):
             sm.append_token(line)
+        await app.wait_rendered()
         await pilot.pause()
 
         height_before = sm.content_size.height
 
         # Finalize
         app._on_step_message(Message("assistant", _SAVE_60_LINES))
+        await app.wait_rendered()
         await pilot.pause()
 
         am = app.query_one(AssistantMessage)
@@ -3937,16 +3940,16 @@ async def test_hook_output_in_a_turn_keeps_its_place_and_block(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_display_turns_off_shows_one_block_per_message(tmp_path):
+async def test_display_grouping_off_shows_one_block_per_message(tmp_path):
     app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
     async with app.run_test(size=(80, 40)) as pilot:
         await app.wait_rendered()
-        app._display_command(["turns", "off"])
+        app._display_command(["grouping", "off"])
         await app.wait_rendered()
         await pilot.pause()
         assert not app.query(".turn-step") and not app.query(".turn-result")
         assert len(_visible_names(app)) == 4  # the user, each agent step
-        app._display_command(["turns", "on"])
+        app._display_command(["grouping", "on"])
         await app.wait_rendered()
         await pilot.pause()
         assert len(_visible_names(app)) == 2
@@ -3964,7 +3967,7 @@ async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
         app._on_stream_token("streaming reply")
         await app.wait_rendered()
         stream = app._stream_widget
-        app._display_command(["turns", "off"])
+        app._display_command(["grouping", "off"])
         await pilot.pause()
         assert stream is not None and stream.is_attached  # untouched
         assert app.query(".turn-step")  # not re-rendered yet
@@ -3979,3 +3982,106 @@ async def test_display_change_during_a_turn_waits_for_it_to_end(tmp_path):
         assert any(
             "provider overloaded" in str(w.render()) for w in app.query(InfoMessage)
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_text_stands_out_among_thinking_and_tool_calls(tmp_path):
+    """The agent's own text is set apart from tool lines by a blank line (not
+    from the thinking line above it); tool titles are muted like thinking."""
+    from textual.widgets import Collapsible
+
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    content = "<think>\nhm\n</think>\nI'll check the files.\n```shell\nls\n```"
+    manager = make_manager(tmp_path, [Message("assistant", content)])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(80, 20)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        msg = app.query_one(AssistantMessage)
+        thinking, tool = msg.query(Collapsible)
+        prose = msg.query_one("AssistantMessage > ChatMarkdown", ChatMarkdown)
+        assert prose.region.y == thinking.region.bottom  # thinking: no gap
+        assert tool.region.y == prose.region.bottom + 1
+        title = tool.query_one("CollapsibleTitle")
+        muted = thinking.query_one("CollapsibleTitle").styles.color
+        assert title.styles.color == muted
+
+
+@pytest.mark.asyncio
+async def test_later_step_with_text_is_set_apart_from_tool_steps(tmp_path):
+    """In a grouped turn, steps that only think and call tools are compact; a
+    step that says something gets a blank line above it."""
+    app = GptmeApp(make_manager(tmp_path, _turn_history()), workspace=tmp_path)
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        steps = list(app.query(AssistantMessage))
+        results = list(app.query(SystemMessage))
+        assert steps[1].content_region.y == results[0].region.bottom  # compact
+        # says something: a blank line inside the block (the bar continues)
+        assert steps[2].region.y == results[1].region.bottom
+        assert steps[2].content_region.y == results[1].region.bottom + 1
+
+
+@pytest.mark.asyncio
+async def test_chat_redrawn_after_a_command_keeps_the_agent_name(tmp_path, monkeypatch):
+    """Commands (e.g. /compact) run off the UI thread; the chat re-rendered
+    after one must see the session's config (the agent's name), not a
+    default one from the worker thread's empty context."""
+    from gptme.config import ChatConfig, Config
+    from gptme.config.core import _config_var
+    from gptme.config.models import AgentConfig
+
+    monkeypatch.setattr(
+        ChatConfig, "agent_config", property(lambda self: AgentConfig(name="Bob"))
+    )
+    token = _config_var.set(Config(chat=ChatConfig()))
+    try:
+        history = [
+            Message("user", "hi"),
+            Message("assistant", "hello"),
+            Message("user", "again"),
+            Message("assistant", "back"),
+        ]
+        app = GptmeApp(make_manager(tmp_path, history), workspace=tmp_path)
+        async with app.run_test() as pilot:
+            await app.wait_rendered()
+            await pilot.pause()
+            before = [
+                str(m.query_one(".role").render()) for m in app.query(AssistantMessage)
+            ]
+            assert before == ["Bob", "Bob"], before
+            inp = app.query_one("#input", ChatInput)
+            inp.text = "/undo"  # changes the log: the chat is re-rendered
+            await pilot.press("enter")
+            for _ in range(100):
+                await pilot.pause(0.02)
+                if not app.generating:
+                    break
+            await app.wait_rendered()
+            await pilot.pause()
+            labels = [
+                str(m.query_one(".role").render()) for m in app.query(AssistantMessage)
+            ]
+            assert labels and all(label == "Bob" for label in labels), labels
+    finally:
+        _config_var.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_stream_marks_text_like_the_finished_message(tmp_path):
+    """With thinking shown or hidden, the stream gets the same has-text
+    spacing the finished message will, so replacing it moves nothing."""
+    for show_thinking in (False, True):
+        app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+        app.show_thinking = show_thinking
+        async with app.run_test() as pilot:
+            app._begin_stream()
+            app._on_stream_token("<think>hm</think>The answer")
+            app._flush_stream()
+            await app.wait_rendered()
+            await pilot.pause()
+            assert app._stream_widget is not None
+            assert app._stream_widget.has_class("has-text"), show_thinking

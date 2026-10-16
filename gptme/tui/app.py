@@ -250,8 +250,8 @@ def _show_thinking_default() -> bool:
 
 def _group_turns_default() -> bool:
     """Whether an agent turn's steps and tool results show as one block
-    (``GPTME_TUI_DISPLAY_TURNS``; off: one block per log message)."""
-    return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_TURNS", default=True))
+    (``GPTME_TUI_DISPLAY_GROUPING``; off: one block per log message)."""
+    return bool(get_config().get_env_bool("GPTME_TUI_DISPLAY_GROUPING", default=True))
 
 
 def _flow_kind(msg: Message) -> str:
@@ -824,7 +824,7 @@ def _tool_title(title: str, lang: str, highlight: bool, marker: bool = True) -> 
     if not highlight or not m:
         return Text(prefix + bare)
     text = Text(prefix)
-    text.append(f"{m.group(1)}:", style="bold")
+    text.append(f"{m.group(1)}:")
     text.append(" ")
     text.append_text(_highlight(m.group(2), lang))
     return text
@@ -868,59 +868,62 @@ class AssistantMessage(Vertical):
         )
 
         if not has_thinking and not has_tool_calls:
+            self.add_class("has-text")
             yield ChatMarkdown(self.content)
             return
 
+        parts: list[tuple[str, Widget]] = []
         for is_think, text in think_segs:
             if is_think:
-                yield Collapsible(
+                thinking = Collapsible(
                     ChatMarkdown(text),
                     title="Thinking",
                     collapsed=not self.show_thinking,
                     classes="thinking-block",
                 )
-            else:
-                for is_tool, fmt, seg in _split_all_tool_calls(text):
-                    if not is_tool:
-                        yield ChatMarkdown(seg)
-                    elif fmt == "tool":
-                        title, code, lang = _tool_call_renderable(seg)
-                        yield Collapsible(
-                            Static(
-                                Syntax(code, lang, theme="ansi_dark", word_wrap=True)
-                            ),
-                            title=_tool_title(
-                                title, lang, self.highlight, marker=False
-                            ),  # type: ignore[arg-type]
-                            collapsed=True,
-                            classes="tool-call-block",
-                        )
-                    elif fmt == "xml":
-                        for title, code, lang in _xml_tool_renderables(seg):
-                            yield Collapsible(
-                                Static(
-                                    Syntax(
-                                        code, lang, theme="ansi_dark", word_wrap=True
-                                    )
-                                ),
-                                title=_tool_title(
-                                    title, lang, self.highlight, marker=False
-                                ),  # type: ignore[arg-type]
-                                collapsed=True,
-                                classes="tool-call-block",
-                            )
-                    else:  # markdown
-                        title, code, lang = _markdown_tool_renderable(seg)
-                        yield Collapsible(
-                            Static(
-                                Syntax(code, lang, theme="ansi_dark", word_wrap=True)
-                            ),
-                            title=_tool_title(
-                                title, lang, self.highlight, marker=False
-                            ),  # type: ignore[arg-type]
-                            collapsed=True,
-                            classes="tool-call-block",
-                        )
+                parts.append(("thinking", thinking))
+                continue
+            for is_tool, fmt, seg in _split_all_tool_calls(text):
+                if not is_tool:
+                    if seg.strip():
+                        parts.append(("prose", ChatMarkdown(seg)))
+                    continue
+                if fmt == "xml":
+                    renderables = list(_xml_tool_renderables(seg))
+                elif fmt == "tool":
+                    renderables = [_tool_call_renderable(seg)]
+                else:  # markdown
+                    renderables = [_markdown_tool_renderable(seg)]
+                for title, code, lang in renderables:
+                    call = Collapsible(
+                        Static(Syntax(code, lang, theme="ansi_dark", word_wrap=True)),
+                        title=_tool_title(title, lang, self.highlight, marker=False),  # type: ignore[arg-type]
+                        collapsed=True,
+                        classes="tool-call-block",
+                    )
+                    parts.append(("tool", call))
+        kinds = [kind for kind, _ in parts]
+        # a later step that says something is set apart from the tool steps
+        self.set_class("prose" in kinds, "has-text")
+        for index, (_, widget) in enumerate(parts):
+            for cls in _prose_gaps(kinds, index):
+                widget.add_class(cls)
+            yield widget
+
+
+def _prose_gaps(kinds: list[str], index: int) -> list[str]:
+    """Space between the agent's own text and tool lines in a step, so the
+    text stands out: a blank line between a tool call and text after it, and
+    between text and a tool call after it. Thinking directly above the text
+    needs none (see also ``.turn-step.has-text``)."""
+    if kinds[index] != "prose":
+        return []
+    gaps = []
+    if index > 0 and kinds[index - 1] == "tool":
+        gaps.append("prose-gap-above")
+    if index + 1 < len(kinds) and kinds[index + 1] != "prose":
+        gaps.append("prose-gap-below")
+    return gaps
 
 
 _SYSTEM_TAG_RE = re.compile(r"\A<(system_\w+)>(.*)</\1>\Z", re.DOTALL)
@@ -1044,6 +1047,9 @@ class StreamingMessage(Vertical):
 
     def on_mount(self) -> None:
         _apply_role_color(self, "assistant")
+        if self._buffer:  # tokens that arrived before it was mounted
+            # once mounted (is_mounted is still False in this handler)
+            self.call_after_refresh(self._update_hidden_segments)
 
     def compose(self) -> ComposeResult:
         yield Static(Text(_role_label("assistant")), classes="role")
@@ -1061,6 +1067,12 @@ class StreamingMessage(Vertical):
             content = self._buffer.strip()
             self._body.update(Text(content or "Generating…"))
             self._body.display = True
+            # as in segment mode (_space_prose), so the finished message's
+            # spacing matches
+            self.set_class(
+                any(kind == "prose" and text.strip() for kind, text in segments),
+                "has-text",
+            )
             with self.app.batch_update():
                 for row in self._segments:
                     row.display = False
@@ -1123,7 +1135,27 @@ class StreamingMessage(Vertical):
             # Reuse existing rows; hide any the parser no longer emits.
             for index, row in enumerate(self._segments):
                 row.display = index < len(segments)
+            self._space_prose(segments)
             self._sync_body()
+
+    def _space_prose(self, segments: list[tuple[str, str]]) -> None:
+        """The same space around prose as the finished message gets
+        (AssistantMessage), so replacing the stream doesn't move anything."""
+        # whitespace-only prose isn't shown in the finished message
+        shown = [
+            (index, "tool" if kind == "tool_call" else kind)
+            for index, (kind, text) in enumerate(segments)
+            if kind != "prose" or text.strip()
+        ]
+        kinds = [kind for _, kind in shown]
+        gaps = {
+            index: _prose_gaps(kinds, position)
+            for position, (index, _) in enumerate(shown)
+        }
+        self.set_class("prose" in kinds, "has-text")
+        for index, row in enumerate(self._segments[: len(segments)]):
+            row.set_class("prose-gap-above" in gaps.get(index, []), "prose-gap-above")
+            row.set_class("prose-gap-below" in gaps.get(index, []), "prose-gap-below")
 
     def _sync_body(self, shown: bool = False) -> None:
         """Show the body ("Generating…") until a segment row is on screen."""
@@ -1928,7 +1960,7 @@ STATUSLINE_REFRESH = 10
 # Max stream re-renders per second; each re-lays out the whole buffer.
 STREAM_FPS = 20
 # /display settings that re-render the chat (deferred while a turn runs)
-REBUILDING_SETTINGS = ("hidden", "highlight", "turns")
+REBUILDING_SETTINGS = ("hidden", "highlight", "grouping")
 # Longest a new chat widget stays hidden waiting for its Markdown to render:
 # a backstop (rendering takes a few frames), generous for loaded CI machines.
 REVEAL_TIMEOUT = 3.0
@@ -2020,6 +2052,22 @@ class GptmeApp(App):
     .thinking-block CollapsibleTitle {
         color: $text-muted;
     }
+    /* tool calls and their outputs recede like thinking: the agent's own
+       text is what to read */
+    .tool-call-block CollapsibleTitle, .message.system CollapsibleTitle {
+        color: $text-muted;
+        text-style: none;
+    }
+    /* full margins: a margin-bottom rule would reset another rule's top */
+    .message .prose-gap-above {
+        margin: 1 0 0 0;
+    }
+    .message .prose-gap-below {
+        margin: 0 0 1 0;
+    }
+    .message .prose-gap-above.prose-gap-below {
+        margin: 1 0 1 0;
+    }
     .thinking-block Markdown {
         color: $text-muted;
         margin-bottom: 1;
@@ -2060,6 +2108,11 @@ class GptmeApp(App):
        indented under the step, in the agent's bar */
     .message.turn-step, .message.turn-result {
         margin-top: 0;
+    }
+    /* a later step with text: a blank line sets it apart from the tool steps
+       before it (steps that only think and call tools stay compact) */
+    .message.turn-step.has-text {
+        padding: 1 0 0 1;  /* padding, not margin: the bar continues */
     }
     .message.turn-step > .role, .message.turn-result > .role {
         display: none;
@@ -3113,7 +3166,15 @@ class GptmeApp(App):
 
     def _command_worker(self, msg: Message, cmd: str, before: list[Message]) -> None:
         result = self._execute_command(msg, cmd)
-        self.call_from_thread(self._background_command_done, cmd, before, result)
+        # from (a copy of) the chat context, like the generation worker: the
+        # callback, and widgets it mounts (e.g. the chat re-rendered after
+        # /compact), run in the context it's sent from, and this thread's own
+        # is empty: config would be a default one, without the agent's name.
+        # A copy: the callback enters _chat_ctx itself (a context can't be
+        # entered twice at once).
+        self._chat_ctx.copy().run(
+            self.call_from_thread, self._background_command_done, cmd, before, result
+        )
 
     def _background_command_done(
         self, cmd: str, before: list[Message], result: _CommandResult
@@ -3195,11 +3256,11 @@ class GptmeApp(App):
         self._update_status()
 
     def _display_command(self, args: list[str]) -> None:
-        """``/display [thinking|outputs|hidden|highlight|turns] [on|off]``: display-only settings.
+        """``/display [thinking|outputs|hidden|highlight|grouping] [on|off]``: display-only settings.
 
         No setting lists the current state; no value toggles.
         """
-        usage = "Usage: /display [thinking|outputs|hidden|highlight|turns] [on|off]"
+        usage = "Usage: /display [thinking|outputs|hidden|highlight|grouping] [on|off]"
         # name -> (current value, setter, on/off wording)
         settings = {
             "thinking": (self.show_thinking, self._set_thinking, ("shown", "hidden")),
@@ -3214,7 +3275,7 @@ class GptmeApp(App):
                 ("messages shown", "messages hidden"),
             ),
             "highlight": (self.highlight, self._set_highlight, ("on", "off")),
-            "turns": (self.group_turns, self._set_group_turns, ("grouped", "flat")),
+            "grouping": (self.group_turns, self._set_group_turns, ("on", "off")),
         }
         if not args:
             state = ", ".join(
@@ -3240,10 +3301,10 @@ class GptmeApp(App):
             return
         setter(on)
         note = " (applies to new output)" if self.inline else ""
-        if name == "turns" and self.inline:
+        if name == "grouping" and self.inline:
             note = " (full-screen mode only: inline output isn't grouped)"
         elif self.generating and not self.inline and name in REBUILDING_SETTINGS:
-            note = " (once this turn ends)"
+            note = " (new output now; earlier messages when this turn ends)"
         self._show_info(f"{name.capitalize()} {words[0 if on else 1]}{note}.")
 
     def _set_group_turns(self, on: bool) -> None:
