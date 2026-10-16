@@ -325,7 +325,7 @@ class _GptmeDisplayHookWrapper:
                     _msgs = list(value)
             if _msgs is not None:
                 try:
-                    _gptme_rpc('_gptme_deliver_messages', _gptme_pickle.dumps(_msgs))
+                    _gptme_rpc('_gptme_deliver_messages', _msgs)
                     return
                 except Exception:
                     # Bridge unavailable/busy: fall back to the normal repr so a
@@ -667,10 +667,8 @@ class KernelBackend:
         # Register the special message-delivery bridge handler (server-side only;
         # no kernel stub is pushed — the displayhook calls it by name directly).
         bridge = self._bridge
-        _deliver_import = pickle  # capture module reference for the closure
 
-        def _gptme_deliver_messages(serialized: bytes) -> None:
-            msgs = _deliver_import.loads(serialized)
+        def _gptme_deliver_messages(msgs: list) -> None:
             bridge.messages.extend(msgs)
 
         self._bridge.register(_gptme_deliver_messages)
