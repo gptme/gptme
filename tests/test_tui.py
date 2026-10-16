@@ -4001,7 +4001,7 @@ async def test_agent_text_stands_out_among_thinking_and_tool_calls(tmp_path):
         await pilot.pause()
         msg = app.query_one(AssistantMessage)
         thinking, tool = msg.query(Collapsible)
-        prose = msg.query_one(ChatMarkdown)
+        prose = msg.query_one("AssistantMessage > ChatMarkdown", ChatMarkdown)
         assert prose.region.y == thinking.region.bottom  # thinking: no gap
         assert tool.region.y == prose.region.bottom + 1
         title = tool.query_one("CollapsibleTitle")
@@ -4068,3 +4068,20 @@ async def test_chat_redrawn_after_a_command_keeps_the_agent_name(tmp_path, monke
             assert labels and all(label == "Bob" for label in labels), labels
     finally:
         _config_var.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_stream_marks_text_like_the_finished_message(tmp_path):
+    """With thinking shown or hidden, the stream gets the same has-text
+    spacing the finished message will, so replacing it moves nothing."""
+    for show_thinking in (False, True):
+        app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+        app.show_thinking = show_thinking
+        async with app.run_test() as pilot:
+            app._begin_stream()
+            app._on_stream_token("<think>hm</think>The answer")
+            app._flush_stream()
+            await app.wait_rendered()
+            await pilot.pause()
+            assert app._stream_widget is not None
+            assert app._stream_widget.has_class("has-text"), show_thinking
