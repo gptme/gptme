@@ -541,3 +541,96 @@ def test_kernel_execute_display_output(backend):
     )
     assert "hello display" in result.stdout
     assert result.error is None
+
+
+# ---------------------------------------------------------------------------
+# Memory guard + kernel death (gptme/gptme#4355: "the memory guard watches the
+# kernel's process group")
+# ---------------------------------------------------------------------------
+
+
+def test_kernel_registers_its_process_group_with_memory_guard(backend):
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend.execute("1")
+    assert watch.call_count == 1
+    target = watch.call_args.args[0]
+    kernel_pid = backend._km.provisioner.pid
+    assert target.pgid == os.getpgid(kernel_pid)
+    # The kernel runs in its own session: never register gptme's own group.
+    assert target.pgid != os.getpgid(0)
+    assert "kernel" in target.label
+    assert target.alive() is True
+    backend.shutdown()
+    assert target.alive() is False
+
+
+def test_watch_memory_is_noop_on_non_posix(backend, monkeypatch):
+    """The guard must not be registered on Windows (os.getpgid is Unix-only)."""
+    backend.execute("1")  # start the kernel for real
+    monkeypatch.setattr(os, "name", "nt")
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend._watch_memory()
+    assert watch.call_count == 0
+
+
+def test_kernel_death_mid_cell_is_reported_promptly(backend):
+    """A kernel that dies while a cell runs must not block until the timeout."""
+    import time
+
+    start = time.monotonic()
+    result = backend.execute(
+        "import os, signal; os.kill(os.getpid(), signal.SIGKILL)", timeout=30
+    )
+    elapsed = time.monotonic() - start
+    assert elapsed < 10, f"blocked {elapsed:.1f}s waiting on a dead kernel"
+    assert result.error is not None
+    assert result.error["ename"] == "KernelDied"
+    # The next cell restarts the kernel transparently.
+    assert backend.execute("1 + 1").result_text == "2"
+
+
+def test_old_kernel_workers_do_not_report_current_state_lost(backend):
+    """A retained guard callback must describe its own kernel generation."""
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend.execute("old_state = 1")
+        old_target = watch.call_args.args[0]
+        backend.shutdown()
+        backend.execute("current_state = 42")
+        current_target = watch.call_args.args[0]
+    assert old_target.pgid != current_target.pgid
+
+    # Simulate the guard cleaning up workers left by the earlier kernel.
+    old_target.on_killed(
+        "Killed the IPython kernel: system memory was nearly exhausted"
+    )
+    result = backend.execute("current_state")
+    assert result.result_text == "42"
+    assert "earlier cells are lost" not in result.stderr
+    assert "current kernel state is unchanged" in result.stderr
+    assert "system memory was nearly exhausted" in result.stderr
+    assert "system memory was nearly exhausted" not in backend.execute("1").stderr
+
+    # The replacement's own callback must still report genuine state loss.
+    current_target.on_killed(
+        "Killed the IPython kernel: system memory was nearly exhausted"
+    )
+    current_target.kill()
+    result = backend.execute("1 + 1")
+    assert result.result_text == "2"
+    assert "earlier cells are lost" in result.stderr
+
+
+def test_memory_guard_kill_reason_reaches_the_model(backend):
+    """When the guard kills the kernel, its explanation surfaces in the output."""
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend.execute("x = 1")
+    target = watch.call_args.args[0]
+    # Same order as MemoryGuard.check(): explain, then kill.
+    target.on_killed("Killed the IPython kernel: system memory was nearly exhausted")
+    target.kill()
+    result = backend.execute("1 + 1")
+    assert result.result_text == "2"
+    assert "Killed the IPython kernel" in result.stderr
+    assert "earlier cells are lost" in result.stderr
+    # Reported once, not on every later cell.
+    assert "Killed the IPython kernel" not in backend.execute("2 + 2").stderr
