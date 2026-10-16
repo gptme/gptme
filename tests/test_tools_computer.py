@@ -780,6 +780,9 @@ def test_computer_screenshot_failure(mock_screenshot, mock_res):
 
     mock_path = MagicMock(spec=Path)
     mock_path.exists.return_value = False
+    # view_image now calls expanduser(); without this the mock returns a fresh
+    # auto-mock whose stringy path falls through to Image.open.
+    mock_path.expanduser.return_value = mock_path
     mock_screenshot.return_value = mock_path
 
     result = computer("screenshot")

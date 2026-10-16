@@ -287,7 +287,7 @@ def pdf_to_images(
         pdf_path = output_dir / "input.pdf"
         pdf_path.write_bytes(response.content)
     else:
-        pdf_path = Path(url_or_path)
+        pdf_path = Path(url_or_path).expanduser()
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
