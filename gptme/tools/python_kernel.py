@@ -386,6 +386,9 @@ class KernelBackend:
         ``pyproject.toml`` must not be treated as uv-managed: ``uv run`` would
         then create a ``.venv`` in a project the user never opted into uv.
         """
+        import tomlkit
+        from tomlkit.exceptions import ParseError
+
         cwd = Path.cwd()
         if (cwd / "uv.lock").exists():
             return True
@@ -395,10 +398,11 @@ class KernelBackend:
         if KernelBackend._find_uv() is None:
             return False
         try:
-            text = pyproject.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+            config = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ParseError):
             return False
-        return "[tool.uv]" in text or "[tool.uv." in text
+        tool = config.get("tool")
+        return isinstance(tool, dict) and isinstance(tool.get("uv"), dict)
 
     @staticmethod
     def _build_uv_kernel_cmd() -> list[str] | None:
@@ -533,14 +537,15 @@ class KernelBackend:
             self._kc = self._km.client()
             self._kc.start_channels()
             self._kc.wait_for_ready(timeout=30)
-        except RuntimeError as exc:
+        except Exception as exc:
             if self._kc is not None:
                 # Stop the failed client's channels before replacing it, so
                 # repeated failures don't leak sockets and heartbeat threads.
                 with contextlib.suppress(Exception):
                     self._kc.stop_channels()
                 self._kc = None
-            self._km.shutdown_kernel(now=True)
+            with contextlib.suppress(Exception):
+                self._km.shutdown_kernel(now=True)
             if using_uv and default_kernel_argv is not None:
                 # The uv path can fail (e.g. an offline environment with no warm
                 # uv cache). Retry with the default spec so a working kernel is
@@ -558,12 +563,13 @@ class KernelBackend:
                     self._kc = self._km.client()
                     self._kc.start_channels()
                     self._kc.wait_for_ready(timeout=30)
-                except RuntimeError as exc2:
+                except Exception as exc2:
                     if self._kc is not None:
                         with contextlib.suppress(Exception):
                             self._kc.stop_channels()
                         self._kc = None
-                    self._km.shutdown_kernel(now=True)
+                    with contextlib.suppress(Exception):
+                        self._km.shutdown_kernel(now=True)
                     raise RuntimeError(f"Kernel failed to start: {exc2}") from exc2
             else:
                 raise RuntimeError(f"Kernel failed to start: {exc}") from exc

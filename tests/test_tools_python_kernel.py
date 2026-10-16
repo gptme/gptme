@@ -692,6 +692,28 @@ def test_is_uv_project_true_with_tool_uv_section(tmp_path, monkeypatch):
     assert KernelBackend._is_uv_project() is True
 
 
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ("[tool.uv ]\n", True),
+        ('[tool."uv"]\n', True),
+        ("[tool . uv . sources]\n", True),
+        ("tool.uv = {}\n", True),
+        ("# [tool.uv]\n[project]\nname = 'test'\n", False),
+        ('[project]\ndescription = "[tool.uv]"\n', False),
+        ("[tool.uv]\ninvalid = [\n", False),
+        ("tool = 'not a table'\n", False),
+        ("[tool]\nuv = 'not a table'\n", False),
+    ],
+)
+def test_is_uv_project_parses_toml(tmp_path, monkeypatch, config, expected):
+    """Only an actual uv table opts in, regardless of TOML header spelling."""
+    (tmp_path / "pyproject.toml").write_text(config)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is expected
+
+
 def test_is_uv_project_false_when_poetry_lock(tmp_path, monkeypatch):
     """_is_uv_project returns False when poetry.lock exists (poetry project)."""
     (tmp_path / "pyproject.toml").write_text("[tool.poetry]\nname = 'test'\n")
@@ -867,6 +889,75 @@ def test_ensure_started_falls_back_to_default_when_uv_launch_fails(
     assert captured[0][:2] == ["/usr/bin/uv", "run"]
     assert captured[1][0] != "/usr/bin/uv"
     assert "ipykernel_launcher" in captured[1]
+
+
+@pytest.mark.parametrize("failure_stage", ["start", "ready"])
+@pytest.mark.parametrize("failure_attempt", [1, 2])
+def test_ensure_started_cleans_up_os_errors(
+    monkeypatch, backend, failure_stage, failure_attempt
+):
+    """Startup errors clean up both attempts, even if shutdown itself fails."""
+    import jupyter_client
+    from jupyter_client import KernelManager as RealKernelManager
+
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_is_uv_project", staticmethod(lambda: True))
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    monkeypatch.setattr(backend, "_exec_silent", lambda *_a, **_kw: None)
+    managers = []
+    stopped = []
+    shutdown = []
+
+    class FailingKM(RealKernelManager):
+        def start_kernel(self, **_kw):
+            managers.append(self)
+            if failure_stage == "start":
+                raise OSError("launch failed")
+
+        def client(self):
+            attempt = len(managers)
+
+            class Client(_FakeKC):
+                def stop_channels(self):
+                    stopped.append(attempt)
+
+                def wait_for_ready(self, timeout=None):
+                    if failure_stage == "ready":
+                        raise OSError("readiness failed")
+
+            return Client()
+
+        def shutdown_kernel(self, **_kw):
+            shutdown.append(self)
+            raise RuntimeError("shutdown failed too")
+
+    class HealthyKM(FailingKM):
+        def start_kernel(self, **_kw):
+            managers.append(self)
+
+        def client(self):
+            return _FakeKC()
+
+    def manager():
+        # Fail the uv attempt; optionally fail the default-spec retry as well.
+        return FailingKM() if len(managers) < failure_attempt else HealthyKM()
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", manager)
+    if failure_attempt == 2:
+        with pytest.raises(RuntimeError, match="Kernel failed to start") as exc:
+            backend._ensure_started()
+        assert isinstance(exc.value.__cause__, OSError)
+        assert backend._kc is None
+        assert not backend._started
+    else:
+        backend._ensure_started()
+        assert backend._started
+    assert shutdown == managers[:failure_attempt]
+    assert stopped == (
+        list(range(1, failure_attempt + 1)) if failure_stage == "ready" else []
+    )
 
 
 def test_ensure_started_uses_project_python_when_ipykernel_present(
