@@ -147,11 +147,11 @@ def _tools_used(session_dir: Path) -> list[str]:
 def synthesize_prompt(session_dir: Path, max_chars: int = 3000) -> str:
     """Build a <<RESUMED SESSION>> bootstrap prompt from *session_dir*.
 
-    ``max_chars`` bounds the generated prompt: the framing lines are always
-    emitted and the context sections (original task, last reasoning) are
-    truncated to fit the remaining budget. A section is omitted entirely when
-    there is no room for its body, so the prompt never contains a header with
-    an empty body.
+    ``max_chars`` bounds the generated prompt. Raise ``ValueError`` if it
+    cannot hold the framing lines; otherwise truncate the context sections
+    (original task, last reasoning) to fit the remaining budget. A section is
+    omitted entirely when there is no room for its body, so the prompt never
+    contains a header with an empty body.
     """
     name = _session_name(session_dir)
     user_msg = _user_message(session_dir)
@@ -178,8 +178,14 @@ def synthesize_prompt(session_dir: Path, max_chars: int = 3000) -> str:
         "Continue your work. What was your next step?",
     ]
 
-    # Each part costs its length plus the newline that joins it to the next.
-    budget = max_chars - sum(len(p) + 1 for p in header + footer)
+    # Joining inserts one newline between parts, but none after the last part.
+    framing_size = len("\n".join(header + footer))
+    if max_chars < framing_size:
+        raise ValueError(
+            f"{max_chars} is too small for the resume prompt framing "
+            f"(requires at least {framing_size} characters)."
+        )
+    budget = max_chars - framing_size
 
     parts = list(header)
     for label, text in (("[ORIGINAL TASK]", user_msg), ("[LAST REASONING]", reasoning)):
@@ -219,7 +225,7 @@ def synthesize_prompt(session_dir: Path, max_chars: int = 3000) -> str:
     "--max-chars",
     default=3000,
     show_default=True,
-    help="Maximum context characters in the resume prompt.",
+    help="Maximum prompt characters; must fit the session's framing lines.",
 )
 @click.option(
     "--output",
@@ -307,5 +313,8 @@ def resume(
             )
         )
     else:
-        prompt = synthesize_prompt(session_dir, max_chars=max_chars)
+        try:
+            prompt = synthesize_prompt(session_dir, max_chars=max_chars)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="--max-chars") from exc
         click.echo(prompt)

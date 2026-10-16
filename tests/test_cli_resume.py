@@ -149,7 +149,40 @@ def test_synthesize_prompt_omits_section_without_room(tmp_path: Path):
     assert "[ORIGINAL TASK]\n\n" not in prompt
 
 
+@pytest.mark.parametrize("max_chars", [-1, 0, 1, 200])
+def test_synthesize_prompt_rejects_budget_below_framing(tmp_path: Path, max_chars: int):
+    session = _make_session(tmp_path, "small-budget", task="Fix the bug.")
+    with pytest.raises(ValueError, match="too small.*framing"):
+        synthesize_prompt(session, max_chars=max_chars)
+
+
+def test_synthesize_prompt_framing_budget_boundary(tmp_path: Path):
+    session = _make_session(tmp_path, "metadata-only")
+    (session / "conversation.jsonl").write_text("")
+    # Metadata is variable-sized: neither a fixed minimum nor final slicing
+    # can preserve the framing and enforce the limit for every session.
+    (session / "config.toml").write_text('name = "' + "long-name" * 100 + '"\n')
+    tool = session / "tool-outputs" / "shell"
+    tool.mkdir(parents=True)
+    (tool / "call.txt").write_text("output")
+    prompt = synthesize_prompt(session)
+    assert synthesize_prompt(session, max_chars=len(prompt)) == prompt
+    with pytest.raises(ValueError, match="too small.*framing"):
+        synthesize_prompt(session, max_chars=len(prompt) - 1)
+
+
 # ── CLI tests ───────────────────────────────────────────────────────────
+
+
+def test_resume_rejects_budget_below_framing(populated_logs, monkeypatch):
+    logs_dir, _ = populated_logs
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    result = CliRunner().invoke(resume, ["--max-chars", "200"])
+    assert result.exit_code == 2
+    assert "--max-chars" in result.output
+    assert "too small" in result.output
+    assert "framing" in result.output
+    assert "<<RESUMED SESSION>>" not in result.stdout
 
 
 def test_resume_no_logs_dir(tmp_path: Path, monkeypatch):
