@@ -31,6 +31,22 @@ def backend():
     kb.shutdown()
 
 
+@pytest.fixture(autouse=True)
+def _reset_auto_kernel_state():
+    """Reset module-level auto-detection state so tests don't leak into each other.
+
+    ``execute_python`` freezes the backend choice once a cell runs, so a test
+    that executes a cell would otherwise leave later auto-detection tests
+    observing a stale frozen decision.
+    """
+    import gptme.tools.python as py_mod
+
+    py_mod._kernel_mode_cache = None
+    py_mod._kernel_mode_cache_key = None
+    py_mod._kernel_mode_frozen = False
+    return
+
+
 # ---------------------------------------------------------------------------
 # Basic execution
 # ---------------------------------------------------------------------------
@@ -182,27 +198,203 @@ def test_kernel_shutdown_and_restart(backend):
 
 def test_execute_python_kernel_mode():
     """execute_python routes to the kernel backend when env var is set."""
+    import gptme.tools.python as py_mod
     from gptme.tools.python import execute_python
 
     reset_backend()  # ensure fresh backend
+    original_backend = py_mod._IPYTHON_BACKEND
+    original_cache = py_mod._kernel_mode_cache
     try:
-        with patch.dict(os.environ, {"GPTME_IPYTHON_BACKEND": "kernel"}):
-            # Reload _KERNEL_MODE — need to patch at module level
-            import gptme.tools.python as py_mod
-
-            original = py_mod._KERNEL_MODE
-            py_mod._KERNEL_MODE = True
-            try:
-                msgs = list(execute_python('print("from_kernel")', [], None))
-            finally:
-                py_mod._KERNEL_MODE = original
+        py_mod._IPYTHON_BACKEND = "kernel"
+        py_mod._kernel_mode_cache = None  # force re-evaluation
+        msgs = list(execute_python('print("from_kernel")', [], None))
     finally:
+        py_mod._IPYTHON_BACKEND = original_backend
+        py_mod._kernel_mode_cache = original_cache
         reset_backend()
 
     assert msgs
     content = msgs[0].content
     assert "from_kernel" in content
     assert "Kernel error:" not in content
+
+
+# ---------------------------------------------------------------------------
+# Auto-detection (_should_use_kernel)
+# ---------------------------------------------------------------------------
+
+
+def test_should_use_kernel_explicit_kernel():
+    """GPTME_IPYTHON_BACKEND=kernel always returns True."""
+    import gptme.tools.python as py_mod
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    try:
+        py_mod._IPYTHON_BACKEND = "kernel"
+        py_mod._kernel_mode_cache = None
+        assert py_mod._should_use_kernel() is True
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+
+
+def test_should_use_kernel_explicit_inprocess():
+    """GPTME_IPYTHON_BACKEND=inprocess always returns False."""
+    import gptme.tools.python as py_mod
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    try:
+        py_mod._IPYTHON_BACKEND = "inprocess"
+        py_mod._kernel_mode_cache = None
+        assert py_mod._should_use_kernel() is False
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+
+
+def test_should_use_kernel_auto_with_venv(monkeypatch, tmp_path):
+    """Auto mode activates the kernel backend when a .venv directory exists."""
+    import gptme.tools.python as py_mod
+
+    venv = tmp_path / ".venv"
+    venv.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        result = py_mod._should_use_kernel()
+        assert result is True, "Expected kernel mode with a .venv present"
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+
+
+def test_should_use_kernel_auto_without_project_env(monkeypatch, tmp_path):
+    """Auto mode stays in-process when no project env is found."""
+    import gptme.tools.python as py_mod
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        result = py_mod._should_use_kernel()
+        assert result is False, "Expected in-process mode with no project env"
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+
+
+def test_should_use_kernel_auto_with_uv_lock(monkeypatch, tmp_path):
+    """Auto mode activates the kernel backend when a uv.lock is present."""
+    import gptme.tools.python as py_mod
+
+    (tmp_path / "uv.lock").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        result = py_mod._should_use_kernel()
+        assert result is True, "Expected kernel mode with a uv.lock present"
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+
+
+def test_should_use_kernel_auto_caches_result(monkeypatch, tmp_path):
+    """Auto-detection result is cached so filesystem is not re-probed each call."""
+    import gptme.tools.python as py_mod
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        first = py_mod._should_use_kernel()
+        # Now add a .venv — should NOT affect the cached result
+        (tmp_path / ".venv").mkdir()
+        second = py_mod._should_use_kernel()
+        assert first == second, "Cache must not be invalidated between calls"
+        assert py_mod._kernel_mode_cache is not None
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+
+
+def test_should_use_kernel_auto_recomputes_on_chdir(monkeypatch, tmp_path):
+    """Auto-detection re-probes when the working directory changes."""
+    import gptme.tools.python as py_mod
+
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / ".venv").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    orig_key = py_mod._kernel_mode_cache_key
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        py_mod._kernel_mode_cache_key = None
+        assert py_mod._should_use_kernel() is False
+        # Switching into a project workspace must re-evaluate, not stay cached.
+        monkeypatch.chdir(other)
+        assert py_mod._should_use_kernel() is True
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+        py_mod._kernel_mode_cache_key = orig_key
+
+
+def test_should_use_kernel_frozen_after_first_cell(monkeypatch, tmp_path):
+    """A directory change after the first cell must not switch backends."""
+    import gptme.tools.python as py_mod
+
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / ".venv").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+
+    orig_backend = py_mod._IPYTHON_BACKEND
+    orig_cache = py_mod._kernel_mode_cache
+    orig_key = py_mod._kernel_mode_cache_key
+    orig_frozen = py_mod._kernel_mode_frozen
+    try:
+        py_mod._IPYTHON_BACKEND = "auto"
+        py_mod._kernel_mode_cache = None
+        py_mod._kernel_mode_cache_key = None
+        py_mod._kernel_mode_frozen = False
+        # First cell: no project env here -> in-process, and the choice freezes.
+        assert py_mod._resolve_kernel_backend() is False
+        # Moving into a project directory must NOT flip to the kernel backend,
+        # which would discard the in-process session's variables.
+        monkeypatch.chdir(other)
+        assert py_mod._should_use_kernel() is False
+        assert py_mod._resolve_kernel_backend() is False
+    finally:
+        py_mod._IPYTHON_BACKEND = orig_backend
+        py_mod._kernel_mode_cache = orig_cache
+        py_mod._kernel_mode_cache_key = orig_key
+        py_mod._kernel_mode_frozen = orig_frozen
 
 
 # ---------------------------------------------------------------------------

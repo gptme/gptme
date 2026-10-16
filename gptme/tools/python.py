@@ -4,14 +4,24 @@ The assistant can execute Python code blocks.
 It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.
 
 Configuration:
-    GPTME_IPYTHON_TIMEOUT: Seconds an in-process code block may run before it is
+    GPTME_IPYTHON_TIMEOUT: Seconds a code block may run before it is
         interrupted (default 600, 0 disables). Processes the block started are
         killed too, and ``time.sleep`` is interruptible while a block runs;
         other blocking calls (e.g. a socket read) only stop once they return.
 
-Set ``GPTME_IPYTHON_BACKEND=kernel`` to run cells in a separate Jupyter kernel
-process, which enables reliable SIGINT interrupts and project-environment
-isolation (``%pip install`` goes to the project venv, not gptme's).
+``GPTME_IPYTHON_BACKEND`` controls which execution backend is used for Python
+cells (default ``auto``):
+
+- ``auto``: use the kernel backend when a project environment is detected
+  (a ``.venv`` directory, an active ``VIRTUAL_ENV``, or a ``uv.lock`` /
+  ``[tool.uv]`` project marker) and the ``kernel`` extra is installed.
+  Falls back to in-process when no environment or kernel dependencies are found.
+- ``kernel``: always use the kernel backend.
+- ``inprocess``: always use the in-process backend.
+
+The kernel backend runs cells in a separate Jupyter kernel process, enabling
+reliable SIGINT interrupts and project-environment isolation
+(``%pip install`` goes to the project venv, not gptme's).
 """
 
 import ast
@@ -61,11 +71,87 @@ if TYPE_CHECKING:
 
 logger = getLogger(__name__)
 
-# When True, cells execute in a separate Jupyter kernel process.
-# Set GPTME_IPYTHON_BACKEND=kernel to enable.
-_KERNEL_MODE: bool = (
-    os.environ.get("GPTME_IPYTHON_BACKEND", "inprocess").lower() == "kernel"
-)
+# "auto" | "kernel" | "inprocess"
+_IPYTHON_BACKEND = os.environ.get("GPTME_IPYTHON_BACKEND", "auto").lower()
+
+# Cached result of auto-detection; None means not yet determined.
+_kernel_mode_cache: bool | None = None
+
+# Workspace key (cwd, VIRTUAL_ENV) the cached result was computed for. The
+# auto-detection probes (_detect_venv, _is_uv_project) depend on both, so the
+# cache must be recomputed when either changes — otherwise a session that
+# starts outside a project and later moves into one would stay on the
+# in-process backend despite auto mode's contract.
+_kernel_mode_cache_key: tuple[str, str | None] | None = None
+
+# Set once a cell has executed with a chosen backend.  From then on the choice
+# is frozen: the kernel and in-process backends hold separate Python state
+# (variables, imports), so silently switching because the working directory
+# changed would discard the user's session.  A directory change before the
+# first cell still re-evaluates (auto mode's workspace contract).
+_kernel_mode_frozen = False
+
+
+def _should_use_kernel() -> bool:
+    """Return True if cells should run in a separate Jupyter kernel process.
+
+    Explicit configuration always wins.  In auto mode the result is cached
+    per workspace (cwd + VIRTUAL_ENV) so repeated cells in the same workspace
+    don't redo the filesystem probes, while a workspace switch re-evaluates —
+    until the first cell executes, after which the choice is frozen (see
+    ``_kernel_mode_frozen``).
+    """
+    global _kernel_mode_cache, _kernel_mode_cache_key
+
+    if _IPYTHON_BACKEND == "kernel":
+        return True
+    if _IPYTHON_BACKEND == "inprocess":
+        return False
+
+    # auto mode: once a cell has run, keep the backend stable even if the
+    # working directory later changes.
+    if _kernel_mode_frozen:
+        return bool(_kernel_mode_cache)
+
+    # auto mode: activate kernel when a project environment is found.
+    # Any of these signals is enough: a .venv / VIRTUAL_ENV (even without a
+    # working Python inside — the kernel will fall through to uv run), or a
+    # uv-managed project (uv.lock / [tool.uv]).
+    cache_key = (os.getcwd(), os.environ.get("VIRTUAL_ENV"))
+    if _kernel_mode_cache is None or _kernel_mode_cache_key != cache_key:
+        from .python_kernel import KernelBackend
+
+        has_venv = _detect_venv() is not None
+        is_uv = KernelBackend._is_uv_project()
+        # Auto mode must not break installations without the optional extra.
+        # Both are needed for the host's default-kernel fallback as well.
+        available = all(
+            importlib.util.find_spec(name) is not None
+            for name in ("jupyter_client", "ipykernel")
+        )
+        _kernel_mode_cache = (has_venv or is_uv) and available
+        _kernel_mode_cache_key = cache_key
+        if _kernel_mode_cache:
+            logger.info("Auto-activating kernel backend: project environment detected")
+        else:
+            logger.debug(
+                "No usable project kernel environment found; using in-process IPython backend"
+            )
+    return _kernel_mode_cache
+
+
+def _resolve_kernel_backend() -> bool:
+    """Return the backend for a cell and freeze the choice for the process.
+
+    ``execute_python`` calls this instead of ``_should_use_kernel`` so that
+    once the first cell runs, a later ``os.chdir`` cannot flip backends and
+    silently drop the session state held by the other interpreter.
+    """
+    global _kernel_mode_frozen
+    use_kernel = _should_use_kernel()
+    _kernel_mode_frozen = True
+    return use_kernel
+
 
 # Default byte cap for python tool output (10 MiB)
 _DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024
@@ -267,11 +353,8 @@ def register_function(func: T, *, tool_name: str | None = None) -> T:
     # if ipython is already initialized, push the function to it to make it available
     if _ipython is not None:
         _ipython.push({func.__name__: func})
-    # In kernel mode, register as a bridge-callable stub in the kernel
-    if _KERNEL_MODE:
-        from .python_kernel import get_backend
-
-        get_backend().register_bridge_function(func)
+    # Do not select a backend here: tool initialization runs before chat()
+    # switches into the selected workspace. Bridge stubs are synced at execution.
     return func
 
 
@@ -440,8 +523,11 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     from .python_kernel import get_backend
 
     backend = get_backend()
+    for name, func in registered_functions.items():
+        if backend._bridge._functions.get(name) is not func:
+            backend.register_bridge_function(func)
     try:
-        result = backend.execute(code)
+        result = backend.execute(code, timeout=_get_timeout())
     except RuntimeError as exc:
         yield Message(
             "system",
@@ -452,6 +538,19 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         backend.interrupt()
         backend._drain_until_idle()
         raise
+
+    # If the cell returned Message / list[Message] objects directly (via the
+    # kernel's displayhook wrapper), deliver them and skip the summary, exactly
+    # as the in-process path does on isinstance(result.result, list) returns.
+    if (
+        backend._bridge.messages
+        and result.result_text is None
+        and not result.stdout
+        and not result.stderr
+        and not result.error
+    ):
+        yield from backend._bridge.messages
+        return
 
     yield from backend._bridge.messages
     output = ""
@@ -542,7 +641,7 @@ def execute_python(
         return
 
     # Kernel mode: execute in a separate Jupyter kernel process
-    if _KERNEL_MODE:
+    if _resolve_kernel_backend():
         cwd = Path.cwd()
         pre_images = _snapshot_images(cwd)
         msgs = list(_execute_python_kernel(code))

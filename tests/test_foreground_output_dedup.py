@@ -164,6 +164,11 @@ class TestShellOutputDedup:
 
 
 class TestIPythonOutputDedup:
+    @pytest.fixture(autouse=True)
+    def inprocess_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # These assertions cover the in-process streaming/display contract.
+        monkeypatch.setattr(python_tool, "_IPYTHON_BACKEND", "inprocess")
+
     def test_streamed_stdout_is_printed_once(self, tmp_path: Path) -> None:
         with _capture_tool_display(tmp_path) as (stdout, manager):
             messages = list(execute_python("print('ipython-dedup-marker')", [], None))
