@@ -1055,7 +1055,7 @@ def context_files(config: str | None):
 
 
 @context.command("journal")
-@click.option("--days", type=int, default=7, help="Days to look back")
+@click.option("--days", type=click.IntRange(min=1), default=7, help="Days to look back")
 @click.option(
     "--path",
     type=click.Path(exists=True, file_okay=False),
