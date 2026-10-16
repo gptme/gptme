@@ -57,7 +57,7 @@ function parseExecutedToolCalls(messages: Message[]): ToolCall[] {
       } else {
         continue;
       }
-      const args = call.args;
+      const args = call.args ?? [];
       const content = call.content || args[0] || '';
       calls.push({
         tool: call.tool.toLowerCase(),

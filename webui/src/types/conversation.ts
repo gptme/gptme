@@ -38,7 +38,7 @@ export interface StreamingMessage extends Message {
 
 export interface ToolUse {
   tool: string;
-  args: string[];
+  args: string[] | null;
   content: string;
 }
 
