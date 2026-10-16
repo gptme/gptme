@@ -55,6 +55,27 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
     expect(screen.queryByText(/execute/i)).toBeNull();
   });
 
+  it.each([null, []])('renders content and confirms with args=%j', async (args) => {
+    const { onConfirm } = renderConfirmation({
+      pendingTool: makePendingTool({ args, content: 'regression-content' }),
+    });
+
+    expect(screen.getByText('regression-content')).toBeVisible();
+    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps non-empty arguments and content visible', () => {
+    renderConfirmation({
+      pendingTool: makePendingTool({ args: ['--verbose'], content: 'regression-content' }),
+    });
+
+    expect(screen.getByText('Arguments:')).toBeVisible();
+    expect(screen.getByText('--verbose')).toBeVisible();
+    expect(screen.getByText('regression-content')).toBeVisible();
+  });
+
   it('shows the tool name in the header', () => {
     renderConfirmation();
     expect(screen.getByText(/shell/i)).toBeInTheDocument();
