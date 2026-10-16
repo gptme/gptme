@@ -3084,6 +3084,28 @@ class TestForgeNeutralArtifactIngestion:
         assert artifact.review_status == ReviewStatus.INCOMPLETE
         assert artifact.merge_safety is MergeSafety.UNKNOWN
 
+    def test_unknown_severity_marks_incomplete(self):
+        """Fail-closed: an unrecognized severity must not silently downgrade."""
+        data = _forge_neutral_artifact()
+        data["findings"][0]["severity"] = "blocker"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        # The unmappable finding is dropped; the valid sibling survives.
+        assert [f.body for f in artifact.findings] == [
+            "Missing edge case\n\nAdd a test for the empty list.\n\ndef test_empty(): ..."
+        ]
+
+    def test_unknown_disposition_marks_incomplete(self):
+        """Fail-closed: an unrecognized disposition must not default to OPEN."""
+        data = _forge_neutral_artifact()
+        data["findings"][0]["disposition"] = "deferred"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        # The unmappable finding is dropped; the valid sibling survives.
+        assert [f.body for f in artifact.findings] == [
+            "Missing edge case\n\nAdd a test for the empty list.\n\ndef test_empty(): ..."
+        ]
+
     def test_non_int_schema_version_without_target_stays_core(self):
         """Detection must not misfire on core-shaped dicts missing pr metadata."""
         data = {

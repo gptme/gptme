@@ -558,19 +558,25 @@ class ReviewArtifact:
                 errors += 1
                 continue
             file_raw = f_raw.get("file_path", "")
+            severity = _FORGE_NEUTRAL_SEVERITY.get(
+                str(f_raw.get("severity", "")).lower()
+            )
+            status = _FORGE_NEUTRAL_DISPOSITION.get(
+                str(f_raw.get("disposition", "")).lower()
+            )
+            if severity is None or status is None:
+                # Fail-closed: an unrecognized severity or disposition would
+                # otherwise be silently downgraded (WARNING/OPEN), hiding a
+                # potentially critical finding from review-watch.
+                errors += 1
+                continue
             findings.append(
                 ReviewFinding(
                     body=body,
                     file=file_raw if isinstance(file_raw, str) else "",
                     line=_parse_line_range(f_raw.get("line_range")),
-                    severity=_FORGE_NEUTRAL_SEVERITY.get(
-                        str(f_raw.get("severity", "")).lower(),
-                        FindingSeverity.WARNING,
-                    ),
-                    status=_FORGE_NEUTRAL_DISPOSITION.get(
-                        str(f_raw.get("disposition", "")).lower(),
-                        FindingStatus.OPEN,
-                    ),
+                    severity=severity,
+                    status=status,
                 )
             )
 
