@@ -3246,6 +3246,42 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.findings[0].agreement == 3
         assert artifact.findings[1].agreement == 2
 
+    @pytest.mark.parametrize("agreement", ["3", 3.0, True, None, [], {}])
+    def test_malformed_agreement_marks_incomplete(self, agreement):
+        data = _local_review_artifact()
+        data["findings"][0]["agreement"] = agreement
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+        assert artifact.findings[0].agreement == 0
+        assert artifact.findings[0].body == data["findings"][0]["body"]
+        assert artifact.findings[1].agreement == 2
+
+    @pytest.mark.parametrize("agreement", ["3", 3.0, True, None, [], {}])
+    def test_core_malformed_agreement_marks_incomplete(self, agreement):
+        data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
+        data["findings"][0]["agreement"] = agreement
+        with pytest.raises(ValueError, match="ReviewFinding.agreement must be an int"):
+            ReviewFinding.from_dict(data["findings"][0])
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+        assert len(artifact.findings) == 1
+        assert artifact.findings[0].agreement == 2
+
+    def test_missing_agreement_defaults_to_zero(self):
+        data = _local_review_artifact()
+        for finding in data["findings"]:
+            finding.pop("agreement")
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+        assert all(f.agreement == 0 for f in artifact.findings)
+        reloaded = ReviewArtifact.from_dict(artifact.to_dict())
+        assert reloaded.review_status == ReviewStatus.COMPLETE
+        assert reloaded.validation_errors == 0
+        assert all(f.agreement == 0 for f in reloaded.findings)
+
     def test_review_status_complete_when_all_findings_valid(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
         assert artifact.review_status == ReviewStatus.COMPLETE

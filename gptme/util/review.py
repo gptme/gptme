@@ -188,7 +188,11 @@ class ReviewFinding:
         category_raw = d.get("category", "")
         category = category_raw if isinstance(category_raw, str) else ""
         agreement_raw = d.get("agreement", 0)
-        agreement = int(agreement_raw) if type(agreement_raw) is int else 0
+        if type(agreement_raw) is not int:
+            raise ValueError(
+                f"ReviewFinding.agreement must be an int, got {type(agreement_raw).__name__!r}: {agreement_raw!r}"
+            )
+        agreement = agreement_raw
         return cls(
             body=body_raw,
             file=file_raw,
@@ -658,7 +662,7 @@ class ReviewArtifact:
         count) is carried through to ``ReviewFinding.agreement``.
 
         Fail-closed: any unrecognised severity, non-string ``file``, or
-        non-integer ``line`` counts as a deserialization error and marks the
+        non-integer ``line``/``agreement`` counts as a deserialization error and marks the
         artifact ``INCOMPLETE`` rather than silently downgrading a P1 to
         ``warning`` or dropping a location while still reporting ``COMPLETE``.
         """
@@ -708,7 +712,10 @@ class ReviewArtifact:
             category_raw = f_raw.get("class", "")
             category = category_raw if isinstance(category_raw, str) else ""
             agreement_raw = f_raw.get("agreement", 0)
-            agreement = int(agreement_raw) if type(agreement_raw) is int else 0
+            if type(agreement_raw) is not int:
+                errors += 1
+                agreement_raw = 0
+            agreement = agreement_raw
             findings.append(
                 ReviewFinding(
                     body=body_raw,
