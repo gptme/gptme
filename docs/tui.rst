@@ -95,7 +95,7 @@ current settings.
   titles and output summaries. On by default; set
   ``GPTME_TUI_DISPLAY_HIGHLIGHT=0`` to turn it off from startup.
 - ``/display grouping [on|off]``: group an agent turn's steps into one block: the agent's
-  name once, each step's tool output indented under it. Output from hooks
+  name once, each tool's output indented under the call that ran it. Output from hooks
   and other notices keeps its own block, and nothing is shown out of order.
   Off shows one block per message, as stored in the log. On by default; set
   ``GPTME_TUI_DISPLAY_GROUPING=0`` to turn it off from startup. Full-screen mode
