@@ -735,11 +735,11 @@ shown, such as token-usage and time notices. Off by default; set
 <li><p><code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">highlight</span> <span class="pre">[on|off]</span></code>: syntax-highlight commands in tool-call
 titles and output summaries. On by default; set
 <code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_HIGHLIGHT=0</span></code> to turn it off from startup.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">turns</span> <span class="pre">[on|off]</span></code>: show an agent turn as one block: the agent’s
+<li><p><code class="docutils literal notranslate"><span class="pre">/display</span> <span class="pre">grouping</span> <span class="pre">[on|off]</span></code>: group an agent turn’s steps into one block: the agent’s
 name once, each step’s tool output indented under it. Output from hooks
 and other notices keeps its own block, and nothing is shown out of order.
 Off shows one block per message, as stored in the log. On by default; set
-<code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_TURNS=0</span></code> to turn it off from startup. Full-screen mode
+<code class="docutils literal notranslate"><span class="pre">GPTME_TUI_DISPLAY_GROUPING=0</span></code> to turn it off from startup. Full-screen mode
 only.</p></li>
 </ul>
 <p><kbd class="kbd docutils literal notranslate">Ctrl</kbd>+<kbd class="kbd docutils literal notranslate">O</kbd> is the shorthand for both: it expands tool output and thinking,

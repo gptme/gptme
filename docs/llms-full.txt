@@ -3748,7 +3748,7 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_TUI_DISPLAY_THINKING`` - Show model thinking in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display thinking``). Display only; does not affect reasoning.
 - ``GPTME_TUI_DISPLAY_HIDDEN`` - Show hidden messages (sent to the model but normally not displayed, e.g. token/time notices) in the :doc:`TUI <tui>` at startup (default: false; toggle at runtime with ``/display hidden``)
 - ``GPTME_TUI_DISPLAY_HIGHLIGHT`` - Syntax-highlight commands in tool-call titles and output summaries in the :doc:`TUI <tui>` (default: true; toggle at runtime with ``/display highlight``)
-- ``GPTME_TUI_DISPLAY_TURNS`` - Show each agent turn as one block in the :doc:`TUI <tui>`, with tool output indented under its step (default: true; toggle at runtime with ``/display turns``)
+- ``GPTME_TUI_DISPLAY_GROUPING`` - Show each agent turn as one block in the :doc:`TUI <tui>`, with tool output indented under its step (default: true; toggle at runtime with ``/display grouping``)
 
 .. rubric:: API Configuration
 
@@ -8821,11 +8821,11 @@ current settings.
 - ``/display highlight [on|off]``: syntax-highlight commands in tool-call
   titles and output summaries. On by default; set
   ``GPTME_TUI_DISPLAY_HIGHLIGHT=0`` to turn it off from startup.
-- ``/display turns [on|off]``: show an agent turn as one block: the agent's
+- ``/display grouping [on|off]``: group an agent turn's steps into one block: the agent's
   name once, each step's tool output indented under it. Output from hooks
   and other notices keeps its own block, and nothing is shown out of order.
   Off shows one block per message, as stored in the log. On by default; set
-  ``GPTME_TUI_DISPLAY_TURNS=0`` to turn it off from startup. Full-screen mode
+  ``GPTME_TUI_DISPLAY_GROUPING=0`` to turn it off from startup. Full-screen mode
   only.
 
 :kbd:`Ctrl+O` is the shorthand for both: it expands tool output and thinking,
