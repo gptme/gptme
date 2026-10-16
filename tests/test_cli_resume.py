@@ -127,6 +127,28 @@ def test_synthesize_prompt_structure(populated_logs: tuple[Path, list[Path]]):
     assert "Continue your work" in prompt
 
 
+def test_synthesize_prompt_respects_max_chars(tmp_path: Path):
+    """max_chars bounds the whole prompt, not just the task section."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    session = _make_session(logs, "long-task", task="Fix the bug in utils.py. " * 200)
+    prompt = synthesize_prompt(session, max_chars=400)
+    assert len(prompt) <= 400
+    # The task is truncated to fit, but its header still carries a body.
+    assert "[ORIGINAL TASK]" in prompt
+    assert "[ORIGINAL TASK]\n\n" not in prompt
+
+
+def test_synthesize_prompt_omits_section_without_room(tmp_path: Path):
+    """A section header is never emitted with an empty body."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    session = _make_session(logs, "long-task", task="Fix the bug. " * 200)
+    prompt = synthesize_prompt(session, max_chars=230)
+    assert len(prompt) <= 230
+    assert "[ORIGINAL TASK]\n\n" not in prompt
+
+
 # ── CLI tests ───────────────────────────────────────────────────────────
 
 
