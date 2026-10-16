@@ -22,6 +22,7 @@ export type StepRole =
       steps?: ToolStepDetail[];
     }
   | { type: 'grouped'; groupId: number } // hidden step (collapsed)
+  | { type: 'tool-result'; groupId: number } // tool result indented under its step (hidden when collapsed)
   | { type: 'response' }; // final assistant response — always visible
 
 /**
@@ -217,9 +218,19 @@ export function buildStepRoles(
 
       roles.set(absFirstIdx, groupStart);
 
-      // Mark the rest as grouped (hidden when collapsed)
+      // Mark the rest as grouped (hidden when collapsed).
+      // System messages that are direct tool results get 'tool-result' so the
+      // expanded view can indent them under the step that called them.
       for (let k = 1; k < stepIndices.length; k++) {
-        roles.set(logOffset + stepIndices[k], { type: 'grouped', groupId: stableGroupId });
+        const idx = stepIndices[k];
+        const msg = messages[idx];
+        const isToolOutput = msg.role === 'system' && detectTool(msg.content) !== null;
+        roles.set(
+          logOffset + idx,
+          isToolOutput
+            ? { type: 'tool-result', groupId: stableGroupId }
+            : { type: 'grouped', groupId: stableGroupId }
+        );
       }
 
       // Mark response

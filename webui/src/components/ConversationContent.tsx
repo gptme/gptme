@@ -330,7 +330,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       if (msg.hide && !settings.showHiddenMessages) continue;
 
       const stepRole = stepRolesValue[logOffsetValue + index];
-      if (stepRole?.type === 'grouped' && !expandedGroups.has(stepRole.groupId)) continue;
+      if (
+        (stepRole?.type === 'grouped' || stepRole?.type === 'tool-result') &&
+        !expandedGroups.has(stepRole.groupId)
+      )
+        continue;
       indices.push(index);
     }
     return indices;
@@ -548,7 +552,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       const logOffset = conversation$?.logOffset?.get() ?? 0;
       const stepRole = stepRoles$[logOffset + idx].get();
       if (
-        (stepRole?.type === 'group-start' || stepRole?.type === 'grouped') &&
+        (stepRole?.type === 'group-start' ||
+          stepRole?.type === 'grouped' ||
+          stepRole?.type === 'tool-result') &&
         !expandedGroups$.get().has(stepRole.groupId)
       ) {
         return true;
@@ -1063,8 +1069,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                     onFork={isReadOnly ? undefined : handleForkMessage}
                     messageIndex={absoluteIndex}
                     hideAvatar={
-                      stepRole?.type === 'group-start' && expandedGroups.has(stepRole.groupId)
+                      (stepRole?.type === 'group-start' && expandedGroups.has(stepRole.groupId)) ||
+                      stepRole?.type === 'tool-result'
                     }
+                    isToolResult={stepRole?.type === 'tool-result'}
                   />
                   {/* Branch indicator at fork points */}
                   <Memo>
