@@ -32,7 +32,7 @@ describe('buildStepRoles', () => {
     ];
     const roles = buildStepRoles(messages, neverHidden);
     expect(roles.get(1)?.type).toBe('group-start');
-    expect(roles.get(2)?.type).toBe('grouped');
+    expect(roles.get(2)?.type).toBe('tool-result'); // system msg with recognised tool output
     expect(roles.get(3)?.type).toBe('response');
   });
 
@@ -58,8 +58,8 @@ describe('buildStepRoles', () => {
       expect(start.tools).toContain('save');
     }
 
-    // Indices 2, 3, 4 should be grouped
-    expect(roles.get(2)?.type).toBe('grouped');
+    // Index 2: system msg with 'saved' content → tool-result; indices 3, 4: assistant/non-tool-output → grouped
+    expect(roles.get(2)?.type).toBe('tool-result');
     expect(roles.get(3)?.type).toBe('grouped');
     expect(roles.get(4)?.type).toBe('grouped');
 
@@ -100,7 +100,7 @@ describe('buildStepRoles', () => {
     const roles = buildStepRoles(messages, isHidden);
     // 2 visible intermediate steps (1, 3) — meets threshold
     expect(roles.get(1)?.type).toBe('group-start');
-    expect(roles.get(3)?.type).toBe('grouped');
+    expect(roles.get(3)?.type).toBe('tool-result'); // system msg 'saved' → tool-result
     expect(roles.get(4)?.type).toBe('response');
   });
 
@@ -310,11 +310,11 @@ describe('buildStepRoles', () => {
     const roles = buildStepRoles(messages, neverHidden);
 
     expect(roles.get(1)?.type).toBe('group-start');
-    expect(roles.get(2)?.type).toBe('grouped');
-    expect(roles.get(3)?.type).toBe('grouped');
-    expect(roles.get(4)?.type).toBe('grouped');
-    expect(roles.get(5)?.type).toBe('grouped');
-    expect(roles.get(6)?.type).toBe('grouped');
+    expect(roles.get(2)?.type).toBe('tool-result'); // 'Saved to hello.py' → tool-result
+    expect(roles.get(3)?.type).toBe('grouped'); // assistant step → grouped
+    expect(roles.get(4)?.type).toBe('tool-result'); // '```stdout' → tool-result
+    expect(roles.get(5)?.type).toBe('grouped'); // assistant step → grouped
+    expect(roles.get(6)?.type).toBe('tool-result'); // '```stdout' → tool-result
     expect(Array.from(roles.values()).some((role) => role.type === 'response')).toBe(false);
   });
 
@@ -358,7 +358,7 @@ describe('buildStepRoles', () => {
       const roles = buildStepRoles(messages, neverHidden);
       // With logOffset=0, absolute == local
       expect(roles.get(1)?.type).toBe('group-start');
-      expect(roles.get(2)?.type).toBe('grouped');
+      expect(roles.get(2)?.type).toBe('tool-result'); // 'saved file' → tool-result
       expect(roles.get(3)?.type).toBe('response');
       // Local indices 0..3 should NOT appear under different keys
       expect(roles.has(0)).toBe(false);
@@ -381,7 +381,7 @@ describe('buildStepRoles', () => {
 
       // Absolute indices must be present
       expect(roles.get(151)?.type).toBe('group-start');
-      expect(roles.get(152)?.type).toBe('grouped');
+      expect(roles.get(152)?.type).toBe('tool-result'); // 'saved file' → tool-result
       expect(roles.get(153)?.type).toBe('response');
     });
 
@@ -402,9 +402,9 @@ describe('buildStepRoles', () => {
       }
 
       const grouped = roles.get(52);
-      expect(grouped?.type).toBe('grouped');
-      if (grouped?.type === 'grouped') {
-        // grouped also references the same absolute groupId
+      expect(grouped?.type).toBe('tool-result'); // 'saved file' → tool-result
+      if (grouped?.type === 'tool-result') {
+        // tool-result also references the same absolute groupId
         expect(grouped.groupId).toBe(51);
       }
     });

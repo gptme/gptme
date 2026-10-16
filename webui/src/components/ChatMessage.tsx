@@ -181,6 +181,8 @@ interface Props {
   messageIndex?: number;
   /** Suppress the role avatar — used when a CollapsedStepGroup chip immediately precedes this message */
   hideAvatar?: boolean;
+  /** Indent this message under the preceding step (tool result within an expanded turn group) */
+  isToolResult?: boolean;
 }
 
 const ChatMessageComponent: FC<Props> = ({
@@ -200,6 +202,7 @@ const ChatMessageComponent: FC<Props> = ({
   onFork,
   messageIndex,
   hideAvatar,
+  isToolResult,
 }) => {
   const { getClient, connectionConfig } = useApi();
   const client = getClient(serverId);
@@ -607,7 +610,9 @@ const ChatMessageComponent: FC<Props> = ({
                   </div>
                 )}
 
-                <div className={`md:px-12`}>
+                <div
+                  className={`md:px-12${isToolResult ? 'border-l-2 border-border/40 md:ml-4' : ''}`}
+                >
                   <div
                     className={`group/message relative flex flex-col ${messageClasses$.get()}`}
                     style={
