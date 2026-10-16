@@ -390,9 +390,9 @@ class KernelBackend:
     def _build_uv_kernel_cmd() -> list[str] | None:
         """Build a kernel command using 'uv run --with ipykernel'.
 
-        uv injects ipykernel ephemerally — it does not modify the project's
-        pyproject.toml or lock file — so the project env stays clean while the
-        kernel still runs in the project's interpreter.
+        uv injects ipykernel ephemerally. --no-sync leaves the project's lock
+        file and installed packages untouched, even with a missing/stale lock.
+        --active respects the environment selected through VIRTUAL_ENV.
 
         Returns None if uv is not available.
         """
@@ -402,6 +402,8 @@ class KernelBackend:
         return [
             uv,
             "run",
+            "--no-sync",
+            "--active",
             "--with",
             "ipykernel",
             "python",

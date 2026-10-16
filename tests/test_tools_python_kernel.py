@@ -706,6 +706,9 @@ def test_build_uv_kernel_cmd_includes_with_ipykernel(monkeypatch):
     assert "ipykernel" in cmd
     assert "ipykernel_launcher" in cmd
     assert "{connection_file}" in cmd
+    # --no-sync implies --frozen without requiring an existing lockfile, and
+    # avoids changing packages already installed in the selected environment.
+    assert "--no-sync" in cmd
 
 
 class _FakeKC:
@@ -779,6 +782,7 @@ def test_ensure_started_uses_uv_when_project_python_lacks_ipykernel(
     assert "--with" in cmd
     assert "ipykernel" in cmd
     assert "ipykernel_launcher" in cmd
+    assert "--active" in cmd
 
 
 def test_ensure_started_uv_when_uv_project_without_venv(monkeypatch, tmp_path):
@@ -810,3 +814,67 @@ def test_ensure_started_uses_project_python_when_ipykernel_present(
 
     assert cmd[0] == project_python
     assert "ipykernel_launcher" in cmd
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("lock_state", ["missing", "stale"])
+def test_uv_kernel_preserves_lock_and_active_environment(
+    monkeypatch, tmp_path, lock_state
+):
+    """Launch a real uv kernel with a non-default venv and an uninstalled package."""
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv not installed")
+
+    project = tmp_path / "project"
+    project.mkdir()
+    pyproject = project / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "kernel-probe"\nversion = "0.0.0"\n')
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    lock = project / "uv.lock"
+    if lock_state == "stale":
+        subprocess.run([uv, "lock", "--offline"], check=True, capture_output=True)
+        pyproject.write_text(pyproject.read_text().replace("0.0.0", "0.0.1"))
+    lock_before = lock.read_bytes() if lock.exists() else None
+    pyproject_before = pyproject.read_bytes()
+
+    active = tmp_path / "selected-env"
+    subprocess.run(
+        [uv, "venv", "--python", sys.executable, str(active)],
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setenv("VIRTUAL_ENV", str(active))
+    python = KernelBackend._find_project_python()
+    assert python is not None
+    assert not KernelBackend._has_ipykernel(python)
+    site_packages = Path(
+        subprocess.check_output(
+            [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+            text=True,
+        ).strip()
+    )
+    marker = site_packages / "selected_env_marker.py"
+    marker.write_text("VALUE = 'selected environment preserved'\n")
+
+    kb = KernelBackend()
+    try:
+        result = kb.execute(
+            "import selected_env_marker; print(selected_env_marker.VALUE)"
+        )
+        assert result.error is None, result.error
+        assert "selected environment preserved" in result.stdout
+    finally:
+        kb.shutdown()
+
+    assert pyproject.read_bytes() == pyproject_before
+    assert (lock.read_bytes() if lock.exists() else None) == lock_before
+    assert marker.exists()
+    assert not (project / ".venv").exists()
+    assert not KernelBackend._has_ipykernel(python)
