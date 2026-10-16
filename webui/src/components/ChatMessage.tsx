@@ -611,7 +611,7 @@ const ChatMessageComponent: FC<Props> = ({
                 )}
 
                 <div
-                  className={`md:px-12 ${isToolResult ? 'border-l-2 border-border/40 md:ml-4' : ''}`}
+                  className={`md:px-12 ${isToolResult ? 'md:ml-4 md:border-l-2 md:border-border/40' : ''}`}
                 >
                   <div
                     className={`group/message relative flex flex-col ${messageClasses$.get()}`}

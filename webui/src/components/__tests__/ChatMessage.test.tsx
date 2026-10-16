@@ -183,7 +183,7 @@ describe('ChatMessage', () => {
       );
       const contentWrapper = container.querySelector('.group\\/message')?.parentElement;
       expect(contentWrapper).toHaveClass('md:px-12');
-      for (const className of ['border-l-2', 'border-border/40', 'md:ml-4']) {
+      for (const className of ['md:border-l-2', 'md:border-border/40', 'md:ml-4']) {
         if (isToolResult) {
           expect(contentWrapper).toHaveClass(className);
         } else {

@@ -48,7 +48,15 @@ jest.mock('@tanstack/react-virtual', () => ({
 }));
 
 const mockBuildStepRoles = jest.fn((_messages: Message[]) => new Map());
-let mockStepRoles = new Map<number, { type: 'grouped'; groupId: number }>();
+let mockStepRoles = new Map<
+  number,
+  {
+    type: 'grouped' | 'group-start' | 'tool-result';
+    groupId: number;
+    count?: number;
+    tools?: string[];
+  }
+>();
 
 jest.mock('@/utils/stepGrouping', () => ({
   ...jest.requireActual('@/utils/stepGrouping'),
@@ -210,13 +218,23 @@ jest.mock('@/contexts/ApiContext', () => ({
   }),
 }));
 
+// Mutable settings so tests can exercise settings-driven behaviour (e.g. the
+// group-turns toggle) by flipping a value and re-rendering the component.
+// `groupTurns` is intentionally absent by default → the `?? true` default applies.
+const mockSettings: {
+  showHiddenMessages: boolean;
+  showInitialSystem: boolean;
+  blocksDefaultOpen: boolean;
+  groupTurns?: boolean;
+} = {
+  showHiddenMessages: false,
+  showInitialSystem: false,
+  blocksDefaultOpen: true,
+};
+
 jest.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({
-    settings: {
-      showHiddenMessages: false,
-      showInitialSystem: false,
-      blocksDefaultOpen: true,
-    },
+    settings: mockSettings,
     updateSettings: jest.fn(),
   }),
 }));
@@ -312,6 +330,105 @@ describe('step role recomputation', () => {
     });
 
     expect(mockBuildStepRoles).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+});
+
+describe('group turns setting', () => {
+  beforeEach(() => {
+    mockConversation$.set(makeConversationState().peek());
+    mockBuildStepRoles.mockClear();
+    mockStepRoles = new Map();
+    delete mockSettings.groupTurns; // default: grouping on
+  });
+
+  afterEach(() => {
+    delete mockSettings.groupTurns;
+    mockStepRoles = new Map();
+  });
+
+  it('skips role computation and un-hides grouped rows when grouping is turned off, then resumes when turned back on', () => {
+    // One pre-computed collapsed group, so grouping-on hides a row and grouping-off does not.
+    mockStepRoles = new Map([[1, { type: 'grouped', groupId: 0 }]]);
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'Question'),
+        message('system', 'Tool result'),
+        message('assistant', 'Answer'),
+      ]);
+    });
+
+    const view = renderComponent();
+
+    // Grouping on (default): roles computed and the collapsed group row is hidden.
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    // Turn grouping off → flat view: no role computation, every otherwise-visible message renders.
+    act(() => {
+      mockSettings.groupTurns = false;
+    });
+    act(() => {
+      view.rerender(<ConversationContent conversationId="demo/test" />);
+    });
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(1); // skipped, not recomputed
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(3);
+
+    // Turn grouping back on → grouped view returns.
+    act(() => {
+      mockSettings.groupTurns = true;
+    });
+    act(() => {
+      view.rerender(<ConversationContent conversationId="demo/test" />);
+    });
+    expect(mockBuildStepRoles).toHaveBeenCalledTimes(2);
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    view.unmount();
+  });
+
+  it('discards expansion state when grouping is turned off and back on', () => {
+    // Index 0 is the group header; index 1 is the collapsed tool-result row.
+    mockStepRoles = new Map([
+      [0, { type: 'group-start', groupId: 0, count: 1, tools: [] }],
+      [1, { type: 'tool-result', groupId: 0 }],
+    ]);
+    act(() => {
+      mockConversation$.data.log.set([
+        message('assistant', 'Working'),
+        message('system', 'Tool result'),
+      ]);
+    });
+
+    const view = renderComponent();
+    // Collapsed: only the group header row renders.
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(1);
+
+    // Expand the group → the collapsed tool-result row appears.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /step/i }));
+    });
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    // Turn grouping off → flat view (no roles, both rows visible).
+    act(() => {
+      mockSettings.groupTurns = false;
+    });
+    act(() => {
+      view.rerender(<ConversationContent conversationId="demo/test" />);
+    });
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(2);
+
+    // Turn grouping back on → the group must start collapsed again, not revive
+    // the group expanded before the toggle.
+    act(() => {
+      mockSettings.groupTurns = true;
+    });
+    act(() => {
+      view.rerender(<ConversationContent conversationId="demo/test" />);
+    });
+    expect(document.querySelectorAll('[data-index]')).toHaveLength(1);
+
     view.unmount();
   });
 });

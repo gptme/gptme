@@ -398,6 +398,23 @@ export function SettingsContent({
               />
             </div>
 
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="group-turns-toggle" className="text-sm">
+                  Group agent turns
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Collapse consecutive tool steps into one expandable block per turn. Disable for a
+                  flat one-message-per-row view.
+                </p>
+              </div>
+              <Switch
+                id="group-turns-toggle"
+                checked={settings.groupTurns ?? true}
+                onCheckedChange={(checked) => updateSettings({ groupTurns: checked })}
+              />
+            </div>
+
             <Separator />
 
             <div className="space-y-4">

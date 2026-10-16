@@ -219,6 +219,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // (Legend State's <For> only re-renders on observable changes, not React state)
   const showInitialSystem$ = useObservable(settings.showInitialSystem);
   const showHiddenMessages$ = useObservable(settings.showHiddenMessages);
+  const groupTurns$ = useObservable(settings.groupTurns ?? true);
 
   // Sync observables when settings change
   useEffect(() => {
@@ -229,6 +230,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     showHiddenMessages$.set(settings.showHiddenMessages);
   }, [settings.showHiddenMessages, showHiddenMessages$]);
 
+  useEffect(() => {
+    groupTurns$.set(settings.groupTurns ?? true);
+  }, [settings.groupTurns, groupTurns$]);
+
   // Step grouping: compute roles and track expanded groups
   const stepRoles$ = useObservable<Record<number, StepRole>>({});
   // Must be an observable (not React state) so changes trigger re-renders inside <For>
@@ -238,6 +243,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   useEffect(() => {
     expandedGroups$.set(new Set<number>());
   }, [conversationId, expandedGroups$]);
+
+  // Turning grouping off discards the expansion state, so re-enabling grouping
+  // starts from a fresh collapsed view instead of reviving stale group IDs.
+  // (Plain read + guarded write — this must not subscribe, or every expand
+  // would re-run the structural effect that computes step roles.)
+  useEffect(() => {
+    if (!(settings.groupTurns ?? true) && expandedGroups$.get().size > 0) {
+      expandedGroups$.set(new Set<number>());
+    }
+  }, [settings.groupTurns, expandedGroups$]);
 
   const toggleGroup = (groupId: number) => {
     const prev = expandedGroups$.get();
@@ -270,6 +285,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     const firstNonSystem = firstNonSystemIndex$.get();
     const showInitial = showInitialSystem$.get();
     const showHidden = showHiddenMessages$.get();
+    const doGroupTurns = groupTurns$.get();
 
     const [messageCountText, logOffsetText] = structureKey.split(':');
     const messageCount = parseInt(messageCountText, 10);
@@ -300,6 +316,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     // buildStepRoles emits absolute-indexed keys (localIdx + logOffset).
     // Convert to a plain Record so Legend State can do fine-grained key diffing;
     // rows subscribe to stepRoles$[absoluteIndex] and only re-render on their key changing.
+    if (!doGroupTurns) {
+      stepRoles$.set({});
+      return;
+    }
     const roles = buildStepRoles(messages as Message[], isHidden, logOffset);
     stepRoles$.set(Object.fromEntries(roles) as Record<number, StepRole>);
   });
@@ -1072,7 +1092,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                       (stepRole?.type === 'group-start' && expandedGroups.has(stepRole.groupId)) ||
                       stepRole?.type === 'tool-result'
                     }
-                    isToolResult={stepRole?.type === 'tool-result'}
+                    isToolResult={
+                      stepRole?.type === 'tool-result' ||
+                      (stepRole?.type === 'group-start' &&
+                        stepRole.isToolOutput === true &&
+                        expandedGroups.has(stepRole.groupId))
+                    }
                   />
                   {/* Branch indicator at fork points */}
                   <Memo>
