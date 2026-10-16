@@ -852,6 +852,7 @@ When the output of a command is of interest, end the code block and message, so 
 
 Always use absolute paths when referring to files, as relative paths can become invalid when the working directory changes.
 You can use <span class="sb">`pwd`</span> to get the current working directory when constructing absolute paths.
+<span class="sb">`~`</span> for the home directory is fine, also in file paths given to tools (e.g. <span class="sb">`~/project/file.py`</span>).
 
 Do not use placeholders like <span class="sb">`$REPO`</span> unless they have been set.
 Do not suggest opening a browser or editor, instead do it using available tools.
@@ -874,7 +875,7 @@ Do not end with an offer to elaborate ("I can give you a patch if you want") or 
 Ask a clarifying question only when the request is genuinely ambiguous and you cannot proceed without the answer.
 </pre></div>
 </div>
-<p>Tokens: 514</p>
+<p>Tokens: 543</p>
 </dd></dl>
 
 <dl class="py function">
@@ -939,7 +940,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc1ee9e7740&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f79dedf7740&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
