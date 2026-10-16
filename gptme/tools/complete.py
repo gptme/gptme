@@ -528,7 +528,7 @@ def _auto_reply_nudge_interactive(
     # Count existing nudges — only nudge once per think-only sequence
     nudge_count = 0
     for msg in reversed(manager.log.messages):
-        if msg.role == "user" and "No tool call detected" in msg.content:
+        if msg.role == "user" and _is_auto_reply_message(msg):
             nudge_count += 1
         elif msg.role == "assistant":
             # Stop counting when we hit an assistant message with tools

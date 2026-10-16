@@ -10,6 +10,7 @@ from gptme.hooks._policy_block import policy_block_message
 from gptme.message import Message
 from gptme.tools.complete import (
     SessionCompleteException,
+    _auto_reply_nudge_interactive,
     auto_reply_hook,
     block_budget_hook,
     count_policy_blocks,
@@ -164,6 +165,25 @@ class TestBudgetAutoReply:
         msgs = [PROMPT, *_blocks(3), THINK, first, THINK, first, THINK]
         with pytest.raises(SessionCompleteException):
             _replies(_manager(msgs), interactive=False, prompt_queue=[])
+
+    @patch("gptme.tools.complete.ToolUse")
+    def test_interactive_human_quoting_marker_still_nudged(self, mock_tooluse):
+        # A human message quoting the marker text in -y mode must not suppress the
+        # nudge counter — the counter must use the prefix check, not substring match.
+        # Scenario: [prompt, prior_nudge, think, quoted_human, think]
+        # Reversed scan: think → quoted_human → stop (non-harness user msg) → nudge_count=0 → nudge fires
+        # With the old substring check: "No tool call detected" in quoted → nudge_count=1 → no nudge
+        mock_tooluse.iter_from_content.return_value = []
+        quoted = Message("user", 'Why do I keep seeing "No tool call detected"?')
+        prior_nudge = Message(
+            "user",
+            "<system>No tool call detected. Please continue.</system>",
+        )
+        msgs = [PROMPT, prior_nudge, THINK, quoted, THINK]
+        out = list(_auto_reply_nudge_interactive(_manager(msgs)))
+        assert any(isinstance(m, Message) for m in out), (
+            "nudge should fire after human reset"
+        )
 
     @patch("gptme.tools.complete.has_incomplete_todos", return_value=False)
     def test_human_quoting_marker_not_counted_as_auto_reply(self, _h, monkeypatch):
