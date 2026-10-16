@@ -492,6 +492,51 @@ describe('consecutive user messages', () => {
     view.unmount();
   });
 
+  it('keeps a prompt that failed to send on its own row', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'one'),
+        { ...message('user', 'two'), _status: 'failed' },
+        message('user', 'three'),
+      ]);
+    });
+    const view = renderComponent();
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one',
+      'two',
+      'three',
+    ]);
+    // and one that fails after it was merged leaves the run
+    act(() => {
+      mockConversation$.data.log[1]._status.set('sent');
+    });
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one\n\ntwo\n\nthree',
+    ]);
+    act(() => {
+      mockConversation$.data.log[2]._status.set('failed');
+    });
+    expect(screen.getAllByTestId('chat-message').map((row) => row.textContent)).toEqual([
+      'one\n\ntwo',
+      'three',
+    ]);
+    view.unmount();
+  });
+
+  it('keeps an unclosed code fence from swallowing the next prompt', () => {
+    act(() => {
+      mockConversation$.data.log.set([
+        message('user', 'this fails:\n```python\nimport foo'),
+        message('user', 'why?'),
+      ]);
+    });
+    const view = renderComponent();
+    expect(screen.getByTestId('chat-message').textContent).toBe(
+      'this fails:\n```python\nimport foo\n```\n\nwhy?'
+    );
+    view.unmount();
+  });
+
   it('joins user messages separated only by hidden ones', () => {
     act(() => {
       mockConversation$.data.log.set([

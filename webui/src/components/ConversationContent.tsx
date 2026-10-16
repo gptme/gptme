@@ -338,6 +338,27 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Virtualize only rows that can render content. Hidden messages otherwise
   // reserve their estimate until ResizeObserver measures a zero-height wrapper,
   // creating blank regions and shifting scroll positions.
+  // Compute fork points once (reactive: recomputes when branches/currentBranch change)
+  const forkPoints$ = useObservable(() => {
+    const branches = conversation$?.data.branches?.get();
+    const currentBranch = conversation$?.currentBranch?.get() || 'main';
+    if (!branches || Object.keys(branches).length <= 1) return new Map();
+    return computeForkPoints(currentBranch, branches);
+  });
+
+  // Which prompts failed to send (a failed one isn't merged): their _status
+  // only, so streamed content doesn't re-run this.
+  const failedPromptsKey = use$(() => {
+    const log = conversation$?.data.log;
+    const count = log?.peek()?.length ?? 0;
+    const failed: number[] = [];
+    for (let i = 0; i < count; i++) {
+      if (log?.[i]?._status?.get() === 'failed') failed.push(i);
+    }
+    return failed.join(',');
+  });
+  const forkPointsValue = use$(forkPoints$);
+
   // Consecutive user messages render as one row (userRuns: the run's indices
   // by its first); the run's later messages get no row of their own.
   const { rows: visibleMessageIndices, runs: userRuns } = useMemo(() => {
@@ -361,8 +382,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         continue;
       indices.push(index);
     }
-    return mergeUserRuns(indices, (index) => conversation$?.data.log[index]?.peek()?.role);
+    const failed = new Set(failedPromptsKey.split(',').filter(Boolean).map(Number));
+    return mergeUserRuns(
+      indices,
+      // a failed prompt keeps its own row, with its error and Retry
+      (index) => conversation$?.data.log[index]?.peek()?.role === 'user' && !failed.has(index),
+      (index) => forkPointsValue.has(logOffsetValue + index)
+    );
   }, [
+    failedPromptsKey,
+    forkPointsValue,
     conversation$,
     expandedGroups,
     firstNonSystemIndex$,
@@ -420,14 +449,6 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Observable for if the user is scrolled away from the bottom
   // (used to show the scroll-to-bottom button)
   const isScrolledUp$ = useObservable(false);
-
-  // Compute fork points once (reactive: recomputes when branches/currentBranch change)
-  const forkPoints$ = useObservable(() => {
-    const branches = conversation$?.data.branches?.get();
-    const currentBranch = conversation$?.currentBranch?.get() || 'main';
-    if (!branches || Object.keys(branches).length <= 1) return new Map();
-    return computeForkPoints(currentBranch, branches);
-  });
 
   // Reset the autoScrollAborted flag when generation is complete or starts again
   useObserveEffect(conversation$?.isGenerating, () => {
@@ -1124,7 +1145,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   {/* Branch indicator at fork points */}
                   <Memo>
                     {() => {
-                      const forkInfo = forkPoints$.get().get(absoluteIndex);
+                      // a run ends at a fork point: it can only be the last
+                      const last = run ? logOffsetValue + run[run.length - 1] : absoluteIndex;
+                      const forkInfo = forkPoints$.get().get(last);
                       if (!forkInfo) return null;
                       return (
                         <div className="mx-auto max-w-3xl">
