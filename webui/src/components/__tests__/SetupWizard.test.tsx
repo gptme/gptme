@@ -40,13 +40,16 @@ type MockUseTauriServerStatusResult = {
   serverStatus: MockTauriServerStatus | null;
 };
 
-const mockUseTauriServerStatus = jest.fn((): MockUseTauriServerStatusResult => ({
-  isLoading: false,
-  managesLocalServer: false,
-  serverStatus: null,
-}));
+const mockUseTauriServerStatus = jest.fn(
+  (): MockUseTauriServerStatusResult => ({
+    isLoading: false,
+    managesLocalServer: false,
+    serverStatus: null,
+  })
+);
 
 let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
+let mockIsExchangingAuthCode = false;
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -56,6 +59,7 @@ jest.mock('@/contexts/ApiContext', () => ({
       lastConnectionResult$,
     },
     isConnected$,
+    isExchangingAuthCode: mockIsExchangingAuthCode,
     connect: mockConnect,
     connectionConfig: {
       get baseUrl() {
@@ -194,6 +198,7 @@ describe('SetupWizard', () => {
     setupWizard$.open.set(false);
     setupWizard$.providerStatusVersion.set(0);
     mockConnectionBaseUrl = 'http://127.0.0.1:5700';
+    mockIsExchangingAuthCode = false;
     mockConnect.mockReset();
     mockOpen.mockReset();
     mockFetch.mockReset();
@@ -295,6 +300,92 @@ describe('SetupWizard', () => {
     );
 
     expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
+  });
+
+  it('resumes Cloud setup after a native callback reload and completes on cloud connection', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockIsExchangingAuthCode = true;
+
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByRole('heading', { name: /cloud setup/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeDisabled();
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    mockIsExchangingAuthCode = false;
+    mockConnectionBaseUrl = 'https://instance-123.fleet.gptme.ai';
+    isConnected$.set(true);
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+    expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).toMatchObject({
+      hasCompletedSetup: true,
+    });
+  });
+
+  it.each(['http://127.0.0.1:5700', 'https://old.fleet.gptme.ai'])(
+    'does not finish callback onboarding from an existing connection to %s during exchange',
+    async (baseUrl) => {
+      mockIsTauriEnvironment.mockReturnValue(true);
+      mockIsExchangingAuthCode = true;
+      mockConnectionBaseUrl = baseUrl;
+      isConnected$.set(true);
+
+      render(
+        <SettingsProvider>
+          <SetupWizard />
+        </SettingsProvider>
+      );
+
+      await act(async () => {});
+      expect(screen.getByRole('heading', { name: /cloud setup/i })).toBeInTheDocument();
+      expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}').hasCompletedSetup).not.toBe(
+        true
+      );
+    }
+  );
+
+  it('keeps callback setup retryable when exchange fails and only the local server is connected', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockIsExchangingAuthCode = true;
+    isConnected$.set(true);
+
+    const { rerender } = render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    // ApiProvider clears its pending flag on failure without selecting a cloud server.
+    mockIsExchangingAuthCode = false;
+    rerender(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    await act(async () => {});
+    expect(screen.getByRole('heading', { name: /cloud setup/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in to gptme.ai/i })).toBeEnabled();
+    expect(screen.queryByText(/waiting for sign-in to complete/i)).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}').hasCompletedSetup).not.toBe(
+      true
+    );
   });
 
   it('still opens on hosted origins when requested explicitly', async () => {

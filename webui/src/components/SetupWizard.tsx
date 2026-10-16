@@ -127,10 +127,13 @@ function withAuthHeaders(
 
 export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
-  const { api, isConnected$, connect, connectionConfig } = useApi();
+  const { api, isConnected$, isExchangingAuthCode, connect, connectionConfig } = useApi();
   const isConnected = use$(isConnected$);
   const demoMode = isDemoMode();
-  const [step, setStep] = useState<SetupStep>('welcome');
+  // Native auth callbacks reload the webview, losing the in-memory Cloud step.
+  // ApiProvider detects the callback before rendering us; resume that step and
+  // let the existing cloud connection checks decide when setup is complete.
+  const [step, setStep] = useState<SetupStep>(isExchangingAuthCode ? 'cloud' : 'welcome');
   // isOpen is a one-time snapshot of hasCompletedSetup taken at mount. It is intentionally
   // NOT derived from settings on subsequent renders — the wizard manages its own visibility
   // via setIsOpen after mount. This prevents external changes to hasCompletedSetup (e.g. from
@@ -359,6 +362,7 @@ export function SetupWizard() {
     }
     if (
       !isOpen ||
+      isExchangingAuthCode ||
       step === 'welcome' ||
       step === 'mode' ||
       step === 'complete' ||
@@ -396,6 +400,7 @@ export function SetupWizard() {
     cloudLoginStarted,
     connectionConfig.baseUrl,
     isConnected,
+    isExchangingAuthCode,
     isOpen,
     step,
   ]);
@@ -1080,7 +1085,7 @@ export function SetupWizard() {
                   You&apos;ll be redirected to gptme.ai to sign in. After authentication,
                   you&apos;ll be connected automatically.
                 </p>
-                {cloudLoginStarted && !isConnected && (
+                {(isExchangingAuthCode || (cloudLoginStarted && !isConnected)) && (
                   <div className="rounded-lg border border-border/70 bg-muted px-3 py-2 text-sm text-muted-foreground">
                     Waiting for sign-in to complete… This window will update automatically once the
                     app connects.
@@ -1109,7 +1114,7 @@ export function SetupWizard() {
               >
                 Back
               </Button>
-              <Button onClick={handleCloudLogin} className="gap-2">
+              <Button onClick={handleCloudLogin} disabled={isExchangingAuthCode} className="gap-2">
                 Sign in to gptme.ai
                 <ExternalLink className="h-4 w-4" />
               </Button>
