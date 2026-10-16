@@ -3996,6 +3996,33 @@ async def test_result_from_before_call_index_goes_under_its_call_by_id(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_results_of_mixed_call_formats_go_under_the_step(tmp_path):
+    """Tool-format calls mixed with a markdown block run markdown first, not
+    in the order shown: their results go under the step, not a wrong call."""
+    content = (
+        '@shell(c1): {"command": "ls"}\n\n```shell\npwd\n```\n\n'
+        '@shell(c2): {"command": "id"}'
+    )
+    history = [
+        Message("user", "look"),
+        Message("assistant", content),
+        _ran("pwd", 0),
+        _ran("ls", 1),
+        _ran("id", 2),
+    ]
+    app = GptmeApp(
+        make_manager(tmp_path, history), workspace=tmp_path, tool_format="tool"
+    )
+    async with app.run_test(size=(80, 40)) as pilot:
+        await app.wait_rendered()
+        await pilot.pause()
+        chat = app.query_one("#chat")
+        results = list(app.query(SystemMessage))
+        assert len(results) == 3
+        assert all(r.parent is chat and r.has_class("turn-result") for r in results)
+
+
+@pytest.mark.asyncio
 async def test_result_not_matched_to_a_call_goes_under_the_step(tmp_path):
     """A result naming a call the step doesn't show (e.g. one its text
     doesn't render as a call) goes after the step, indented the same as one

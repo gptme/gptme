@@ -886,10 +886,14 @@ class AssistantMessage(Vertical):
                 self.content, tool_format_override=tool_format
             )
             self._call_ids = [use.call_id for use in uses]
-        if len(self._call_ids) != len(self.result_slots):
+        ids = self._call_ids
+        # tool-format calls mixed with markdown blocks are executed markdown
+        # first, not in the order shown: no telling which call is which
+        mixed = None in ids and any(ids)
+        if mixed or len(ids) != len(self.result_slots):
             return None
-        if call is None and call_id is not None and call_id in self._call_ids:
-            call = self._call_ids.index(call_id)
+        if call is None and call_id is not None and call_id in ids:
+            call = ids.index(call_id)
         if call is not None and 0 <= call < len(self.result_slots):
             return self.result_slots[call]
         return None
