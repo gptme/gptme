@@ -494,15 +494,23 @@ class KernelBackend:
                 # km.is_alive the guard would drop the target (and stop watching
                 # those workers) as soon as the leader exits.
                 alive=lambda: group_alive(pgid),
-                on_killed=self._on_memory_killed,
+                on_killed=lambda reason: self._on_memory_killed(reason, km),
             )
         )
 
-    def _on_memory_killed(self, reason: str) -> None:
-        notice = (
-            f"{reason} The kernel restarts with the next cell; variables and "
-            "imports from earlier cells are lost."
-        )
+    def _on_memory_killed(self, reason: str, km: Any) -> None:
+        # Old groups can retain workers after a restart. Bind the notice to the
+        # manager that owned the group, not whichever kernel is running now.
+        if self._km is km:
+            notice = (
+                f"{reason} The kernel restarts with the next cell; variables and "
+                "imports from earlier cells are lost."
+            )
+        else:
+            notice = (
+                f"{reason} This was an earlier kernel's remaining workers; "
+                "the current kernel state is unchanged."
+            )
         existing = self._memory_notice
         self._memory_notice = notice if not existing else existing + "\n" + notice
 

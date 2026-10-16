@@ -589,6 +589,37 @@ def test_kernel_death_mid_cell_is_reported_promptly(backend):
     assert backend.execute("1 + 1").result_text == "2"
 
 
+def test_old_kernel_workers_do_not_report_current_state_lost(backend):
+    """A retained guard callback must describe its own kernel generation."""
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        backend.execute("old_state = 1")
+        old_target = watch.call_args.args[0]
+        backend.shutdown()
+        backend.execute("current_state = 42")
+        current_target = watch.call_args.args[0]
+    assert old_target.pgid != current_target.pgid
+
+    # Simulate the guard cleaning up workers left by the earlier kernel.
+    old_target.on_killed(
+        "Killed the IPython kernel: system memory was nearly exhausted"
+    )
+    result = backend.execute("current_state")
+    assert result.result_text == "42"
+    assert "earlier cells are lost" not in result.stderr
+    assert "current kernel state is unchanged" in result.stderr
+    assert "system memory was nearly exhausted" in result.stderr
+    assert "system memory was nearly exhausted" not in backend.execute("1").stderr
+
+    # The replacement's own callback must still report genuine state loss.
+    current_target.on_killed(
+        "Killed the IPython kernel: system memory was nearly exhausted"
+    )
+    current_target.kill()
+    result = backend.execute("1 + 1")
+    assert result.result_text == "2"
+    assert "earlier cells are lost" in result.stderr
+
+
 def test_memory_guard_kill_reason_reaches_the_model(backend):
     """When the guard kills the kernel, its explanation surfaces in the output."""
     with patch("gptme.tools.python_kernel.watch_memory") as watch:
