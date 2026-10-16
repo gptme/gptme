@@ -131,8 +131,17 @@ class ReviewFinding:
     #: Optional reviewer login for attribution.
     reviewer: str = ""
 
+    #: Category/class of the finding (e.g. "bug", "security", "style").
+    #: Sourced from the ``class`` field in local-review artifacts or ``category``
+    #: in forge-neutral artifacts.  Empty string when not provided.
+    category: str = ""
+
+    #: Number of independent review passes that agreed on this finding.
+    #: 0 means unknown or not applicable (single-pass review).
+    agreement: int = 0
+
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "body": self.body,
             "file": self.file,
             "line": self.line,
@@ -141,6 +150,11 @@ class ReviewFinding:
             "github_comment_id": self.github_comment_id,
             "reviewer": self.reviewer,
         }
+        if self.category:
+            d["category"] = self.category
+        if self.agreement:
+            d["agreement"] = self.agreement
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> ReviewFinding:
@@ -171,6 +185,10 @@ class ReviewFinding:
             raise ValueError(
                 f"ReviewFinding.body must be a string, got {type(body_raw).__name__!r}: {body_raw!r}"
             )
+        category_raw = d.get("category", "")
+        category = category_raw if isinstance(category_raw, str) else ""
+        agreement_raw = d.get("agreement", 0)
+        agreement = int(agreement_raw) if type(agreement_raw) is int else 0
         return cls(
             body=body_raw,
             file=file_raw,
@@ -179,6 +197,8 @@ class ReviewFinding:
             status=status,
             github_comment_id=d.get("github_comment_id"),
             reviewer=d.get("reviewer", ""),
+            category=category,
+            agreement=agreement,
         )
 
     @classmethod
@@ -246,6 +266,26 @@ def _is_forge_neutral(d: dict) -> bool:
     return isinstance(d.get("target"), dict) and not isinstance(
         d.get("schema_version"), int
     )
+
+
+def _is_local_review(d: dict) -> bool:
+    """Detect Bob's local-review artifact shape (``kind: "ai-review-local"``).
+
+    That schema has an integer ``schema_version`` (1) and a top-level ``kind``
+    field set to ``"ai-review-local"``.  It does NOT have a nested ``pr`` object;
+    PR coordinates live at the top level as ``repo: "owner/repo"``.
+    """
+    return d.get("kind") == "ai-review-local"
+
+
+#: Severity translation for Bob's local-review artifact (``kind: "ai-review-local"``).
+#: That schema uses Px labels ordered P1 (blocking) → P4 (nitpick).
+_LOCAL_REVIEW_SEVERITY: dict[str, FindingSeverity] = {
+    "p1": FindingSeverity.CRITICAL,
+    "p2": FindingSeverity.ERROR,
+    "p3": FindingSeverity.WARNING,
+    "p4": FindingSeverity.NOTE,
+}
 
 
 def _parse_line_range(raw: object) -> int | None:
@@ -395,6 +435,8 @@ class ReviewArtifact:
             )
         if _is_forge_neutral(d):
             return cls._from_forge_neutral(d)
+        if _is_local_review(d):
+            return cls._from_local_review(d)
         pr = d.get("pr", {})
         if not isinstance(pr, dict):
             pr = {}
@@ -597,6 +639,82 @@ class ReviewArtifact:
                 ReviewStatus.INCOMPLETE if errors else ReviewStatus.COMPLETE
             ),
             merge_safety=merge_safety,
+            validation_errors=errors,
+        )
+
+    @classmethod
+    def _from_local_review(cls, d: dict) -> ReviewArtifact:
+        """Ingest Bob's local-review artifact (``kind: "ai-review-local"``).
+
+        Maps P1/P2/P3/P4 severity to the canonical ``FindingSeverity`` enum and
+        extracts PR coordinates from the top-level ``repo`` field.  The ``class``
+        field is preserved as ``category``; ``agreement`` (multi-pass consensus
+        count) is carried through to ``ReviewFinding.agreement``.
+
+        Fail-closed: any unrecognised severity marks the finding as a
+        deserialization error and the artifact as ``INCOMPLETE`` rather than
+        silently downgrading a P1 to ``warning``.
+        """
+        errors = 0
+
+        # PR coordinates: top-level "repo": "owner/repo", no PR number in the artifact
+        repo_raw = d.get("repo", "")
+        if isinstance(repo_raw, str) and "/" in repo_raw:
+            pr_owner, pr_repo = repo_raw.split("/", 1)
+        else:
+            pr_owner = ""
+            pr_repo = repo_raw if isinstance(repo_raw, str) else ""
+            errors += 1
+        pr_number = 0  # pre-PR / working-tree reviews have no PR number
+
+        findings: list[ReviewFinding] = []
+        findings_raw = d.get("findings")
+        if not isinstance(findings_raw, list):
+            findings_raw = []
+            errors += 1
+        for f_raw in findings_raw:
+            if not isinstance(f_raw, dict):
+                errors += 1
+                continue
+            body_raw = f_raw.get("body", "")
+            if not isinstance(body_raw, str) or not body_raw:
+                errors += 1
+                continue
+            # Fail-closed: unknown Px label → deserialization error, not a fallback.
+            severity = _LOCAL_REVIEW_SEVERITY.get(
+                str(f_raw.get("severity", "")).lower()
+            )
+            if severity is None:
+                errors += 1
+                continue
+            file_raw = f_raw.get("file", "")
+            line_raw = f_raw.get("line")
+            if line_raw is not None and type(line_raw) is not int:
+                line_raw = None
+            category_raw = f_raw.get("class", "")
+            category = category_raw if isinstance(category_raw, str) else ""
+            agreement_raw = f_raw.get("agreement", 0)
+            agreement = int(agreement_raw) if type(agreement_raw) is int else 0
+            findings.append(
+                ReviewFinding(
+                    body=body_raw,
+                    file=file_raw if isinstance(file_raw, str) else "",
+                    line=line_raw,
+                    severity=severity,
+                    status=FindingStatus.OPEN,
+                    category=category,
+                    agreement=agreement,
+                )
+            )
+
+        return cls(
+            pr_owner=pr_owner,
+            pr_repo=pr_repo,
+            pr_number=pr_number,
+            findings=findings,
+            review_status=(
+                ReviewStatus.INCOMPLETE if errors else ReviewStatus.COMPLETE
+            ),
             validation_errors=errors,
         )
 

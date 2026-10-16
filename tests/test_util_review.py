@@ -3170,3 +3170,103 @@ class TestForgeNeutralArtifactIngestion:
         assert result.exit_code == 0, result.output
         assert "UNSAFE" in result.output
         assert "no open findings" in result.output.lower()
+
+
+def _local_review_artifact():
+    """A minimal ``ai-review-local`` artifact matching Bob's production shape.
+
+    Uses P1/P2/P3/P4 severity, top-level ``repo``, and finding-level
+    ``class`` and ``agreement`` fields.
+    """
+    return {
+        "schema_version": 1,
+        "kind": "ai-review-local",
+        "lane": "pre-pr",
+        "repo": "gptme/gptme",
+        "base": "origin/master",
+        "merge_base": "a" * 40,
+        "head": "b" * 40,
+        "includes_uncommitted": False,
+        "model": "openrouter/deepseek/deepseek-v4-flash",
+        "engine": "llm",
+        "score": 4,
+        "findings": [
+            {
+                "body": "Null pointer dereference in the hot path.",
+                "file": "gptme/util/review.py",
+                "line": 42,
+                "severity": "P1",
+                "security": False,
+                "class": "bug",
+                "agreement": 3,
+                "quote": "return result.value",
+                "suggestion": "Add a None-guard before dereferencing.",
+            },
+            {
+                "body": "Missing input validation.",
+                "file": "gptme/cli/cmd_review_pr.py",
+                "line": 10,
+                "severity": "P2",
+                "class": "bug",
+                "agreement": 2,
+            },
+        ],
+    }
+
+
+class TestLocalReviewArtifactIngestion:
+    """Tests for ``ReviewArtifact.from_dict`` with ``kind: "ai-review-local"``."""
+
+    def test_pr_identity_extracted_from_top_level_repo(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.pr_owner == "gptme"
+        assert artifact.pr_repo == "gptme"
+        assert artifact.pr_number == 0  # no PR number in pre-PR artifacts
+
+    def test_p1_maps_to_critical(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].severity == FindingSeverity.CRITICAL
+
+    def test_p2_maps_to_error(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[1].severity == FindingSeverity.ERROR
+
+    def test_category_preserved_from_class_field(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].category == "bug"
+        assert artifact.findings[1].category == "bug"
+
+    def test_agreement_preserved(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].agreement == 3
+        assert artifact.findings[1].agreement == 2
+
+    def test_review_status_complete_when_all_findings_valid(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+
+    def test_unknown_severity_marks_incomplete(self):
+        data = _local_review_artifact()
+        data["findings"][0]["severity"] = "P9"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors >= 1
+        # The valid P2 finding still makes it through
+        assert len(artifact.findings) == 1
+        assert artifact.findings[0].severity == FindingSeverity.ERROR
+
+    def test_p1_does_not_silently_downgrade_to_warning(self):
+        """Regression: before the reader, P1 fell through to FindingSeverity.WARNING."""
+        data = _local_review_artifact()
+        data["findings"] = [data["findings"][0]]  # only the P1 finding
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.findings[0].severity == FindingSeverity.CRITICAL
+        assert artifact.findings[0].severity != FindingSeverity.WARNING
+
+    def test_finding_round_trips_through_core_schema(self):
+        """category and agreement survive a to_dict / from_dict round-trip."""
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        reloaded = ReviewArtifact.from_dict(artifact.to_dict())
+        assert reloaded.findings[0].category == "bug"
+        assert reloaded.findings[0].agreement == 3
