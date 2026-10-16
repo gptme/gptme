@@ -3004,7 +3004,10 @@ class TestForgeNeutralArtifactIngestion:
         assert first.file == "gptme/util/review.py"
         assert first.line == 42  # leading line of the "42-49" range
         assert first.severity == FindingSeverity.ERROR  # "high"
-        assert first.status == FindingStatus.CONFIRMED  # "confirmed"
+        # forge-neutral "confirmed" means a validated *defect*, not core's
+        # "the fix is correct" — it must stay actionable (OPEN), or review-watch
+        # would silently skip a real bug.
+        assert first.status == FindingStatus.OPEN
         assert "Off-by-one in range check" in first.body
         assert "The upper bound is exclusive here." in first.body
 
@@ -3012,8 +3015,8 @@ class TestForgeNeutralArtifactIngestion:
         assert second.line == 10
         assert second.severity == FindingSeverity.NOTE  # "low"
         assert second.status == FindingStatus.OPEN  # "needs_validation"
-        # Only needs_validation/confirmed findings remain actionable.
-        assert [f.body for f in artifact.open_findings] == [second.body]
+        # Both the confirmed defect and the needs_validation finding are actionable.
+        assert [f.body for f in artifact.open_findings] == [first.body, second.body]
 
     def test_merge_safety_verdict_is_preserved(self):
         artifact = ReviewArtifact.from_dict(
@@ -3112,3 +3115,36 @@ class TestForgeNeutralArtifactIngestion:
         assert result.exit_code == 0, result.output
         assert "gptme/gptme#1234" in result.output
         assert "UNSAFE" in result.output
+
+    def test_dropped_finding_is_not_actionable(self):
+        data = _forge_neutral_artifact()
+        data["findings"] = [{**data["findings"][0], "disposition": "dropped"}]
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.findings[0].status == FindingStatus.DROPPED
+        assert artifact.open_findings == []
+
+    def test_missing_findings_key_marks_incomplete(self):
+        """An absent ``findings`` field is malformed, not a clean empty review."""
+        data = _forge_neutral_artifact()
+        del data["findings"]
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert artifact.validation_errors == 1
+
+    def test_unsafe_verdict_shown_without_open_findings(self, tmp_path, monkeypatch):
+        """The UNSAFE verdict must surface even when there is nothing to fix."""
+        from gptme.cli import cmd_review_watch
+
+        data = _forge_neutral_artifact(merge_safety="unsafe")
+        data["findings"] = [{**data["findings"][0], "disposition": "dropped"}]
+        path = tmp_path / "forge-neutral-unsafe-empty.json"
+        path.write_text(json.dumps(data))
+
+        monkeypatch.setattr(cmd_review_watch, "_gh_available", lambda: False)
+
+        result = CliRunner().invoke(
+            util_main, ["review", "watch", "--artifact", str(path)]
+        )
+        assert result.exit_code == 0, result.output
+        assert "UNSAFE" in result.output
+        assert "no open findings" in result.output.lower()

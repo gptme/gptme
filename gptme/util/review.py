@@ -220,11 +220,16 @@ _FORGE_NEUTRAL_SEVERITY: dict[str, FindingSeverity] = {
     "info": FindingSeverity.NOTE,
 }
 
-#: Disposition translation for the forge-neutral artifact schema. Core models
-#: the lifecycle as ``FindingStatus``; ``needs_validation`` maps to the core
-#: ``OPEN`` state (still actionable by review-watch).
+#: Disposition translation for the forge-neutral artifact schema.
+#:
+#: The two vocabularies disagree on ``confirmed``: in the forge-neutral schema it
+#: means the reviewer validated the finding as a *real defect*, whereas core's
+#: ``FindingStatus.CONFIRMED`` means the reviewer confirmed the *fix is correct*.
+#: Mapping one to the other would exclude live bugs from ``open_findings`` and
+#: make review-watch report "nothing to fix". Core has no "validated, unfixed"
+#: state, so both actionable dispositions collapse to ``OPEN``.
 _FORGE_NEUTRAL_DISPOSITION: dict[str, FindingStatus] = {
-    "confirmed": FindingStatus.CONFIRMED,
+    "confirmed": FindingStatus.OPEN,
     "needs_validation": FindingStatus.OPEN,
     "dropped": FindingStatus.DROPPED,
 }
@@ -535,7 +540,10 @@ class ReviewArtifact:
                 errors += 1
 
         findings: list[ReviewFinding] = []
-        findings_raw = d.get("findings", [])
+        # ``findings`` is required by the forge-neutral schema: an absent field is
+        # a malformed artifact, not a clean review with zero findings. An
+        # explicitly empty list is still valid.
+        findings_raw = d.get("findings")
         if not isinstance(findings_raw, list):
             findings_raw = []
             errors += 1
