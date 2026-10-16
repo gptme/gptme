@@ -582,6 +582,7 @@ async def _acp_step(
             from ..tools.complete import SessionCompleteException  # fmt: skip
 
             if isinstance(e, SessionCompleteException):
+                released = False
                 with session.step_lock:
                     if session.step_seq == my_step_seq:
                         session.generating = False
@@ -589,6 +590,9 @@ async def _acp_step(
                         SessionManager.add_event(
                             conversation_id, {"type": "step_complete"}
                         )
+                        released = True
+                if released:
+                    SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise
 
         user_messages = [m for m in manager.log.messages if m.role == "user"]
@@ -984,6 +988,7 @@ def step(
             # what produced the policy blocks that exhausted the budget, so its
             # post-turn hooks (pre-commit checks, autocommit) have already run.
             # Re-triggering here would fire per-step hooks twice for one turn.
+            released = False
             with session.step_lock:
                 if session.step_seq == my_step_seq:
                     session.finish_skill_turn("abandoned")
@@ -992,6 +997,9 @@ def step(
                     # Emit while still holding step_lock — see the step()
                     # finally for why the release and the event are atomic.
                     SessionManager.add_event(conversation_id, {"type": "step_complete"})
+                    released = True
+            if released:
+                SessionManager.retry_deferred_watch_wakes(conversation_id)
         raise
 
     # A new server session has no in-memory continuation flag. Recover it
