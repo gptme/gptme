@@ -86,7 +86,7 @@ export const RichToolCall: FC<RichToolCallProps> = ({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const category = getToolCategory(toolUse.tool);
   const summary = getToolSummary(toolUse);
-  const language = detectToolLanguage(toolUse.tool, toolUse.args, toolUse.content);
+  const language = detectToolLanguage(toolUse.tool, toolUse.args ?? undefined, toolUse.content);
   const Icon = getToolIcon(toolUse.tool);
   const borderClass = CATEGORY_BORDER_ONLY[category];
 

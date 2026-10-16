@@ -76,7 +76,7 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
   const executingTool = use$(executingTool$);
 
   // Format args for display
-  const formatArgs = (args: string[]) => {
+  const formatArgs = (args: string[] | null) => {
     if (!args || args.length === 0) return 'No arguments';
     if (args.length === 1) return args[0];
     return args.map((arg, i) => `${i + 1}. ${arg}`).join('\n');
@@ -110,7 +110,7 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
 
               <div className="space-y-3 p-3">
                 {/* Arguments */}
-                {executingTool.tooluse.args.length > 0 && (
+                {(executingTool.tooluse.args?.length ?? 0) > 0 && (
                   <div className="space-y-1">
                     <span className="text-xs font-medium text-muted-foreground">Arguments:</span>
                     <CodeDisplay
@@ -129,7 +129,7 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                     showLineNumbers={true}
                     language={detectToolLanguage(
                       executingTool.tooluse.tool,
-                      executingTool.tooluse.args,
+                      executingTool.tooluse.args ?? undefined,
                       executingTool.tooluse.content
                     )}
                   />
