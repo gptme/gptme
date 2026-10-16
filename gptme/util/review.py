@@ -140,6 +140,16 @@ class ReviewFinding:
     #: 0 means unknown or not applicable (single-pass review).
     agreement: int = 0
 
+    #: Unique fingerprint for this finding used for suppression and deduplication.
+    #: Sourced from ``independence_key`` in local-review artifacts or ``id`` in
+    #: forge-neutral artifacts.  Empty string when not provided.
+    independence_key: str = ""
+
+    #: Total number of review passes that evaluated this finding (including passes
+    #: that disagreed).  0 means unknown or single-pass.  Combined with
+    #: ``agreement`` to compute a consensus rate: ``agreement / passes``.
+    passes: int = 0
+
     def to_dict(self) -> dict:
         d: dict = {
             "body": self.body,
@@ -154,6 +164,10 @@ class ReviewFinding:
             d["category"] = self.category
         if self.agreement:
             d["agreement"] = self.agreement
+        if self.independence_key:
+            d["independence_key"] = self.independence_key
+        if self.passes:
+            d["passes"] = self.passes
         return d
 
     @classmethod
@@ -193,6 +207,16 @@ class ReviewFinding:
                 f"ReviewFinding.agreement must be an int, got {type(agreement_raw).__name__!r}: {agreement_raw!r}"
             )
         agreement = agreement_raw
+        independence_key_raw = d.get("independence_key", "")
+        independence_key = (
+            independence_key_raw if isinstance(independence_key_raw, str) else ""
+        )
+        passes_raw = d.get("passes", 0)
+        if type(passes_raw) is not int:
+            raise ValueError(
+                f"ReviewFinding.passes must be an int, got {type(passes_raw).__name__!r}: {passes_raw!r}"
+            )
+        passes = passes_raw
         return cls(
             body=body_raw,
             file=file_raw,
@@ -203,6 +227,8 @@ class ReviewFinding:
             reviewer=d.get("reviewer", ""),
             category=category,
             agreement=agreement,
+            independence_key=independence_key,
+            passes=passes,
         )
 
     @classmethod
@@ -383,6 +409,26 @@ class ReviewArtifact:
     #: Number of findings entries that were skipped due to validation errors.
     validation_errors: int = 0
 
+    #: Kind of review target.
+    #: ``"hosted"`` = PR on a forge; ``"local"`` = working-tree review (no PR);
+    #: ``"ai-review-local"`` = Bob's production local reviewer.
+    #: Empty string when not provided by the producer.
+    target_kind: str = ""
+
+    #: Diff fingerprint: head commit SHA (for hosted reviews) or a
+    #: ``"<base>/<merge_base>/<head>"`` triple (for local-review artifacts).
+    #: Empty string when not provided.
+    diff_fingerprint: str = ""
+
+    #: Count of findings the reviewer produced but rejected before the final
+    #: list (e.g., unverified, misquoted, out-of-scope).  Zero when not tracked.
+    rejected_finding_count: int = 0
+
+    #: Per-category drop counts from the reviewer's suppression ledger.
+    #: Keys match the producer's vocabulary (e.g. ``"unverified_absence"``,
+    #: ``"misquoted"``).  Empty dict when not tracked.
+    dropped_counts: dict = field(default_factory=dict)
+
     #: Schema version for forward-compatibility.
     schema_version: Literal[2] = 2
 
@@ -408,7 +454,7 @@ class ReviewArtifact:
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "schema_version": self.schema_version,
             "pr": {
                 "owner": self.pr_owner,
@@ -423,6 +469,15 @@ class ReviewArtifact:
             "validation_errors": self.validation_errors,
             "findings": [f.to_dict() for f in self.findings],
         }
+        if self.target_kind:
+            d["target_kind"] = self.target_kind
+        if self.diff_fingerprint:
+            d["diff_fingerprint"] = self.diff_fingerprint
+        if self.rejected_finding_count:
+            d["rejected_finding_count"] = self.rejected_finding_count
+        if self.dropped_counts:
+            d["dropped_counts"] = self.dropped_counts
+        return d
 
     def to_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
@@ -527,6 +582,23 @@ class ReviewArtifact:
                 deserialization_errors += 1
                 review_status = ReviewStatus.INCOMPLETE
 
+        target_kind_raw = d.get("target_kind", "")
+        target_kind = target_kind_raw if isinstance(target_kind_raw, str) else ""
+        diff_fingerprint_raw = d.get("diff_fingerprint", "")
+        diff_fingerprint = (
+            diff_fingerprint_raw if isinstance(diff_fingerprint_raw, str) else ""
+        )
+        rejected_finding_count_raw = d.get("rejected_finding_count", 0)
+        try:
+            rejected_finding_count = int(rejected_finding_count_raw)
+        except (TypeError, ValueError):
+            rejected_finding_count = 0
+            deserialization_errors += 1
+        dropped_counts_raw = d.get("dropped_counts", {})
+        dropped_counts = (
+            dropped_counts_raw if isinstance(dropped_counts_raw, dict) else {}
+        )
+
         return cls(
             pr_owner=pr_owner_val,
             pr_repo=pr_repo_val,
@@ -538,6 +610,10 @@ class ReviewArtifact:
             session_error=d.get("session_error", ""),
             review_duration_s=review_duration_s,
             validation_errors=stored_validation_errors + deserialization_errors,
+            target_kind=target_kind,
+            diff_fingerprint=diff_fingerprint,
+            rejected_finding_count=rejected_finding_count,
+            dropped_counts=dropped_counts,
         )
 
     @classmethod
@@ -640,6 +716,13 @@ class ReviewArtifact:
             except (TypeError, ValueError):
                 errors += 1
 
+        # Capture diff fingerprint from the forge-neutral target's head SHA or
+        # pre-computed diff fingerprint if present.
+        target_kind_raw = target.get("kind", "")
+        forge_target_kind = target_kind_raw if isinstance(target_kind_raw, str) else ""
+        head_sha = target.get("head_sha", "") or target.get("diff_fingerprint", "")
+        diff_fingerprint = head_sha if isinstance(head_sha, str) else ""
+
         return cls(
             pr_owner=pr_owner,
             pr_repo=pr_repo,
@@ -650,6 +733,8 @@ class ReviewArtifact:
             ),
             merge_safety=merge_safety,
             validation_errors=errors,
+            target_kind=forge_target_kind,
+            diff_fingerprint=diff_fingerprint,
         )
 
     @classmethod
@@ -716,6 +801,15 @@ class ReviewArtifact:
                 errors += 1
                 agreement_raw = 0
             agreement = agreement_raw
+            independence_key_raw = f_raw.get("independence_key", "")
+            independence_key = (
+                independence_key_raw if isinstance(independence_key_raw, str) else ""
+            )
+            passes_raw = f_raw.get("passes", 0)
+            if type(passes_raw) is not int:
+                errors += 1
+                passes_raw = 0
+            passes = passes_raw
             findings.append(
                 ReviewFinding(
                     body=body_raw,
@@ -725,8 +819,33 @@ class ReviewArtifact:
                     status=FindingStatus.OPEN,
                     category=category,
                     agreement=agreement,
+                    independence_key=independence_key,
+                    passes=passes,
                 )
             )
+
+        # Artifact-level union fields
+        base_sha = d.get("base", "")
+        merge_base_sha = d.get("merge_base", "")
+        head_sha = d.get("head", "")
+        if (
+            isinstance(base_sha, str)
+            and isinstance(merge_base_sha, str)
+            and isinstance(head_sha, str)
+        ):
+            diff_fingerprint = "/".join(
+                filter(None, [base_sha, merge_base_sha, head_sha])
+            )
+        else:
+            diff_fingerprint = ""
+
+        rejected_raw = d.get("rejected_findings", [])
+        rejected_finding_count = (
+            len(rejected_raw) if isinstance(rejected_raw, list) else 0
+        )
+
+        dropped_raw = d.get("dropped", {})
+        dropped_counts = dropped_raw if isinstance(dropped_raw, dict) else {}
 
         return cls(
             pr_owner=pr_owner,
@@ -737,6 +856,10 @@ class ReviewArtifact:
                 ReviewStatus.INCOMPLETE if errors else ReviewStatus.COMPLETE
             ),
             validation_errors=errors,
+            target_kind="ai-review-local",
+            diff_fingerprint=diff_fingerprint,
+            rejected_finding_count=rejected_finding_count,
+            dropped_counts=dropped_counts,
         )
 
     @classmethod
