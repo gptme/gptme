@@ -634,3 +634,407 @@ def test_memory_guard_kill_reason_reaches_the_model(backend):
     assert "earlier cells are lost" in result.stderr
     # Reported once, not on every later cell.
     assert "Killed the IPython kernel" not in backend.execute("2 + 2").stderr
+
+
+# ---------------------------------------------------------------------------
+# uv run --with ipykernel support
+# ---------------------------------------------------------------------------
+
+
+def test_find_uv_returns_none_when_not_available(monkeypatch):
+    """_find_uv returns None when uv is not on PATH."""
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    assert KernelBackend._find_uv() is None
+
+
+def test_find_uv_returns_path_when_available(monkeypatch):
+    """_find_uv returns a path string when uv is on PATH."""
+    import shutil
+
+    monkeypatch.setattr(
+        shutil, "which", lambda cmd: "/usr/bin/uv" if cmd == "uv" else None
+    )
+    result = KernelBackend._find_uv()
+    assert result == "/usr/bin/uv"
+
+
+def test_is_uv_project_true_when_uv_lock_exists(tmp_path, monkeypatch):
+    """_is_uv_project returns True when uv.lock is present."""
+    (tmp_path / "uv.lock").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is True
+
+
+def test_is_uv_project_false_when_no_lock(tmp_path, monkeypatch):
+    """_is_uv_project returns False when no uv.lock exists and no pyproject.toml."""
+    monkeypatch.chdir(tmp_path)
+    assert KernelBackend._is_uv_project() is False
+
+
+def test_is_uv_project_false_for_plain_pyproject(tmp_path, monkeypatch):
+    """A plain pyproject.toml (no uv marker) is not a uv project."""
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test'\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is False
+
+
+def test_is_uv_project_true_with_tool_uv_section(tmp_path, monkeypatch):
+    """_is_uv_project returns True when pyproject.toml has a [tool.uv] section."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname = 'test'\n\n[tool.uv]\ndev-dependencies = []\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is True
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ("[tool.uv ]\n", True),
+        ('[tool."uv"]\n', True),
+        ("[tool . uv . sources]\n", True),
+        ("tool.uv = {}\n", True),
+        ("# [tool.uv]\n[project]\nname = 'test'\n", False),
+        ('[project]\ndescription = "[tool.uv]"\n', False),
+        ("[tool.uv]\ninvalid = [\n", False),
+        ("tool = 'not a table'\n", False),
+        ("[tool]\nuv = 'not a table'\n", False),
+    ],
+)
+def test_is_uv_project_parses_toml(tmp_path, monkeypatch, config, expected):
+    """Only an actual uv table opts in, regardless of TOML header spelling."""
+    (tmp_path / "pyproject.toml").write_text(config)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is expected
+
+
+def test_is_uv_project_false_when_poetry_lock(tmp_path, monkeypatch):
+    """_is_uv_project returns False when poetry.lock exists (poetry project)."""
+    (tmp_path / "pyproject.toml").write_text("[tool.poetry]\nname = 'test'\n")
+    (tmp_path / "poetry.lock").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    assert KernelBackend._is_uv_project() is False
+
+
+def test_build_uv_kernel_cmd_returns_none_without_uv(monkeypatch):
+    """_build_uv_kernel_cmd returns None when uv is not available."""
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: None))
+    assert KernelBackend._build_uv_kernel_cmd() is None
+
+
+def test_build_uv_kernel_cmd_includes_with_ipykernel(monkeypatch):
+    """_build_uv_kernel_cmd returns a command that injects ipykernel via uv."""
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    cmd = KernelBackend._build_uv_kernel_cmd()
+    assert cmd is not None
+    assert "--with" in cmd
+    assert "ipykernel" in cmd
+    assert "ipykernel_launcher" in cmd
+    assert "{connection_file}" in cmd
+    # --no-sync implies --frozen without requiring an existing lockfile, and
+    # avoids changing packages already installed in the selected environment.
+    assert "--no-sync" in cmd
+
+
+class _FakeKC:
+    """Minimal stand-in for ``BlockingKernelClient`` — no real channels."""
+
+    def start_channels(self):
+        pass
+
+    def wait_for_ready(self, timeout=None):
+        pass
+
+    def stop_channels(self):
+        pass
+
+
+def _run_ensure_started_and_capture_cmd(monkeypatch) -> list[str]:
+    """Run ``_ensure_started`` with a real KernelManager and return the launch cmd.
+
+    Uses a real ``jupyter_client.KernelManager`` subclass so the assertion checks
+    the command jupyter_client would actually launch (built from
+    ``kernel_spec.argv`` via ``format_kernel_cmd``), not an attribute it ignores.
+    """
+    import jupyter_client
+    from jupyter_client import KernelManager as RealKernelManager
+
+    captured: list[list[str]] = []
+
+    class RecordingKM(RealKernelManager):
+        def start_kernel(self, **_kw):
+            # Record exactly what the real launch path builds, then skip the
+            # actual subprocess launch.
+            captured.append(self.format_kernel_cmd(extra_arguments=[]))
+
+        def client(self):
+            return _FakeKC()
+
+        def is_alive(self):
+            return True
+
+        def shutdown_kernel(self, **_kw):
+            pass
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", RecordingKM)
+
+    kb = KernelBackend()
+    # Stub out _exec_silent so the bootstrap step doesn't run.
+    monkeypatch.setattr(kb, "_exec_silent", lambda *_a, **_kw: None)
+
+    kb._ensure_started()
+    kb._bridge.stop()
+
+    assert len(captured) == 1
+    return captured[0]
+
+
+def test_ensure_started_uses_uv_when_project_python_lacks_ipykernel(
+    monkeypatch, tmp_path
+):
+    """When project Python lacks ipykernel, the launched kernel uses uv run --with ipykernel."""
+    # Simulate a project venv whose Python lacks ipykernel.
+    fake_python = str(tmp_path / "python")
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: fake_python)
+    )
+    monkeypatch.setattr(KernelBackend, "_has_ipykernel", staticmethod(lambda _: False))
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch)
+
+    assert cmd[:2] == ["/usr/bin/uv", "run"]
+    assert "--with" in cmd
+    assert "ipykernel" in cmd
+    assert "ipykernel_launcher" in cmd
+    assert "--active" in cmd
+
+
+def test_ensure_started_uv_when_uv_project_without_venv(monkeypatch, tmp_path):
+    """A uv project with no activated venv launches via uv run --with ipykernel."""
+    (tmp_path / "uv.lock").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch)
+
+    assert cmd[:2] == ["/usr/bin/uv", "run"]
+    assert "--with" in cmd and "ipykernel" in cmd
+
+
+def test_ensure_started_falls_back_to_default_when_uv_launch_fails(
+    monkeypatch, tmp_path
+):
+    """A failed uv-based launch retries with gptme's default Python instead of erroring."""
+    import jupyter_client
+    from jupyter_client import KernelManager as RealKernelManager
+
+    fake_python = str(tmp_path / "python")
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: fake_python)
+    )
+    monkeypatch.setattr(KernelBackend, "_has_ipykernel", staticmethod(lambda _: False))
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+
+    attempts = {"n": 0}
+    captured: list[list[str]] = []
+
+    class FlakyKC:
+        """Kernel client that fails readiness on the first launch attempt."""
+
+        def start_channels(self):
+            pass
+
+        def stop_channels(self):
+            pass
+
+        def wait_for_ready(self, timeout=None):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("simulated uv launch failure")
+
+    class RecordingKM(RealKernelManager):
+        def start_kernel(self, **_kw):
+            captured.append(self.format_kernel_cmd(extra_arguments=[]))
+
+        def client(self):
+            return FlakyKC()
+
+        def is_alive(self):
+            return True
+
+        def shutdown_kernel(self, **_kw):
+            pass
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", RecordingKM)
+
+    kb = KernelBackend()
+    monkeypatch.setattr(kb, "_exec_silent", lambda *_a, **_kw: None)
+
+    kb._ensure_started()
+    kb._bridge.stop()
+
+    # First attempt used uv; the retry used the default spec (not uv).
+    assert len(captured) == 2
+    assert captured[0][:2] == ["/usr/bin/uv", "run"]
+    assert captured[1][0] != "/usr/bin/uv"
+    assert "ipykernel_launcher" in captured[1]
+
+
+@pytest.mark.parametrize("failure_stage", ["start", "ready"])
+@pytest.mark.parametrize("failure_attempt", [1, 2])
+def test_ensure_started_cleans_up_os_errors(
+    monkeypatch, backend, failure_stage, failure_attempt
+):
+    """Startup errors clean up both attempts, even if shutdown itself fails."""
+    import jupyter_client
+    from jupyter_client import KernelManager as RealKernelManager
+
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_is_uv_project", staticmethod(lambda: True))
+    monkeypatch.setattr(KernelBackend, "_find_uv", staticmethod(lambda: "/usr/bin/uv"))
+    monkeypatch.setattr(backend, "_exec_silent", lambda *_a, **_kw: None)
+    managers = []
+    stopped = []
+    shutdown = []
+
+    class FailingKM(RealKernelManager):
+        def start_kernel(self, **_kw):
+            managers.append(self)
+            if failure_stage == "start":
+                raise OSError("launch failed")
+
+        def client(self):
+            attempt = len(managers)
+
+            class Client(_FakeKC):
+                def stop_channels(self):
+                    stopped.append(attempt)
+
+                def wait_for_ready(self, timeout=None):
+                    if failure_stage == "ready":
+                        raise OSError("readiness failed")
+
+            return Client()
+
+        def shutdown_kernel(self, **_kw):
+            shutdown.append(self)
+            raise RuntimeError("shutdown failed too")
+
+    class HealthyKM(FailingKM):
+        def start_kernel(self, **_kw):
+            managers.append(self)
+
+        def client(self):
+            return _FakeKC()
+
+    def manager():
+        # Fail the uv attempt; optionally fail the default-spec retry as well.
+        return FailingKM() if len(managers) < failure_attempt else HealthyKM()
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", manager)
+    if failure_attempt == 2:
+        with pytest.raises(RuntimeError, match="Kernel failed to start") as exc:
+            backend._ensure_started()
+        assert isinstance(exc.value.__cause__, OSError)
+        assert backend._kc is None
+        assert not backend._started
+    else:
+        backend._ensure_started()
+        assert backend._started
+    assert shutdown == managers[:failure_attempt]
+    assert stopped == (
+        list(range(1, failure_attempt + 1)) if failure_stage == "ready" else []
+    )
+
+
+def test_ensure_started_uses_project_python_when_ipykernel_present(
+    monkeypatch, tmp_path
+):
+    """Project Python with ipykernel is used directly as the kernel command."""
+    project_python = str(tmp_path / "python")
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: project_python)
+    )
+    monkeypatch.setattr(KernelBackend, "_has_ipykernel", staticmethod(lambda _: True))
+
+    cmd = _run_ensure_started_and_capture_cmd(monkeypatch)
+
+    assert cmd[0] == project_python
+    assert "ipykernel_launcher" in cmd
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("lock_state", ["missing", "stale"])
+def test_uv_kernel_preserves_lock_and_active_environment(
+    monkeypatch, tmp_path, lock_state
+):
+    """Launch a real uv kernel with a non-default venv and an uninstalled package."""
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv not installed")
+
+    project = tmp_path / "project"
+    project.mkdir()
+    pyproject = project / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "kernel-probe"\nversion = "0.0.0"\n')
+    monkeypatch.chdir(project)
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    lock = project / "uv.lock"
+    if lock_state == "stale":
+        subprocess.run([uv, "lock", "--offline"], check=True, capture_output=True)
+        pyproject.write_text(pyproject.read_text().replace("0.0.0", "0.0.1"))
+    lock_before = lock.read_bytes() if lock.exists() else None
+    pyproject_before = pyproject.read_bytes()
+
+    active = tmp_path / "selected-env"
+    subprocess.run(
+        [uv, "venv", "--python", sys.executable, str(active)],
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setenv("VIRTUAL_ENV", str(active))
+    python = KernelBackend._find_project_python()
+    assert python is not None
+    assert not KernelBackend._has_ipykernel(python)
+    site_packages = Path(
+        subprocess.check_output(
+            [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+            text=True,
+        ).strip()
+    )
+    marker = site_packages / "selected_env_marker.py"
+    marker.write_text("VALUE = 'selected environment preserved'\n")
+
+    kb = KernelBackend()
+    try:
+        result = kb.execute(
+            "import selected_env_marker; print(selected_env_marker.VALUE)"
+        )
+        assert result.error is None, result.error
+        assert "selected environment preserved" in result.stdout
+    finally:
+        kb.shutdown()
+
+    assert pyproject.read_bytes() == pyproject_before
+    assert (lock.read_bytes() if lock.exists() else None) == lock_before
+    assert marker.exists()
+    assert not (project / ".venv").exists()
+    assert not KernelBackend._has_ipykernel(python)

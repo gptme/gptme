@@ -14,6 +14,7 @@ functions. Message-returning helpers deliver their attachments directly back
 to gptme rather than reducing them to a kernel text representation.
 """
 
+import contextlib
 import logging
 import os
 import pickle
@@ -24,6 +25,7 @@ import subprocess
 import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
+from pathlib import Path
 from typing import Any
 
 from .shell_memory import Target as MemoryTarget
@@ -368,6 +370,86 @@ class KernelBackend:
         )
         return result.returncode == 0
 
+    @staticmethod
+    def _find_uv() -> str | None:
+        """Return the path to the uv executable, or None if not found."""
+        import shutil
+
+        return shutil.which("uv")
+
+    @staticmethod
+    def _is_uv_project() -> bool:
+        """Return True if the current directory looks like a uv-managed project.
+
+        Requires an explicit uv marker — a ``uv.lock`` file or a ``[tool.uv]``
+        section in ``pyproject.toml``. A plain pip project that merely has a
+        ``pyproject.toml`` must not be treated as uv-managed: ``uv run`` would
+        then create a ``.venv`` in a project the user never opted into uv.
+        """
+        import tomlkit
+        from tomlkit.exceptions import ParseError
+
+        cwd = Path.cwd()
+        if (cwd / "uv.lock").exists():
+            return True
+        pyproject = cwd / "pyproject.toml"
+        if not pyproject.exists() or (cwd / "poetry.lock").exists():
+            return False
+        if KernelBackend._find_uv() is None:
+            return False
+        try:
+            config = tomlkit.parse(pyproject.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ParseError):
+            return False
+        tool = config.get("tool")
+        return isinstance(tool, dict) and isinstance(tool.get("uv"), dict)
+
+    @staticmethod
+    def _build_uv_kernel_cmd() -> list[str] | None:
+        """Build a kernel command using 'uv run --with ipykernel'.
+
+        uv injects ipykernel ephemerally. --no-sync leaves the project's lock
+        file and installed packages untouched, even with a missing/stale lock.
+        --active respects the environment selected through VIRTUAL_ENV.
+
+        Returns None if uv is not available.
+        """
+        uv = KernelBackend._find_uv()
+        if uv is None:
+            return None
+        return [
+            uv,
+            "run",
+            "--no-sync",
+            "--active",
+            "--with",
+            "ipykernel",
+            "python",
+            "-m",
+            "ipykernel_launcher",
+            "-f",
+            "{connection_file}",
+        ]
+
+    def _set_kernel_cmd(self, cmd: list[str]) -> None:
+        """Point the kernel launch at *cmd*.
+
+        jupyter_client 8.x builds the launch command from ``kernel_spec.argv``
+        (via ``KernelManager.format_kernel_cmd``); assigning
+        ``KernelManager.kernel_cmd`` is silently ignored, so the default kernel
+        spec would launch instead. Mutate the spec's argv so the intended
+        interpreter/environment is actually used.
+        """
+        assert self._km is not None
+        kernel_spec = self._km.kernel_spec
+        if kernel_spec is None:
+            # No kernelspec resolved (empty kernel_name). Surface a clear error
+            # rather than silently launching the wrong interpreter.
+            raise RuntimeError(
+                "Cannot set kernel command: no kernel spec is configured"
+            )
+        kernel_spec.argv = list(cmd)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -400,38 +482,97 @@ class KernelBackend:
         extra_env: dict[str, str] = {}
 
         self._km = KernelManager()
+        # Snapshot the default launch command so a failed uv-based launch can
+        # fall back to gptme's Python instead of regressing to a hard error.
+        default_kernel_argv = (
+            list(self._km.kernel_spec.argv) if self._km.kernel_spec else None
+        )
+        using_uv = False
 
         if project_python and self._has_ipykernel(project_python):
             logger.info("Starting kernel with project Python: %s", project_python)
-            self._km.kernel_cmd = [
-                project_python,
-                "-m",
-                "ipykernel_launcher",
-                "-f",
-                "{connection_file}",
-            ]
-        else:
-            if project_python:
-                logger.warning(
-                    "Project Python %s lacks ipykernel; falling back to gptme's Python",
+            self._set_kernel_cmd(
+                [
                     project_python,
+                    "-m",
+                    "ipykernel_launcher",
+                    "-f",
+                    "{connection_file}",
+                ]
+            )
+        elif project_python or self._is_uv_project():
+            # Project venv found but lacks ipykernel, or this is a uv project
+            # without an activated venv.  Try `uv run --with ipykernel` so the
+            # kernel runs inside the project's environment without requiring the
+            # user to manually add ipykernel as a dependency.
+            uv_cmd = self._build_uv_kernel_cmd()
+            if uv_cmd:
+                logger.info(
+                    "Project Python lacks ipykernel; using 'uv run --with ipykernel'"
                 )
+                self._set_kernel_cmd(uv_cmd)
+                using_uv = True
             else:
-                logger.info("No project venv found; using gptme's Python for kernel")
+                if project_python:
+                    logger.warning(
+                        "Project Python %s lacks ipykernel and uv is not available; "
+                        "falling back to gptme's Python",
+                        project_python,
+                    )
+                else:
+                    logger.info(
+                        "uv project detected but uv is not available; "
+                        "using gptme's Python for kernel"
+                    )
+        else:
+            logger.info("No project venv found; using gptme's Python for kernel")
 
         # Pass env only when we actually want to override something; passing
         # None causes jupyter_client's provisioner to crash (it calls .get on it).
         start_kwargs: dict = {"extra_arguments": []}
         if extra_env:
             start_kwargs["env"] = extra_env
-        self._km.start_kernel(**start_kwargs)
-        self._kc = self._km.client()
-        self._kc.start_channels()
         try:
+            self._km.start_kernel(**start_kwargs)
+            self._kc = self._km.client()
+            self._kc.start_channels()
             self._kc.wait_for_ready(timeout=30)
-        except RuntimeError as exc:
-            self._km.shutdown_kernel(now=True)
-            raise RuntimeError(f"Kernel failed to start: {exc}") from exc
+        except Exception as exc:
+            if self._kc is not None:
+                # Stop the failed client's channels before replacing it, so
+                # repeated failures don't leak sockets and heartbeat threads.
+                with contextlib.suppress(Exception):
+                    self._kc.stop_channels()
+                self._kc = None
+            with contextlib.suppress(Exception):
+                self._km.shutdown_kernel(now=True)
+            if using_uv and default_kernel_argv is not None:
+                # The uv path can fail (e.g. an offline environment with no warm
+                # uv cache). Retry with the default spec so a working kernel is
+                # still available, matching pre-fallback behaviour.
+                logger.warning(
+                    "'uv run --with ipykernel' failed to start the kernel (%s); "
+                    "falling back to gptme's Python",
+                    exc,
+                )
+                self._km = KernelManager()
+                if self._km.kernel_spec is not None:
+                    self._km.kernel_spec.argv = default_kernel_argv
+                try:
+                    self._km.start_kernel(**start_kwargs)
+                    self._kc = self._km.client()
+                    self._kc.start_channels()
+                    self._kc.wait_for_ready(timeout=30)
+                except Exception as exc2:
+                    if self._kc is not None:
+                        with contextlib.suppress(Exception):
+                            self._kc.stop_channels()
+                        self._kc = None
+                    with contextlib.suppress(Exception):
+                        self._km.shutdown_kernel(now=True)
+                    raise RuntimeError(f"Kernel failed to start: {exc2}") from exc2
+            else:
+                raise RuntimeError(f"Kernel failed to start: {exc}") from exc
 
         self._started = True
         logger.info("Kernel started")
