@@ -24,6 +24,7 @@ from gptme.util.review import (
     ReviewArtifact,
     ReviewFinding,
     ReviewStatus,
+    validate_artifact_dict,
 )
 
 # ---------------------------------------------------------------------------
@@ -3432,3 +3433,142 @@ class TestLocalReviewArtifactIngestion:
         artifact = ReviewArtifact.from_dict(data)
         assert artifact.review_status == ReviewStatus.COMPLETE
         assert all(f.passes == 0 for f in artifact.findings)
+
+
+# ---------------------------------------------------------------------------
+# JSON Schema validation (slice 2d)
+# ---------------------------------------------------------------------------
+
+_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "review"
+
+
+class TestValidateArtifactDict:
+    """Tests for the lightweight validate_artifact_dict() validator."""
+
+    def _valid(self) -> dict:
+        return {
+            "schema_version": 2,
+            "pr": {"owner": "gptme", "repo": "gptme", "number": 1},
+            "review_status": "complete",
+            "findings": [],
+        }
+
+    def test_valid_passes(self):
+        assert validate_artifact_dict(self._valid()) == []
+
+    def test_wrong_schema_version(self):
+        d = {**self._valid(), "schema_version": 1}
+        assert any("schema_version" in v for v in validate_artifact_dict(d))
+
+    def test_missing_schema_version(self):
+        d = {k: v for k, v in self._valid().items() if k != "schema_version"}
+        assert any("schema_version" in v for v in validate_artifact_dict(d))
+
+    def test_pr_not_dict(self):
+        d = {**self._valid(), "pr": None}
+        assert any("'pr'" in v for v in validate_artifact_dict(d))
+
+    def test_pr_number_zero(self):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": 0}}
+        assert any("pr.number" in v for v in validate_artifact_dict(d))
+
+    def test_pr_number_non_int(self):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": "42"}}
+        assert any("pr.number" in v for v in validate_artifact_dict(d))
+
+    def test_invalid_review_status(self):
+        d = {**self._valid(), "review_status": "pending"}
+        assert any("review_status" in v for v in validate_artifact_dict(d))
+
+    def test_findings_not_list(self):
+        d = {**self._valid(), "findings": None}
+        assert any("'findings'" in v for v in validate_artifact_dict(d))
+
+    def test_finding_missing_body(self):
+        d = {
+            **self._valid(),
+            "findings": [{"severity": "warning", "status": "open"}],
+        }
+        violations = validate_artifact_dict(d)
+        assert any("findings[0].body" in v for v in violations)
+
+    def test_finding_invalid_severity(self):
+        d = {
+            **self._valid(),
+            "findings": [{"body": "x", "severity": "high", "status": "open"}],
+        }
+        violations = validate_artifact_dict(d)
+        assert any("findings[0].severity" in v for v in violations)
+
+    def test_finding_invalid_status(self):
+        d = {
+            **self._valid(),
+            "findings": [{"body": "x", "severity": "warning", "status": "pending"}],
+        }
+        violations = validate_artifact_dict(d)
+        assert any("findings[0].status" in v for v in violations)
+
+    def test_non_dict_input(self):
+        violations = validate_artifact_dict("not a dict")  # type: ignore[arg-type]
+        assert len(violations) == 1
+        assert "artifact must be a dict" in violations[0]
+
+    def test_extra_fields_allowed(self):
+        """Schema uses additionalProperties: true at top level."""
+        d = {**self._valid(), "unknown_future_field": "value"}
+        assert validate_artifact_dict(d) == []
+
+
+class TestReviewArtifactValidateSchema:
+    """Tests for ReviewArtifact.validate_schema()."""
+
+    def test_default_artifact_passes(self):
+        a = ReviewArtifact(pr_owner="gptme", pr_repo="gptme", pr_number=1)
+        assert a.validate_schema() == []
+
+    def test_artifact_with_finding_passes(self):
+        a = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=99,
+            findings=[
+                ReviewFinding(
+                    body="something looks wrong",
+                    file="gptme/util/review.py",
+                    line=10,
+                    severity=FindingSeverity.ERROR,
+                    status=FindingStatus.OPEN,
+                )
+            ],
+        )
+        assert a.validate_schema() == []
+
+
+class TestSchemaFixtures:
+    """Round-trip tests for the canonical v2 fixture files."""
+
+    @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
+    def test_fixture_is_valid(self, fixture_name):
+        d = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+        assert validate_artifact_dict(d) == [], d
+
+    @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
+    def test_fixture_round_trip(self, fixture_name):
+        artifact = ReviewArtifact.load(_FIXTURE_DIR / fixture_name)
+        assert artifact.validate_schema() == []
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert restored.to_dict() == artifact.to_dict()
+
+    def test_full_fixture_preserves_all_union_fields(self):
+        artifact = ReviewArtifact.load(_FIXTURE_DIR / "v2_full.json")
+        assert artifact.target_kind == "hosted"
+        assert artifact.diff_fingerprint == "abc123def456"
+        assert artifact.rejected_finding_count == 1
+        assert artifact.dropped_counts == {"unverified_absence": 1}
+        assert len(artifact.findings) == 1
+        f = artifact.findings[0]
+        assert f.category == "style"
+        assert f.agreement == 2
+        assert f.independence_key == "fp:abc123"
+        assert f.passes == 3
+        assert artifact.merge_safety == MergeSafety.SAFE

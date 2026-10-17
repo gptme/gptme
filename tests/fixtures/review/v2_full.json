@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "pr": {"owner": "gptme", "repo": "gptme", "number": 42},
+  "review_status": "complete",
+  "merge_safety": "safe",
+  "session_exit_reason": "done",
+  "session_error": "",
+  "review_duration_s": 12.5,
+  "validation_errors": 0,
+  "target_kind": "hosted",
+  "diff_fingerprint": "abc123def456",
+  "rejected_finding_count": 1,
+  "dropped_counts": {"unverified_absence": 1},
+  "findings": [
+    {
+      "body": "This variable is unused.",
+      "file": "gptme/util/review.py",
+      "line": 42,
+      "severity": "warning",
+      "status": "open",
+      "github_comment_id": null,
+      "reviewer": "greptileai",
+      "category": "style",
+      "agreement": 2,
+      "independence_key": "fp:abc123",
+      "passes": 3
+    }
+  ]
+}

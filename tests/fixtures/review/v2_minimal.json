@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "pr": {"owner": "gptme", "repo": "gptme", "number": 1},
+  "review_status": "complete",
+  "merge_safety": "unknown",
+  "session_exit_reason": "",
+  "session_error": "",
+  "review_duration_s": 0.0,
+  "validation_errors": 0,
+  "findings": []
+}

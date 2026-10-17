@@ -903,3 +903,183 @@ class ReviewArtifact:
             pr_number=pr_number,
             findings=findings,
         )
+
+    def validate_schema(self) -> list[str]:
+        """Validate this artifact against the canonical v2 JSON Schema.
+
+        Returns a list of violation strings.  An empty list means the
+        artifact is schema-valid.  Callers that need a hard error should
+        raise ``ValueError("\\n".join(violations))`` on a non-empty list.
+        """
+        return validate_artifact_dict(self.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# Canonical JSON Schema (draft-07) for ReviewArtifact at schema_version=2.
+#
+# This dict is a machine-readable contract that producers and consumers can
+# validate against.  It is intentionally kept in-module (rather than a
+# separate .json file) so imports stay self-contained and the schema evolves
+# in sync with the dataclasses above.
+#
+# Validation does NOT require the ``jsonschema`` package.  Use
+# ``validate_artifact_dict()`` for a lightweight built-in check, or pass
+# ``REVIEW_ARTIFACT_SCHEMA_V2`` to any draft-07-compatible JSON Schema
+# validator for a full structural check.
+# ---------------------------------------------------------------------------
+
+REVIEW_ARTIFACT_SCHEMA_V2: dict = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ReviewArtifact v2",
+    "description": (
+        "Structured review output produced by the gptme review pipeline "
+        "(schema_version=2).  Consumed by review-watch and downstream adapters."
+    ),
+    "type": "object",
+    "required": ["schema_version", "pr", "review_status", "findings"],
+    "additionalProperties": True,
+    "properties": {
+        "schema_version": {"type": "integer", "const": 2},
+        "pr": {
+            "type": "object",
+            "required": ["owner", "repo", "number"],
+            "additionalProperties": False,
+            "properties": {
+                "owner": {"type": "string"},
+                "repo": {"type": "string"},
+                "number": {"type": "integer", "minimum": 1},
+            },
+        },
+        "review_status": {
+            "type": "string",
+            "enum": [s.value for s in ReviewStatus],
+        },
+        "merge_safety": {
+            "type": "string",
+            "enum": [s.value for s in MergeSafety],
+        },
+        "session_exit_reason": {"type": "string"},
+        "session_error": {"type": "string"},
+        "review_duration_s": {"type": "number", "minimum": 0},
+        "validation_errors": {"type": "integer", "minimum": 0},
+        "target_kind": {"type": "string"},
+        "diff_fingerprint": {"type": "string"},
+        "rejected_finding_count": {"type": "integer", "minimum": 0},
+        "dropped_counts": {
+            "type": "object",
+            "additionalProperties": {"type": "integer"},
+        },
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["body", "severity", "status"],
+                "properties": {
+                    "body": {"type": "string"},
+                    "file": {"type": "string"},
+                    "line": {
+                        "oneOf": [
+                            {"type": "integer", "minimum": 1},
+                            {"type": "null"},
+                        ]
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": [s.value for s in FindingSeverity],
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [s.value for s in FindingStatus],
+                    },
+                    "github_comment_id": {
+                        "oneOf": [{"type": "integer"}, {"type": "null"}]
+                    },
+                    "reviewer": {"type": "string"},
+                    "category": {"type": "string"},
+                    "agreement": {"type": "integer", "minimum": 0},
+                    "independence_key": {"type": "string"},
+                    "passes": {"type": "integer", "minimum": 0},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+}
+
+
+def validate_artifact_dict(d: dict) -> list[str]:
+    """Validate *d* against the ReviewArtifact v2 schema.
+
+    Returns a list of human-readable violation strings.  An empty list
+    means *d* is schema-valid.
+
+    This lightweight validator covers the constraints that matter for safe
+    inter-process handoff.  It does not require the ``jsonschema`` package.
+    For a full structural check, pass ``REVIEW_ARTIFACT_SCHEMA_V2`` to any
+    draft-07-compatible JSON Schema validator.
+    """
+    if not isinstance(d, dict):
+        return [f"artifact must be a dict, got {type(d).__name__!r}"]
+
+    violations: list[str] = []
+
+    sv = d.get("schema_version")
+    if sv != 2:
+        violations.append(f"schema_version must be 2, got {sv!r}")
+
+    pr = d.get("pr")
+    if not isinstance(pr, dict):
+        violations.append(f"'pr' must be a dict, got {type(pr).__name__!r}")
+    else:
+        for key in ("owner", "repo"):
+            val = pr.get(key)
+            if not isinstance(val, str):
+                violations.append(
+                    f"pr.{key} must be a string, got {type(val).__name__!r}"
+                )
+        num = pr.get("number")
+        if not isinstance(num, int) or isinstance(num, bool):
+            violations.append(
+                f"pr.number must be an int, got {type(num).__name__!r}: {num!r}"
+            )
+        elif num < 1:
+            violations.append(f"pr.number must be ≥1, got {num}")
+
+    rs = d.get("review_status")
+    valid_statuses = {s.value for s in ReviewStatus}
+    if rs not in valid_statuses:
+        violations.append(
+            f"review_status must be one of {sorted(valid_statuses)!r}, got {rs!r}"
+        )
+
+    findings = d.get("findings")
+    if not isinstance(findings, list):
+        violations.append(f"'findings' must be a list, got {type(findings).__name__!r}")
+    else:
+        valid_severities = {s.value for s in FindingSeverity}
+        valid_finding_statuses = {s.value for s in FindingStatus}
+        for i, f_raw in enumerate(findings):
+            if not isinstance(f_raw, dict):
+                violations.append(
+                    f"findings[{i}] must be a dict, got {type(f_raw).__name__!r}"
+                )
+                continue
+            body = f_raw.get("body")
+            if not isinstance(body, str):
+                violations.append(
+                    f"findings[{i}].body must be a string, got {type(body).__name__!r}"
+                )
+            sev = f_raw.get("severity")
+            if sev not in valid_severities:
+                violations.append(
+                    f"findings[{i}].severity must be one of "
+                    f"{sorted(valid_severities)!r}, got {sev!r}"
+                )
+            status = f_raw.get("status")
+            if status not in valid_finding_statuses:
+                violations.append(
+                    f"findings[{i}].status must be one of "
+                    f"{sorted(valid_finding_statuses)!r}, got {status!r}"
+                )
+
+    return violations
