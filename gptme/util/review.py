@@ -1063,6 +1063,17 @@ def validate_artifact_dict(d: dict) -> list[str]:
             f"review_status must be one of {sorted(valid_statuses)!r}, got {rs!r}"
         )
 
+    # Optional (mirrors the schema, which declares merge_safety with an enum but
+    # does not require it; a missing value means UNKNOWN).
+    ms = d.get("merge_safety")
+    if ms is not None:
+        valid_merge_safety = {s.value for s in MergeSafety}
+        if not isinstance(ms, str) or ms not in valid_merge_safety:
+            violations.append(
+                f"merge_safety must be one of {sorted(valid_merge_safety)!r}, "
+                f"got {ms!r}"
+            )
+
     findings = d.get("findings")
     if not isinstance(findings, list):
         violations.append(f"'findings' must be a list, got {type(findings).__name__!r}")

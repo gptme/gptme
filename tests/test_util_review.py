@@ -3298,6 +3298,10 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.findings[0].body == data["findings"][0]["body"]
         assert artifact.findings[1].agreement == 2
 
+    # A whole-number JSON float (3.0) is a valid Draft-07 ``integer`` and is
+    # normalized to int by ReviewFinding.from_dict, so only genuinely
+    # non-integral values stay malformed here. The 3.0 case is covered
+    # positively by test_core_integral_float_agreement_is_normalized.
     @pytest.mark.parametrize("agreement", ["3", 3.5, True, None, [], {}])
     def test_core_malformed_agreement_marks_incomplete(self, agreement):
         data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
@@ -3309,6 +3313,23 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.validation_errors == 1
         assert len(artifact.findings) == 1
         assert artifact.findings[0].agreement == 2
+
+    @pytest.mark.parametrize("agreement", [3.0, 2.0])
+    def test_core_integral_float_agreement_is_normalized(self, agreement):
+        """Whole-number JSON floats stay schema-valid integers, not malformed.
+
+        Draft-07 ``{"type": "integer"}`` accepts ``3.0``. Before this fix the
+        core loader rejected it, dropped the finding and marked the artifact
+        incomplete; normalization keeps the finding as an int.
+        """
+        data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
+        data["findings"][0]["agreement"] = agreement
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+        assert len(artifact.findings) == 2
+        assert type(artifact.findings[0].agreement) is int
+        assert artifact.findings[0].agreement == int(agreement)
 
     def test_missing_agreement_defaults_to_zero(self):
         data = _local_review_artifact()
@@ -3491,6 +3512,20 @@ class TestValidateArtifactDict:
     def test_non_string_review_status(self, value):
         d = {**self._valid(), "review_status": value}
         assert any("review_status" in v for v in validate_artifact_dict(d))
+
+    def test_invalid_merge_safety(self):
+        d = {**self._valid(), "merge_safety": "maybe"}
+        assert any("merge_safety" in v for v in validate_artifact_dict(d))
+
+    @pytest.mark.parametrize("value", [[], {}, 42, True])
+    def test_non_string_merge_safety(self, value):
+        d = {**self._valid(), "merge_safety": value}
+        assert any("merge_safety" in v for v in validate_artifact_dict(d))
+
+    def test_absent_merge_safety_is_allowed(self):
+        # Optional in the schema; a missing value means UNKNOWN.
+        assert "merge_safety" not in self._valid()
+        assert validate_artifact_dict(self._valid()) == []
 
     @pytest.mark.parametrize("field", ["severity", "status"])
     @pytest.mark.parametrize("value", [[], {}, None, 42, True])
