@@ -905,11 +905,14 @@ class ReviewArtifact:
         )
 
     def validate_schema(self) -> list[str]:
-        """Validate this artifact against the canonical v2 JSON Schema.
+        """Run the lightweight v2 checks on this artifact's serialized form.
 
-        Returns a list of violation strings.  An empty list means the
-        artifact is schema-valid.  Callers that need a hard error should
-        raise ``ValueError("\\n".join(violations))`` on a non-empty list.
+        Returns a list of violation strings.  An empty list means only the
+        lightweight checks passed, not full JSON Schema conformance.  For
+        full conformance, validate ``to_dict()`` against
+        ``REVIEW_ARTIFACT_SCHEMA_V2`` with a draft-07-compatible validator.
+        Callers that need a hard error should raise
+        ``ValueError("\\n".join(violations))`` on a non-empty list.
         """
         return validate_artifact_dict(self.to_dict())
 
@@ -947,7 +950,8 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
             "properties": {
                 "owner": {"type": "string"},
                 "repo": {"type": "string"},
-                "number": {"type": "integer", "minimum": 1},
+                # Zero denotes local / pre-PR reviews.
+                "number": {"type": "integer", "minimum": 0},
             },
         },
         "review_status": {
@@ -1008,10 +1012,10 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
 
 
 def validate_artifact_dict(d: dict) -> list[str]:
-    """Validate *d* against the ReviewArtifact v2 schema.
+    """Run lightweight checks on a ReviewArtifact v2 dictionary.
 
     Returns a list of human-readable violation strings.  An empty list
-    means *d* is schema-valid.
+    means only the lightweight checks passed, not full JSON Schema conformance.
 
     This lightweight validator covers the constraints that matter for safe
     inter-process handoff.  It does not require the ``jsonschema`` package.
@@ -1042,12 +1046,12 @@ def validate_artifact_dict(d: dict) -> list[str]:
             violations.append(
                 f"pr.number must be an int, got {type(num).__name__!r}: {num!r}"
             )
-        elif num < 1:
-            violations.append(f"pr.number must be ≥1, got {num}")
+        elif num < 0:
+            violations.append(f"pr.number must be ≥0, got {num}")
 
     rs = d.get("review_status")
     valid_statuses = {s.value for s in ReviewStatus}
-    if rs not in valid_statuses:
+    if not isinstance(rs, str) or rs not in valid_statuses:
         violations.append(
             f"review_status must be one of {sorted(valid_statuses)!r}, got {rs!r}"
         )
@@ -1070,13 +1074,13 @@ def validate_artifact_dict(d: dict) -> list[str]:
                     f"findings[{i}].body must be a string, got {type(body).__name__!r}"
                 )
             sev = f_raw.get("severity")
-            if sev not in valid_severities:
+            if not isinstance(sev, str) or sev not in valid_severities:
                 violations.append(
                     f"findings[{i}].severity must be one of "
                     f"{sorted(valid_severities)!r}, got {sev!r}"
                 )
             status = f_raw.get("status")
-            if status not in valid_finding_statuses:
+            if not isinstance(status, str) or status not in valid_finding_statuses:
                 violations.append(
                     f"findings[{i}].status must be one of "
                     f"{sorted(valid_finding_statuses)!r}, got {status!r}"

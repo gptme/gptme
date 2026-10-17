@@ -2399,6 +2399,7 @@ dev = [
     { name = "greenlet" },
     { name = "hypothesis", version = "6.168.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "hypothesis", version = "6.169.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "jsonschema" },
     { name = "lxml" },
     { name = "mypy" },
     { name = "myst-parser", version = "4.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2532,6 +2533,7 @@ provides-extras = ["server", "browser", "docs", "minimal", "datascience", "sandb
 dev = [
     { name = "greenlet" },
     { name = "hypothesis", specifier = ">=6.100,<7" },
+    { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "lxml" },
     { name = "mypy" },
     { name = "myst-parser" },

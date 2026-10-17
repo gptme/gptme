@@ -14,10 +14,12 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from jsonschema import Draft7Validator
 
 from gptme.cli.util import main as util_main
 from gptme.util import gh as gh_util
 from gptme.util.review import (
+    REVIEW_ARTIFACT_SCHEMA_V2,
     FindingSeverity,
     FindingStatus,
     MergeSafety,
@@ -3468,8 +3470,13 @@ class TestValidateArtifactDict:
         d = {**self._valid(), "pr": None}
         assert any("'pr'" in v for v in validate_artifact_dict(d))
 
-    def test_pr_number_zero(self):
-        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": 0}}
+    @pytest.mark.parametrize("number", [0, 1, 42])
+    def test_pr_number_nonnegative(self, number):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": number}}
+        assert validate_artifact_dict(d) == []
+
+    def test_pr_number_negative(self):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": -1}}
         assert any("pr.number" in v for v in validate_artifact_dict(d))
 
     def test_pr_number_non_int(self):
@@ -3479,6 +3486,18 @@ class TestValidateArtifactDict:
     def test_invalid_review_status(self):
         d = {**self._valid(), "review_status": "pending"}
         assert any("review_status" in v for v in validate_artifact_dict(d))
+
+    @pytest.mark.parametrize("value", [[], {}, None, 42, True])
+    def test_non_string_review_status(self, value):
+        d = {**self._valid(), "review_status": value}
+        assert any("review_status" in v for v in validate_artifact_dict(d))
+
+    @pytest.mark.parametrize("field", ["severity", "status"])
+    @pytest.mark.parametrize("value", [[], {}, None, 42, True])
+    def test_non_string_finding_enum(self, field, value):
+        finding = {"body": "x", "severity": "warning", "status": "open", field: value}
+        d = {**self._valid(), "findings": [finding]}
+        assert any(f"findings[0].{field}" in v for v in validate_artifact_dict(d))
 
     def test_findings_not_list(self):
         d = {**self._valid(), "findings": None}
@@ -3526,6 +3545,12 @@ class TestReviewArtifactValidateSchema:
         a = ReviewArtifact(pr_owner="gptme", pr_repo="gptme", pr_number=1)
         assert a.validate_schema() == []
 
+    def test_local_artifact_passes(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.pr_number == 0
+        assert artifact.validate_schema() == []
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
+
     def test_artifact_with_finding_passes(self):
         a = ReviewArtifact(
             pr_owner="gptme",
@@ -3547,10 +3572,19 @@ class TestReviewArtifactValidateSchema:
 class TestSchemaFixtures:
     """Round-trip tests for the canonical v2 fixture files."""
 
+    def test_schema_is_valid_draft7(self):
+        Draft7Validator.check_schema(REVIEW_ARTIFACT_SCHEMA_V2)
+
     @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
     def test_fixture_is_valid(self, fixture_name):
         d = json.loads((_FIXTURE_DIR / fixture_name).read_text())
         assert validate_artifact_dict(d) == [], d
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(d)
+
+    @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
+    def test_round_trip_conforms_to_schema(self, fixture_name):
+        artifact = ReviewArtifact.load(_FIXTURE_DIR / fixture_name)
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
 
     @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
     def test_fixture_round_trip(self, fixture_name):
