@@ -6,13 +6,14 @@ This is typically used to edit a conversation log with /edit.
 
 import logging
 import os
+import shlex
 import subprocess
 import tempfile
 
 logger = logging.getLogger(__name__)
 
 
-def edit_text_with_editor(initial_text: str, ext=None) -> str:  # pragma: no cover
+def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
     """Edit some text in a temporary file using the user's $EDITOR."""
     suffix = f".{ext}" if ext else ""
     # Create a temporary file and write the initial text to it.
@@ -24,9 +25,10 @@ def edit_text_with_editor(initial_text: str, ext=None) -> str:  # pragma: no cov
     editor = os.environ.get("EDITOR", "nano")
 
     # Open the file in the user's editor.
-    logger.debug("Running editor: %s", [editor, temp_filename])
     try:
-        p = subprocess.run([editor, temp_filename], check=False)
+        command = [*shlex.split(editor), temp_filename]
+        logger.debug("Running editor: %s", command)
+        p = subprocess.run(command, check=False)
         # now, we wait
 
         # Check that the editor exited successfully.
