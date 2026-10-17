@@ -3298,7 +3298,7 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.findings[0].body == data["findings"][0]["body"]
         assert artifact.findings[1].agreement == 2
 
-    @pytest.mark.parametrize("agreement", ["3", 3.0, True, None, [], {}])
+    @pytest.mark.parametrize("agreement", ["3", 3.5, True, None, [], {}])
     def test_core_malformed_agreement_marks_incomplete(self, agreement):
         data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
         data["findings"][0]["agreement"] = agreement
@@ -3574,6 +3574,29 @@ class TestSchemaFixtures:
 
     def test_schema_is_valid_draft7(self):
         Draft7Validator.check_schema(REVIEW_ARTIFACT_SCHEMA_V2)
+
+    @pytest.mark.parametrize("field", ["line", "agreement", "passes"])
+    def test_integral_json_float_preserves_finding(self, field: str) -> None:
+        data = json.loads((_FIXTURE_DIR / "v2_full.json").read_text())
+        data["findings"][0][field] = 1.0
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(data)
+
+        artifact = ReviewArtifact.from_json(json.dumps(data))
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+        assert len(artifact.findings) == 1
+        value = getattr(artifact.findings[0], field)
+        assert type(value) is int
+        assert value == 1
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
+
+    @pytest.mark.parametrize("field", ["line", "agreement", "passes"])
+    @pytest.mark.parametrize("value", [1.5, True, "1", float("inf"), float("nan")])
+    def test_non_integer_finding_values_are_rejected(self, field: str, value) -> None:
+        data = json.loads((_FIXTURE_DIR / "v2_full.json").read_text())
+        data["findings"][0][field] = value
+        with pytest.raises(ValueError, match=f"ReviewFinding.{field} must be an int"):
+            ReviewFinding.from_dict(data["findings"][0])
 
     @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
     def test_fixture_is_valid(self, fixture_name):

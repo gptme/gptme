@@ -182,6 +182,9 @@ class ReviewFinding:
                 f"ReviewFinding.file must be a string, got {type(file_raw).__name__!r}: {file_raw!r}"
             )
         line_raw = d.get("line")
+        # JSON Schema integers include numbers with a zero fractional part.
+        if isinstance(line_raw, float) and line_raw.is_integer():
+            line_raw = int(line_raw)
         if line_raw is not None and type(line_raw) is not int:
             raise ValueError(
                 f"ReviewFinding.line must be an int or None, got {type(line_raw).__name__!r}: {line_raw!r}"
@@ -202,6 +205,8 @@ class ReviewFinding:
         category_raw = d.get("category", "")
         category = category_raw if isinstance(category_raw, str) else ""
         agreement_raw = d.get("agreement", 0)
+        if isinstance(agreement_raw, float) and agreement_raw.is_integer():
+            agreement_raw = int(agreement_raw)
         if type(agreement_raw) is not int:
             raise ValueError(
                 f"ReviewFinding.agreement must be an int, got {type(agreement_raw).__name__!r}: {agreement_raw!r}"
@@ -212,6 +217,8 @@ class ReviewFinding:
             independence_key_raw if isinstance(independence_key_raw, str) else ""
         )
         passes_raw = d.get("passes", 0)
+        if isinstance(passes_raw, float) and passes_raw.is_integer():
+            passes_raw = int(passes_raw)
         if type(passes_raw) is not int:
             raise ValueError(
                 f"ReviewFinding.passes must be an int, got {type(passes_raw).__name__!r}: {passes_raw!r}"
