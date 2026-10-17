@@ -102,12 +102,18 @@ def parameters2dict(parameters: list[Parameter]) -> dict[str, object]:
         JSON Schema dictionary with type, properties, required, and additionalProperties
     """
     required = []
-    properties = {}
+    properties: dict[str, dict[str, object]] = {}
 
     for param in parameters:
         if param.required:
             required.append(param.name)
-        properties[param.name] = {"type": param.type, "description": param.description}
+        prop: dict[str, object] = {}
+        if param.type is not None:
+            prop["type"] = param.type
+        prop["description"] = param.description
+        if param.enum:
+            prop["enum"] = param.enum
+        properties[param.name] = prop
 
     return {
         "type": "object",

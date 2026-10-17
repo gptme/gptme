@@ -148,6 +148,16 @@ class TestToolspecToMcpTool:
         prop = mcp_tool.inputSchema["properties"]["mode"]
         assert prop["enum"] == ["fast", "slow"]
 
+    def test_enum_without_type(self) -> None:
+        tool = ToolSpec(
+            name="enumtool",
+            desc="Enum tool without an explicit type.",
+            execute=_noop_execute,
+            parameters=[Parameter(name="value", type=None, enum=[0, "auto", None])],
+        )
+        schema = _toolspec_to_mcp_tool(tool).inputSchema
+        assert schema["properties"]["value"] == {"enum": [0, "auto", None]}
+
 
 class TestGptmeMCPServer:
     """Tests for GptmeMCPServer construction and tool filtering."""
