@@ -6,13 +6,31 @@ This is typically used to edit a conversation log with /edit.
 
 import logging
 import os
+import shlex
 import subprocess
 import tempfile
 
 logger = logging.getLogger(__name__)
 
 
-def edit_text_with_editor(initial_text: str, ext=None) -> str:  # pragma: no cover
+def _unquote(token: str) -> str:
+    """Remove a single matched pair of wrapping quotes, preserving interior ones."""
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
+def _split_editor(editor: str) -> list[str]:
+    """Split the EDITOR value into argv, respecting the platform's path syntax."""
+    if os.name == "nt":
+        # POSIX-mode shlex treats backslashes as escapes and would mangle
+        # Windows paths like C:\tools\edit.exe. Non-POSIX splitting preserves
+        # them but keeps quote characters in the tokens, so unwrap the pair.
+        return [_unquote(token) for token in shlex.split(editor, posix=False)]
+    return shlex.split(editor)
+
+
+def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
     """Edit some text in a temporary file using the user's $EDITOR."""
     suffix = f".{ext}" if ext else ""
     # Create a temporary file and write the initial text to it.
@@ -24,9 +42,10 @@ def edit_text_with_editor(initial_text: str, ext=None) -> str:  # pragma: no cov
     editor = os.environ.get("EDITOR", "nano")
 
     # Open the file in the user's editor.
-    logger.debug("Running editor: %s", [editor, temp_filename])
     try:
-        p = subprocess.run([editor, temp_filename], check=False)
+        command = [*_split_editor(editor), temp_filename]
+        logger.debug("Running editor: %s", command)
+        p = subprocess.run(command, check=False)
         # now, we wait
 
         # Check that the editor exited successfully.
