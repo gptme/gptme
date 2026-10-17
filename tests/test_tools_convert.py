@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1258,3 +1260,44 @@ def test_convert_expands_home_in_paths(tmp_path, monkeypatch):
         {"input_path": "~/notes.txt", "output_path": "~/notes.md", "dry_run": "true"},
     )
     assert "input file not found" not in msg.content
+
+
+@pytest.mark.skipif(not shutil.which("convert"), reason="ImageMagick not installed")
+@pytest.mark.parametrize("leading_dash", [False, True])
+def test_real_imagemagick_image_conversion(
+    tmp_path, monkeypatch, avail_imagemagick_only, leading_dash
+):
+    """Exercise real argv parsing, including option-shaped relative filenames."""
+    monkeypatch.chdir(tmp_path)
+    src = Path("-input.png" if leading_dash else "input.png")
+    dest = Path("-output.jpg" if leading_dash else "output.jpg")
+    subprocess.run(
+        ["convert", "-size", "2x2", "xc:red", _arg(src)],
+        capture_output=True,
+        check=True,
+    )
+    with patch(
+        "gptme.tools.convert.get_availability", return_value=avail_imagemagick_only
+    ):
+        result = ImageConverter().convert(src, dest)
+    assert result.success, result.error
+    assert result.converter_used == "imagemagick"
+    assert dest.read_bytes().startswith(b"\xff\xd8\xff")
+
+
+def test_imagemagick_pdf_output_argv(tmp_path, avail_imagemagick_only):
+    """Keep the PDF fallback's output argv compatible even with PDF policy disabled."""
+    src = tmp_path / "input.pdf"
+    src.write_bytes(b"%PDF-1.4")
+    dest = tmp_path / "output.png"
+    with (
+        patch(
+            "gptme.tools.convert.get_availability", return_value=avail_imagemagick_only
+        ),
+        patch("gptme.tools.convert.subprocess.run") as run,
+    ):
+        run.return_value = subprocess.CompletedProcess([], 0, stderr=b"")
+        result = PDFToImageConverter().convert(src, dest)
+    assert result.success
+    command = run.call_args.args[0]
+    assert command == ["convert", "-density", "150", f"{_im_src(src)}[0]", _arg(dest)]
