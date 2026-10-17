@@ -3441,8 +3441,10 @@ class TestLocalReviewArtifactIngestion:
             42,
         ]
         artifact = ReviewArtifact.from_dict(data)
-        assert len(artifact.rejected_findings) == 1
-        assert artifact.rejected_finding_count == 1
+        assert artifact.rejected_findings == [{"body": "valid", "severity": "P3"}]
+        assert artifact.rejected_finding_count == 3
+        reloaded = ReviewArtifact.from_dict(artifact.to_dict())
+        assert reloaded.rejected_finding_count == 3
 
     def test_dropped_counts_preserved(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())

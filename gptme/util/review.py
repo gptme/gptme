@@ -959,7 +959,11 @@ class ReviewArtifact:
             if isinstance(rejected_raw, list)
             else []
         )
-        rejected_finding_count = len(rejected_findings)
+        # Count everything the writer reported, not just the objects we could
+        # keep: a malformed entry must not silently under-count rejections.
+        rejected_finding_count = (
+            len(rejected_raw) if isinstance(rejected_raw, list) else 0
+        )
 
         dropped_raw = d.get("dropped", {})
         dropped_counts = dropped_raw if isinstance(dropped_raw, dict) else {}
