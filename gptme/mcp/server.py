@@ -73,7 +73,9 @@ def _toolspec_to_mcp_tool(tool: ToolSpec) -> types.Tool:
     required: list[str] = []
 
     for param in tool.parameters:
-        prop: dict[str, Any] = {"type": _param_type_to_json(param.type)}
+        prop: dict[str, Any] = {}
+        if param.type is not None:
+            prop["type"] = _param_type_to_json(param.type)
         if param.description:
             prop["description"] = param.description
         if param.enum:

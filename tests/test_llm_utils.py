@@ -114,6 +114,16 @@ class TestParameters2Dict:
         result: dict[str, Any] = parameters2dict(params)
         assert "enum" not in result["properties"]["value"]
 
+    def test_preserves_enum_without_type(self) -> None:
+        params = [
+            Parameter(name="value", type=None, description="Pick a value", enum=[0, 2])
+        ]
+        result: dict[str, Any] = parameters2dict(params)
+        assert result["properties"]["value"] == {
+            "description": "Pick a value",
+            "enum": [0, 2],
+        }
+
 
 # --- apply_cache_control tests ---
 

@@ -34,18 +34,28 @@ from gptme.tools.mcp_adapter import (
         ("integer", [0, 2]),
         ("boolean", [False, True]),
         ("number", [0.5, 1.25]),
+        (None, [0, 2]),
+        (None, [False, True]),
+        (None, [None]),
+        (None, [0, "auto", None, False]),
+        (None, ["fast", "slow"]),
+        (None, [[1], [2]]),
+        (None, [{"mode": "fast"}, {"mode": "slow"}]),
     ],
 )
 def test_imported_enums_reach_native_schema(
-    mock_config: Config, param_type: str, values: list[Any]
+    mock_config: Config, param_type: str | None, values: list[Any]
 ) -> None:
+    property_schema: dict[str, Any] = {"enum": values}
+    if param_type is not None:
+        property_schema["type"] = param_type
     listing = ListToolsResult(
         tools=[
             Tool(
                 name="mode",
                 inputSchema={
                     "type": "object",
-                    "properties": {"value": {"type": param_type, "enum": values}},
+                    "properties": {"value": property_schema},
                     "required": ["value"],
                 },
             )
@@ -62,6 +72,11 @@ def test_imported_enums_reach_native_schema(
     actual = schema["properties"]["value"]["enum"]
     assert actual == values
     assert [type(value) for value in actual] == [type(value) for value in values]
+    assert ("type" in schema["properties"]["value"]) is (param_type is not None)
+    assert listing.tools[0].inputSchema["properties"]["value"] == property_schema
+    examples = specs[0].examples
+    assert callable(examples)
+    assert f"<{param_type or 'value'}>" in examples("markdown")
 
 
 @pytest.mark.parametrize(
