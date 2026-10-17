@@ -53,6 +53,20 @@ def test_editor_without_arguments(monkeypatch: pytest.MonkeyPatch):
     assert edit_text_with_editor(initial_text) == initial_text
 
 
+def test_editor_windows_path_not_mangled(monkeypatch: pytest.MonkeyPatch):
+    # POSIX-mode shlex treats backslashes as escapes and would mangle
+    # C:\tools\edit.exe into C:tooledit.exe; on Windows the path must survive.
+    monkeypatch.setattr("gptme.util.useredit.os.name", "nt")
+    from gptme.util.useredit import _split_editor
+
+    assert _split_editor(r"C:\tools\edit.exe") == [r"C:\tools\edit.exe"]
+    assert _split_editor(r'"C:\tools\edit or something.exe" --wait') == [
+        r"C:\tools\edit or something.exe",
+        "--wait",
+    ]
+    assert _split_editor("code --wait") == ["code", "--wait"]
+
+
 def test_invalid_editor_quoting_cleans_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

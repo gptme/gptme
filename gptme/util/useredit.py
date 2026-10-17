@@ -13,6 +13,16 @@ import tempfile
 logger = logging.getLogger(__name__)
 
 
+def _split_editor(editor: str) -> list[str]:
+    """Split the EDITOR value into argv, respecting the platform's path syntax."""
+    if os.name == "nt":
+        # POSIX-mode shlex treats backslashes as escapes and would mangle
+        # Windows paths like C:\tools\edit.exe. Non-POSIX splitting preserves
+        # them but keeps quote characters in the tokens, so strip those.
+        return [token.strip("\"'") for token in shlex.split(editor, posix=False)]
+    return shlex.split(editor)
+
+
 def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
     """Edit some text in a temporary file using the user's $EDITOR."""
     suffix = f".{ext}" if ext else ""
@@ -26,7 +36,7 @@ def edit_text_with_editor(initial_text: str, ext: str | None = None) -> str:
 
     # Open the file in the user's editor.
     try:
-        command = [*shlex.split(editor), temp_filename]
+        command = [*_split_editor(editor), temp_filename]
         logger.debug("Running editor: %s", command)
         p = subprocess.run(command, check=False)
         # now, we wait
