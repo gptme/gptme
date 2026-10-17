@@ -321,7 +321,6 @@ class PDFToImageConverter(Converter):
                 "-density",
                 density,
                 f"{_im_src(src)}[0]",
-                "--",
                 _arg(dest),
             ]
             result = subprocess.run(cmd, capture_output=True, check=False)
@@ -429,7 +428,7 @@ class ImageConverter(Converter):
             cmd = ["convert", _arg(src)]
             if lossy:
                 cmd += ["-quality", str(q)]
-            cmd += ["--", _arg(dest)]
+            cmd += [_arg(dest)]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
                 return ConversionResult(
