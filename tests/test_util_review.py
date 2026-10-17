@@ -3417,12 +3417,20 @@ class TestLocalReviewArtifactIngestion:
 
     def test_rejected_findings_objects_preserved(self):
         """Full rejected_findings dicts survive from_dict and round-trip through to_dict."""
-        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        data = _local_review_artifact()
+        reason = "Style-only finding outside the review scope."
+        data["rejected_findings"][0]["reason"] = reason
+        artifact = ReviewArtifact.from_dict(data)
         assert artifact.rejected_findings == [
-            {"body": "Nitpick about variable name.", "severity": "P4"}
+            {
+                "body": "Nitpick about variable name.",
+                "severity": "P4",
+                "reason": reason,
+            }
         ]
         reloaded = ReviewArtifact.from_dict(artifact.to_dict())
         assert reloaded.rejected_findings == artifact.rejected_findings
+        assert reloaded.rejected_findings[0]["reason"] == reason
         assert reloaded.rejected_finding_count == 1
 
     def test_non_dict_items_in_rejected_findings_are_skipped(self):
