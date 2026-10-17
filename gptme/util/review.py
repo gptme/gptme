@@ -436,6 +436,35 @@ class ReviewArtifact:
     #: ``"misquoted"``).  Empty dict when not tracked.
     dropped_counts: dict = field(default_factory=dict)
 
+    # ------------------------------------------------------------------
+    # Production evidence fields (from "ai-review-local" shape)
+    # ------------------------------------------------------------------
+
+    #: Overall reviewer score (0–10 integer).  ``None`` when not produced.
+    score: int | None = None
+
+    #: Paths passed to the reviewer.  ``None`` when not specified (full diff).
+    paths: list[str] | None = None
+
+    #: Whether the review included uncommitted working-tree changes.
+    includes_uncommitted: bool = False
+
+    #: Findings reported in the reviewer's structured summary but absent from
+    #: the canonical ``findings`` list (e.g. suppressed before dedup).
+    summary_only_findings: list[dict] = field(default_factory=list)
+
+    #: Findings present only in the suppression ledger (carried forward from
+    #: a prior pass, not newly surfaced).
+    ledger_only_findings: list[dict] = field(default_factory=list)
+
+    #: Multi-pass consensus metadata (requested/answered pass counts, min
+    #: agreement threshold, etc.).  ``None`` for single-pass reviews.
+    consensus: dict | None = None
+
+    #: Context coverage report: which diff paths were fully preloaded vs
+    #: truncated.  ``None`` when not tracked.
+    context_coverage: dict | None = None
+
     #: Schema version for forward-compatibility.
     schema_version: Literal[2] = 2
 
@@ -484,6 +513,20 @@ class ReviewArtifact:
             d["rejected_finding_count"] = self.rejected_finding_count
         if self.dropped_counts:
             d["dropped_counts"] = self.dropped_counts
+        if self.score is not None:
+            d["score"] = self.score
+        if self.paths is not None:
+            d["paths"] = self.paths
+        if self.includes_uncommitted:
+            d["includes_uncommitted"] = self.includes_uncommitted
+        if self.summary_only_findings:
+            d["summary_only_findings"] = self.summary_only_findings
+        if self.ledger_only_findings:
+            d["ledger_only_findings"] = self.ledger_only_findings
+        if self.consensus is not None:
+            d["consensus"] = self.consensus
+        if self.context_coverage is not None:
+            d["context_coverage"] = self.context_coverage
         return d
 
     def to_json(self, *, indent: int = 2) -> str:
@@ -601,6 +644,39 @@ class ReviewArtifact:
             dropped_counts_raw if isinstance(dropped_counts_raw, dict) else {}
         )
 
+        # Production evidence fields (optional, pass-through)
+        score_raw = d.get("score")
+        score = int(score_raw) if isinstance(score_raw, (int, float)) else None
+
+        paths_raw = d.get("paths")
+        paths: list[str] | None = None
+        if isinstance(paths_raw, list):
+            paths = [p for p in paths_raw if isinstance(p, str)]
+
+        includes_uncommitted = bool(d.get("includes_uncommitted", False))
+
+        summary_only_raw = d.get("summary_only_findings", [])
+        summary_only_findings = (
+            [f for f in summary_only_raw if isinstance(f, dict)]
+            if isinstance(summary_only_raw, list)
+            else []
+        )
+
+        ledger_only_raw = d.get("ledger_only_findings", [])
+        ledger_only_findings = (
+            [f for f in ledger_only_raw if isinstance(f, dict)]
+            if isinstance(ledger_only_raw, list)
+            else []
+        )
+
+        consensus_raw = d.get("consensus")
+        consensus = consensus_raw if isinstance(consensus_raw, dict) else None
+
+        context_coverage_raw = d.get("context_coverage")
+        context_coverage = (
+            context_coverage_raw if isinstance(context_coverage_raw, dict) else None
+        )
+
         # Re-evaluate status after all metadata coercion, including suppression counts.
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
             review_status = ReviewStatus.INCOMPLETE
@@ -620,6 +696,13 @@ class ReviewArtifact:
             diff_fingerprint=diff_fingerprint,
             rejected_finding_count=rejected_finding_count,
             dropped_counts=dropped_counts,
+            score=score,
+            paths=paths,
+            includes_uncommitted=includes_uncommitted,
+            summary_only_findings=summary_only_findings,
+            ledger_only_findings=ledger_only_findings,
+            consensus=consensus,
+            context_coverage=context_coverage,
         )
 
     @classmethod
@@ -856,6 +939,40 @@ class ReviewArtifact:
         dropped_raw = d.get("dropped", {})
         dropped_counts = dropped_raw if isinstance(dropped_raw, dict) else {}
 
+        # Production evidence fields
+        score_raw = d.get("score")
+        score = int(score_raw) if isinstance(score_raw, (int, float)) else None
+
+        paths_raw = d.get("paths")
+        paths: list[str] | None = None
+        if isinstance(paths_raw, list):
+            paths = [p for p in paths_raw if isinstance(p, str)]
+
+        includes_uncommitted_raw = d.get("includes_uncommitted", False)
+        includes_uncommitted = bool(includes_uncommitted_raw)
+
+        summary_only_raw = d.get("summary_only_findings", [])
+        summary_only_findings = (
+            [f for f in summary_only_raw if isinstance(f, dict)]
+            if isinstance(summary_only_raw, list)
+            else []
+        )
+
+        ledger_only_raw = d.get("ledger_only_findings", [])
+        ledger_only_findings = (
+            [f for f in ledger_only_raw if isinstance(f, dict)]
+            if isinstance(ledger_only_raw, list)
+            else []
+        )
+
+        consensus_raw = d.get("consensus")
+        consensus = consensus_raw if isinstance(consensus_raw, dict) else None
+
+        context_coverage_raw = d.get("context_coverage")
+        context_coverage = (
+            context_coverage_raw if isinstance(context_coverage_raw, dict) else None
+        )
+
         return cls(
             pr_owner=pr_owner,
             pr_repo=pr_repo,
@@ -869,6 +986,13 @@ class ReviewArtifact:
             diff_fingerprint=diff_fingerprint,
             rejected_finding_count=rejected_finding_count,
             dropped_counts=dropped_counts,
+            score=score,
+            paths=paths,
+            includes_uncommitted=includes_uncommitted,
+            summary_only_findings=summary_only_findings,
+            ledger_only_findings=ledger_only_findings,
+            consensus=consensus,
+            context_coverage=context_coverage,
         )
 
     @classmethod
@@ -980,6 +1104,31 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
             "type": "object",
             "additionalProperties": {"type": "integer"},
         },
+        "score": {"type": "integer", "minimum": 0, "maximum": 10},
+        "paths": {
+            "oneOf": [
+                {"type": "array", "items": {"type": "string"}},
+                {"type": "null"},
+            ]
+        },
+        "includes_uncommitted": {"type": "boolean"},
+        "summary_only_findings": {"type": "array", "items": {"type": "object"}},
+        "ledger_only_findings": {"type": "array", "items": {"type": "object"}},
+        "consensus": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "requested": {"type": "integer", "minimum": 0},
+                        "answered": {"type": "integer", "minimum": 0},
+                        "min_agreement": {"type": "integer", "minimum": 0},
+                        "rejected": {"type": "integer", "minimum": 0},
+                    },
+                },
+                {"type": "null"},
+            ]
+        },
+        "context_coverage": {"oneOf": [{"type": "object"}, {"type": "null"}]},
         "findings": {
             "type": "array",
             "items": {
