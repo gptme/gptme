@@ -13,13 +13,20 @@ import tempfile
 logger = logging.getLogger(__name__)
 
 
+def _unquote(token: str) -> str:
+    """Remove a single matched pair of wrapping quotes, preserving interior ones."""
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        return token[1:-1]
+    return token
+
+
 def _split_editor(editor: str) -> list[str]:
     """Split the EDITOR value into argv, respecting the platform's path syntax."""
     if os.name == "nt":
         # POSIX-mode shlex treats backslashes as escapes and would mangle
         # Windows paths like C:\tools\edit.exe. Non-POSIX splitting preserves
-        # them but keeps quote characters in the tokens, so strip those.
-        return [token.strip("\"'") for token in shlex.split(editor, posix=False)]
+        # them but keeps quote characters in the tokens, so unwrap the pair.
+        return [_unquote(token) for token in shlex.split(editor, posix=False)]
     return shlex.split(editor)
 
 
