@@ -14,16 +14,19 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from jsonschema import Draft7Validator
 
 from gptme.cli.util import main as util_main
 from gptme.util import gh as gh_util
 from gptme.util.review import (
+    REVIEW_ARTIFACT_SCHEMA_V2,
     FindingSeverity,
     FindingStatus,
     MergeSafety,
     ReviewArtifact,
     ReviewFinding,
     ReviewStatus,
+    validate_artifact_dict,
 )
 
 # ---------------------------------------------------------------------------
@@ -3295,7 +3298,11 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.findings[0].body == data["findings"][0]["body"]
         assert artifact.findings[1].agreement == 2
 
-    @pytest.mark.parametrize("agreement", ["3", 3.0, True, None, [], {}])
+    # A whole-number JSON float (3.0) is a valid Draft-07 ``integer`` and is
+    # normalized to int by ReviewFinding.from_dict, so only genuinely
+    # non-integral values stay malformed here. The 3.0 case is covered
+    # positively by test_core_integral_float_agreement_is_normalized.
+    @pytest.mark.parametrize("agreement", ["3", 3.5, True, None, [], {}])
     def test_core_malformed_agreement_marks_incomplete(self, agreement):
         data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
         data["findings"][0]["agreement"] = agreement
@@ -3306,6 +3313,23 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.validation_errors == 1
         assert len(artifact.findings) == 1
         assert artifact.findings[0].agreement == 2
+
+    @pytest.mark.parametrize("agreement", [3.0, 2.0])
+    def test_core_integral_float_agreement_is_normalized(self, agreement):
+        """Whole-number JSON floats stay schema-valid integers, not malformed.
+
+        Draft-07 ``{"type": "integer"}`` accepts ``3.0``. Before this fix the
+        core loader rejected it, dropped the finding and marked the artifact
+        incomplete; normalization keeps the finding as an int.
+        """
+        data = ReviewArtifact.from_dict(_local_review_artifact()).to_dict()
+        data["findings"][0]["agreement"] = agreement
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+        assert len(artifact.findings) == 2
+        assert type(artifact.findings[0].agreement) is int
+        assert artifact.findings[0].agreement == int(agreement)
 
     def test_missing_agreement_defaults_to_zero(self):
         data = _local_review_artifact()
@@ -3432,3 +3456,211 @@ class TestLocalReviewArtifactIngestion:
         artifact = ReviewArtifact.from_dict(data)
         assert artifact.review_status == ReviewStatus.COMPLETE
         assert all(f.passes == 0 for f in artifact.findings)
+
+
+# ---------------------------------------------------------------------------
+# JSON Schema validation (slice 2d)
+# ---------------------------------------------------------------------------
+
+_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "review"
+
+
+class TestValidateArtifactDict:
+    """Tests for the lightweight validate_artifact_dict() validator."""
+
+    def _valid(self) -> dict:
+        return {
+            "schema_version": 2,
+            "pr": {"owner": "gptme", "repo": "gptme", "number": 1},
+            "review_status": "complete",
+            "findings": [],
+        }
+
+    def test_valid_passes(self):
+        assert validate_artifact_dict(self._valid()) == []
+
+    def test_wrong_schema_version(self):
+        d = {**self._valid(), "schema_version": 1}
+        assert any("schema_version" in v for v in validate_artifact_dict(d))
+
+    def test_missing_schema_version(self):
+        d = {k: v for k, v in self._valid().items() if k != "schema_version"}
+        assert any("schema_version" in v for v in validate_artifact_dict(d))
+
+    def test_pr_not_dict(self):
+        d = {**self._valid(), "pr": None}
+        assert any("'pr'" in v for v in validate_artifact_dict(d))
+
+    @pytest.mark.parametrize("number", [0, 1, 42])
+    def test_pr_number_nonnegative(self, number):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": number}}
+        assert validate_artifact_dict(d) == []
+
+    def test_pr_number_negative(self):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": -1}}
+        assert any("pr.number" in v for v in validate_artifact_dict(d))
+
+    def test_pr_number_non_int(self):
+        d = {**self._valid(), "pr": {"owner": "a", "repo": "b", "number": "42"}}
+        assert any("pr.number" in v for v in validate_artifact_dict(d))
+
+    def test_invalid_review_status(self):
+        d = {**self._valid(), "review_status": "pending"}
+        assert any("review_status" in v for v in validate_artifact_dict(d))
+
+    @pytest.mark.parametrize("value", [[], {}, None, 42, True])
+    def test_non_string_review_status(self, value):
+        d = {**self._valid(), "review_status": value}
+        assert any("review_status" in v for v in validate_artifact_dict(d))
+
+    def test_invalid_merge_safety(self):
+        d = {**self._valid(), "merge_safety": "maybe"}
+        assert any("merge_safety" in v for v in validate_artifact_dict(d))
+
+    @pytest.mark.parametrize("value", [[], {}, 42, True])
+    def test_non_string_merge_safety(self, value):
+        d = {**self._valid(), "merge_safety": value}
+        assert any("merge_safety" in v for v in validate_artifact_dict(d))
+
+    def test_absent_merge_safety_is_allowed(self):
+        # Optional in the schema; a missing value means UNKNOWN.
+        assert "merge_safety" not in self._valid()
+        assert validate_artifact_dict(self._valid()) == []
+
+    @pytest.mark.parametrize("field", ["severity", "status"])
+    @pytest.mark.parametrize("value", [[], {}, None, 42, True])
+    def test_non_string_finding_enum(self, field, value):
+        finding = {"body": "x", "severity": "warning", "status": "open", field: value}
+        d = {**self._valid(), "findings": [finding]}
+        assert any(f"findings[0].{field}" in v for v in validate_artifact_dict(d))
+
+    def test_findings_not_list(self):
+        d = {**self._valid(), "findings": None}
+        assert any("'findings'" in v for v in validate_artifact_dict(d))
+
+    def test_finding_missing_body(self):
+        d = {
+            **self._valid(),
+            "findings": [{"severity": "warning", "status": "open"}],
+        }
+        violations = validate_artifact_dict(d)
+        assert any("findings[0].body" in v for v in violations)
+
+    def test_finding_invalid_severity(self):
+        d = {
+            **self._valid(),
+            "findings": [{"body": "x", "severity": "high", "status": "open"}],
+        }
+        violations = validate_artifact_dict(d)
+        assert any("findings[0].severity" in v for v in violations)
+
+    def test_finding_invalid_status(self):
+        d = {
+            **self._valid(),
+            "findings": [{"body": "x", "severity": "warning", "status": "pending"}],
+        }
+        violations = validate_artifact_dict(d)
+        assert any("findings[0].status" in v for v in violations)
+
+    def test_non_dict_input(self):
+        violations = validate_artifact_dict("not a dict")  # type: ignore[arg-type]
+        assert len(violations) == 1
+        assert "artifact must be a dict" in violations[0]
+
+    def test_extra_fields_allowed(self):
+        """Schema uses additionalProperties: true at top level."""
+        d = {**self._valid(), "unknown_future_field": "value"}
+        assert validate_artifact_dict(d) == []
+
+
+class TestReviewArtifactValidateSchema:
+    """Tests for ReviewArtifact.validate_schema()."""
+
+    def test_default_artifact_passes(self):
+        a = ReviewArtifact(pr_owner="gptme", pr_repo="gptme", pr_number=1)
+        assert a.validate_schema() == []
+
+    def test_local_artifact_passes(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.pr_number == 0
+        assert artifact.validate_schema() == []
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
+
+    def test_artifact_with_finding_passes(self):
+        a = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=99,
+            findings=[
+                ReviewFinding(
+                    body="something looks wrong",
+                    file="gptme/util/review.py",
+                    line=10,
+                    severity=FindingSeverity.ERROR,
+                    status=FindingStatus.OPEN,
+                )
+            ],
+        )
+        assert a.validate_schema() == []
+
+
+class TestSchemaFixtures:
+    """Round-trip tests for the canonical v2 fixture files."""
+
+    def test_schema_is_valid_draft7(self):
+        Draft7Validator.check_schema(REVIEW_ARTIFACT_SCHEMA_V2)
+
+    @pytest.mark.parametrize("field", ["line", "agreement", "passes"])
+    def test_integral_json_float_preserves_finding(self, field: str) -> None:
+        data = json.loads((_FIXTURE_DIR / "v2_full.json").read_text())
+        data["findings"][0][field] = 1.0
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(data)
+
+        artifact = ReviewArtifact.from_json(json.dumps(data))
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
+        assert len(artifact.findings) == 1
+        value = getattr(artifact.findings[0], field)
+        assert type(value) is int
+        assert value == 1
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
+
+    @pytest.mark.parametrize("field", ["line", "agreement", "passes"])
+    @pytest.mark.parametrize("value", [1.5, True, "1", float("inf"), float("nan")])
+    def test_non_integer_finding_values_are_rejected(self, field: str, value) -> None:
+        data = json.loads((_FIXTURE_DIR / "v2_full.json").read_text())
+        data["findings"][0][field] = value
+        with pytest.raises(ValueError, match=f"ReviewFinding.{field} must be an int"):
+            ReviewFinding.from_dict(data["findings"][0])
+
+    @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
+    def test_fixture_is_valid(self, fixture_name):
+        d = json.loads((_FIXTURE_DIR / fixture_name).read_text())
+        assert validate_artifact_dict(d) == [], d
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(d)
+
+    @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
+    def test_round_trip_conforms_to_schema(self, fixture_name):
+        artifact = ReviewArtifact.load(_FIXTURE_DIR / fixture_name)
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
+
+    @pytest.mark.parametrize("fixture_name", ["v2_minimal.json", "v2_full.json"])
+    def test_fixture_round_trip(self, fixture_name):
+        artifact = ReviewArtifact.load(_FIXTURE_DIR / fixture_name)
+        assert artifact.validate_schema() == []
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert restored.to_dict() == artifact.to_dict()
+
+    def test_full_fixture_preserves_all_union_fields(self):
+        artifact = ReviewArtifact.load(_FIXTURE_DIR / "v2_full.json")
+        assert artifact.target_kind == "hosted"
+        assert artifact.diff_fingerprint == "abc123def456"
+        assert artifact.rejected_finding_count == 1
+        assert artifact.dropped_counts == {"unverified_absence": 1}
+        assert len(artifact.findings) == 1
+        f = artifact.findings[0]
+        assert f.category == "style"
+        assert f.agreement == 2
+        assert f.independence_key == "fp:abc123"
+        assert f.passes == 3
+        assert artifact.merge_safety == MergeSafety.SAFE
