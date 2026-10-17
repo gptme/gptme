@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/appuser/.local/share/gptme/logs/2026-10-17-gptme-evals-openai--gpt-4o-mini-tool-0ae476ef/workspace/hello.py", line 1, in <module>
+    name = input("What is your name? ")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOFError: EOF when reading a line
