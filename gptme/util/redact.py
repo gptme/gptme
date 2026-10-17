@@ -1,0 +1,245 @@
+"""Secret redaction for text that enters a conversation automatically.
+
+Used to sanitize content that gptme injects into a session on its own — e.g.
+the dirty-working-tree diff hook — as well as subagent workspace context.
+Targets lines whose variable/field name marks them as a secret so a value is
+replaced with ``[REDACTED]`` while the surrounding context is preserved.
+
+The patterns are intentionally name-based (``*TOKEN*``, ``*PASSWORD*``, ...)
+rather than entropy-based: this is a cheap, predictable guard against the most
+common accidental leak (a credential edited in a tracked file), not a
+general-purpose secret scanner.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..message import Message
+
+# Pattern for YAML/TOML colon-style assignments (key: value)
+_COLON_ASSIGN_RE = re.compile(
+    r"""(?ix)
+    ^(\s*)                                    # group 1: optional leading whitespace
+    (                                         # group 2: variable name with secret keyword
+        [\w\-]*?
+        (?:
+            api[-_]?key|apikey
+            |token
+            |secret
+            |password|passwd
+            |private[-_]key|privkey
+            |auth[-_]?(?:key|token)
+            |access[-_]key
+            |credential
+        )
+        [\w\-]*
+    )
+    (\s*:\s*)                                 # group 3: colon separator
+    (["']?)                                   # group 4: optional opening quote
+    (.+?)                                     # group 5: the value
+    (["']?)                                   # group 6: optional closing quote
+    ([ \t]*)$                                    # group 7: trailing whitespace (horizontal only)
+    """,
+    re.MULTILINE,
+)
+
+# Simpler pattern for export statements and env-var assignment lines
+_ENV_ASSIGN_RE = re.compile(
+    r"""(?ix)
+    ^(export\s+)?                            # optional 'export'
+    (                                        # group 2: variable name
+        [\w\-]*?                             # zero or more chars before keyword
+        (?:
+            api[-_]?key|apikey
+            |token
+            |secret
+            |password|passwd
+            |private[-_]key|privkey
+            |auth[-_]?(?:key|token)
+            |access[-_]key
+            |credential
+        )
+        [\w\-]*                              # trailing name chars
+    )
+    (\s*[=]\s*)                              # group 3: assignment
+    (["']?)                                  # group 4: opening quote
+    (.+?)                                    # group 5: the value
+    (["']?)                                  # group 6: closing quote
+    ([ \t]*)$                                   # group 7: trailing whitespace (horizontal only)
+    """,
+    re.MULTILINE,
+)
+
+_REDACTED = "[REDACTED]"
+
+# Path context (filenames, diff headers) differs from line context: a segment
+# such as ``token=parser.py`` is a legitimate filename, not a secret
+# assignment, so redacting on the *name* alone destroys useful context. In a
+# path we redact only when the trailing value is itself secret-shaped — the
+# credible leak is a value copied into a filename, not a keyword in one.
+_SECRET_VALUE_PREFIX_RE = re.compile(
+    r"(?i)^("
+    r"gh[pousr]_|github_pat_|"
+    r"sk-(?:ant-|or-|proj-)?|xox[baprs]-|"
+    r"AKIA|ASIA|glpat-|AIza|ya29\.|npm_|dckr_pat_|"
+    r"rk_live_|sk_live_|pk_live_|rk_test_|sk_test_|pk_test_"
+    r")"
+)
+
+# Assignment-shaped path segment: ``<secret-named-key><sep><value>``.
+_PATH_ASSIGN_RE = re.compile(
+    r"""(?ix)
+    ^(
+        [\w\-]*?
+        (?:
+            api[-_]?key|apikey|token|secret|password|passwd
+            |private[-_]key|privkey|auth[-_]?(?:key|token)
+            |access[-_]key|credential
+        )
+        [\w\-]*
+    )
+    (\s*[=:]\s*)
+    (.+)$
+    """,
+)
+
+
+def looks_like_secret_value(value: str) -> bool:
+    """Heuristic: is ``value`` a credential rather than a filename token?
+
+    Name-based matching is right for line content but wrong for paths, where a
+    filename like ``token=parser.py`` is not an assignment. A value is treated
+    as secret-shaped when it carries a known vendor prefix or is a long,
+    unprefixed opaque token — the shapes real leaked credentials have.
+    """
+    v = value.strip().strip("'\"")
+    if not v:
+        return False
+    if _SECRET_VALUE_PREFIX_RE.match(v):
+        return True
+    # Unprefixed high-entropy token: long, no path-ish separators (so a
+    # filename with an extension or underscores is not mistaken for a secret),
+    # containing a digit. Accept base64-ish (mixed case) or a long lowercase
+    # hex run — the two shapes of unprefixed vendor-less keys.
+    if not re.fullmatch(r"[A-Za-z0-9+/=]{24,}", v) or not any(c.isdigit() for c in v):
+        return False
+    return any(c.isupper() for c in v) or bool(re.fullmatch(r"[0-9a-f]{24,}", v))
+
+
+def redact_secret_values_in_path(path: str) -> str:
+    """Redact only the secret-shaped value of an assignment-shaped path.
+
+    For diff header paths and untracked filenames, where the segment is a path
+    rather than a line: ``token=parser.py`` is preserved (the value is a
+    filename), while ``GITHUB_TOKEN=ghp_...`` becomes ``GITHUB_TOKEN=[REDACTED]``.
+    Any suffix after the secret value (an extension, a space inside a quoted
+    path) is kept — the redaction must not destroy the surrounding filename.
+    The suffix is itself passed through this redactor, so a filename holding
+    several assignments (``GITHUB_TOKEN=ghp_x PASSWORD=hunter2``) loses every
+    credential, not just the first.
+    """
+    ending = "\n" if path.endswith("\n") else ""
+    body = path[: -len(ending)] if ending else path
+    match = _PATH_ASSIGN_RE.match(body)
+    # Unescape git C-quoting so an escaped-quote-wrapped value
+    # (``\"ghp_...\"``) still matches the vendor prefixes; strip the
+    # surrounding quote characters the unescape may leave behind.
+    value = match.group(3).replace('\\"', '"').strip('"') if match else ""
+    if match and looks_like_secret_value(value):
+        prefix_match = _SECRET_VALUE_PREFIX_RE.match(value)
+        if prefix_match:
+            # Vendor-prefixed value: redact the whole token, but keep any
+            # whitespace-separated suffix — a space inside a quoted path is
+            # filename remainder, not part of the secret
+            # (``ghp_leak dir/x`` -> ``[REDACTED] dir/x``).
+            rest = value[prefix_match.end() :]
+            ws = next((i for i, c in enumerate(rest) if c.isspace()), len(rest))
+            redacted_value = _REDACTED
+            if ws < len(rest):
+                suffix = rest[ws:].lstrip()
+                if suffix:
+                    # A further secret-named assignment in the remainder is a
+                    # second credential, not filename remainder — redact it
+                    # name-based (shape gating would let ``PASSWORD=hunter2``
+                    # through). Anything else (``dir/file.txt``) stays readable.
+                    suffix_match = _PATH_ASSIGN_RE.match(suffix)
+                    if suffix_match:
+                        redacted_value += f" {suffix_match.group(1)}{suffix_match.group(2)}{_REDACTED}"
+                    else:
+                        redacted_value += " " + suffix
+        else:
+            redacted_value = _REDACTED
+        return f"{match.group(1)}{match.group(2)}{redacted_value}{ending}"
+    return path
+
+
+def redact_secrets_from_text(content: str) -> str:
+    """Redact common secret patterns from text content.
+
+    Targets lines where the variable/field name suggests a secret:
+    - API keys (API_KEY, OPENAI_API_KEY, etc.)
+    - Tokens (TOKEN, ACCESS_TOKEN, GITHUB_TOKEN, etc.)
+    - Passwords (PASSWORD, PASSWD)
+    - Private keys (PRIVATE_KEY)
+    - Auth credentials (AUTH_KEY, AUTH_TOKEN)
+    - Generic credentials (CREDENTIAL, ACCESS_KEY)
+
+    The key name and separator are preserved; only the value is replaced
+    with ``[REDACTED]`` so context is not destroyed.
+
+    Examples::
+
+        >>> redact_secrets_from_text("GITHUB_TOKEN=ghp_abc123")
+        'GITHUB_TOKEN=[REDACTED]'
+        >>> redact_secrets_from_text("openai_api_key: sk-proj-abc")
+        'openai_api_key: [REDACTED]'
+        >>> redact_secrets_from_text("export PASSWORD=hunter2")
+        'export PASSWORD=[REDACTED]'
+    """
+    return "".join(_redact_line(line) for line in content.splitlines(keepends=True))
+
+
+def _redact_line(line: str) -> str:
+    """Redact a single line if it contains a secret assignment."""
+    # Preserve original line ending (last line of a file may have no trailing newline)
+    ending = "\n" if line.endswith("\n") else ""
+
+    # Try the env-var assignment pattern first (export VAR=value or VAR=value)
+    match = _ENV_ASSIGN_RE.search(line)
+    if match:
+        export_prefix = match.group(1) or ""
+        name = match.group(2)
+        sep = match.group(3)
+        trailing = match.group(7)
+        return f"{export_prefix}{name}{sep}{_REDACTED}{trailing}{ending}"
+
+    # Try YAML/TOML colon-style (key: value, e.g. github_token: ghp_xyz)
+    match = _COLON_ASSIGN_RE.search(line)
+    if match:
+        indent = match.group(1)
+        name = match.group(2)
+        sep = match.group(3)
+        trailing = match.group(7)
+        return f"{indent}{name}{sep}{_REDACTED}{trailing}{ending}"
+
+    return line
+
+
+def redact_secrets_from_messages(messages: list[Message]) -> list[Message]:
+    """Apply secret redaction to a list of messages.
+
+    Returns new Message objects with secret values replaced by ``[REDACTED]``.
+    Roles and other message metadata are preserved.
+
+    Args:
+        messages: List of messages to sanitize.
+
+    Returns:
+        A new list of messages with secrets redacted.
+    """
+    return [
+        msg.replace(content=redact_secrets_from_text(msg.content)) for msg in messages
+    ]
