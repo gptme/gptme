@@ -431,6 +431,13 @@ class ReviewArtifact:
     #: list (e.g., unverified, misquoted, out-of-scope).  Zero when not tracked.
     rejected_finding_count: int = 0
 
+    #: Full rejected finding objects from the production writer.  Each element
+    #: is a raw dict from the reviewer's output (same shape as a finding entry
+    #: but with a ``reason`` field explaining why it was rejected).  Empty when
+    #: not provided; ``rejected_finding_count`` remains authoritative for the
+    #: count when this list is absent.
+    rejected_findings: list[dict] = field(default_factory=list)
+
     #: Per-category drop counts from the reviewer's suppression ledger.
     #: Keys match the producer's vocabulary (e.g. ``"unverified_absence"``,
     #: ``"misquoted"``).  Empty dict when not tracked.
@@ -511,6 +518,8 @@ class ReviewArtifact:
             d["diff_fingerprint"] = self.diff_fingerprint
         if self.rejected_finding_count:
             d["rejected_finding_count"] = self.rejected_finding_count
+        if self.rejected_findings:
+            d["rejected_findings"] = self.rejected_findings
         if self.dropped_counts:
             d["dropped_counts"] = self.dropped_counts
         if self.score is not None:
@@ -639,6 +648,12 @@ class ReviewArtifact:
         except (TypeError, ValueError):
             rejected_finding_count = 0
             deserialization_errors += 1
+        rejected_findings_raw = d.get("rejected_findings", [])
+        rejected_findings = (
+            [f for f in rejected_findings_raw if isinstance(f, dict)]
+            if isinstance(rejected_findings_raw, list)
+            else []
+        )
         dropped_counts_raw = d.get("dropped_counts", {})
         dropped_counts = (
             dropped_counts_raw if isinstance(dropped_counts_raw, dict) else {}
@@ -701,6 +716,7 @@ class ReviewArtifact:
             target_kind=target_kind,
             diff_fingerprint=diff_fingerprint,
             rejected_finding_count=rejected_finding_count,
+            rejected_findings=rejected_findings,
             dropped_counts=dropped_counts,
             score=score,
             paths=paths,
@@ -938,9 +954,12 @@ class ReviewArtifact:
             diff_fingerprint = ""
 
         rejected_raw = d.get("rejected_findings", [])
-        rejected_finding_count = (
-            len(rejected_raw) if isinstance(rejected_raw, list) else 0
+        rejected_findings = (
+            [f for f in rejected_raw if isinstance(f, dict)]
+            if isinstance(rejected_raw, list)
+            else []
         )
+        rejected_finding_count = len(rejected_findings)
 
         dropped_raw = d.get("dropped", {})
         dropped_counts = dropped_raw if isinstance(dropped_raw, dict) else {}
@@ -997,6 +1016,7 @@ class ReviewArtifact:
             target_kind="ai-review-local",
             diff_fingerprint=diff_fingerprint,
             rejected_finding_count=rejected_finding_count,
+            rejected_findings=rejected_findings,
             dropped_counts=dropped_counts,
             score=score,
             paths=paths,
@@ -1112,6 +1132,7 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
         "target_kind": {"type": "string"},
         "diff_fingerprint": {"type": "string"},
         "rejected_finding_count": {"type": "integer", "minimum": 0},
+        "rejected_findings": {"type": "array", "items": {"type": "object"}},
         "dropped_counts": {
             "type": "object",
             "additionalProperties": {"type": "integer"},
