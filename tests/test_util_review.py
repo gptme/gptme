@@ -3457,6 +3457,69 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.review_status == ReviewStatus.COMPLETE
         assert all(f.passes == 0 for f in artifact.findings)
 
+    def test_production_evidence_fields_preserved(self):
+        """score, paths, includes_uncommitted, consensus, context_coverage round-trip."""
+        data = {
+            **_local_review_artifact(),
+            "paths": ["gptme/util/review.py"],
+            "includes_uncommitted": True,
+            "summary_only_findings": [{"body": "summary finding"}],
+            "ledger_only_findings": [{"body": "ledger finding"}],
+            "consensus": {
+                "requested": 3,
+                "answered": 3,
+                "min_agreement": 2,
+                "rejected": 0,
+            },
+            "context_coverage": {
+                "mode": "complete-local",
+                "all_readable_complete": True,
+            },
+        }
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.score == 4  # from _local_review_artifact()
+        assert artifact.paths == ["gptme/util/review.py"]
+        assert artifact.includes_uncommitted is True
+        assert artifact.summary_only_findings == [{"body": "summary finding"}]
+        assert artifact.ledger_only_findings == [{"body": "ledger finding"}]
+        assert artifact.consensus == {
+            "requested": 3,
+            "answered": 3,
+            "min_agreement": 2,
+            "rejected": 0,
+        }
+        assert artifact.context_coverage == {
+            "mode": "complete-local",
+            "all_readable_complete": True,
+        }
+        # round-trip
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert restored.score == artifact.score
+        assert restored.paths == artifact.paths
+        assert restored.includes_uncommitted == artifact.includes_uncommitted
+        assert restored.summary_only_findings == artifact.summary_only_findings
+        assert restored.ledger_only_findings == artifact.ledger_only_findings
+        assert restored.consensus == artifact.consensus
+        assert restored.context_coverage == artifact.context_coverage
+
+    def test_score_from_base_artifact(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.score == 4
+
+    def test_invalid_score_values_ignored(self):
+        """Infinity, NaN, and non-numeric score values are ignored rather than raising."""
+        for bad_score in [float("inf"), float("-inf"), float("nan"), "not-a-number"]:
+            data = {**_local_review_artifact(), "score": bad_score}
+            artifact = ReviewArtifact.from_dict(data)
+            assert artifact.score is None, f"Expected None for score={bad_score!r}"
+
+    def test_null_paths_preserved(self):
+        data = {**_local_review_artifact(), "paths": None}
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.paths is None
+        d = artifact.to_dict()
+        assert "paths" not in d  # only emitted when not None
+
 
 # ---------------------------------------------------------------------------
 # JSON Schema validation (slice 2d)
