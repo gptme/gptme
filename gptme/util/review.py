@@ -646,7 +646,13 @@ class ReviewArtifact:
 
         # Production evidence fields (optional, pass-through)
         score_raw = d.get("score")
-        score = int(score_raw) if isinstance(score_raw, (int, float)) else None
+        score: int | None = None
+        if (
+            isinstance(score_raw, (int, float))
+            and not (score_raw != score_raw)
+            and abs(score_raw) != float("inf")
+        ):
+            score = int(score_raw)
 
         paths_raw = d.get("paths")
         paths: list[str] | None = None
@@ -941,7 +947,13 @@ class ReviewArtifact:
 
         # Production evidence fields
         score_raw = d.get("score")
-        score = int(score_raw) if isinstance(score_raw, (int, float)) else None
+        score: int | None = None
+        if (
+            isinstance(score_raw, (int, float))
+            and not (score_raw != score_raw)
+            and abs(score_raw) != float("inf")
+        ):
+            score = int(score_raw)
 
         paths_raw = d.get("paths")
         paths: list[str] | None = None

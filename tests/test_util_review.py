@@ -3496,12 +3496,22 @@ class TestLocalReviewArtifactIngestion:
         restored = ReviewArtifact.from_json(artifact.to_json())
         assert restored.score == artifact.score
         assert restored.paths == artifact.paths
+        assert restored.includes_uncommitted == artifact.includes_uncommitted
+        assert restored.summary_only_findings == artifact.summary_only_findings
+        assert restored.ledger_only_findings == artifact.ledger_only_findings
         assert restored.consensus == artifact.consensus
         assert restored.context_coverage == artifact.context_coverage
 
     def test_score_from_base_artifact(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
         assert artifact.score == 4
+
+    def test_invalid_score_values_ignored(self):
+        """Infinity, NaN, and non-numeric score values are ignored rather than raising."""
+        for bad_score in [float("inf"), float("-inf"), float("nan"), "not-a-number"]:
+            data = {**_local_review_artifact(), "score": bad_score}
+            artifact = ReviewArtifact.from_dict(data)
+            assert artifact.score is None, f"Expected None for score={bad_score!r}"
 
     def test_null_paths_preserved(self):
         data = {**_local_review_artifact(), "paths": None}
