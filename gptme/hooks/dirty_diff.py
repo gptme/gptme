@@ -4,9 +4,10 @@ Narrower successor to the rejected gptme/gptme#4009 (`--diff`/`--diff-ref` CLI
 flags + suggestion-acceptance ledger). Erik's guidance on rejecting it: "This
 would maybe be better done as a hook or plugin or something." This hook does
 exactly that — no new CLI surface, no ledger, no line-range annotation. It
-yields `git diff HEAD` as a hidden system message when the workspace has
-uncommitted changes, so a review/continuation session doesn't need to be told
-to go look.
+yields a compact tracked-file summary, a 2k-character patch preview, and
+untracked names as a hidden system message. Lockfiles and generated minified
+assets/source maps remain visible in the summary but not in the patch.
+Explicit inspection commands provide the next level of detail on demand.
 
 Injected content is repository data, not instructions. Known secret
 assignments are redacted and the block is explicitly labelled as untrusted so
@@ -42,8 +43,31 @@ logger = logging.getLogger(__name__)
 # unrelated content cannot suppress injection.
 _INJECT_SENTINEL = "<!-- gptme-dirty-diff -->"
 
-# Cap so a large dirty tree doesn't blow the context budget at session start.
-_MAX_DIFF_CHARS = 16_000
+# Automatic context is a preview, not a substitute for an explicit inspection.
+_MAX_DIFF_CHARS = 2_000
+_MAX_SUMMARY_CHARS = 1_200
+_MAX_UNTRACKED_CHARS = 1_200
+
+
+# Keep dependency churn visible in the summary, but out of the patch budget.
+_PATCH_EXCLUDES = (
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lock",
+    "bun.lockb",
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "Cargo.lock",
+    "Gemfile.lock",
+    "composer.lock",
+    "go.sum",
+    "*.min.js",
+    "*.min.css",
+    "*.map",
+)
 
 # Cap the untracked path list; names are cheap, but a node_modules tree is not.
 _MAX_UNTRACKED_PATHS = 50
@@ -304,7 +328,13 @@ def _get_dirty_diff(workspace: Path) -> tuple[str, bool] | None:
         "diff",
         "--no-ext-diff",
         "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        "--unified=1",
         "HEAD",
+        "--",
+        ":/",
+        *(f":(top,glob,exclude)**/{name}" for name in _PATCH_EXCLUDES),
         max_chars=_MAX_DIFF_CHARS,
     )
     if result is None:
@@ -395,6 +425,34 @@ def _get_untracked(workspace: Path) -> tuple[list[str], bool]:
     return paths, more
 
 
+def _get_dirty_summary(workspace: Path) -> tuple[str, bool] | None:
+    """List tracked changes including files omitted from the patch preview."""
+    result = _git_capture_bounded(
+        workspace,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        "--name-status",
+        "HEAD",
+        max_chars=_MAX_SUMMARY_CHARS,
+    )
+    if result is None or not result[0].strip():
+        return None
+    text, truncated = result
+    # A cut C-quoted filename is not safe to decode/redact as a complete path.
+    raw_lines = text.splitlines()
+    if truncated:
+        raw_lines = raw_lines[:-1]
+    lines = []
+    for line in raw_lines:
+        status, sep, path = line.partition("\t")
+        lines.append(status + sep + _redact_untracked_path(path))
+    summary = "\n".join(lines)
+    return summary[:_MAX_SUMMARY_CHARS], truncated or len(summary) > _MAX_SUMMARY_CHARS
+
+
 def inject_dirty_diff(
     logdir: Path | None = None,
     workspace: Path | None = None,
@@ -421,21 +479,35 @@ def inject_dirty_diff(
             return
         workspace = Path(workspace)
         diff_result = _get_dirty_diff(workspace)
+        summary = _get_dirty_summary(workspace)
         untracked, untracked_more = _get_untracked(workspace)
-        if diff_result is None and not untracked:
+        if diff_result is None and summary is None and not untracked:
             return
         sections: list[str] = []
+        if summary is not None:
+            paths, more = summary
+            note = " (truncated)" if more else ""
+            sections.append(f"Tracked changes{note}:\n\n```text\n{paths}\n```")
         if diff_result is not None:
             diff, truncated = diff_result
-            note = " (truncated)" if truncated else ""
             # Redact known secret assignments before the diff enters the
             # conversation log and the model request.
             diff = _redact_diff(diff)
-            sections.append(f"`git diff HEAD`{note}:\n\n```diff\n{diff}\n```")
+            truncated |= len(diff) > _MAX_DIFF_CHARS
+            diff = diff[:_MAX_DIFF_CHARS]
+            note = " (truncated)" if truncated else ""
+            sections.append(f"Patch preview{note}:\n\n```diff\n{diff}\n```")
         if untracked:
             listed = "\n".join(f"- {path}" for path in untracked)
+            untracked_more |= len(listed) > _MAX_UNTRACKED_CHARS
+            listed = listed[:_MAX_UNTRACKED_CHARS]
             extra = "\n- ... and more (list truncated)" if untracked_more else ""
             sections.append(f"Untracked files (contents not shown):\n{listed}{extra}")
+        sections.append(
+            "Lockfile and generated minified/source-map patches are omitted. "
+            "Inspect on demand: `git status --short`, `git diff --stat HEAD`, "
+            "or `git diff HEAD -- <path>`."
+        )
         body = (
             "The working tree has uncommitted changes.\n\n"
             + "\n\n".join(sections)

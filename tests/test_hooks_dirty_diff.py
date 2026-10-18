@@ -502,3 +502,134 @@ def test_redact_diff_tokenizer_survives_escaped_quotes():
     redacted = _redact_diff(line)
     assert "ghp_leak" not in redacted
     assert "[REDACTED]" in redacted
+
+
+@pytest.mark.parametrize(
+    "lockfile",
+    [
+        "uv.lock",
+        "web/package-lock.json",
+        "yarn.lock",
+        "Cargo.lock",
+        "pnpm-lock.yaml",
+        "go.sum",
+    ],
+)
+def test_hook_summarizes_lockfiles_without_injecting_their_patch(git_repo, lockfile):
+    path = git_repo / lockfile
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("old dependency\n")
+    _git("add", lockfile, cwd=git_repo)
+    _git("commit", "-qm", "add lockfile", cwd=git_repo)
+    path.write_text("dependency-noise\n" * 2000)
+    (git_repo / "file.txt").write_text("source-change\n")
+
+    content = _run([], git_repo)[0].content
+
+    assert lockfile in content
+    assert "dependency-noise" not in content
+    assert "+source-change" in content
+    assert "lockfile" in content.lower()
+    assert "git diff HEAD -- <path>" in content
+
+
+def test_hook_reports_lockfile_only_change(git_repo):
+    path = git_repo / "uv.lock"
+    path.write_text("old\n")
+    _git("add", "uv.lock", cwd=git_repo)
+    _git("commit", "-qm", "add lockfile", cwd=git_repo)
+    path.write_text("dependency-noise\n")
+
+    content = _run([], git_repo)[0].content
+
+    assert "uv.lock" in content
+    assert "dependency-noise" not in content
+    assert "```diff" not in content
+
+
+def test_hook_compact_preview_keeps_staged_and_unstaged_summary(git_repo):
+    (git_repo / "staged.py").write_text("staged change\n")
+    _git("add", "staged.py", cwd=git_repo)
+    (git_repo / "file.txt").write_text("unstaged change\n")
+
+    content = _run([], git_repo)[0].content
+
+    assert "A\tstaged.py" in content
+    assert "M\tfile.txt" in content
+    assert "+staged change" in content
+    assert "+unstaged change" in content
+
+
+def test_hook_total_automatic_context_stays_small(git_repo):
+    for i in range(100):
+        (git_repo / f"tracked-{i:03}-{'x' * 150}.py").write_text("original\n")
+    _git("add", ".", cwd=git_repo)
+    _git("commit", "-qm", "add many files", cwd=git_repo)
+    for path in git_repo.glob("tracked-*"):
+        path.write_text("changed\n" * 100)
+    for i in range(100):
+        (git_repo / f"untracked-{i:03}-{'x' * 150}.py").write_text("untracked\n")
+
+    content = _run([], git_repo)[0].content
+
+    assert len(content) < 8000
+    assert "truncated" in content
+    assert "git status --short" in content
+
+
+def test_summary_redacts_secret_shaped_paths(git_repo):
+    path = git_repo / 'GITHUB_TOKEN=ghp_example".lock'
+    path.write_text("old\n")
+    _git("add", ".", cwd=git_repo)
+    _git("commit", "-qm", "add unusual path", cwd=git_repo)
+    path.write_text("new\n")
+
+    content = _run([], git_repo)[0].content
+
+    assert "ghp_example" not in content
+    assert "[REDACTED]" in content
+
+
+@pytest.mark.parametrize(
+    "name", ["assets/app.min.js", "assets/style.min.css", "assets/app.js.map"]
+)
+def test_generated_asset_is_summary_only(git_repo, name):
+    path = git_repo / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("old\n")
+    _git("add", name, cwd=git_repo)
+    _git("commit", "-qm", "add generated asset", cwd=git_repo)
+    path.write_text("generated-noise\n")
+
+    content = _run([], git_repo)[0].content
+
+    assert name in content
+    assert "generated-noise" not in content
+    assert "```diff" not in content
+
+
+def test_nested_workspace_includes_root_changes(git_repo):
+    nested = git_repo / "src"
+    nested.mkdir()
+    (git_repo / "file.txt").write_text("root change\n")
+
+    content = _run([], nested)[0].content
+
+    assert "+root change" in content
+
+
+def test_truncated_summary_discards_incomplete_quoted_path(git_repo, monkeypatch):
+    from gptme.hooks import dirty_diff
+
+    monkeypatch.setattr(
+        dirty_diff,
+        "_git_capture_bounded",
+        lambda *a, **k: ('M\tfile.txt\nM\t"GITHUB_TOKEN=ghp_secret', True),
+    )
+
+    result = dirty_diff._get_dirty_summary(git_repo)
+    assert result is not None
+    summary, truncated = result
+
+    assert summary == "M\tfile.txt"
+    assert truncated
