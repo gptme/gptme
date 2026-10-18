@@ -222,7 +222,7 @@ class Parameter:
     """A wrapper for function parameters to convert them to JSON schema."""
 
     name: str
-    type: str
+    type: str | None  # None preserves an omitted JSON Schema type.
     description: str | None = None
     enum: list[Any] | None = None
     required: bool = False

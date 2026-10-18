@@ -226,21 +226,26 @@ def _build_tool_specs_for_server(
                 # shorthand, e.g. {"flag": true} = allow anything).
                 if isinstance(param_schema, dict):
                     description = param_schema.get("description", "")
-                    ptype = param_schema.get("type", "string")
+                    enum_values = param_schema.get("enum") or None
+                    ptype = param_schema.get("type", None if enum_values else "string")
                 else:
                     description = ""
                     ptype = "string"
+                    enum_values = None
                 parameters.append(
                     Parameter(
                         name=param_name,
                         description=description,
                         type=ptype,
+                        enum=enum_values,
                         required=param_name in required_params,
                     )
                 )
 
         example = {
-            param.name: f"<{param.type}>" for param in parameters if param.required
+            param.name: f"<{param.type or 'value'}>"
+            for param in parameters
+            if param.required
         }
         example_str = json.dumps(example, indent=2)
 

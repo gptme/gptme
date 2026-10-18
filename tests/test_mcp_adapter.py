@@ -1,14 +1,18 @@
 """Tests for MCP adapter functionality."""
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mcp.types import ListToolsResult, Tool
 
 from gptme.config import Config, MCPConfig, MCPServerConfig
+from gptme.llm.utils import parameters2dict
 from gptme.mcp.registry import MCPServerInfo
 from gptme.message import Message
 from gptme.tools.mcp_adapter import (
+    _build_tool_specs_for_server,
     _dynamic_server_tool_names,
     _dynamic_servers,
     _mcp_clients,
@@ -21,6 +25,77 @@ from gptme.tools.mcp_adapter import (
     search_mcp_servers,
     unload_mcp_server,
 )
+
+
+@pytest.mark.parametrize(
+    ("param_type", "values"),
+    [
+        ("string", ["fast", "slow"]),
+        ("integer", [0, 2]),
+        ("boolean", [False, True]),
+        ("number", [0.5, 1.25]),
+        (None, [0, 2]),
+        (None, [False, True]),
+        (None, [None]),
+        (None, [0, "auto", None, False]),
+        (None, ["fast", "slow"]),
+        (None, [[1], [2]]),
+        (None, [{"mode": "fast"}, {"mode": "slow"}]),
+    ],
+)
+def test_imported_enums_reach_native_schema(
+    mock_config: Config, param_type: str | None, values: list[Any]
+) -> None:
+    property_schema: dict[str, Any] = {"enum": values}
+    if param_type is not None:
+        property_schema["type"] = param_type
+    listing = ListToolsResult(
+        tools=[
+            Tool(
+                name="mode",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"value": property_schema},
+                    "required": ["value"],
+                },
+            )
+        ]
+    )
+    specs = _build_tool_specs_for_server(
+        MCPServerConfig(name="local"), listing, mock_config, {}
+    )
+    param = specs[0].parameters[0]
+    assert param.enum == values
+    assert param.type == param_type
+    assert param.required
+    schema: dict[str, Any] = parameters2dict(specs[0].parameters)
+    actual = schema["properties"]["value"]["enum"]
+    assert actual == values
+    assert [type(value) for value in actual] == [type(value) for value in values]
+    assert ("type" in schema["properties"]["value"]) is (param_type is not None)
+    assert listing.tools[0].inputSchema["properties"]["value"] == property_schema
+    examples = specs[0].examples
+    assert callable(examples)
+    assert f"<{param_type or 'value'}>" in examples("markdown")
+
+
+@pytest.mark.parametrize(
+    "property_schema", [{"type": "string"}, {"type": "string", "enum": []}, True, False]
+)
+def test_imported_missing_empty_or_boolean_schema_has_no_enum(
+    mock_config: Config, property_schema: dict[str, Any] | bool
+) -> None:
+    listing = ListToolsResult(
+        tools=[
+            Tool(name="plain", inputSchema={"properties": {"value": property_schema}})
+        ]
+    )
+    specs = _build_tool_specs_for_server(
+        MCPServerConfig(name="local"), listing, mock_config, {}
+    )
+    assert specs[0].parameters[0].enum is None
+    schema: dict[str, Any] = parameters2dict(specs[0].parameters)
+    assert "enum" not in schema["properties"]["value"]
 
 
 @pytest.fixture(autouse=True)
