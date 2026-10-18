@@ -633,3 +633,17 @@ def test_truncated_summary_discards_incomplete_quoted_path(git_repo, monkeypatch
 
     assert summary == "M\tfile.txt"
     assert truncated
+
+
+def test_truncated_summary_keeps_complete_final_entry(git_repo, monkeypatch):
+    from gptme.hooks import dirty_diff
+
+    monkeypatch.setattr(
+        dirty_diff,
+        "_git_capture_bounded",
+        lambda *a, **k: ("M\tfile.txt\nM\tuv.lock\n", True),
+    )
+
+    result = dirty_diff._get_dirty_summary(git_repo)
+
+    assert result == ("M\tfile.txt\nM\tuv.lock", True)

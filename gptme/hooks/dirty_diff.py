@@ -443,7 +443,7 @@ def _get_dirty_summary(workspace: Path) -> tuple[str, bool] | None:
     text, truncated = result
     # A cut C-quoted filename is not safe to decode/redact as a complete path.
     raw_lines = text.splitlines()
-    if truncated:
+    if truncated and not text.endswith("\n"):
         raw_lines = raw_lines[:-1]
     lines = []
     for line in raw_lines:
