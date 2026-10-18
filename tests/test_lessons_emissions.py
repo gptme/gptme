@@ -246,6 +246,18 @@ def test_private_zero_and_missing_intent(env: dict[str, Any]) -> None:
     assert record["event_id"] == receipts(env)[0]["event_id"]
 
 
+def test_private_empty_intent_is_distinct_from_missing(env: dict[str, Any]) -> None:
+    """An empty prompt hashes the empty string; a missing prompt stays None."""
+    import hashlib
+
+    directory = enable_items(env)
+    env["manager"].log.messages[:] = [Message("user", "")]
+    assert list(tool.auto_include_lessons_hook(env["manager"])) == []
+    record = item_receipts(directory)[0]
+    assert record["intent_bytes"] == 0
+    assert record["intent_sha256"] == hashlib.sha256(b"").hexdigest()
+
+
 def test_untrusted_item_configuration_cannot_enable_capture(
     env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
