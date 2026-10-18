@@ -300,12 +300,22 @@ def _record_lesson_items(manager: "LogManager", evidence: _ItemEvidence) -> None
                     or info.st_nlink != 1
                 ):
                     return
+                intent = evidence.intent
+                intent_bytes = intent.encode("utf-8") if intent is not None else b""
                 record = {
                     "record_type": "final_item_receipt",
-                    "receipt_version": 1,
+                    # v2 replaced the verbatim `intent` text with a digest and a
+                    # byte count: the prompt is already durable in this session's
+                    # conversation log, so the copy made every receipt ~21 KB.
+                    "receipt_version": 2,
                     "session_id": str(manager.logdir.resolve()),
                     "event_id": evidence.event_id,
-                    "intent": evidence.intent,
+                    "intent_sha256": (
+                        hashlib.sha256(intent_bytes).hexdigest()
+                        if intent is not None
+                        else None
+                    ),
+                    "intent_bytes": len(intent_bytes),
                     "guards_configured": bool(configured_guards()),
                     "items": evidence.items,
                 }

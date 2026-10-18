@@ -199,7 +199,13 @@ def test_private_final_items_bind_exact_render_and_latest_intent(
     aggregate = receipts(env)[0]
     assert record["event_id"] == aggregate["event_id"]
     assert record["session_id"] == aggregate["session_id"]
-    assert record["intent"] == "receipt latest 🚀"
+    assert record["receipt_version"] == 2
+    assert "intent" not in record
+    assert record["intent_bytes"] == len("receipt latest 🚀".encode())
+    assert (
+        record["intent_sha256"]
+        == hashlib.sha256("receipt latest 🚀".encode()).hexdigest()
+    )
     assert record["guards_configured"] is True
     assert isinstance(message, Message)
     item = record["items"][0]
@@ -235,7 +241,8 @@ def test_private_zero_and_missing_intent(env: dict[str, Any]) -> None:
     assert list(tool.auto_include_lessons_hook(env["manager"])) == []
     record = item_receipts(directory)[0]
     assert record["items"] == []
-    assert record["intent"] is None
+    assert record["intent_sha256"] is None
+    assert record["intent_bytes"] == 0
     assert record["event_id"] == receipts(env)[0]["event_id"]
 
 
