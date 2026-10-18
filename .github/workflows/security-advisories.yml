@@ -35,8 +35,8 @@ jobs:
     name: Dependency Advisory Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Phase 1: continue-on-error so this never blocks CI
-    continue-on-error: true
+    # Phase 2: advisory findings (audit exit 1) fail the job on push/PR via the final
+    # step; tooling errors (exit >= 2) stay non-blocking.
     steps:
       - uses: actions/checkout@v7
 
@@ -48,30 +48,35 @@ jobs:
       - name: Run audit and generate SARIF
         id: audit
         if: always()
-        continue-on-error: true
         run: |
           # Single uv audit run: SARIF output + exit-code-aware warnings.
           # exit 0 = no advisories; exit 1 = advisories found — both produce valid SARIF.
           # exit ≥2 = tooling failure (bad pyproject, network, missing lockfile) — not a finding.
-          # Phase 1: report-only. In Phase 2 remove continue-on-error to block on advisories.
+          # This step never fails itself: the exit code goes to the gate step below so
+          # SARIF is produced and uploaded before an advisory blocks the job.
+          # uv.lock is committed (gptme/gptme#4278), so `uv sync --frozen` above installs
+          # exactly what `uv audit` reads; there is no separate Poetry graph to match.
           audit_exit=0
           uv audit --preview-features audit-command \
               --output-format sarif \
               --ignore CVE-2025-69872 \
+              --ignore GHSA-w8v5-vhqr-4h9v \
               --ignore PYSEC-2026-2447 \
               > /tmp/audit_tmp.sarif || audit_exit=$?
           # Accepted ignores (diskcache advisories, no fix available):
-          #   CVE-2025-69872, PYSEC-2026-2447 — diskcache; no upstream fix yet.
+          #   CVE-2025-69872, GHSA-w8v5-vhqr-4h9v, PYSEC-2026-2447 — one diskcache pickle advisory
+          #   under three IDs; no upstream fix yet. Remove when diskcache ships a fixed version.
           # NOT ignored (flask/setuptools advisories currently inactive in dep tree):
           #   PYSEC-2026-2151, PYSEC-2026-3447 — unconditionally ignoring them
           #   would mask real advisories if these packages re-enter the dep tree.
           if [ "$audit_exit" -eq 0 ]; then
             echo "No known advisories found."
           elif [ "$audit_exit" -eq 1 ]; then
-            echo "::warning::Dependency advisories detected — see job log for details. Phase 1: non-blocking."
+            echo "::error::Dependency advisories detected — see job log and the Security tab."
           else
-            echo "::warning::Dependency audit tooling error (exit $audit_exit) — not an advisory finding. Phase 1: non-blocking."
+            echo "::warning::Dependency audit tooling error (exit $audit_exit) — not an advisory finding; not blocking."
           fi
+          echo "audit_exit=$audit_exit" >> "$GITHUB_OUTPUT"
           if [ "$audit_exit" -eq 0 ] || [ "$audit_exit" -eq 1 ]; then
             if [ -s /tmp/audit_tmp.sarif ]; then
               mv /tmp/audit_tmp.sarif audit.sarif
@@ -90,3 +95,12 @@ jobs:
         with:
           sarif_file: audit.sarif
           category: dependency-audit
+
+      # Phase 2 gate: block on advisory findings only. Tooling errors (exit >= 2) never
+      # fail the job. The weekly schedule has no merge to block, so it reports via the
+      # ::error:: annotation and the Security tab without failing the run.
+      - name: Fail on advisory findings
+        if: always() && steps.audit.outputs.audit_exit == '1' && github.event_name != 'schedule'
+        run: |
+          echo "Dependency advisories found; see the audit step output and Security tab."
+          exit 1
