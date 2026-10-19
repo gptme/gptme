@@ -8,6 +8,7 @@ import {
   exportConversationAsJSON,
   copyConversationToClipboard,
   getExportableMessages,
+  reportDownloadOutcome,
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
 import { ModelPickerField } from './ModelPicker';
@@ -528,13 +529,15 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         return;
                       }
 
-                      exportConversationAsMarkdown(
-                        conversationId,
-                        conv.data.name || conversationId,
-                        exportableMessages,
-                        exportOptions
+                      reportDownloadOutcome(
+                        exportConversationAsMarkdown(
+                          conversationId,
+                          conv.data.name || conversationId,
+                          exportableMessages,
+                          exportOptions
+                        ),
+                        'Downloaded as Markdown'
                       );
-                      toast.success('Downloaded as Markdown');
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />
@@ -552,12 +555,14 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         toast.error('No messages to export');
                         return;
                       }
-                      exportConversationAsJSON(
-                        conversationId,
-                        conv.data.name || conversationId,
-                        conv.data.log
+                      reportDownloadOutcome(
+                        exportConversationAsJSON(
+                          conversationId,
+                          conv.data.name || conversationId,
+                          conv.data.log
+                        ),
+                        'Downloaded as JSON'
                       );
-                      toast.success('Downloaded as JSON');
                     }}
                   >
                     <Download className="mr-2 h-4 w-4" />

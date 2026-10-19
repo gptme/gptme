@@ -10,6 +10,7 @@ import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
   getExportableMessages,
+  reportDownloadOutcome,
 } from '@/utils/exportConversation';
 
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
@@ -166,8 +167,10 @@ export const ConversationList: FC<Props> = ({
       toast.error('No messages to export. Open the conversation first.');
       return;
     }
-    exportConversationAsMarkdown(conv.id, name, getExportableMessages(messages));
-    toast.success('Exported as Markdown');
+    reportDownloadOutcome(
+      exportConversationAsMarkdown(conv.id, name, getExportableMessages(messages)),
+      'Exported as Markdown'
+    );
   }, []);
 
   const handleExportJSON = useCallback((conv: ConversationSummary) => {
@@ -178,8 +181,10 @@ export const ConversationList: FC<Props> = ({
       toast.error('No messages to export. Open the conversation first.');
       return;
     }
-    exportConversationAsJSON(conv.id, name, getExportableMessages(messages));
-    toast.success('Exported as JSON');
+    reportDownloadOutcome(
+      exportConversationAsJSON(conv.id, name, getExportableMessages(messages)),
+      'Exported as JSON'
+    );
   }, []);
 
   const handleStartRename = useCallback((conv: ConversationSummary) => {

@@ -1,4 +1,6 @@
+import { toast } from 'sonner';
 import type { Message } from '@/types/conversation';
+import { isTauriEnvironment } from '@/utils/tauri';
 
 export interface ExportMarkdownOptions {
   includeSystem?: boolean;
@@ -221,19 +223,158 @@ export async function copyConversationToClipboard(
   await navigator.clipboard.writeText(markdown);
 }
 
-/**
- * Trigger a file download in the browser.
- */
-export function downloadAsFile(content: string, filename: string, mimeType = 'text/markdown') {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
+export type DownloadOutcome =
+  | { kind: 'browser' }
+  | { kind: 'tauri'; success: true; path: string | null }
+  | { kind: 'tauri'; success: false; error: string };
+
+const TAURI_DOWNLOAD_FINISHED_EVENT = 'gptme-download-finished';
+const TAURI_DOWNLOAD_TIMEOUT_MS = 60_000;
+
+interface TauriDownloadFinishedPayload {
+  url: string;
+  path: string | null;
+  success: boolean;
+  error?: string | null;
+}
+
+function triggerAnchorDownload(url: string, filename: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+/**
+ * Trigger a download and wait for Tauri to report the actual saved path.
+ *
+ * The webview's download handler emits `gptme-download-finished` only after
+ * the native download either finishes or fails, so the UI must not claim
+ * success before that event arrives.
+ */
+async function downloadInTauri(
+  content: string,
+  filename: string,
+  mimeType: string
+): Promise<DownloadOutcome> {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+
+  return await new Promise<DownloadOutcome>((resolve) => {
+    let settled = false;
+    let unlisten: (() => void) | undefined;
+
+    const finish = (outcome: DownloadOutcome) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      unlisten?.();
+      URL.revokeObjectURL(url);
+      resolve(outcome);
+    };
+
+    const timeout = window.setTimeout(() => {
+      finish({
+        kind: 'tauri',
+        success: false,
+        error: 'Timed out waiting for the file to finish saving.',
+      });
+    }, TAURI_DOWNLOAD_TIMEOUT_MS);
+
+    void (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen<TauriDownloadFinishedPayload>(
+          TAURI_DOWNLOAD_FINISHED_EVENT,
+          (event) => {
+            const payload = event.payload;
+            // Exports are short-lived and sequential, but match the blob URL
+            // so a concurrent download cannot settle the wrong promise.
+            if (payload.url !== url) return;
+            if (payload.success) {
+              finish({ kind: 'tauri', success: true, path: payload.path ?? null });
+            } else {
+              finish({
+                kind: 'tauri',
+                success: false,
+                error: payload.error ?? 'The file could not be saved.',
+              });
+            }
+          }
+        );
+      } catch (error) {
+        finish({
+          kind: 'tauri',
+          success: false,
+          error:
+            error instanceof Error ? error.message : 'Could not listen for the download to finish.',
+        });
+        return;
+      }
+
+      // The timeout may have fired while `listen` was being registered.
+      if (settled) {
+        unlisten();
+        return;
+      }
+      triggerAnchorDownload(url, filename);
+    })();
+  });
+}
+
+/**
+ * Trigger a file download.
+ *
+ * In a browser this returns synchronously after clicking the anchor. In Tauri
+ * it resolves only after the native download handler reports the final path.
+ */
+export function downloadAsFile(
+  content: string,
+  filename: string,
+  mimeType = 'text/markdown'
+): DownloadOutcome | Promise<DownloadOutcome> {
+  if (isTauriEnvironment()) {
+    return downloadInTauri(content, filename, mimeType);
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  triggerAnchorDownload(url, filename);
   URL.revokeObjectURL(url);
+  return { kind: 'browser' };
+}
+
+/**
+ * Report an export outcome once it is known. For Tauri downloads this happens
+ * after `DownloadEvent::Finished`, never before.
+ */
+export function reportDownloadOutcome(
+  outcome: DownloadOutcome | Promise<DownloadOutcome>,
+  browserSuccessMessage: string
+): void {
+  if (outcome instanceof Promise) {
+    void outcome.then((resolved) => reportDownloadOutcome(resolved, browserSuccessMessage));
+    return;
+  }
+
+  if (outcome.kind === 'browser') {
+    toast.success(browserSuccessMessage);
+    return;
+  }
+
+  if (!outcome.success) {
+    toast.error(`Export failed: ${outcome.error}`);
+    return;
+  }
+
+  // macOS reports success without a path; don't turn that into a failure.
+  toast.success(
+    outcome.path
+      ? `Saved to ${outcome.path}`
+      : 'Download complete (this platform does not report the saved path)'
+  );
 }
 
 /**
@@ -244,7 +385,7 @@ export function exportConversationAsMarkdown(
   name: string,
   messages: Message[],
   options?: ExportMarkdownOptions
-) {
+): DownloadOutcome | Promise<DownloadOutcome> {
   const markdown = formatConversationAsMarkdown(name, messages, options);
   // Sanitize filename: replace unsafe characters with dashes
   const safeName = (name || conversationId)
@@ -252,7 +393,7 @@ export function exportConversationAsMarkdown(
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 100);
-  downloadAsFile(markdown, `${safeName}.md`);
+  return downloadAsFile(markdown, `${safeName}.md`);
 }
 
 /**
@@ -262,7 +403,7 @@ export function exportConversationAsJSON(
   conversationId: string,
   name: string,
   messages: Message[]
-) {
+): DownloadOutcome | Promise<DownloadOutcome> {
   const data = {
     id: conversationId,
     name,
@@ -275,7 +416,7 @@ export function exportConversationAsJSON(
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 100);
-  downloadAsFile(json, `${safeName}.json`, 'application/json');
+  return downloadAsFile(json, `${safeName}.json`, 'application/json');
 }
 
 export function parseConversationImportJSON(json: string): ImportedConversationData {
