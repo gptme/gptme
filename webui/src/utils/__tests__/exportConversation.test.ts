@@ -1,3 +1,6 @@
+import { toast } from 'sonner';
+import { listen } from '@tauri-apps/api/event';
+import { isTauriEnvironment } from '@/utils/tauri';
 import {
   formatConversationAsMarkdown,
   downloadAsFile,
@@ -5,10 +8,24 @@ import {
   exportConversationAsJSON,
   getExportableMessages,
   parseConversationImportJSON,
+  reportDownloadOutcome,
   stripThinkingBlocks,
   copyConversationToClipboard,
+  type DownloadOutcome,
 } from '../exportConversation';
 import type { Message } from '@/types/conversation';
+
+jest.mock('sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
+}));
+
+jest.mock('@/utils/tauri', () => ({
+  isTauriEnvironment: jest.fn(() => false),
+}));
+
+jest.mock('@tauri-apps/api/event', () => ({
+  listen: jest.fn(),
+}));
 
 const sampleMessages: Message[] = [
   { role: 'system', content: 'You are a helpful assistant.', timestamp: '2026-03-28T10:00:00Z' },
@@ -146,8 +163,9 @@ describe('downloadAsFile', () => {
     });
     jest.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
 
-    downloadAsFile('test content', 'test.md');
+    const outcome = downloadAsFile('test content', 'test.md');
 
+    expect(outcome).toEqual({ kind: 'browser' });
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith(mockUrl);
@@ -158,6 +176,208 @@ describe('downloadAsFile', () => {
     expect(anchor.href).toBe(mockUrl);
 
     createElement.mockRestore();
+  });
+});
+
+describe('downloadAsFile in Tauri', () => {
+  async function flushAsyncWork() {
+    // Let the dynamic import and the awaited `listen` registration settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  beforeEach(() => {
+    (isTauriEnvironment as jest.Mock).mockReturnValue(true);
+    global.URL.createObjectURL = jest.fn().mockReturnValue('blob:tauri-export');
+    global.URL.revokeObjectURL = jest.fn();
+    jest.spyOn(document.body, 'appendChild').mockImplementation((node) => node);
+    jest.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
+  });
+
+  afterEach(() => {
+    (isTauriEnvironment as jest.Mock).mockReturnValue(false);
+    (listen as jest.Mock).mockReset();
+    jest.restoreAllMocks();
+  });
+
+  it('waits for the finished event before resolving the saved path', async () => {
+    let handler: ((event: { payload: unknown }) => void) | undefined;
+    const unlisten = jest.fn();
+    (listen as jest.Mock).mockImplementation(
+      async (_event: string, callback: (event: { payload: unknown }) => void) => {
+        handler = callback;
+        return unlisten;
+      }
+    );
+
+    const outcomePromise = downloadAsFile('content', 'Export.md') as Promise<DownloadOutcome>;
+    await flushAsyncWork();
+    expect(handler).toBeDefined();
+
+    // Nothing may be reported before the native download actually finishes.
+    const settledEarly = await Promise.race([
+      outcomePromise.then(() => 'resolved'),
+      Promise.resolve('pending'),
+    ]);
+    expect(settledEarly).toBe('pending');
+
+    handler!({
+      payload: { url: 'blob:tauri-export', path: '/home/user/Downloads/Export.md', success: true },
+    });
+
+    await expect(outcomePromise).resolves.toEqual({
+      kind: 'tauri',
+      success: true,
+      path: '/home/user/Downloads/Export.md',
+    });
+    expect(unlisten).toHaveBeenCalledTimes(1);
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:tauri-export');
+  });
+
+  it('ignores events for other downloads', async () => {
+    let handler: ((event: { payload: unknown }) => void) | undefined;
+    (listen as jest.Mock).mockImplementation(
+      async (_event: string, callback: (event: { payload: unknown }) => void) => {
+        handler = callback;
+        return jest.fn();
+      }
+    );
+
+    const outcomePromise = downloadAsFile('content', 'Export.md') as Promise<DownloadOutcome>;
+    await flushAsyncWork();
+
+    handler!({ payload: { url: 'blob:someone-else', path: '/tmp/other.md', success: true } });
+
+    const settledEarly = await Promise.race([
+      outcomePromise.then(() => 'resolved'),
+      Promise.resolve('pending'),
+    ]);
+    expect(settledEarly).toBe('pending');
+
+    handler!({ payload: { url: 'blob:tauri-export', path: null, success: true } });
+    await expect(outcomePromise).resolves.toEqual({ kind: 'tauri', success: true, path: null });
+  });
+
+  it('distinguishes a failed download from a successful one', async () => {
+    let handler: ((event: { payload: unknown }) => void) | undefined;
+    (listen as jest.Mock).mockImplementation(
+      async (_event: string, callback: (event: { payload: unknown }) => void) => {
+        handler = callback;
+        return jest.fn();
+      }
+    );
+
+    const outcomePromise = downloadAsFile('content', 'Export.md') as Promise<DownloadOutcome>;
+    await flushAsyncWork();
+
+    handler!({
+      payload: { url: 'blob:tauri-export', path: null, success: false, error: 'disk full' },
+    });
+
+    await expect(outcomePromise).resolves.toEqual({
+      kind: 'tauri',
+      success: false,
+      error: 'disk full',
+    });
+  });
+
+  it('cleans up when the native completion event never arrives', async () => {
+    const unlisten = jest.fn();
+    (listen as jest.Mock).mockResolvedValue(unlisten);
+    const timeoutSpy = jest.spyOn(window, 'setTimeout');
+    const pending = downloadAsFile('content', 'Other.md') as Promise<DownloadOutcome>;
+    const timeout = timeoutSpy.mock.calls.find(([, delay]) => delay === 60_000)![0];
+    await flushAsyncWork();
+    (timeout as () => void)();
+    await expect(pending).resolves.toEqual({
+      kind: 'tauri',
+      success: false,
+      error: 'Timed out waiting for the file to finish saving.',
+    });
+    expect(unlisten).toHaveBeenCalledTimes(1);
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:tauri-export');
+  });
+
+  it('does not start a download when listener registration fails', async () => {
+    (listen as jest.Mock).mockRejectedValue(new Error('event listener unavailable'));
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation();
+    await expect(downloadAsFile('content', 'Export.md')).resolves.toEqual({
+      kind: 'tauri',
+      success: false,
+      error: 'event listener unavailable',
+    });
+    expect(click).not.toHaveBeenCalled();
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:tauri-export');
+  });
+
+  it('treats a successful event without a path as success (macOS)', async () => {
+    let handler: ((event: { payload: unknown }) => void) | undefined;
+    (listen as jest.Mock).mockImplementation(
+      async (_event: string, callback: (event: { payload: unknown }) => void) => {
+        handler = callback;
+        return jest.fn();
+      }
+    );
+
+    const outcomePromise = downloadAsFile('content', 'Export.md') as Promise<DownloadOutcome>;
+    await flushAsyncWork();
+
+    handler!({ payload: { url: 'blob:tauri-export', path: null, success: true } });
+
+    await expect(outcomePromise).resolves.toEqual({ kind: 'tauri', success: true, path: null });
+  });
+});
+
+describe('reportDownloadOutcome', () => {
+  beforeEach(() => {
+    (toast.success as jest.Mock).mockClear();
+    (toast.error as jest.Mock).mockClear();
+  });
+
+  it('reports browser exports with the existing success message', () => {
+    reportDownloadOutcome({ kind: 'browser' }, 'Exported as Markdown');
+    expect(toast.success).toHaveBeenCalledWith('Exported as Markdown');
+  });
+
+  it('names the actual saved path for Tauri exports', () => {
+    reportDownloadOutcome(
+      { kind: 'tauri', success: true, path: '/home/user/Downloads/Export.md' },
+      'Exported as Markdown'
+    );
+    expect(toast.success).toHaveBeenCalledWith('Saved to /home/user/Downloads/Export.md');
+  });
+
+  it('does not turn a pathless macOS success into an error', () => {
+    reportDownloadOutcome({ kind: 'tauri', success: true, path: null }, 'Exported as Markdown');
+    expect(toast.success).toHaveBeenCalledWith(
+      'Download complete (this platform does not report the saved path)'
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('reports Tauri failures distinctly', () => {
+    reportDownloadOutcome(
+      { kind: 'tauri', success: false, error: 'disk full' },
+      'Exported as Markdown'
+    );
+    expect(toast.error).toHaveBeenCalledWith('Export failed: disk full');
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('waits for an asynchronous outcome before reporting', async () => {
+    let resolveOutcome: (outcome: DownloadOutcome) => void = () => {};
+    const pending = new Promise<DownloadOutcome>((resolve) => {
+      resolveOutcome = resolve;
+    });
+
+    reportDownloadOutcome(pending, 'Exported as Markdown');
+    expect(toast.success).not.toHaveBeenCalled();
+
+    resolveOutcome({ kind: 'tauri', success: true, path: '/tmp/Export.md' });
+    await pending;
+    await Promise.resolve();
+
+    expect(toast.success).toHaveBeenCalledWith('Saved to /tmp/Export.md');
   });
 });
 

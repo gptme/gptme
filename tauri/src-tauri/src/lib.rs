@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(desktop)]
 use std::sync::{Arc, Mutex};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 #[cfg(desktop)]
 use tauri_plugin_dialog::{
@@ -19,6 +19,7 @@ use tauri_plugin_shell::ShellExt;
 #[cfg(desktop)]
 use tauri_plugin_updater::UpdaterExt;
 
+mod downloads;
 mod lan_access;
 use lan_access::{disable_lan_access, enable_lan_access, get_lan_access_status, LanAccess};
 
@@ -698,6 +699,68 @@ async fn check_for_updates(app: tauri::AppHandle) {
     }
 }
 
+/// Route webview downloads to a durable, user-visible destination and report
+/// the real outcome back to the frontend.
+///
+/// wry/WebKit hands the handler a full destination path (old default directory
+/// plus the suggested filename). We keep only the filename, resolve it inside
+/// the OS Downloads directory, and fail the request if that directory cannot be
+/// used rather than falling back to the process working directory.
+fn handle_download<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    event: tauri::webview::DownloadEvent<'_>,
+) -> bool {
+    match event {
+        tauri::webview::DownloadEvent::Requested { url, destination } => {
+            let url = url.to_string();
+            let resolved = webview
+                .app_handle()
+                .path()
+                .download_dir()
+                .map_err(|error| format!("could not resolve the Downloads directory: {error}"))
+                .and_then(|dir| downloads::claim_destination(&dir, destination, &url));
+
+            match resolved {
+                Ok(path) => {
+                    log::info!("Saving download {url} to {}", path.display());
+                    *destination = path;
+                    true
+                }
+                Err(error) => {
+                    log::error!("Cannot resolve download destination for {url}: {error}");
+                    let _ = webview.emit(
+                        downloads::DOWNLOAD_FINISHED_EVENT,
+                        downloads::DownloadFinishedPayload {
+                            url,
+                            path: None,
+                            success: false,
+                            error: Some(error),
+                        },
+                    );
+                    false
+                }
+            }
+        }
+        tauri::webview::DownloadEvent::Finished { url, path, success } => {
+            // macOS reports no path, so release by URL rather than by path.
+            downloads::release_destination(url.as_ref());
+            let path = path.map(|path| path.to_string_lossy().into_owned());
+            log::info!("Download finished: url={url} success={success} path={path:?}");
+            let _ = webview.emit(
+                downloads::DOWNLOAD_FINISHED_EVENT,
+                downloads::DownloadFinishedPayload {
+                    url: url.to_string(),
+                    path,
+                    success,
+                    error: (!success).then(|| "the download did not complete".to_string()),
+                },
+            );
+            true
+        }
+        _ => true,
+    }
+}
+
 #[cfg(desktop)]
 fn show_port_conflict_dialog(app: &tauri::AppHandle, message: String) {
     MessageDialogBuilder::new(app.dialog().clone(), "Port Conflict", message)
@@ -765,6 +828,26 @@ pub fn run() {
         ])
         .setup(|app| {
             log::info!("Starting gptme application");
+
+            // Build the config-defined main window here instead of letting
+            // Tauri auto-create it. Tauri builds `create: true` windows before
+            // this setup hook runs, which leaves no way to attach on_download.
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "tauri.conf.json must define a window labelled \"main\"",
+                    )
+                })?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                .on_download(|webview, event| handle_download(&webview, event))
+                .build()?;
 
             #[cfg(desktop)]
             if cfg!(any(debug_assertions, target_os = "linux")) {

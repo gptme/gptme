@@ -15,7 +15,8 @@
       {
         "title": "gptme",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "create": false
       }
     ],
     "security": {

@@ -32,6 +32,7 @@ import {
   exportConversationAsJSON,
   copyConversationToClipboard,
   getExportableMessages,
+  reportDownloadOutcome,
 } from '@/utils/exportConversation';
 import { appRoute, chatRoute } from '@/utils/routes';
 import { isDemoMode } from '@/utils/connectionConfig';
@@ -344,12 +345,14 @@ export function CommandPalette() {
                   toast.error('No visible messages to export');
                   return;
                 }
-                exportConversationAsMarkdown(
-                  convId!,
-                  conv.data.name || convId!,
-                  exportableMessages
+                reportDownloadOutcome(
+                  exportConversationAsMarkdown(
+                    convId!,
+                    conv.data.name || convId!,
+                    exportableMessages
+                  ),
+                  'Exported as Markdown'
                 );
-                toast.success('Exported as Markdown');
                 setOpen(false);
               },
               group: 'Conversation',
@@ -367,8 +370,10 @@ export function CommandPalette() {
                   toast.error('No messages to export');
                   return;
                 }
-                exportConversationAsJSON(convId!, conv.data.name || convId!, conv.data.log);
-                toast.success('Exported as JSON');
+                reportDownloadOutcome(
+                  exportConversationAsJSON(convId!, conv.data.name || convId!, conv.data.log),
+                  'Exported as JSON'
+                );
                 setOpen(false);
               },
               group: 'Conversation',
