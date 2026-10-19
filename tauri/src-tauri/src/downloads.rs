@@ -1,6 +1,8 @@
 //! Download destination resolution for the desktop webview.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// Emitted after a download either finishes or fails, so the frontend can name
 /// the actual saved path instead of announcing success optimistically.
@@ -35,13 +37,58 @@ pub fn sanitize_filename(suggested: &Path) -> Option<String> {
     }
 }
 
+/// Destinations claimed by downloads that have been requested but have not
+/// reported completion yet, keyed by download URL.
+///
+/// Resolution only sees files on disk, so two exports of the same name
+/// requested before the first one creates its file would both pick the same
+/// path. This registry closes that window. A claim that never receives a
+/// completion event (e.g. the user cancels) is simply never reused; the next
+/// export of that name gets a numbered variant rather than overwriting it.
+fn in_flight() -> &'static Mutex<HashMap<String, PathBuf>> {
+    static IN_FLIGHT: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
+    IN_FLIGHT.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn in_flight_guard() -> MutexGuard<'static, HashMap<String, PathBuf>> {
+    // A panic while holding the lock must not disable every later download.
+    in_flight()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Resolve a destination for `url` and claim it until the download finishes.
+///
+/// Resolution and the claim happen under one lock, so concurrent requests
+/// cannot both pick the same free path.
+pub fn claim_destination(
+    downloads_dir: &Path,
+    suggested: &Path,
+    url: &str,
+) -> Result<PathBuf, String> {
+    let mut pending = in_flight_guard();
+    let reserved: HashSet<PathBuf> = pending.values().cloned().collect();
+    let path = resolve_destination_excluding(downloads_dir, suggested, &reserved)?;
+    pending.insert(url.to_string(), path.clone());
+    Ok(path)
+}
+
+/// Release the claim held for `url` once its download reports an outcome.
+pub fn release_destination(url: &str) {
+    in_flight_guard().remove(url);
+}
+
 /// Resolve a collision-free destination inside `downloads_dir`.
 ///
 /// Creates the directory when missing and fails closed (returns `Err`) rather
 /// than silently falling back to the process working directory. The file itself
 /// is not created here: WebKit refuses to download to an existing path, so
 /// reserving it with a placeholder would break the download.
-pub fn resolve_destination(downloads_dir: &Path, suggested: &Path) -> Result<PathBuf, String> {
+fn resolve_destination_excluding(
+    downloads_dir: &Path,
+    suggested: &Path,
+    reserved: &HashSet<PathBuf>,
+) -> Result<PathBuf, String> {
     let filename = sanitize_filename(suggested).ok_or_else(|| {
         format!(
             "suggested download path has no usable file name: {}",
@@ -71,7 +118,7 @@ pub fn resolve_destination(downloads_dir: &Path, suggested: &Path) -> Result<Pat
     }
 
     let candidate = downloads_dir.join(&filename);
-    if !candidate.exists() {
+    if !candidate.exists() && !reserved.contains(&candidate) {
         return Ok(candidate);
     }
 
@@ -79,7 +126,7 @@ pub fn resolve_destination(downloads_dir: &Path, suggested: &Path) -> Result<Pat
     let mut counter = 1u32;
     loop {
         let candidate = downloads_dir.join(format!("{stem} ({counter}){extension}"));
-        if !candidate.exists() {
+        if !candidate.exists() && !reserved.contains(&candidate) {
             return Ok(candidate);
         }
         counter = counter.saturating_add(1);
@@ -98,6 +145,10 @@ fn split_filename(filename: &str) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn resolve(dir: &Path, suggested: &Path) -> Result<PathBuf, String> {
+        resolve_destination_excluding(dir, suggested, &HashSet::new())
+    }
 
     struct TempDir(PathBuf);
 
@@ -167,7 +218,7 @@ mod tests {
         let dir = TempDir::new("create");
         let nested = dir.0.join("nested/downloads");
 
-        let resolved = resolve_destination(&nested, Path::new("Export.md")).unwrap();
+        let resolved = resolve(&nested, Path::new("Export.md")).unwrap();
 
         assert_eq!(resolved, nested.join("Export.md"));
         assert!(nested.is_dir());
@@ -180,7 +231,7 @@ mod tests {
         std::fs::write(dir.0.join("Export.md"), "first").unwrap();
         std::fs::write(dir.0.join("Export (1).md"), "second").unwrap();
 
-        let resolved = resolve_destination(&dir.0, Path::new("/tmp/Export.md")).unwrap();
+        let resolved = resolve(&dir.0, Path::new("/tmp/Export.md")).unwrap();
 
         assert_eq!(resolved, dir.0.join("Export (2).md"));
     }
@@ -191,7 +242,7 @@ mod tests {
         std::fs::create_dir_all(&dir.0).unwrap();
         std::fs::write(dir.0.join("archive.backup.json"), "old").unwrap();
 
-        let resolved = resolve_destination(&dir.0, Path::new("archive.backup.json")).unwrap();
+        let resolved = resolve(&dir.0, Path::new("archive.backup.json")).unwrap();
 
         assert_eq!(resolved, dir.0.join("archive.backup (1).json"));
     }
@@ -202,7 +253,7 @@ mod tests {
         std::fs::create_dir_all(&dir.0).unwrap();
         std::fs::write(dir.0.join("Export"), "old").unwrap();
 
-        let resolved = resolve_destination(&dir.0, Path::new("Export")).unwrap();
+        let resolved = resolve(&dir.0, Path::new("Export")).unwrap();
 
         assert_eq!(resolved, dir.0.join("Export (1)"));
     }
@@ -211,7 +262,7 @@ mod tests {
     fn resolve_stays_inside_the_downloads_directory() {
         let dir = TempDir::new("traversal");
 
-        let resolved = resolve_destination(&dir.0, Path::new("../../etc/passwd")).unwrap();
+        let resolved = resolve(&dir.0, Path::new("../../etc/passwd")).unwrap();
 
         assert_eq!(resolved, dir.0.join("passwd"));
     }
@@ -220,15 +271,52 @@ mod tests {
     fn resolve_rejects_an_unusable_suggested_name() {
         let dir = TempDir::new("unusable");
 
-        assert!(resolve_destination(&dir.0, Path::new("..")).is_err());
-        assert!(resolve_destination(&dir.0, Path::new("")).is_err());
+        assert!(resolve(&dir.0, Path::new("..")).is_err());
+        assert!(resolve(&dir.0, Path::new("")).is_err());
     }
 
     #[test]
     fn resolve_requires_an_absolute_downloads_directory() {
-        assert!(
-            resolve_destination(Path::new("relative/downloads"), Path::new("Export.md")).is_err()
-        );
+        assert!(resolve(Path::new("relative/downloads"), Path::new("Export.md")).is_err());
+    }
+
+    #[test]
+    fn claim_avoids_destinations_held_by_in_flight_downloads() {
+        let dir = TempDir::new("inflight");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let first_url = "blob:inflight-first";
+        let second_url = "blob:inflight-second";
+
+        let first = claim_destination(&dir.0, Path::new("Export.md"), first_url).unwrap();
+        // No file exists yet, but the first download already owns the name.
+        let second = claim_destination(&dir.0, Path::new("Export.md"), second_url).unwrap();
+
+        assert_eq!(first, dir.0.join("Export.md"));
+        assert_eq!(second, dir.0.join("Export (1).md"));
+
+        release_destination(first_url);
+        release_destination(second_url);
+    }
+
+    #[test]
+    fn released_destinations_are_reusable() {
+        let dir = TempDir::new("released");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let first_url = "blob:released-first";
+        let second_url = "blob:released-second";
+
+        let first = claim_destination(&dir.0, Path::new("Export.md"), first_url).unwrap();
+        release_destination(first_url);
+        let second = claim_destination(&dir.0, Path::new("Export.md"), second_url).unwrap();
+
+        assert_eq!(first, second);
+
+        release_destination(second_url);
+    }
+
+    #[test]
+    fn release_of_an_unknown_url_is_a_no_op() {
+        release_destination("blob:never-claimed");
     }
 
     #[test]
@@ -237,6 +325,6 @@ mod tests {
         std::fs::create_dir_all(dir.0.parent().unwrap()).unwrap();
         std::fs::write(&dir.0, "not a directory").unwrap();
 
-        assert!(resolve_destination(&dir.0, Path::new("Export.md")).is_err());
+        assert!(resolve(&dir.0, Path::new("Export.md")).is_err());
     }
 }

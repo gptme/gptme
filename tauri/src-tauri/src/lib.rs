@@ -718,7 +718,7 @@ fn handle_download<R: tauri::Runtime>(
                 .path()
                 .download_dir()
                 .map_err(|error| format!("could not resolve the Downloads directory: {error}"))
-                .and_then(|dir| downloads::resolve_destination(&dir, destination));
+                .and_then(|dir| downloads::claim_destination(&dir, destination, &url));
 
             match resolved {
                 Ok(path) => {
@@ -742,6 +742,8 @@ fn handle_download<R: tauri::Runtime>(
             }
         }
         tauri::webview::DownloadEvent::Finished { url, path, success } => {
+            // macOS reports no path, so release by URL rather than by path.
+            downloads::release_destination(url.as_ref());
             let path = path.map(|path| path.to_string_lossy().into_owned());
             log::info!("Download finished: url={url} success={success} path={path:?}");
             let _ = webview.emit(
