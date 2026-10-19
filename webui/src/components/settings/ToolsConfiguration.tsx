@@ -22,6 +22,9 @@ import { type UseFieldArrayReturn, type UseFormReturn } from 'react-hook-form';
 import type { FormSchema } from '@/schemas/conversationSettings';
 import { ToolFormat } from '@/types/api';
 
+/** Radix Select cannot use an empty string value, so null is shown as this sentinel. */
+const AUTO_TOOL_FORMAT = '__auto__';
+
 interface ToolsConfigurationProps {
   form: UseFormReturn<FormSchema>;
   toolFields: UseFieldArrayReturn<FormSchema, 'chat.tools'>;
@@ -133,8 +136,8 @@ export const ToolsConfiguration = ({ form, toolFields, isSubmitting }: ToolsConf
           <FormItem>
             <FormLabel>Tool Format</FormLabel>
             <Select
-              onValueChange={(value) => field.onChange(value)}
-              value={field.value ?? ''}
+              onValueChange={(value) => field.onChange(value === AUTO_TOOL_FORMAT ? null : value)}
+              value={field.value ?? AUTO_TOOL_FORMAT}
               disabled={isSubmitting}
             >
               <FormControl>
@@ -143,6 +146,7 @@ export const ToolsConfiguration = ({ form, toolFields, isSubmitting }: ToolsConf
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
+                <SelectItem value={AUTO_TOOL_FORMAT}>Auto (model default)</SelectItem>
                 {Object.values(ToolFormat).map((format) => (
                   <SelectItem key={format} value={format}>
                     {format}

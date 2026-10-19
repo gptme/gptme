@@ -6,6 +6,9 @@ export const mcpServerSchema = z.object({
   enabled: z.boolean(),
   command: z.string().min(1, 'Command cannot be empty'),
   args: z.string(),
+  // Display-only companion to `args`: the argv the row was loaded from, so an
+  // unchanged field can round-trip exactly. Never rendered or submitted.
+  originalArgs: z.array(z.string()).optional(),
   // Retained by the global editor even though the shared form edits stdio fields only.
   url: z.string().optional(),
   headers: z.record(z.string()).optional(),
