@@ -5,6 +5,7 @@ import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { EmbeddedContextProvider } from '@/contexts/EmbeddedContext';
 import { WelcomeView } from '../WelcomeView';
+import { composerDraftKey } from '@/utils/composerDraft';
 
 const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
@@ -162,7 +163,10 @@ describe('WelcomeView seed-prompt delivery', () => {
   });
 
   it('drops (does not defer) a late seed that arrives while the input is non-empty', async () => {
-    localStorage.setItem('gptme-draft-new', 'my unsent draft');
+    localStorage.setItem(
+      composerDraftKey({ baseUrl: 'http://localhost:5700', authToken: null, useAuthToken: false }),
+      'my unsent draft'
+    );
 
     render(
       <EmbeddedContextProvider>

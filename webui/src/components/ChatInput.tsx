@@ -30,6 +30,7 @@ import {
 import { useApi } from '@/contexts/ApiContext';
 import { serverRegistry$ } from '@/stores/servers';
 import { composerDraftKey } from '@/utils/composerDraft';
+import { useComposerDraft } from '@/hooks/useComposerDraft';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
 import { ModelPicker } from '@/components/ModelPicker';
@@ -681,48 +682,12 @@ export const ChatInput: FC<Props> = ({
   const servers = use$(serverRegistry$.servers);
   const draftOwner = serverId ? servers.find((s) => s.id === serverId) : connectionConfig;
   const storageKey = draftOwner ? composerDraftKey(draftOwner, conversationId) : null;
-  const readDraft = (key: string | null) =>
-    key && typeof window !== 'undefined' ? localStorage.getItem(key) || '' : '';
-
-  // The draft text is stored together with the key it belongs to, so a key
-  // change (conversation, server or account switch) can never write the
-  // outgoing text under the incoming key. Edit mode skips localStorage — its
-  // content comes from the message being edited.
-  const [draft, setDraft] = useState(() => ({
-    key: storageKey,
-    text: editMode ? '' : readDraft(storageKey),
-  }));
-  let currentDraft = draft;
-  if (!editMode && draft.key !== storageKey) {
-    // Adjust state during render (not in an effect) so the incoming owner's
-    // first render already shows its own draft, never the outgoing one.
-    currentDraft = { key: storageKey, text: readDraft(storageKey) };
-    setDraft(currentDraft);
-  }
-  const internalMessage = currentDraft.text;
-  const setInternalMessage: Dispatch<SetStateAction<string>> = useCallback(
-    (next) =>
-      setDraft((prev) => ({
-        key: prev.key,
-        text: typeof next === 'function' ? next(prev.text) : next,
-      })),
-    []
-  );
+  // Edit mode skips localStorage — its content comes from the message being edited.
+  const [internalMessage, setInternalMessage] = useComposerDraft(editMode ? null : storageKey);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const [temperature, setTemperature] = useState<number | undefined>(undefined);
   const [topP, setTopP] = useState<number | undefined>(undefined);
-
-  // Persist the draft under its own key. Clears the key when the input is
-  // emptied (e.g. after send).
-  useEffect(() => {
-    if (editMode || typeof window === 'undefined' || !draft.key) return;
-    if (draft.text) {
-      localStorage.setItem(draft.key, draft.text);
-    } else {
-      localStorage.removeItem(draft.key);
-    }
-  }, [draft, editMode]);
 
   // Track if user has explicitly selected a model (temporary override)
   const [hasExplicitModelSelection, setHasExplicitModelSelection] = useState(false);
