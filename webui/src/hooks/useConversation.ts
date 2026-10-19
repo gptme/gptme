@@ -715,83 +715,117 @@ export function useConversation(conversationId: string, serverId?: string) {
       // Add message to conversation (optimistic)
       addMessage(conversationId, userMessage);
 
-      let messageSent = false;
-      try {
-        // Send the message
+      await sendOrResumeMessage(userMessage, options, epoch, false);
+    });
+  };
+
+  const sendOrResumeMessage = async (
+    userMessage: Message,
+    options: ChatOptions | undefined,
+    epoch: number,
+    messageSent: boolean
+  ) => {
+    const retryOptions = {
+      model: options?.model,
+      stream: options?.stream,
+      maxTokens: options?.maxTokens,
+      temperature: options?.temperature,
+      topP: options?.topP,
+    };
+    const setRetryState = (persistence: 'saved' | 'rejected' | 'unknown') => {
+      const log = conversation$?.data.log;
+      const index = log?.get().findIndex((m) => m.timestamp === userMessage.timestamp);
+      if (log && index !== undefined && index >= 0) {
+        log[index]._retry.set({ persistence, options: retryOptions });
+      }
+    };
+    try {
+      if (!messageSent) {
+        // A missing response does not prove rejection: the server may have saved it.
+        setRetryState('unknown');
         await api.sendMessage(conversationId, userMessage);
         messageSent = true;
-        setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
-
-        if (generationIsStale(epoch)) return;
-
-        // Start generation. The message is already persisted, so a 409 here
-        // (server still finalizing a previous step) must retry step() only —
-        // re-sending the message would duplicate it in the log.
-        for (let attempt = 0; ; attempt++) {
-          try {
-            await api.step(
-              conversationId,
-              options?.model,
-              options?.stream,
-              'main',
-              options?.maxTokens,
-              options?.temperature,
-              options?.topP
-            );
-            break;
-          } catch (stepError) {
-            const busy = ApiClientError.isApiError(stepError) && stepError.status === 409;
-            if (!busy) throw stepError;
-            if (attempt >= STEP_409_BACKOFF_MS.length) {
-              // Retry window exhausted; message is already persisted, so re-sending
-              // would duplicate it.  Instead, park the step call and fire it from
-              // onStepComplete — the authoritative server-idle signal — so the
-              // message is not falsely marked failed.
-              const capturedEpoch = epoch;
-              pendingStepRef.current = () => {
-                if (generationIsStale(capturedEpoch)) return Promise.resolve();
-                return api.step(
-                  conversationId,
-                  options?.model,
-                  options?.stream,
-                  'main',
-                  options?.maxTokens,
-                  options?.temperature,
-                  options?.topP
-                );
-              };
-              return;
-            }
-            await new Promise((resolve) => setTimeout(resolve, STEP_409_BACKOFF_MS[attempt]));
-            if (generationIsStale(epoch)) return;
-          }
-        }
-        // Store generation params in conversation state so regenerate/rerun paths can use them
-        setMaxTokens(conversationId, options?.maxTokens);
-        setTemperature(conversationId, options?.temperature);
-        setTopP(conversationId, options?.topP);
-      } catch (error) {
-        console.error('Error sending message:', error);
-        // 409 before the message was persisted: remove the optimistic copy and
-        // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
-        // Once persisted, a 409 falls through to the failed-status path below —
-        // a requeue would re-send and duplicate the message.
-        if (!messageSent && ApiClientError.isApiError(error) && error.status === 409) {
-          removeMessage(conversationId, userMessage.timestamp!);
-          throw error;
-        }
-        const { title, description } = getApiErrorPresentation(error, {
-          fallbackTitle: 'Failed to send',
-          fallbackDescription: 'Failed to send message',
-        });
-        setMessageStatus(conversationId, userMessage.timestamp!, 'failed', description);
-        toast({
-          variant: 'destructive',
-          title,
-          description,
-        });
       }
-    });
+      setRetryState('saved');
+      setMessageStatus(conversationId, userMessage.timestamp!, 'sent', '');
+      // Keep settings even when the step fails or waits for server-idle.
+      setMaxTokens(conversationId, options?.maxTokens);
+      setTemperature(conversationId, options?.temperature);
+      setTopP(conversationId, options?.topP);
+
+      if (generationIsStale(epoch)) return;
+
+      // Start generation. The message is already persisted, so a 409 here
+      // (server still finalizing a previous step) must retry step() only —
+      // re-sending the message would duplicate it in the log.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await api.step(
+            conversationId,
+            options?.model,
+            options?.stream,
+            'main',
+            options?.maxTokens,
+            options?.temperature,
+            options?.topP
+          );
+          break;
+        } catch (stepError) {
+          const busy = ApiClientError.isApiError(stepError) && stepError.status === 409;
+          if (!busy) throw stepError;
+          if (attempt >= STEP_409_BACKOFF_MS.length) {
+            // Retry window exhausted; message is already persisted, so re-sending
+            // would duplicate it.  Instead, park the step call and fire it from
+            // onStepComplete — the authoritative server-idle signal — so the
+            // message is not falsely marked failed.
+            const capturedEpoch = epoch;
+            pendingStepRef.current = () => {
+              if (generationIsStale(capturedEpoch)) return Promise.resolve();
+              return api.step(
+                conversationId,
+                options?.model,
+                options?.stream,
+                'main',
+                options?.maxTokens,
+                options?.temperature,
+                options?.topP
+              );
+            };
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, STEP_409_BACKOFF_MS[attempt]));
+          if (generationIsStale(epoch)) return;
+        }
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      // 409 before the message was persisted: remove the optimistic copy and
+      // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
+      // Once persisted, a 409 falls through to the failed-status path below —
+      // a requeue would re-send and duplicate the message.
+      if (!messageSent && ApiClientError.isApiError(error) && error.status === 409) {
+        removeMessage(conversationId, userMessage.timestamp!);
+        throw error;
+      }
+      if (!messageSent) {
+        // These responses are returned before append. Timeouts, aborts, proxy
+        // errors and 5xx responses are ambiguous and must never blindly repost.
+        const rejected =
+          ApiClientError.isApiError(error) &&
+          [400, 401, 403, 404, 413, 422].includes(error.status ?? 0);
+        setRetryState(rejected ? 'rejected' : 'unknown');
+      }
+      const { title, description } = getApiErrorPresentation(error, {
+        fallbackTitle: 'Failed to send',
+        fallbackDescription: 'Failed to send message',
+      });
+      setMessageStatus(conversationId, userMessage.timestamp!, 'failed', description);
+      toast({
+        variant: 'destructive',
+        title,
+        description,
+      });
+    }
   };
 
   const confirmTool = async (
@@ -880,11 +914,35 @@ export function useConversation(conversationId: string, serverId?: string) {
 
   const retryMessage = async (failedMessage: Message) => {
     if (!conversation$) return;
-    // Remove the failed message and re-send
-    removeMessage(conversationId, failedMessage.timestamp!);
-    await sendMessage({
-      message: failedMessage.content,
-      options: failedMessage.files?.length ? { files: failedMessage.files } : undefined,
+    const retry = failedMessage._retry;
+    if (!retry || retry.persistence === 'unknown') {
+      toast({
+        variant: 'destructive',
+        title: 'Message save unconfirmed',
+        description:
+          'Refresh and check conversation history before sending again. Retry was withheld to avoid a duplicate message.',
+      });
+      return;
+    }
+    await runGeneration(async (epoch) => {
+      // Reuse the optimistic entry, uploaded paths, and original generation settings.
+      // Another Retry may have completed while this one waited on the chain.
+      const current = conversation$?.data.log
+        .get()
+        .find((message) => message.timestamp === failedMessage.timestamp);
+      if (
+        current?._status !== 'failed' ||
+        !current._retry ||
+        current._retry.persistence === 'unknown'
+      )
+        return;
+      setMessageStatus(conversationId, failedMessage.timestamp!, 'pending', '');
+      await sendOrResumeMessage(
+        current,
+        current._retry.options,
+        epoch,
+        current._retry.persistence === 'saved'
+      );
     });
   };
 

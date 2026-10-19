@@ -3,6 +3,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { useApi } from '@/contexts/ApiContext';
 import { conversations$, initConversation, setConnectionStatus } from '@/stores/conversations';
 import { useConversation } from '../useConversation';
+import { ApiClientError } from '@/utils/api';
+import { request } from 'node:http';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: jest.fn(),
@@ -25,6 +28,7 @@ describe('useConversation', () => {
   const mockedUseApi = useApi as jest.MockedFunction<typeof useApi>;
   const subscribeToEvents = jest.fn().mockResolvedValue(undefined);
   const step = jest.fn().mockResolvedValue(undefined);
+  const sendMessageApi = jest.fn().mockResolvedValue(undefined);
   const interruptGenerationApi = jest.fn().mockResolvedValue(undefined);
   const editMessageApi = jest.fn();
   const rerunTools = jest.fn().mockResolvedValue(undefined);
@@ -34,6 +38,7 @@ describe('useConversation', () => {
     | {
         onConnected?: () => void;
         onMessageStart?: () => void;
+        onStepComplete?: () => void;
       }
     | undefined;
   // A pooled client is a stable object for a server's lifetime (the pool keys
@@ -44,6 +49,7 @@ describe('useConversation', () => {
   const makeClient = (subscribeImpl: jest.Mock) => ({
     subscribeToEvents: subscribeImpl,
     step,
+    sendMessage: sendMessageApi,
     interruptGeneration: interruptGenerationApi,
     editMessage: editMessageApi,
     rerunTools,
@@ -60,6 +66,7 @@ describe('useConversation', () => {
       return Promise.resolve();
     });
     step.mockReset().mockResolvedValue(undefined);
+    sendMessageApi.mockReset().mockResolvedValue(undefined);
     interruptGenerationApi.mockReset().mockResolvedValue(undefined);
     editMessageApi.mockReset().mockResolvedValue({ log: [], branches: {} });
     rerunTools.mockReset().mockResolvedValue(undefined);
@@ -96,6 +103,284 @@ describe('useConversation', () => {
     eventHandlers = undefined;
     jest.clearAllMocks();
   });
+
+  it('retries generation without reposting a saved user message', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    step.mockRejectedValueOnce(new Error('generation unavailable'));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    const options = {
+      model: 'test/model',
+      stream: false,
+      maxTokens: 123,
+      temperature: 0.4,
+      topP: 0.8,
+      files: ['attached.txt'],
+    };
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Retry me once', options });
+    });
+    const failed = conversations$.get('chat-placeholder')!.data.log.get().at(-1)!;
+    expect(failed._status).toBe('failed');
+    await act(async () => {
+      await result.current.retryMessage(failed);
+    });
+    expect(sendMessageApi).toHaveBeenCalledTimes(1);
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(step).toHaveBeenLastCalledWith(
+      'chat-placeholder',
+      'test/model',
+      false,
+      'main',
+      123,
+      0.4,
+      0.8
+    );
+    expect(
+      conversations$
+        .get('chat-placeholder')!
+        .data.log.get()
+        .filter((message) => message.content === 'Retry me once')
+    ).toHaveLength(1);
+  });
+
+  it('resends a definitely rejected save with the original settings and files', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    sendMessageApi.mockRejectedValueOnce(new ApiClientError('Invalid request', 400));
+    primaryClient.uploadFiles = jest.fn().mockResolvedValue({ files: [{ path: 'uploaded.txt' }] });
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({
+        message: 'Rejected once',
+        options: {
+          model: 'test/model',
+          maxTokens: 50,
+          temperature: 0,
+          topP: 1,
+          pendingFiles: [new File(['data'], 'upload.txt')],
+        },
+      });
+    });
+    expect(step).not.toHaveBeenCalled();
+    const failed = conversations$.get('chat-placeholder')!.data.log.get().at(-1)!;
+    await act(async () => {
+      await result.current.retryMessage(failed);
+    });
+    expect(sendMessageApi).toHaveBeenCalledTimes(2);
+    expect(sendMessageApi.mock.calls[1][1]).toMatchObject({
+      content: 'Rejected once',
+      files: ['uploaded.txt'],
+      timestamp: failed.timestamp,
+    });
+    expect(primaryClient.uploadFiles).toHaveBeenCalledTimes(1);
+    expect(step).toHaveBeenLastCalledWith(
+      'chat-placeholder',
+      'test/model',
+      undefined,
+      'main',
+      50,
+      0,
+      1
+    );
+  });
+
+  it.each([
+    new TypeError('Failed to fetch'),
+    new ApiClientError('Gateway timeout', 504),
+    new ApiClientError('Request aborted', 499),
+  ])('withholds Retry after an ambiguous save: %s', async (error) => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    sendMessageApi.mockRejectedValueOnce(error);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Unknown save' });
+    });
+    const failed = conversations$.get('chat-placeholder')!.data.log.get().at(-1)!;
+    await act(async () => {
+      await result.current.retryMessage(failed);
+    });
+    expect(sendMessageApi).toHaveBeenCalledTimes(1);
+    expect(step).not.toHaveBeenCalled();
+    expect(conversations$.get('chat-placeholder')!.data.log.get().at(-1)!._status).toBe('failed');
+  });
+
+  it('rethrows a rejected POST 409 for the input queue without starting generation', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    const busy = new ApiClientError('Busy', 409);
+    sendMessageApi.mockRejectedValueOnce(busy);
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await expect(result.current.sendMessage({ message: 'Queue me' })).rejects.toBe(busy);
+    });
+    expect(step).not.toHaveBeenCalled();
+    expect(conversations$.get('chat-placeholder')!.data.log.get()).toHaveLength(1);
+  });
+
+  it('retries a busy generation without another POST', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    step.mockRejectedValueOnce(new ApiClientError('Busy', 409));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Busy step' });
+    });
+    expect(sendMessageApi).toHaveBeenCalledTimes(1);
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(conversations$.get('chat-placeholder')!.data.log.get().at(-1)!._status).toBe('sent');
+  });
+
+  it('cancels a deferred Retry step when Stop is pressed', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    step.mockRejectedValueOnce(new Error('Unavailable'));
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await result.current.sendMessage({ message: 'Deferred retry' });
+    });
+    const failed = conversations$.get('chat-placeholder')!.data.log.get().at(-1)!;
+    step.mockRejectedValue(new ApiClientError('Busy', 409));
+    jest.useFakeTimers();
+    try {
+      let retrying: Promise<void>;
+      await act(async () => {
+        retrying = result.current.retryMessage(failed);
+      });
+      for (const delay of [250, 500, 1000, 2000]) {
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(delay);
+        });
+      }
+      await act(async () => {
+        await retrying;
+        await result.current.interruptGeneration();
+      });
+      const attempts = step.mock.calls.length;
+      await act(async () => {
+        eventHandlers?.onStepComplete?.();
+      });
+      expect(step).toHaveBeenCalledTimes(attempts);
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not start generation when Stop races a successful save', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    let finishSave: () => void = () => {};
+    sendMessageApi.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishSave = resolve;
+      })
+    );
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+    let sending: Promise<void>;
+    await act(async () => {
+      sending = result.current.sendMessage({ message: 'Stop after save' });
+    });
+    await act(async () => {
+      await result.current.interruptGeneration();
+      finishSave();
+      await sending;
+    });
+    expect(step).not.toHaveBeenCalled();
+    expect(sendMessageApi).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps retry state across hook instances and preserves ordinary successful send', async () => {
+    conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+    step.mockRejectedValueOnce(new Error('Unavailable'));
+    const first = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await first.result.current.sendMessage({ message: 'Shared retry' });
+    });
+    const failed = conversations$.get('chat-placeholder')!.data.log.get().at(-1)!;
+    first.unmount();
+    const second = renderHook(() => useConversation('chat-placeholder'));
+    await act(async () => {
+      await second.result.current.retryMessage(failed);
+    });
+    expect(sendMessageApi).toHaveBeenCalledTimes(1);
+    expect(step).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await second.result.current.sendMessage({ message: 'Ordinary send' });
+    });
+    expect(sendMessageApi).toHaveBeenCalledTimes(2);
+    expect(step).toHaveBeenCalledTimes(3);
+    expect(conversations$.get('chat-placeholder')!.data.log.get().at(-1)!._status).toBe('sent');
+  });
+
+  // Opt-in contract integration: a real server with only the LLM boundary stubbed.
+  // Start tests/fixtures/retry_server.py and set GPTME_RETRY_TEST_SERVER plus
+  // GPTME_RETRY_TEST_ROOT to its URL and scratch directory. No paid inference.
+  (process.env.GPTME_RETRY_TEST_SERVER ? it : it.skip)(
+    'persists exactly one user message through mounted-hook Retry on a real server',
+    async () => {
+      const root = process.env.GPTME_RETRY_TEST_ROOT!;
+      const id = `retry-hook-${Date.now()}`;
+      const http = (method: string, path: string, body?: unknown): Promise<any> =>
+        new Promise((resolve, reject) => {
+          const req = request(
+            new URL(path, process.env.GPTME_RETRY_TEST_SERVER),
+            {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+            },
+            (response) => {
+              let data = '';
+              response.on('data', (chunk) => {
+                data += chunk;
+              });
+              response.on('end', () => {
+                const value = JSON.parse(data);
+                if (response.statusCode! >= 400)
+                  reject(new ApiClientError(value.error, response.statusCode));
+                else resolve(value);
+              });
+            }
+          );
+          req.on('error', reject);
+          req.end(body === undefined ? undefined : JSON.stringify(body));
+        });
+      const created = await http('PUT', `/api/v2/conversations/${id}`, {
+        messages: [],
+        config: { model: 'openai/mock-model' },
+      });
+      conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+      sendMessageApi.mockImplementation((_id, message) =>
+        http('POST', `/api/v2/conversations/${id}`, message)
+      );
+      step.mockImplementation(() =>
+        http('POST', `/api/v2/conversations/${id}/step`, {
+          session_id: created.session_id,
+          stream: false,
+        })
+      );
+      writeFileSync(`${root}/step_mode.txt`, 'fail');
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Real persisted retry' });
+      });
+      const failed = conversations$.get('chat-placeholder')!.data.log.get().at(-1)!;
+      expect(failed._status).toBe('failed');
+      writeFileSync(`${root}/step_mode.txt`, 'ok');
+      await act(async () => {
+        await result.current.retryMessage(failed);
+      });
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      expect(step).toHaveBeenCalledTimes(2);
+      const history = await http('GET', `/api/v2/conversations/${id}`);
+      expect(
+        history.log.filter((m: { content: string }) => m.content === 'Real persisted retry')
+      ).toHaveLength(1);
+      const persisted = readFileSync(`${root}/logs/${id}/conversation.jsonl`, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      expect(
+        persisted.filter((m) => m.role === 'user' && m.content === 'Real persisted retry')
+      ).toHaveLength(1);
+      expect(persisted.some((m) => m.role === 'assistant')).toBe(true);
+    },
+    30000
+  );
 
   it('does not apply chat config after switching conversations', async () => {
     let resolveChatConfig: (value: null) => void = () => {};
