@@ -306,4 +306,31 @@ describe('ChatInput draft ownership', () => {
     type('nowhere to go');
     expect(draftEntries()).toEqual({});
   });
+
+  it('keeps text typed while the owner is unknown instead of wiping it', () => {
+    const secondary: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    // Unregistered owner: the draft is memory-only, but the typed text stays
+    // in the composer (it must not be reset to '' by the null key).
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-b' });
+    type('typed before the server hydrated');
+    expect(textbox().value).toBe('typed before the server hydrated');
+    expect(draftEntries()).toEqual({});
+
+    // The owner becomes known: the in-memory text is kept and now persisted.
+    serverRegistry$.servers.set([secondary]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('typed before the server hydrated');
+    expect(Object.values(draftEntries())).toEqual(['typed before the server hydrated']);
+
+    // Losing the owner again must not discard what is in the composer either.
+    serverRegistry$.servers.set([]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('typed before the server hydrated');
+  });
 });

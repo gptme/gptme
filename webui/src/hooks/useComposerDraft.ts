@@ -20,7 +20,16 @@ export function useComposerDraft(
   if (draft.key !== storageKey) {
     // Adjust state during render, not in an effect, so no render or effect
     // ever pairs the outgoing text with the incoming key.
-    current = { key: storageKey, text: readDraft(storageKey) };
+    //
+    // A null key means the owner is unknown (e.g. a conversation on a server
+    // that is not registered or not hydrated yet), so its text is memory-only:
+    // keep what the user typed rather than discarding it. The same carries the
+    // other way — text typed while the owner was unknown is not overwritten by
+    // an empty stored draft once the owner becomes known.
+    const stored = readDraft(storageKey);
+    const text =
+      storageKey === null ? draft.text : stored || (draft.key === null ? draft.text : '');
+    current = { key: storageKey, text };
     setDraft(current);
   }
 
