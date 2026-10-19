@@ -3269,13 +3269,46 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.pr_repo == "gptme"
         assert artifact.pr_number == 0  # no PR number in pre-PR artifacts
 
-    def test_p1_maps_to_critical(self):
+    def test_p1_maps_to_error(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[0].severity == FindingSeverity.ERROR
+
+    def test_p2_maps_to_warning(self):
+        artifact = ReviewArtifact.from_dict(_local_review_artifact())
+        assert artifact.findings[1].severity == FindingSeverity.WARNING
+
+    def test_p0_maps_to_critical(self):
+        """P0 is the producer's top tier; it must not fail the artifact."""
+        data = _local_review_artifact()
+        data["findings"][0]["severity"] = "P0"
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert artifact.validation_errors == 0
         assert artifact.findings[0].severity == FindingSeverity.CRITICAL
 
-    def test_p2_maps_to_error(self):
-        artifact = ReviewArtifact.from_dict(_local_review_artifact())
-        assert artifact.findings[1].severity == FindingSeverity.ERROR
+    def test_px_labels_match_producer_inverse_map(self):
+        """Every Px label maps to the core severity the producer maps back to it.
+
+        gptme-contrib ``gptme_review`` translates core severities with
+        ``critical→P0``, ``error→P1``, ``warning→P2`` and treats P0/P1 as
+        blocking. An off-by-one table here turned a non-blocking P2 into a
+        blocking P1 after one round trip.
+        """
+        producer_inverse = {"critical": "P0", "error": "P1", "warning": "P2"}
+        for label in ("P0", "P1", "P2"):
+            data = _local_review_artifact()
+            data["findings"] = [dict(data["findings"][0], severity=label)]
+            artifact = ReviewArtifact.from_dict(data)
+            assert artifact.review_status == ReviewStatus.COMPLETE
+            assert producer_inverse[artifact.findings[0].severity.value] == label
+
+    @pytest.mark.parametrize("label", ["P3", "P4"])
+    def test_labels_outside_producer_taxonomy_fail_closed(self, label):
+        data = _local_review_artifact()
+        data["findings"][0]["severity"] = label
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.review_status == ReviewStatus.INCOMPLETE
+        assert len(artifact.findings) == 1
 
     def test_category_preserved_from_class_field(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
@@ -3369,14 +3402,14 @@ class TestLocalReviewArtifactIngestion:
         assert artifact.validation_errors >= 1
         # The valid P2 finding still makes it through
         assert len(artifact.findings) == 1
-        assert artifact.findings[0].severity == FindingSeverity.ERROR
+        assert artifact.findings[0].severity == FindingSeverity.WARNING
 
     def test_p1_does_not_silently_downgrade_to_warning(self):
         """Regression: before the reader, P1 fell through to FindingSeverity.WARNING."""
         data = _local_review_artifact()
         data["findings"] = [data["findings"][0]]  # only the P1 finding
         artifact = ReviewArtifact.from_dict(data)
-        assert artifact.findings[0].severity == FindingSeverity.CRITICAL
+        assert artifact.findings[0].severity == FindingSeverity.ERROR
         assert artifact.findings[0].severity != FindingSeverity.WARNING
 
     def test_finding_round_trips_through_core_schema(self):
