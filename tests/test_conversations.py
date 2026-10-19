@@ -453,3 +453,86 @@ def test_conversation_meta_models_usage_interleaved(logs_dir):
     assert claude["input_tokens"] == 1500  # (1000 + 0) + (450 + 50)
     assert claude["output_tokens"] == 300  # 200 + 100
     assert claude["cache_read_tokens"] == 50  # 0 + 50
+
+
+def _fast_and_full(logs_dir: Path, conv_id: str, messages: list[dict[str, object]]):
+    _make_conversation(logs_dir, conv_id, messages)
+    conversations_mod._count_messages.cache_clear()
+    full = [c for c in get_conversations(detail=True) if c.id == conv_id]
+    fast = [c for c in get_conversations(detail=False) if c.id == conv_id]
+    assert len(full) == len(fast) == 1
+    return fast[0], full[0]
+
+
+@pytest.mark.parametrize("size", [100, 8200, 20000])
+def test_detail_false_long_final_message(logs_dir, size):
+    """A final line larger than the tail window must keep preview and model.
+
+    Regression: the fast scanner dropped the partial first tail line, so a
+    final JSONL line longer than _TAIL_BYTES consumed the whole tail and fast
+    metadata lost the last-turn preview and model that the full scan reports.
+    """
+    messages: list[dict[str, object]] = [
+        {
+            "role": "user",
+            "content": "Earlier question",
+            "timestamp": "2025-01-01T00:00:00Z",
+        },
+        {
+            "role": "assistant",
+            "content": "final-answer-sentinel " + "x" * size,
+            "timestamp": "2025-01-01T00:00:01Z",
+            "metadata": {"model": "synthetic/test-model"},
+        },
+    ]
+    fast, full = _fast_and_full(logs_dir, f"long-final-{size}", messages)
+    assert full.last_message_preview is not None
+    assert full.last_message_preview.startswith("final-answer-sentinel")
+    assert fast.last_message_preview == full.last_message_preview
+    assert fast.last_message_role == full.last_message_role == "assistant"
+    assert fast.model == full.model == "synthetic/test-model"
+    assert fast.messages == full.messages == 2
+
+
+def test_detail_false_long_unicode_final_message(logs_dir):
+    """Multi-byte content across the window boundary parses intact."""
+    messages: list[dict[str, object]] = [
+        {"role": "user", "content": "Fråga", "timestamp": "2025-01-01T00:00:00Z"},
+        {
+            "role": "assistant",
+            "content": "svar-sentinel " + "åäö€😀" * 4000,
+            "timestamp": "2025-01-01T00:00:01Z",
+            "metadata": {"model": "synthetic/unicode-model"},
+        },
+    ]
+    fast, full = _fast_and_full(logs_dir, "long-final-unicode", messages)
+    assert fast.last_message_preview == full.last_message_preview
+    assert (
+        full.last_message_preview is not None
+        and full.last_message_preview.startswith("svar-sentinel")
+    )
+    assert fast.model == full.model == "synthetic/unicode-model"
+
+
+def test_detail_false_large_trailing_tool_message(logs_dir):
+    """A huge tool result after the last answer must not hide that answer."""
+    messages: list[dict[str, object]] = [
+        {"role": "user", "content": "Run it", "timestamp": "2025-01-01T00:00:00Z"},
+        {
+            "role": "assistant",
+            "content": "answer-before-tool-sentinel",
+            "timestamp": "2025-01-01T00:00:01Z",
+            "metadata": {"model": "synthetic/tool-model"},
+        },
+        {
+            "role": "system",
+            "content": "Ran shell command\n" + "output line\n" * 3000,
+            "timestamp": "2025-01-01T00:00:02Z",
+        },
+    ]
+    fast, full = _fast_and_full(logs_dir, "large-trailing-tool", messages)
+    assert full.last_message_preview == "answer-before-tool-sentinel"
+    assert fast.last_message_preview == full.last_message_preview
+    assert fast.last_message_role == full.last_message_role == "assistant"
+    assert fast.model == full.model == "synthetic/tool-model"
+    assert fast.messages == full.messages == 3
