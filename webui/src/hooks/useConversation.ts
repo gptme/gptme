@@ -725,6 +725,19 @@ export function useConversation(conversationId: string, serverId?: string) {
     epoch: number,
     messageSent: boolean
   ) => {
+    const resumingSavedMessage = messageSent;
+    const checkRetryTurn = () => {
+      // step() always uses current history, not the message selected for Retry.
+      // Never truncate newer turns or silently answer them with older settings.
+      if (
+        resumingSavedMessage &&
+        conversation$?.data.log.get().at(-1)?.timestamp !== userMessage.timestamp
+      ) {
+        throw new Error(
+          'Conversation has moved on. Resend this prompt as a new message, or use Edit and regenerate to explicitly rerun the earlier turn.'
+        );
+      }
+    };
     const retryOptions = {
       model: options?.model,
       stream: options?.stream,
@@ -740,6 +753,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       }
     };
     try {
+      checkRetryTurn();
       if (!messageSent) {
         // A missing response does not prove rejection: the server may have saved it.
         setRetryState('unknown');
@@ -760,6 +774,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       // re-sending the message would duplicate it in the log.
       for (let attempt = 0; ; attempt++) {
         try {
+          checkRetryTurn();
           await api.step(
             conversationId,
             options?.model,
@@ -781,6 +796,14 @@ export function useConversation(conversationId: string, serverId?: string) {
             const capturedEpoch = epoch;
             pendingStepRef.current = () => {
               if (generationIsStale(capturedEpoch)) return Promise.resolve();
+              try {
+                checkRetryTurn();
+              } catch (error) {
+                const description = (error as Error).message;
+                setMessageStatus(conversationId, userMessage.timestamp!, 'failed', description);
+                toast({ variant: 'destructive', title: 'Retry withheld', description });
+                return Promise.resolve();
+              }
               return api.step(
                 conversationId,
                 options?.model,

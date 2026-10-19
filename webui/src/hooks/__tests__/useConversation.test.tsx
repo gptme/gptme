@@ -143,6 +143,76 @@ describe('useConversation', () => {
     ).toHaveLength(1);
   });
 
+  it.each(['user', 'assistant', 'system'] as const)(
+    'withholds saved Retry when a newer %s message exists',
+    async (role) => {
+      conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+      step.mockRejectedValueOnce(new Error('generation unavailable'));
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Earlier failed turn' });
+      });
+      const log$ = conversations$.get('chat-placeholder')!.data.log;
+      const failed = log$.get().at(-1)!;
+      act(() => {
+        log$.push({ role, content: 'Newer history', timestamp: '2026-10-19T12:00:00Z' });
+      });
+      await act(async () => {
+        await result.current.retryMessage(failed);
+      });
+      expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      expect(step).toHaveBeenCalledTimes(1);
+      expect(log$.get().find((message) => message.timestamp === failed.timestamp)?._status).toBe(
+        'failed'
+      );
+    }
+  );
+
+  it.each(['backoff', 'deferred'])(
+    'rechecks saved Retry history after %s waiting',
+    async (waiting) => {
+      conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
+      step.mockRejectedValueOnce(new Error('generation unavailable'));
+      const { result } = renderHook(() => useConversation('chat-placeholder'));
+      await act(async () => {
+        await result.current.sendMessage({ message: 'Earlier failed turn' });
+      });
+      const log$ = conversations$.get('chat-placeholder')!.data.log;
+      const failed = log$.get().at(-1)!;
+      step.mockRejectedValue(new ApiClientError('Busy', 409));
+      jest.useFakeTimers();
+      try {
+        let retrying: Promise<void>;
+        await act(async () => {
+          retrying = result.current.retryMessage(failed);
+        });
+        if (waiting === 'deferred') {
+          for (const delay of [250, 500, 1000, 2000]) {
+            await act(async () => {
+              await jest.advanceTimersByTimeAsync(delay);
+            });
+          }
+          await act(async () => {
+            await retrying;
+          });
+        }
+        const attempts = step.mock.calls.length;
+        act(() => {
+          log$.push({ role: 'assistant', content: 'Reply arrived while waiting' });
+        });
+        await act(async () => {
+          if (waiting === 'backoff') await jest.runAllTimersAsync();
+          else eventHandlers?.onStepComplete?.();
+          await retrying;
+        });
+        expect(step).toHaveBeenCalledTimes(attempts);
+        expect(sendMessageApi).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
+
   it('resends a definitely rejected save with the original settings and files', async () => {
     conversations$.get('chat-placeholder')?.needsInitialStep.set(false);
     sendMessageApi.mockRejectedValueOnce(new ApiClientError('Invalid request', 400));
