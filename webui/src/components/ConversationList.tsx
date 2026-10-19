@@ -33,6 +33,7 @@ import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
 import { serverRegistry$ } from '@/stores/servers';
+import { getClientGeneration } from '@/utils/api';
 import { toast } from 'sonner';
 
 const HARNESS_LABELS: Record<string, string> = {
@@ -201,9 +202,33 @@ export const ConversationList: FC<Props> = ({
         return null;
       }
 
+      const client = getClient(conv.serverId);
+      // Snapshot the selected branch before awaiting. The store is shared by
+      // conversation ID, so only trust its branch selector when the live stream
+      // was created on this row's client; otherwise that cache may belong to a
+      // same-ID conversation on another server.
+      const storeConv = conversations$.get(conv.id);
+      const cachedGeneration = storeConv?.streamClientGeneration?.peek();
+      const cacheBelongsToRow =
+        typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
+      const selectedBranch = cacheBelongsToRow
+        ? (storeConv?.currentBranch?.peek() ?? 'main')
+        : 'main';
+
       try {
-        const full = await getClient(conv.serverId).getConversation(conv.id);
-        return { messages: full.log, name: full.name || conv.name || conv.id };
+        const full = await client.getConversation(conv.id);
+        // Branch logs in the response are complete; the cached window never is.
+        // A selected named branch that the fresh response cannot resolve must
+        // fail closed rather than silently exporting main instead.
+        const branchLog = selectedBranch !== 'main' ? full.branches?.[selectedBranch] : undefined;
+        if (selectedBranch !== 'main' && !branchLog) {
+          toast.error(`Cannot export: branch "${selectedBranch}" is unavailable`);
+          return null;
+        }
+        return {
+          messages: branchLog ?? full.log,
+          name: full.name || conv.name || conv.id,
+        };
       } catch {
         toast.error('Failed to load full conversation history');
         return null;

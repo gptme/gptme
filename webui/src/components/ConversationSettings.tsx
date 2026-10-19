@@ -1,8 +1,11 @@
-import { useState, useEffect, type FC } from 'react';
+import { useCallback, useState, useEffect, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
 import { Trash, Loader2, Download, Copy, Check } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { conversations$ } from '@/stores/conversations';
+import { serverRegistry$ } from '@/stores/servers';
+import { getClientGeneration, type IApiClient } from '@/utils/api';
+import type { Message } from '@/types/conversation';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
@@ -106,10 +109,67 @@ function DecimalInput({
 
 interface ConversationSettingsProps {
   conversationId: string;
+  /** Server that owns this conversation; defaults to the primary client. */
+  serverId?: string;
 }
 
-export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversationId }) => {
-  const { api } = useApi();
+export const ConversationSettings: FC<ConversationSettingsProps> = ({
+  conversationId,
+  serverId,
+}) => {
+  const { getClient } = useApi();
+  const isDemo = demoConversations.some((conv) => conv.id === conversationId);
+
+  // Resolve the owner at click time, not render time: the registry can lose a
+  // server while this panel is open. getClient() falls back to the primary for
+  // unknown IDs, so the registry check is what makes a removed owner fail closed
+  // instead of silently reading a same-ID conversation from another server.
+  const resolveExportClient = useCallback((): IApiClient | null => {
+    if (serverId && !serverRegistry$.get().servers.some((server) => server.id === serverId)) {
+      toast.error('Cannot export: conversation server is unavailable');
+      return null;
+    }
+    return getClient(serverId);
+  }, [getClient, serverId]);
+
+  /**
+   * Snapshot the selected branch before fetching and replace a paginated window
+   * with the complete owner log. A named branch resolved from the loaded cache
+   * must come from the fresh branch map; never fall back to main or a cached
+   * partial window.
+   */
+  const loadExportLog = useCallback(
+    async (
+      loadedLog: Message[],
+      hasMoreBefore: boolean,
+      client: IApiClient
+    ): Promise<Message[] | null> => {
+      if (isDemo || !hasMoreBefore) return loadedLog;
+
+      const storeConv = conversations$.get(conversationId);
+      const cachedGeneration = storeConv?.streamClientGeneration?.peek();
+      const cacheBelongsToOwner =
+        typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
+      const selectedBranch = cacheBelongsToOwner
+        ? (storeConv?.currentBranch?.peek() ?? 'main')
+        : 'main';
+
+      try {
+        const full = await client.getConversation(conversationId);
+        const branchLog = selectedBranch !== 'main' ? full.branches?.[selectedBranch] : undefined;
+        if (selectedBranch !== 'main' && !branchLog) {
+          toast.error(`Cannot export: branch "${selectedBranch}" is unavailable`);
+          return null;
+        }
+        return branchLog ?? full.log;
+      } catch {
+        toast.error('Failed to load full conversation history');
+        return null;
+      }
+    },
+    [conversationId, isDemo]
+  );
+
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [includeThinking, setIncludeThinking] = useState(false);
@@ -160,7 +220,6 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
     toast.error(errorMsg);
   };
 
-  const isDemo = demoConversations.some((conv) => conv.id === conversationId);
   const isLoading = isLoadingConfig || (!chatConfig && !configError && !isDemo);
 
   return (
@@ -454,23 +513,22 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     size="sm"
                     onClick={async () => {
                       const conv = conversations$.get(conversationId)?.get();
+                      const client = resolveExportClient();
+                      if (!client) return;
                       if (!conv?.data?.log?.length) {
                         toast.error('No messages to copy');
                         return;
                       }
                       // The store may only hold the currently-loaded window of a
                       // long conversation (virtualized pagination). Fetch the
-                      // full history from the server rather than silently
-                      // copying a partial slice.
-                      let fullLog = conv.data.log;
-                      if (!isDemo && conv.hasMoreBefore) {
-                        try {
-                          fullLog = (await api.getConversation(conversationId)).log;
-                        } catch {
-                          toast.error('Failed to load full conversation history');
-                          return;
-                        }
-                      }
+                      // complete owner history rather than silently copying a
+                      // partial slice.
+                      const fullLog = await loadExportLog(
+                        conv.data.log,
+                        conv.hasMoreBefore,
+                        client
+                      );
+                      if (!fullLog) return;
                       const exportOptions = { includeThinking, includeTools };
                       const exportableMessages = getExportableMessages(fullLog, exportOptions);
                       if (!exportableMessages.length) {
@@ -505,6 +563,8 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     size="sm"
                     onClick={async () => {
                       const conv = conversations$.get(conversationId)?.get();
+                      const client = resolveExportClient();
+                      if (!client) return;
                       if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
@@ -512,15 +572,12 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
 
                       // See the Copy handler above: don't silently export a
                       // partial window of a long, paginated conversation.
-                      let fullLog = conv.data.log;
-                      if (!isDemo && conv.hasMoreBefore) {
-                        try {
-                          fullLog = (await api.getConversation(conversationId)).log;
-                        } catch {
-                          toast.error('Failed to load full conversation history');
-                          return;
-                        }
-                      }
+                      const fullLog = await loadExportLog(
+                        conv.data.log,
+                        conv.hasMoreBefore,
+                        client
+                      );
+                      if (!fullLog) return;
 
                       const exportOptions = { includeThinking, includeTools };
                       const exportableMessages = getExportableMessages(fullLog, exportOptions);
@@ -551,6 +608,8 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     size="sm"
                     onClick={async () => {
                       const conv = conversations$.get(conversationId)?.get();
+                      const client = resolveExportClient();
+                      if (!client) return;
                       if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
@@ -558,15 +617,12 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
 
                       // See the Copy handler above: don't silently export a
                       // partial window of a long, paginated conversation.
-                      let fullLog = conv.data.log;
-                      if (!isDemo && conv.hasMoreBefore) {
-                        try {
-                          fullLog = (await api.getConversation(conversationId)).log;
-                        } catch {
-                          toast.error('Failed to load full conversation history');
-                          return;
-                        }
-                      }
+                      const fullLog = await loadExportLog(
+                        conv.data.log,
+                        conv.hasMoreBefore,
+                        client
+                      );
+                      if (!fullLog) return;
 
                       reportDownloadOutcome(
                         exportConversationAsJSON(

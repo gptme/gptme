@@ -2,8 +2,16 @@ import { render, screen } from '@testing-library/react';
 import { RightSidebarContent } from '../RightSidebarContent';
 
 jest.mock('../ConversationSettings', () => ({
-  ConversationSettings: ({ conversationId }: { conversationId: string }) => (
-    <div data-testid="settings-panel">{conversationId}</div>
+  ConversationSettings: ({
+    conversationId,
+    serverId,
+  }: {
+    conversationId: string;
+    serverId?: string;
+  }) => (
+    <div data-testid="settings-panel">
+      {conversationId}:{serverId ?? 'primary'}
+    </div>
   ),
 }));
 
@@ -38,5 +46,17 @@ describe('RightSidebarContent', () => {
     render(<RightSidebarContent conversationId="conv-computer" activeTab="computer" />);
 
     expect(screen.getByTestId('computer-panel')).toBeInTheDocument();
+  });
+
+  it('forwards the owning server to the settings panel', () => {
+    render(
+      <RightSidebarContent
+        conversationId="conv-settings"
+        activeTab="settings"
+        serverId="server-2"
+      />
+    );
+
+    expect(screen.getByTestId('settings-panel')).toHaveTextContent('conv-settings:server-2');
   });
 });
