@@ -3864,6 +3864,34 @@ class TestSchemaFixtures:
         assert "verification" not in d
         assert "security" not in d
 
+    @pytest.mark.parametrize("raw", ["false", "true", 1, 0, None])
+    def test_finding_security_rejects_non_bool(self, raw):
+        """Non-boolean security values are not coerced into a classification."""
+        recovered = ReviewFinding.from_dict(
+            {"body": "a bug", "file": "a.py", "line": 1, "security": raw}
+        )
+        assert recovered.security is False
+
+    def test_local_review_security_rejects_non_bool(self):
+        """_from_local_review does not coerce a stringified boolean."""
+        artifact = ReviewArtifact.from_dict(
+            {
+                "schema_version": 1,
+                "kind": "ai-review-local",
+                "repo": "gptme/gptme",
+                "findings": [
+                    {
+                        "body": "a bug",
+                        "file": "a.py",
+                        "line": 1,
+                        "severity": "P2",
+                        "security": "false",
+                    }
+                ],
+            }
+        )
+        assert artifact.findings[0].security is False
+
     def test_artifact_identity_round_trip(self):
         """head/base/merge_base/reviewed_at/model/engine survive to_dict→from_dict."""
         artifact = ReviewArtifact(

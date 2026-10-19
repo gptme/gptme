@@ -252,7 +252,8 @@ class ReviewFinding:
         suggestion = suggestion_raw if isinstance(suggestion_raw, str) else ""
         verification_raw = d.get("verification", "")
         verification = verification_raw if isinstance(verification_raw, str) else ""
-        security = bool(d.get("security", False))
+        security_raw = d.get("security", False)
+        security = security_raw if isinstance(security_raw, bool) else False
         return cls(
             body=body_raw,
             file=file_raw,
@@ -460,7 +461,10 @@ class ReviewArtifact:
 
     #: Diff fingerprint: head commit SHA (for hosted reviews) or a
     #: ``"<base>/<merge_base>/<head>"`` triple (for local-review artifacts).
-    #: Empty string when not provided.
+    #: Local-review artifacts with only some identity values present keep a
+    #: partial triple (the available components joined by ``"/"``), matching
+    #: the pre-identity-field behavior; consumers must not assume all three
+    #: components are present.  Empty string when not provided.
     diff_fingerprint: str = ""
 
     #: Count of findings the reviewer produced but rejected before the final
@@ -1021,7 +1025,8 @@ class ReviewArtifact:
             suggestion = suggestion_raw if isinstance(suggestion_raw, str) else ""
             verification_raw = f_raw.get("verification", "")
             verification = verification_raw if isinstance(verification_raw, str) else ""
-            security = bool(f_raw.get("security", False))
+            security_raw = f_raw.get("security", False)
+            security = security_raw if isinstance(security_raw, bool) else False
             findings.append(
                 ReviewFinding(
                     body=body_raw,
