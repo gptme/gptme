@@ -28,7 +28,6 @@ import { computeConversationCost, formatCost, formatTokens } from '@/utils/conve
 import { demoConversations } from '@/democonversations';
 import type { ConversationSummary } from '@/types/conversation';
 import { type FC, memo } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Computed } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
@@ -39,8 +38,30 @@ export function stripDate(name: string): string {
   return match ? match[1] : name;
 }
 
+/**
+ * Scoped identity for a sidebar row.
+ *
+ * Conversation IDs are only unique per server: the same ID can exist on two
+ * registered servers. UI state (rename mode, optimistic stars) must therefore
+ * include the owning server; the null slot covers legacy/demo rows without one.
+ */
+export function getConversationKey(conv: Pick<ConversationSummary, 'id' | 'serverId'>): string {
+  // JSON tuple avoids "server:id" ambiguity when either component contains ':'.
+  return JSON.stringify([conv.serverId ?? null, conv.id]);
+}
+
+/**
+ * Whether the shared store entry for this bare ID was loaded by the row's own
+ * server. The store keeps a single entry per ID, so a same-ID conversation
+ * from another server must not lend it a cached title or live state.
+ */
+export function storeEntryOwnedByRow(conv: Pick<ConversationSummary, 'id' | 'serverId'>): boolean {
+  const entry = conversations$.get(conv.id)?.peek();
+  return (entry?.serverId ?? null) === (conv.serverId ?? null);
+}
+
 export function getConversationName(conv: ConversationSummary): string {
-  const storeConv = conversations$.get(conv.id)?.get();
+  const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
   return storeConv?.data?.name || conv.name || stripDate(conv.id);
 }
 
@@ -67,12 +88,12 @@ export interface ConversationItemProps {
   renamingId: string | null;
   renameValue: string;
   setRenameValue: (value: string) => void;
-  onRenameSubmit: (id: string) => Promise<void>;
+  onRenameSubmit: (id: string, serverId?: string, value?: string) => Promise<void>;
   onRenameCancel: () => void;
 
-  setDeleteTarget: (target: { id: string; name: string } | null) => void;
+  setDeleteTarget: (target: { id: string; name: string; serverId?: string } | null) => void;
   getIsStarred: (conv: ConversationSummary) => boolean;
-  toggleStar: (id: string, currentlyStarred: boolean) => Promise<boolean>;
+  toggleStar: (id: string, currentlyStarred: boolean, serverId?: string) => Promise<boolean>;
   onExportMarkdown: (conv: ConversationSummary) => void;
   onExportJSON: (conv: ConversationSummary) => void;
   onStartRename: (conv: ConversationSummary) => void;
@@ -103,15 +124,20 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
   onOpenInSplitView,
   setOptimisticStars,
 }) => {
-  const queryClient = useQueryClient();
   const demoConv = demoConversations.find((dc) => dc.id === conv.id);
   const isDemo = !!demoConv;
-  const isRenaming = renamingId === conv.id;
+  const conversationKey = getConversationKey(conv);
+  const isRenaming = renamingId === conversationKey;
 
   const conversationContent = (
     <Computed>
       {() => {
-        const convObs = conversations$.get(conv.id);
+        // Read live state only from an entry this row's server loaded. A
+        // secondary row must still show its own connected/generating/pending
+        // indicators, but never the primary's same-ID state (or vice versa).
+        const storeConv$ = conversations$.get(conv.id);
+        const ownedByRow = (storeConv$?.serverId?.get?.() ?? null) === (conv.serverId ?? null);
+        const convObs = ownedByRow ? storeConv$ : undefined;
         // Subscribe to lightweight reactive fields so live-state indicators update
         // without subscribing to data.log (the hot path during AI generation).
         const convIsConnected = convObs?.isConnected?.get?.();
@@ -145,12 +171,12 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
-                      onRenameSubmit(conv.id);
+                      onRenameSubmit(conv.id, conv.serverId, e.currentTarget.value);
                     } else if (e.key === 'Escape') {
                       onRenameCancel();
                     }
                   }}
-                  onBlur={() => onRenameSubmit(conv.id)}
+                  onBlur={(e) => onRenameSubmit(conv.id, conv.serverId, e.currentTarget.value)}
                   onClick={(e) => e.stopPropagation()}
                   autoFocus
                 />
@@ -178,12 +204,11 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                       onClick={async (e) => {
                         e.stopPropagation();
                         const newVal = !getIsStarred(conv);
-                        setOptimisticStars((prev) => ({ ...prev, [conv.id]: newVal }));
-                        await toggleStar(conv.id, getIsStarred(conv));
-                        await queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                        setOptimisticStars((prev) => ({ ...prev, [conversationKey]: newVal }));
+                        await toggleStar(conv.id, getIsStarred(conv), conv.serverId);
                         setOptimisticStars((prev) => {
                           const next = { ...prev };
-                          delete next[conv.id];
+                          delete next[conversationKey];
                           return next;
                         });
                       }}
@@ -232,8 +257,10 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                 </Tooltip>
                 <Computed>
                   {() => {
-                    const storeConv = conversations$.get(conv.id)?.get();
-                    const isLoaded = storeConv?.data?.log?.length > 0;
+                    const entry = conversations$.get(conv.id)?.get();
+                    const storeConv =
+                      (entry?.serverId ?? null) === (conv.serverId ?? null) ? entry : undefined;
+                    const isLoaded = (storeConv?.data?.log?.length ?? 0) > 0;
                     if (isLoaded) {
                       const cost = computeConversationCost(storeConv!.data!.log);
                       if (cost.hasData) return null;
@@ -282,8 +309,10 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                 </Computed>
                 <Computed>
                   {() => {
-                    const storeConv = conversations$.get(conv.id)?.get();
-                    const isLoaded = storeConv?.data?.log?.length > 0;
+                    const entry = conversations$.get(conv.id)?.get();
+                    const storeConv =
+                      (entry?.serverId ?? null) === (conv.serverId ?? null) ? entry : undefined;
+                    const isLoaded = (storeConv?.data?.log?.length ?? 0) > 0;
                     if (!isLoaded) return null;
                     const cost = computeConversationCost(storeConv!.data!.log);
                     if (!cost.hasData) return null;
@@ -416,13 +445,12 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
             onClick={(e) => {
               e.stopPropagation();
               const newVal = !getIsStarred(conv);
-              setOptimisticStars((prev) => ({ ...prev, [conv.id]: newVal }));
-              toggleStar(conv.id, getIsStarred(conv))
-                .then(async () => {
-                  await queryClient.invalidateQueries({ queryKey: ['conversations'] });
+              setOptimisticStars((prev) => ({ ...prev, [conversationKey]: newVal }));
+              toggleStar(conv.id, getIsStarred(conv), conv.serverId)
+                .then(() => {
                   setOptimisticStars((prev) => {
                     const next = { ...prev };
-                    delete next[conv.id];
+                    delete next[conversationKey];
                     return next;
                   });
                 })
@@ -430,7 +458,7 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                   console.error('Failed to toggle star from context menu:', err);
                   setOptimisticStars((prev) => {
                     const next = { ...prev };
-                    delete next[conv.id];
+                    delete next[conversationKey];
                     return next;
                   });
                 });
@@ -445,9 +473,8 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
           className="text-destructive focus:text-destructive"
           onClick={(e) => {
             e.stopPropagation();
-            const storeConv = conversations$.get(conv.id)?.get();
-            const name = storeConv?.data?.name || conv.name || conv.id;
-            setDeleteTarget({ id: conv.id, name });
+            const name = getConversationName(conv);
+            setDeleteTarget({ id: conv.id, name, serverId: conv.serverId });
           }}
         >
           <Trash2 className="mr-2 h-4 w-4" /> Delete

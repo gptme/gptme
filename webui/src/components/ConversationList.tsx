@@ -14,9 +14,17 @@ import {
 } from '@/utils/exportConversation';
 
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { ConversationItem, getConversationName } from './ConversationItem';
+import {
+  ConversationItem,
+  getConversationKey,
+  getConversationName,
+  storeEntryOwnedByRow,
+} from './ConversationItem';
 
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
+import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
+import { getClientForServer } from '@/stores/serverClients';
+import { useQueryClient } from '@tanstack/react-query';
 import type { ConversationSummary } from '@/types/conversation';
 import type { ExternalSessionCatalogItem } from '@/types/api';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
@@ -24,6 +32,7 @@ import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
+
 import { toast } from 'sonner';
 
 const HARNESS_LABELS: Record<string, string> = {
@@ -110,6 +119,7 @@ export const ConversationList: FC<Props> = ({
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
   const connectionStatus = useConnectionStatus();
+  const queryClient = useQueryClient();
 
   const { toggleStar } = useConversationMetadata();
 
@@ -130,22 +140,37 @@ export const ConversationList: FC<Props> = ({
   };
 
   // Separately track local star state for optimistic UI updates.
-  // Keyed by conversation ID, value is the optimistic starred value.
+  // Keyed by the scoped server:id tuple, since the same conversation ID can
+  // exist independently on two registered servers.
   const [optimisticStars, setOptimisticStars] = useState<Record<string, boolean>>({});
 
   // Determine effective starred state: optimistic (if set) > server state
   const getIsStarred = useCallback(
     (conv: ConversationSummary) => {
-      if (conv.id in optimisticStars) return optimisticStars[conv.id];
+      const key = getConversationKey(conv);
+      if (key in optimisticStars) return optimisticStars[key];
       return conv.starred ?? false;
     },
     [optimisticStars]
   );
 
-  // Context menu state
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  // Context menu state. Server identity is part of the delete/rename target so
+  // a later confirmation cannot silently fall back to the primary server.
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+    serverId?: string;
+  } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  const [renameValue, setRenameValueState] = useState('');
+  // Mirror the controlled input value in a ref. The rename row lives inside a
+  // Legend <Computed>, so a submit handler must not rely on a possibly stale
+  // render closure for the just-typed value.
+  const renameValueRef = useRef('');
+  const setRenameValue = useCallback((value: string) => {
+    renameValueRef.current = value;
+    setRenameValueState(value);
+  }, []);
   // Guard against double-submit: onKeyDown(Enter) sets this before onBlur fires
   const renameCommittedRef = useRef(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -160,7 +185,7 @@ export const ConversationList: FC<Props> = ({
   const prevUrlSearchRef = useRef(urlSearch);
 
   const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.peek();
+    const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
     const messages = storeConv?.data?.log ?? [];
     const name = storeConv?.data?.name || conv.name || conv.id;
     if (messages.length === 0) {
@@ -174,7 +199,7 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleExportJSON = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.peek();
+    const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
     const messages = storeConv?.data?.log ?? [];
     const name = storeConv?.data?.name || conv.name || conv.id;
     if (messages.length === 0) {
@@ -188,11 +213,13 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleStartRename = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.peek();
-    const currentName = storeConv?.data?.name || conv.name || conv.id;
+    // getConversationName is owner-aware: secondary rows never prefill from the
+    // primary's bare-ID cache.
+    const currentName = getConversationName(conv);
     renameCommittedRef.current = false;
-    setRenamingId(conv.id);
-    setRenameValue(currentName);
+    renameValueRef.current = currentName;
+    setRenamingId(getConversationKey(conv));
+    setRenameValueState(currentName);
   }, []);
 
   const handleRenameCancel = useCallback(() => {
@@ -201,33 +228,58 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleRenameSubmit = useCallback(
-    async (convId: string) => {
+    async (convId: string, serverId?: string, submittedValue?: string) => {
       if (renameCommittedRef.current) return;
       renameCommittedRef.current = true;
 
-      const trimmed = renameValue.trim();
+      const trimmed = (submittedValue ?? renameValueRef.current).trim();
       if (!trimmed) {
         setRenamingId(null);
         return;
       }
+      // A row carrying a serverId is owned by that server. If the owner has
+      // disappeared, fail closed instead of renaming the primary's same-ID log.
+      const owner = serverId ? getClientForServer(serverId) : api;
+      if (!owner) {
+        toast.error('Failed to rename conversation: owning server is no longer available');
+        setRenamingId(null);
+        return;
+      }
       try {
-        const currentConfig = await api.getChatConfig(convId);
-        await api.updateChatConfig(convId, {
+        const currentConfig = await owner.getChatConfig(convId);
+        await owner.updateChatConfig(convId, {
           ...currentConfig,
           chat: { ...currentConfig.chat, name: trimmed },
         });
-        // Update local store
-        const conv = conversations$.get(convId);
-        if (conv?.data) {
-          conv.data.name.set(trimmed);
+        // `api` is getPrimaryClient() — the *active* server's pooled client,
+        // not a fixed primary. The active server's rows are served by the
+        // ['conversations', baseUrl] family; every other connected server is
+        // served by ['secondary-conversations', serverId]
+        // (useMultiServerConversations excludes the active server). So client
+        // identity is the family test: owner === api means this row is in the
+        // active family, whether that server is the first one or a promoted
+        // secondary.
+        const isPrimary = owner === api;
+        // The global conversation store is keyed by bare ID, so only write the
+        // optimistic title when the loaded entry actually belongs to this row.
+        if (isPrimary && storeEntryOwnedByRow({ id: convId, serverId })) {
+          const conv = conversations$.get(convId);
+          if (conv?.data) {
+            conv.data.name.set(trimmed);
+          }
         }
+        await queryClient.invalidateQueries({
+          queryKey: isPrimary
+            ? conversationsQueryKey(owner.baseUrl)
+            : ['secondary-conversations', serverId],
+        });
         toast.success('Conversation renamed');
       } catch {
         toast.error('Failed to rename conversation');
       }
       setRenamingId(null);
     },
-    [api, renameValue]
+    [api, queryClient]
   );
 
   // Sync URL → local state on browser back/forward (skip our own debounced writes).
@@ -781,6 +833,7 @@ export const ConversationList: FC<Props> = ({
         <DeleteConversationConfirmationDialog
           conversationName={deleteTarget.id}
           displayName={deleteTarget.name}
+          serverId={deleteTarget.serverId}
           open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) setDeleteTarget(null);

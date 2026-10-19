@@ -5,6 +5,8 @@ import type { Message, StreamingMessage } from '@/types/conversation';
 import type { ChatOptions } from '@/components/ChatInput';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { isDemoMode } from '@/utils/connectionConfig';
+import { serverRegistry$ } from '@/stores/servers';
+import { getClientForServer } from '@/stores/serverClients';
 import { use$, useObservable } from '@legendapp/state/react';
 import {
   conversations$,
@@ -80,6 +82,27 @@ export function useConversation(conversationId: string, serverId?: string) {
       initConversation(conversationId);
     }
   }, [conversationId, conversation$]);
+
+  // Record which server loaded this bare-ID store entry. Sidebar rows compare
+  // this against their own owner before trusting the cached title or live state,
+  // because the same conversation ID can exist on two servers.
+  useEffect(() => {
+    const requestedOwner = serverId ?? serverRegistry$.peek().activeServerId;
+    const entry = conversation$?.peek();
+    if (entry?.serverId !== undefined && entry.serverId !== requestedOwner) {
+      // The same bare ID was previously loaded from another server. Its cached
+      // payload does not belong to the requested owner, and the load effect
+      // would skip the fetch because the entry looks hydrated. Start fresh so
+      // the data is re-fetched from the requested server. Close the previous
+      // owner's live stream first: its callbacks address the entry by bare ID
+      // (setGenerating/addMessage/...), so a still-open stream would keep
+      // writing the old server's events into the entry that now belongs to
+      // the requested server.
+      getClientForServer(entry.serverId)?.closeEventStream(conversationId);
+      initConversation(conversationId);
+    }
+    conversation$?.serverId.set(requestedOwner);
+  }, [conversation$, conversationId, serverId]);
 
   // Ensure the conversation's chat config is loaded whenever it's missing.
   // The main load+connect effect below early-returns for already-connected
@@ -164,13 +187,16 @@ export function useConversation(conversationId: string, serverId?: string) {
           // Only load from API if we don't already have conversation data
           try {
             const data = await api.getConversation(conversationId, { limit: 50 });
+            if (cancelled) return;
 
             // Also load the chat config
             try {
               const chatConfig = await api.getChatConfig(conversationId);
+              if (cancelled) return;
               updateConversationData(conversationId, data);
               updateConversation(conversationId, { chatConfig, loadError: null });
             } catch (error) {
+              if (cancelled) return;
               console.warn(
                 `[useConversation] Failed to load chat config for ${conversationId}:`,
                 error
@@ -182,6 +208,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               updateConversation(conversationId, { chatConfig: null, loadError: null });
             }
           } catch (error) {
+            if (cancelled) return;
             console.warn(
               `[useConversation] Failed to load conversation ${conversationId} from API:`,
               error
@@ -225,6 +252,10 @@ export function useConversation(conversationId: string, serverId?: string) {
             if (!cancelled) updateConversation(conversationId, { chatConfig: null });
           }
         }
+
+        // A superseded load must neither overwrite the new owner's entry nor
+        // reconnect the old owner's stream after the ownership reset closed it.
+        if (cancelled) return;
 
         // Check number of connected conversations
         const connectedConvs = Array.from(conversations$.get().entries())

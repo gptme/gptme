@@ -1,6 +1,7 @@
 import { observable } from '@legendapp/state';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useApi } from '@/contexts/ApiContext';
+import { getClientForServer } from '@/stores/serverClients';
 import { conversations$, initConversation, setConnectionStatus } from '@/stores/conversations';
 import { useConversation } from '../useConversation';
 import { ApiClientError } from '@/utils/api';
@@ -9,6 +10,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: jest.fn(),
+}));
+
+jest.mock('@/stores/serverClients', () => ({
+  getClientForServer: jest.fn(),
 }));
 
 jest.mock('@/components/ui/use-toast', () => ({
@@ -26,6 +31,9 @@ jest.mock('@/utils/notifications', () => ({
 
 describe('useConversation', () => {
   const mockedUseApi = useApi as jest.MockedFunction<typeof useApi>;
+  const mockedGetClientForServer = getClientForServer as jest.MockedFunction<
+    typeof getClientForServer
+  >;
   const subscribeToEvents = jest.fn().mockResolvedValue(undefined);
   const step = jest.fn().mockResolvedValue(undefined);
   const sendMessageApi = jest.fn().mockResolvedValue(undefined);
@@ -60,6 +68,7 @@ describe('useConversation', () => {
   });
 
   beforeEach(() => {
+    mockedGetClientForServer.mockReset().mockReturnValue(null);
     conversations$.set(new Map());
     subscribeToEvents.mockImplementation((_conversationId, handlers) => {
       eventHandlers = handlers;
@@ -923,5 +932,90 @@ describe('useConversation', () => {
     // 2: old rerun re-interrupts leftover auto-confirm tools before the edit steps
     // Late onMessageStart belongs to the edit, so it must not interrupt again.
     expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a previous owner’s delayed load after switching the same ID to another server', async () => {
+    let resolveOldLoad!: (data: object) => void;
+    const oldClient = makeClient(jest.fn().mockResolvedValue(undefined));
+    oldClient.getConversation.mockReturnValue(
+      new Promise((resolve) => {
+        resolveOldLoad = resolve;
+      })
+    );
+    const newClient = makeClient(jest.fn().mockResolvedValue(undefined));
+    const payload = (name: string) => ({
+      id: 'shared-id',
+      name,
+      log: [],
+      logfile: 'shared-id',
+      branches: {},
+      workspace: '.',
+    });
+    newClient.getConversation.mockResolvedValue(payload('Server B chat'));
+    mockedUseApi.mockReturnValue({
+      getClient: (id: string) => (id === 'server-a' ? oldClient : newClient),
+      isConnected$: observable(true),
+    } as any);
+    mockedGetClientForServer.mockImplementation(
+      (id: string) => (id === 'server-a' ? oldClient : newClient) as never
+    );
+    initConversation('shared-id');
+    const { rerender } = renderHook(({ owner }) => useConversation('shared-id', owner), {
+      initialProps: { owner: 'server-a' },
+    });
+    await waitFor(() => expect(oldClient.getConversation).toHaveBeenCalled());
+    rerender({ owner: 'server-b' });
+    await waitFor(() =>
+      expect(conversations$.get('shared-id')!.data.name.get()).toBe('Server B chat')
+    );
+
+    await act(async () => {
+      resolveOldLoad(payload('Server A stale chat'));
+    });
+
+    expect(conversations$.get('shared-id')!.data.name.get()).toBe('Server B chat');
+    expect(conversations$.get('shared-id')!.serverId.get()).toBe('server-b');
+    expect(oldClient.subscribeToEvents).not.toHaveBeenCalled();
+  });
+
+  it('reloads a same-ID entry that was loaded from another server', async () => {
+    initConversation('shared-id', {
+      id: 'shared-id',
+      name: 'Server A chat',
+      log: [
+        {
+          role: 'user',
+          content: 'Only on server A',
+          timestamp: '2026-06-07T00:00:00.000Z',
+        },
+      ],
+      logfile: 'shared-id',
+      branches: {},
+      workspace: '.',
+    });
+    conversations$.get('shared-id')!.serverId.set('server-a');
+    // The previous owner's pooled client must have its live stream closed
+    // before the reset, or its callbacks keep writing into the shared entry.
+    const oldOwnerClose = jest.fn();
+    mockedGetClientForServer.mockImplementation((id: string) =>
+      id === 'server-a' ? ({ closeEventStream: oldOwnerClose } as never) : null
+    );
+    (primaryClient.getConversation as jest.Mock).mockResolvedValue({
+      id: 'shared-id',
+      name: 'Server B chat',
+      log: [],
+      logfile: 'shared-id',
+      branches: {},
+      workspace: '.',
+    });
+
+    renderHook(() => useConversation('shared-id', 'server-b'));
+
+    await waitFor(() =>
+      expect(conversations$.get('shared-id')!.data.name.get()).toBe('Server B chat')
+    );
+    expect(conversations$.get('shared-id')!.serverId.get()).toBe('server-b');
+    expect(primaryClient.getConversation).toHaveBeenCalledWith('shared-id', { limit: 50 });
+    expect(oldOwnerClose).toHaveBeenCalledWith('shared-id');
   });
 });

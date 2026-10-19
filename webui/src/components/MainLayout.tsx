@@ -252,6 +252,10 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         return {
           id,
           name: state.data.name || 'New conversation',
+          // Carry the entry's owner so its own row can read live state and
+          // mutations still target the right server before the conversation
+          // appears in that server's list (e.g. a just-created chat).
+          serverId: state.serverId,
           // Convert to seconds (groupByDate expects Unix seconds, not ms)
           created: firstTimestamp ? new Date(firstTimestamp).getTime() / 1000 : undefined,
           modified: lastTimestamp ? new Date(lastTimestamp).getTime() / 1000 : Date.now() / 1000,
