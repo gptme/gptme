@@ -39,9 +39,15 @@ export function useFileAutocomplete({
     cursorPosition: 0,
   });
 
-  // Cache file listings
+  // Cache file listings for one popup opening; cleared whenever the popup closes
+  // so files created or deleted since the last opening show up on the next one.
   const fileCache = useRef<Map<string, FileType[]>>(new Map());
   const currentValue = useRef<string>('');
+
+  const closePopup = useCallback((reset: Partial<AutocompleteState> = {}) => {
+    fileCache.current.clear();
+    setState((prev) => ({ ...prev, isOpen: false, ...reset }));
+  }, []);
 
   // Flatten directory structure for autocomplete
   const flattenFiles = useCallback(
@@ -96,14 +102,14 @@ export function useFileAutocomplete({
       currentValue.current = value;
 
       if (!enabled || !conversationId) {
-        setState((prev) => ({ ...prev, isOpen: false }));
+        closePopup();
         return;
       }
 
       const trigger = findTrigger(value, cursorPos);
 
       if (!trigger) {
-        setState((prev) => ({ ...prev, isOpen: false, query: '', files: [] }));
+        closePopup({ query: '', files: [] });
         return;
       }
 
@@ -131,7 +137,7 @@ export function useFileAutocomplete({
         }));
       }
     },
-    [enabled, conversationId, findTrigger, flattenFiles]
+    [enabled, conversationId, findTrigger, flattenFiles, closePopup]
   );
 
   // Handle keyboard navigation
@@ -167,14 +173,14 @@ export function useFileAutocomplete({
 
         case 'Escape':
           e.preventDefault();
-          setState((prev) => ({ ...prev, isOpen: false }));
+          closePopup();
           return true;
 
         default:
           return false;
       }
     },
-    [state.isOpen, state.files, state.selectedIndex]
+    [state.isOpen, state.files, state.selectedIndex, closePopup]
   );
 
   // Select a file and return new input value
@@ -190,20 +196,18 @@ export function useFileAutocomplete({
       const after = value.slice(state.cursorPosition);
       const newValue = `${before}@${file.path}${after}`;
 
-      setState((prev) => ({ ...prev, isOpen: false, query: '', files: [] }));
+      closePopup({ query: '', files: [] });
 
       return newValue;
     },
-    [findTrigger, state.cursorPosition]
+    [findTrigger, state.cursorPosition, closePopup]
   );
 
   const setSelectedIndex = useCallback((index: number) => {
     setState((prev) => ({ ...prev, selectedIndex: index }));
   }, []);
 
-  const close = useCallback(() => {
-    setState((prev) => ({ ...prev, isOpen: false }));
-  }, []);
+  const close = useCallback(() => closePopup(), [closePopup]);
 
   return {
     state,
