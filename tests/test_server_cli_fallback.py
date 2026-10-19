@@ -86,12 +86,17 @@ def test_configured_model_without_key_still_serves_setup(
     """Missing credentials must leave the setup API reachable, not crash startup."""
     repo = Path(__file__).resolve().parents[1]
     env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(tmp_path),
-        "XDG_CONFIG_HOME": str(tmp_path / ".config"),
-        "PYTHONPATH": str(repo),
-        "GPTME_SERVER_TOKEN": "test-fallback-token",
+        name: os.environ[name] for name in ("PATH", "SYSTEMROOT") if name in os.environ
     }
+    env.update(
+        HOME=str(tmp_path),
+        USERPROFILE=str(tmp_path),
+        APPDATA=str(tmp_path / "AppData" / "Roaming"),
+        LOCALAPPDATA=str(tmp_path / "AppData" / "Local"),
+        XDG_CONFIG_HOME=str(tmp_path / ".config"),
+        PYTHONPATH=str(repo),
+        GPTME_SERVER_TOKEN="test-fallback-token",
+    )
     url = f"http://127.0.0.1:{unused_tcp_port}/api/v2"
     with (tmp_path / "server.log").open("w+") as log:
         process = subprocess.Popen(
