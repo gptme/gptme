@@ -1,8 +1,14 @@
 """Tests for server CLI provider-aware fallback model selection."""
 
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import requests
 
 pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
@@ -68,3 +74,67 @@ def test_provider_fallback_models_includes_all_api_key_providers():
     expected = set(PROVIDER_API_KEYS.keys()) - {"azure"}
     missing = expected - set(PROVIDER_FALLBACK_MODELS.keys())
     assert not missing, f"Missing fallback models for providers: {missing}"
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["openrouter/deepseek/deepseek-v4.1-flash", "openai/gpt-4.1-nano"],
+)
+def test_configured_model_without_key_still_serves_setup(
+    model: str, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    """Missing credentials must leave the setup API reachable, not crash startup."""
+    repo = Path(__file__).resolve().parents[1]
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "XDG_CONFIG_HOME": str(tmp_path / ".config"),
+        "PYTHONPATH": str(repo),
+        "GPTME_SERVER_TOKEN": "test-fallback-token",
+    }
+    url = f"http://127.0.0.1:{unused_tcp_port}/api/v2"
+    with (tmp_path / "server.log").open("w+") as log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "gptme.server.cli",
+                "serve",
+                "--model",
+                model,
+                "--tools",
+                "none",
+                "--port",
+                str(unused_tcp_port),
+            ],
+            cwd=tmp_path,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            with requests.Session() as client:
+                client.trust_env = False
+                deadline = time.monotonic() + 20
+                response = None
+                while process.poll() is None and time.monotonic() < deadline:
+                    try:
+                        response = client.get(
+                            url,
+                            headers={"Authorization": "Bearer test-fallback-token"},
+                            timeout=1,
+                        )
+                        break
+                    except requests.ConnectionError:
+                        time.sleep(0.05)
+                log.seek(0)
+                assert response is not None, log.read()
+                assert response.status_code == 200, response.text
+                assert response.json()["provider_configured"] is False
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)

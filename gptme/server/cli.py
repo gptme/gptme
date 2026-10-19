@@ -339,6 +339,7 @@ def serve(
             or "No provider configured" in error_msg
             or "No model specified" in error_msg
             or "not set in env or config" in error_msg
+            or "not set in env/config or credentials.toml" in error_msg
         )
 
         if not is_config_error:
