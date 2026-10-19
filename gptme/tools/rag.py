@@ -190,7 +190,8 @@ def rag_index(*paths: str, glob: str | None = None, project: str | None = None) 
     cmd = ["gptme-rag", "index"]
     cmd.extend(paths)
     if glob:
-        cmd.extend(["--glob", glob])
+        # gptme-rag's index option is --pattern/-p (there is no --glob)
+        cmd.extend(["--pattern", glob])
     persist_dir = _project_persist_dir(project)
     if persist_dir is not None:
         cmd.extend(["--persist-dir", str(persist_dir)])

@@ -350,6 +350,28 @@ def test_rag_index_with_project_passes_persist_dir(tmp_path):
     assert cmd[persist_dir_idx + 1] == str(tmp_path / "rag" / "myproject")
 
 
+def test_rag_index_glob_uses_pattern_flag():
+    """glob maps to gptme-rag's --pattern option, which is the real flag."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "Indexed 1 paths\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        rag_index(".", glob="*.md")
+    cmd = mock_run.call_args[0][0]
+    assert "--glob" not in cmd
+    assert cmd[cmd.index("--pattern") + 1] == "*.md"
+
+
+def test_rag_index_without_glob_omits_pattern():
+    """No glob means the pattern flag is omitted so gptme-rag uses its default."""
+    mock_proc = MagicMock()
+    mock_proc.stdout = "Indexed 1 paths\n"
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc) as mock_run:
+        rag_index(".")
+    cmd = mock_run.call_args[0][0]
+    assert "--pattern" not in cmd
+    assert "--glob" not in cmd
+
+
 def test_rag_search_no_project_no_persist_dir():
     """Without project, no --persist-dir is passed."""
     mock_proc = MagicMock()
