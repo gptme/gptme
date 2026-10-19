@@ -934,6 +934,50 @@ describe('useConversation', () => {
     expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
   });
 
+  it('ignores a previous owner’s delayed load after switching the same ID to another server', async () => {
+    let resolveOldLoad!: (data: object) => void;
+    const oldClient = makeClient(jest.fn().mockResolvedValue(undefined));
+    oldClient.getConversation.mockReturnValue(
+      new Promise((resolve) => {
+        resolveOldLoad = resolve;
+      })
+    );
+    const newClient = makeClient(jest.fn().mockResolvedValue(undefined));
+    const payload = (name: string) => ({
+      id: 'shared-id',
+      name,
+      log: [],
+      logfile: 'shared-id',
+      branches: {},
+      workspace: '.',
+    });
+    newClient.getConversation.mockResolvedValue(payload('Server B chat'));
+    mockedUseApi.mockReturnValue({
+      getClient: (id: string) => (id === 'server-a' ? oldClient : newClient),
+      isConnected$: observable(true),
+    } as any);
+    mockedGetClientForServer.mockImplementation(
+      (id: string) => (id === 'server-a' ? oldClient : newClient) as never
+    );
+    initConversation('shared-id');
+    const { rerender } = renderHook(({ owner }) => useConversation('shared-id', owner), {
+      initialProps: { owner: 'server-a' },
+    });
+    await waitFor(() => expect(oldClient.getConversation).toHaveBeenCalled());
+    rerender({ owner: 'server-b' });
+    await waitFor(() =>
+      expect(conversations$.get('shared-id')!.data.name.get()).toBe('Server B chat')
+    );
+
+    await act(async () => {
+      resolveOldLoad(payload('Server A stale chat'));
+    });
+
+    expect(conversations$.get('shared-id')!.data.name.get()).toBe('Server B chat');
+    expect(conversations$.get('shared-id')!.serverId.get()).toBe('server-b');
+    expect(oldClient.subscribeToEvents).not.toHaveBeenCalled();
+  });
+
   it('reloads a same-ID entry that was loaded from another server', async () => {
     initConversation('shared-id', {
       id: 'shared-id',

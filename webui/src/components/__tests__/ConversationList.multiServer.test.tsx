@@ -9,6 +9,14 @@ import type { IApiClient } from '@/utils/api';
 import { getClientForServer } from '@/stores/serverClients';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { toast } from 'sonner';
+import { exportConversationAsJSON, exportConversationAsMarkdown } from '@/utils/exportConversation';
+
+jest.mock('@/utils/exportConversation', () => ({
+  exportConversationAsJSON: jest.fn(),
+  exportConversationAsMarkdown: jest.fn(),
+  getExportableMessages: (messages: unknown[]) => messages,
+  reportDownloadOutcome: jest.fn(),
+}));
 
 const mockGetClientForServer = getClientForServer as jest.MockedFunction<typeof getClientForServer>;
 
@@ -175,6 +183,62 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
     });
     conversations$.set(new Map());
     selectedConversation$.set(sharedId);
+  });
+
+  it.each(['Markdown', 'JSON'])(
+    'never exports another server’s cached messages as %s',
+    (format) => {
+      (conversations$.set as (value: Map<string, unknown>) => void)(
+        new Map([
+          [
+            sharedId,
+            {
+              serverId: 'primary',
+              data: {
+                name: 'Primary Chat',
+                log: [{ role: 'user', content: 'primary private message' }],
+              },
+            },
+          ],
+        ])
+      );
+      renderList();
+      fireEvent.contextMenu(screen.getByText('Secondary Chat'));
+      fireEvent.click(screen.getByText(format));
+
+      expect(exportConversationAsMarkdown).not.toHaveBeenCalled();
+      expect(exportConversationAsJSON).not.toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalledWith(
+        'No messages to export. Open the conversation first.'
+      );
+    }
+  );
+
+  it('uses the row summary tokens instead of another owner’s loaded cost', () => {
+    (conversations$.set as (value: Map<string, unknown>) => void)(
+      new Map([
+        [
+          sharedId,
+          {
+            serverId: 'primary',
+            data: {
+              name: 'Primary Chat',
+              log: [
+                {
+                  role: 'assistant',
+                  content: 'primary reply',
+                  metadata: { cost: 1.23, usage: { input_tokens: 999 } },
+                },
+              ],
+            },
+          },
+        ],
+      ])
+    );
+    renderList([{ ...secondaryConversation, total_input_tokens: 42 }]);
+
+    expect(within(secondaryRow()).queryByText('$1.23')).not.toBeInTheDocument();
+    expect(within(secondaryRow()).getByText('42 tok')).toBeInTheDocument();
   });
 
   it('stars the secondary row through its owning client, not the primary', async () => {

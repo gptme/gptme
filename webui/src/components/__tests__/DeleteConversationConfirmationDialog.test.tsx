@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { DeleteConversationConfirmationDialog } from '../DeleteConversationConfirmationDialog';
+import { serverRegistry$ } from '@/stores/servers';
 import {
   conversations$ as mockConversations$,
   selectedConversation$ as mockSelectedConversation$,
@@ -78,6 +79,7 @@ function renderDialog(
 describe('DeleteConversationConfirmationDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    serverRegistry$.activeServerId.set('primary');
     mockGetClientForServer.mockReturnValue({
       baseUrl: 'http://secondary.test',
       deleteConversation: mockSecondaryDeleteConversation,
@@ -213,6 +215,29 @@ describe('DeleteConversationConfirmationDialog', () => {
     // belongs to another server; its bare-ID cache must remain.
     expect(mockConversations$.get('selected-chat')).toBeTruthy();
     expect(mockSelectedConversation$.get()).toBe('selected-chat');
+  });
+
+  it('removes the deleted primary owner cache even if the active server changes in flight', async () => {
+    let resolveDelete!: () => void;
+    mockDeleteConversation.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveDelete = resolve;
+      })
+    );
+    (mockConversations$.set as (value: Map<string, unknown>) => void)(
+      new Map([['selected-chat', { serverId: 'primary', data: {} }]])
+    );
+    mockSelectedConversation$.set('another-chat');
+    const { onDelete } = renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    serverRegistry$.activeServerId.set('secondary');
+    resolveDelete();
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalled());
+    expect(mockDeleteConversation).toHaveBeenCalledWith('selected-chat');
+    expect(mockConversations$.get('selected-chat')?.peek()).toBeUndefined();
+    expect(mockSelectedConversation$.get()).toBe('another-chat');
   });
 
   it('fails closed when the sidebar row server is no longer registered', async () => {

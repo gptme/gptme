@@ -187,13 +187,16 @@ export function useConversation(conversationId: string, serverId?: string) {
           // Only load from API if we don't already have conversation data
           try {
             const data = await api.getConversation(conversationId, { limit: 50 });
+            if (cancelled) return;
 
             // Also load the chat config
             try {
               const chatConfig = await api.getChatConfig(conversationId);
+              if (cancelled) return;
               updateConversationData(conversationId, data);
               updateConversation(conversationId, { chatConfig, loadError: null });
             } catch (error) {
+              if (cancelled) return;
               console.warn(
                 `[useConversation] Failed to load chat config for ${conversationId}:`,
                 error
@@ -205,6 +208,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               updateConversation(conversationId, { chatConfig: null, loadError: null });
             }
           } catch (error) {
+            if (cancelled) return;
             console.warn(
               `[useConversation] Failed to load conversation ${conversationId} from API:`,
               error
@@ -248,6 +252,10 @@ export function useConversation(conversationId: string, serverId?: string) {
             if (!cancelled) updateConversation(conversationId, { chatConfig: null });
           }
         }
+
+        // A superseded load must neither overwrite the new owner's entry nor
+        // reconnect the old owner's stream after the ownership reset closed it.
+        if (cancelled) return;
 
         // Check number of connected conversations
         const connectedConvs = Array.from(conversations$.get().entries())

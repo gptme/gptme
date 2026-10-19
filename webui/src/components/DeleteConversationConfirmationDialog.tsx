@@ -106,9 +106,9 @@ export function DeleteConversationConfirmationDialog({
     // MainLayout re-adds the stale loaded entry as an ownerless row. A same-ID
     // entry loaded from another server (or a selection that moved there while
     // the request was in flight) must survive.
-    // A row without a serverId is owned by the active (primary) server, which
-    // is also how useConversation stamps its store entries.
-    const targetStoreOwnerId = serverId ?? serverRegistry$.peek().activeServerId;
+    // Use the owner captured before the request, not the active server after
+    // it completes. Switching servers must not leave the deleted owner's cache.
+    const targetStoreOwnerId = targetOwnerId;
     const loadedEntryOwner = conversations$.get(conversationName)?.peek()?.serverId ?? null;
     const selectionMovedToOtherOwnerSameId =
       selectedConversation$.peek() === conversationName && currentSelectedOwnerId !== targetOwnerId;

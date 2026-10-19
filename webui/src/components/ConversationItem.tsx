@@ -257,8 +257,10 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                 </Tooltip>
                 <Computed>
                   {() => {
-                    const storeConv = conversations$.get(conv.id)?.get();
-                    const isLoaded = storeConv?.data?.log?.length > 0;
+                    const entry = conversations$.get(conv.id)?.get();
+                    const storeConv =
+                      (entry?.serverId ?? null) === (conv.serverId ?? null) ? entry : undefined;
+                    const isLoaded = (storeConv?.data?.log?.length ?? 0) > 0;
                     if (isLoaded) {
                       const cost = computeConversationCost(storeConv!.data!.log);
                       if (cost.hasData) return null;
@@ -307,8 +309,10 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                 </Computed>
                 <Computed>
                   {() => {
-                    const storeConv = conversations$.get(conv.id)?.get();
-                    const isLoaded = storeConv?.data?.log?.length > 0;
+                    const entry = conversations$.get(conv.id)?.get();
+                    const storeConv =
+                      (entry?.serverId ?? null) === (conv.serverId ?? null) ? entry : undefined;
+                    const isLoaded = (storeConv?.data?.log?.length ?? 0) > 0;
                     if (!isLoaded) return null;
                     const cost = computeConversationCost(storeConv!.data!.log);
                     if (!cost.hasData) return null;

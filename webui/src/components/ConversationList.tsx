@@ -185,7 +185,7 @@ export const ConversationList: FC<Props> = ({
   const prevUrlSearchRef = useRef(urlSearch);
 
   const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.peek();
+    const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
     const messages = storeConv?.data?.log ?? [];
     const name = storeConv?.data?.name || conv.name || conv.id;
     if (messages.length === 0) {
@@ -199,7 +199,7 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleExportJSON = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.peek();
+    const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
     const messages = storeConv?.data?.log ?? [];
     const name = storeConv?.data?.name || conv.name || conv.id;
     if (messages.length === 0) {
