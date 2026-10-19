@@ -10,6 +10,9 @@ import { setLocation } from '@/test-utils/location';
 const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
+const mockCreateConversation = jest.fn();
+const mockSendFailure = jest.fn();
+const mockFilesUploaded = jest.fn();
 const mockFetch = jest.fn();
 const mockIsDemoMode = jest.fn(() => false);
 const mockIsTauriEnvironment = jest.fn(() => false);
@@ -74,7 +77,7 @@ jest.mock('@/contexts/ApiContext', () => {
   return {
     useApi: () => ({
       api: {
-        createConversationWithPlaceholder: jest.fn(),
+        createConversationWithPlaceholder: mockCreateConversation,
         authHeader: null,
         lastConnectionResult$,
         compatibilityWarning$,
@@ -127,7 +130,20 @@ jest.mock('@/stores/servers', () => {
 });
 
 jest.mock('../ChatInput', () => ({
-  ChatInput: () => <div data-testid="chat-input" />,
+  ChatInput: ({ onSend }: { onSend: (message: string, options: unknown) => Promise<void> }) => (
+    <div data-testid="chat-input">
+      <button
+        onClick={() =>
+          void onSend('attachment draft', {
+            pendingFiles: [new File(['attachment'], 'welcome.txt')],
+            onFilesUploaded: mockFilesUploaded,
+          }).catch(mockSendFailure)
+        }
+      >
+        Send attachment fixture
+      </button>
+    </div>
+  ),
 }));
 
 jest.mock('../ExamplesSection', () => ({
@@ -155,6 +171,9 @@ describe('WelcomeView', () => {
     setupWizard$.providerStatusVersion.set(0);
     settingsModal$.set({ open: false, category: 'appearance' });
     mockConnect.mockReset();
+    mockCreateConversation.mockReset();
+    mockSendFailure.mockReset();
+    mockFilesUploaded.mockReset();
     mockNavigate.mockClear();
     mockInvalidateQueries.mockClear();
     mockFetch.mockReset();
@@ -172,6 +191,32 @@ describe('WelcomeView', () => {
       writable: true,
       value: mockFetch,
     });
+  });
+
+  it('propagates attachment failure without navigating and forwards the upload handoff', async () => {
+    const failure = new Error('Upload rejected');
+    mockCreateConversation.mockRejectedValueOnce(failure).mockResolvedValueOnce('upload-success');
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send attachment fixture' }));
+    });
+    expect(mockSendFailure).toHaveBeenCalledWith(failure);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockCreateConversation).toHaveBeenCalledWith(
+      'attachment draft',
+      expect.objectContaining({
+        onFilesUploaded: mockFilesUploaded,
+        pendingFiles: [expect.any(File)],
+      })
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send attachment fixture' }));
+    });
+    expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('upload-success'));
   });
 
   it('does not show first-run setup CTA or probe localhost in demo mode', () => {

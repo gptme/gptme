@@ -31,6 +31,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { serverRegistry$ } from '@/stores/servers';
 import { composerDraftKey } from '@/utils/composerDraft';
 import { useComposerDraft } from '@/hooks/useComposerDraft';
+import { AttachmentUploadError } from '@/utils/api';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
 import { ModelPicker } from '@/components/ModelPicker';
@@ -79,6 +80,8 @@ export interface ChatOptions {
   files?: string[];
   /** Raw File objects to upload after conversation creation (for new chat view) */
   pendingFiles?: File[];
+  /** Release the buffered composer only after upload, before message persistence. */
+  onFilesUploaded?: () => void;
   /** Max tokens for the model's response. Undefined = provider default. */
   maxTokens?: number;
   /** Sampling temperature (0–2). Undefined = provider default. */
@@ -560,7 +563,11 @@ const AgentBadge: FC<{ agent: Agent; baseUrl: string; onRemove: () => void }> = 
   </Badge>
 );
 
-const QueuedMessageBadge: FC<{ message: string; onClear: () => void }> = ({ message, onClear }) => {
+const QueuedMessageBadge: FC<{ message: string; onClear: () => void; onRetry?: () => void }> = ({
+  message,
+  onClear,
+  onRetry,
+}) => {
   // Truncate long messages for display
   const displayMessage = message.length > 30 ? message.slice(0, 30) + '...' : message;
 
@@ -585,15 +592,21 @@ const QueuedMessageBadge: FC<{ message: string; onClear: () => void }> = ({ mess
       >
         <X className="h-2.5 w-2.5" />
       </Button>
+      {onRetry && (
+        <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
+          Retry upload
+        </Button>
+      )}
     </Badge>
   );
 };
 
-const AttachedFileBadge: FC<{ name: string; previewUrl?: string; onRemove: () => void }> = ({
-  name,
-  previewUrl,
-  onRemove,
-}) => (
+const AttachedFileBadge: FC<{
+  name: string;
+  previewUrl?: string;
+  onRemove: () => void;
+  disabled?: boolean;
+}> = ({ name, previewUrl, onRemove, disabled }) => (
   <Badge variant="secondary" className="flex items-center gap-1.5 pr-1">
     <div className="flex items-center gap-1.5">
       {previewUrl ? (
@@ -611,6 +624,7 @@ const AttachedFileBadge: FC<{ name: string; previewUrl?: string; onRemove: () =>
       onClick={onRemove}
       className="h-4 w-4 p-0 hover:bg-destructive/20"
       aria-label={`Remove file ${name}`}
+      disabled={disabled}
     >
       <X className="h-2.5 w-2.5" />
     </Button>
@@ -633,6 +647,7 @@ export const ChatInput: FC<Props> = ({
   onEditCancel,
 }) => {
   const { isConnected$, connectionConfig } = useApi();
+  const { toast } = useToast();
   const { settings } = useSettings();
   const sidebarSelectedWorkspace = use$(selectedWorkspace$);
   const sidebarSelectedAgent = use$(selectedAgent$);
@@ -812,6 +827,7 @@ export const ChatInput: FC<Props> = ({
 
   // Always buffer files locally — upload happens on send, not on attach
   const attachFiles = useCallback((files: FileList | File[]) => {
+    if (uploadInFlight.current) return;
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
     setAttachedFiles((prev) => [
@@ -884,8 +900,14 @@ export const ChatInput: FC<Props> = ({
   interface QueuedMessage {
     text: string;
     options: ChatOptions;
+    uploadFailed?: boolean;
   }
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const uploadInFlight = useRef(false);
+  // Async upload completion must not clear a different conversation's draft.
+  const currentDraftKey = useRef(storageKey);
+  currentDraftKey.current = storageKey;
 
   const autoFocus = use$(autoFocus$);
   const conversation = conversationId ? use$(conversations$.get(conversationId)) : undefined;
@@ -905,7 +927,7 @@ export const ChatInput: FC<Props> = ({
 
   // Don't disable input while waiting for session - let users type
   // Session will be established by the time they finish typing
-  const isDisabled = isReadOnly || !isConnected;
+  const isDisabled = isReadOnly || !isConnected || isUploading;
 
   // Focus the textarea when autoFocus is true and component is interactive
   useEffect(() => {
@@ -937,6 +959,7 @@ export const ChatInput: FC<Props> = ({
     if (wasBusy.current && !isBusy && messageQueue.length > 0) {
       if (!onSend) return;
       const nextMessage = messageQueue[0];
+      if (nextMessage.uploadFailed) return;
       console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
@@ -951,7 +974,14 @@ export const ChatInput: FC<Props> = ({
             error && typeof error === 'object' && 'status' in error
               ? (error as { status: number }).status
               : undefined;
-          if (status === 409) {
+          if (error instanceof AttachmentUploadError) {
+            setMessageQueue((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev]);
+            toast({
+              variant: 'destructive',
+              title: 'Upload failed',
+              description: 'Your queued message was not sent. Use Retry upload to try again.',
+            });
+          } else if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
             setMessageQueue((prev) => [nextMessage, ...prev]);
             scheduleQueueRetry();
@@ -962,7 +992,7 @@ export const ChatInput: FC<Props> = ({
       }
     }
     wasBusy.current = isBusy;
-  }, [isBusy, messageQueue, onSend]);
+  }, [isBusy, messageQueue, onSend, toast]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
   // Sidebar workspace selections sync both ways. Agent default applies only when
@@ -1011,7 +1041,7 @@ export const ChatInput: FC<Props> = ({
       return;
     }
 
-    if (!onSend) return;
+    if (!onSend || uploadInFlight.current) return;
 
     // Files are always buffered locally — pass raw File objects for upload on send
     const pendingFiles =
@@ -1077,30 +1107,58 @@ export const ChatInput: FC<Props> = ({
         temperature,
         topP,
       };
-      const result = onSend(sentMessage, sentOptions);
-      if (result instanceof Promise) {
-        result.catch((error: unknown) => {
-          const status =
-            error && typeof error === 'object' && 'status' in error
-              ? (error as { status: number }).status
-              : undefined;
-          if (status === 409) {
-            // Server was still generating (concurrent client). The optimistic
-            // message was already removed by sendMessage; requeue it so it's
-            // retried on the next isBusy -> false transition instead of lost.
-            console.warn('[ChatInput] Direct send got 409, requeuing', sentMessage);
-            setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
-            scheduleQueueRetry();
-          } else {
-            console.error('[ChatInput] Failed to send message:', error);
-          }
-        });
+      const draftKey = storageKey;
+      let draftCleared = false;
+      const clearSubmittedDraft = () => {
+        if (draftCleared || currentDraftKey.current !== draftKey) return;
+        draftCleared = true;
+        uploadInFlight.current = false;
+        setIsUploading(false);
+        setMessage('');
+        cleanupAndClearFiles();
+        if (textareaRef.current) textareaRef.current.style.height = '';
+      };
+      const hasPendingFiles = !!pendingFiles?.length;
+      if (hasPendingFiles) {
+        uploadInFlight.current = true;
+        setIsUploading(true);
+      } else {
+        clearSubmittedDraft();
       }
-      setMessage('');
-      cleanupAndClearFiles();
-      // Reset textarea height to default by removing inline style
-      if (textareaRef.current) {
-        textareaRef.current.style.height = '';
+      try {
+        await onSend(sentMessage, {
+          ...sentOptions,
+          ...(hasPendingFiles ? { onFilesUploaded: clearSubmittedDraft } : {}),
+        });
+        // Also support onSend implementations that do not use the upload callback.
+        if (hasPendingFiles) clearSubmittedDraft();
+      } catch (error) {
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? (error as { status: number }).status
+            : undefined;
+        if (status === 409 && !(error instanceof AttachmentUploadError)) {
+          // Preserve the existing server-busy queue behavior.
+          clearSubmittedDraft();
+          setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
+          scheduleQueueRetry();
+        } else {
+          console.error('[ChatInput] Failed to send message:', error);
+          if (hasPendingFiles) {
+            toast({
+              variant: 'destructive',
+              title: 'Message not sent',
+              description: 'Check the attached files and try Send again.',
+            });
+          }
+        }
+      } finally {
+        // The upload callback may already have released the composer and a
+        // newer send may be uploading. Do not unlock that newer submission.
+        if (!draftCleared) {
+          uploadInFlight.current = false;
+          setIsUploading(false);
+        }
       }
     }
   };
@@ -1201,6 +1259,7 @@ export const ChatInput: FC<Props> = ({
         multiple
         className="hidden"
         aria-label="Attach files"
+        disabled={isDisabled}
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
             attachFiles(e.target.files);
@@ -1218,6 +1277,7 @@ export const ChatInput: FC<Props> = ({
                 key={`${file.name}-${index}`}
                 name={file.name}
                 previewUrl={file.previewUrl}
+                disabled={isUploading}
                 onRemove={() =>
                   setAttachedFiles((prev) => {
                     const removed = prev[index];
@@ -1237,6 +1297,18 @@ export const ChatInput: FC<Props> = ({
                 key={index}
                 message={messageQueue.length > 1 ? `(${index + 1}) ${msg.text}` : msg.text}
                 onClear={() => setMessageQueue((prev) => prev.filter((_, i) => i !== index))}
+                onRetry={
+                  msg.uploadFailed
+                    ? () => {
+                        wasBusy.current = true;
+                        setMessageQueue((prev) =>
+                          prev.map((item, i) =>
+                            i === index ? { ...item, uploadFailed: false } : item
+                          )
+                        );
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>

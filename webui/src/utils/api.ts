@@ -25,6 +25,8 @@ import {
   setMaxTokens,
   setTemperature,
   setTopP,
+  clearInitialStepState,
+  replaceLog,
 } from '@/stores/conversations';
 
 // Add DOM types
@@ -64,6 +66,17 @@ export class ApiClientError extends Error {
 
   static isApiError(error: unknown): error is ApiClientError {
     return error instanceof ApiClientError;
+  }
+}
+
+/** Upload failed before message persistence; keep the draft for deliberate retry. */
+export class AttachmentUploadError extends Error {
+  cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Attached files could not be uploaded. Check the files and try Send again.');
+    this.cause = cause;
+    this.name = 'AttachmentUploadError';
   }
 }
 
@@ -1669,6 +1682,7 @@ export class ApiClient {
       stream?: boolean;
       workspace?: string;
       pendingFiles?: File[];
+      onFilesUploaded?: () => void;
       maxTokens?: number;
       temperature?: number;
       topP?: number;
@@ -1739,14 +1753,44 @@ export class ApiClient {
             workspace: requestWorkspace(options?.workspace),
           },
         });
+        let uploadResult;
         try {
-          const uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
-          const filePaths = uploadResult.files.map((f) => f.path);
-          await this.sendMessage(conversationId, { ...message, files: filePaths });
+          uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
         } catch (error) {
-          console.error('[API] Failed to upload pending files:', error);
-          // Fall back: send original message without files
-          await this.sendMessage(conversationId, message);
+          throw new AttachmentUploadError(error);
+        }
+        const filePaths = uploadResult.files.map((f) => f.path);
+        const attachedMessage = { ...message, files: filePaths };
+        replaceLog(conversationId, [attachedMessage]);
+        options.onFilesUploaded?.();
+        try {
+          await this.sendMessage(conversationId, attachedMessage);
+        } catch (error) {
+          // Upload succeeded: transfer ownership to the visible failed message,
+          // not back to a composer that might blindly duplicate an ambiguous POST.
+          clearInitialStepState(conversationId);
+          setGenerating(conversationId, false);
+          const rejected =
+            ApiClientError.isApiError(error) &&
+            [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
+          replaceLog(conversationId, [
+            {
+              ...attachedMessage,
+              _status: 'failed',
+              _error:
+                'Message could not be saved. Use Retry; uncertain saves require refreshing history first.',
+              _retry: {
+                persistence: rejected ? 'rejected' : 'unknown',
+                options: {
+                  model: options?.model,
+                  stream: options?.stream,
+                  maxTokens: options?.maxTokens,
+                  temperature: options?.temperature,
+                  topP: options?.topP,
+                },
+              },
+            },
+          ]);
         }
       } else {
         // No files: create conversation with the initial message.
@@ -1773,7 +1817,18 @@ export class ApiClient {
 
     // NOTE: step() is NOT called here — useConversation calls it after subscribing to SSE.
 
-    // Return the ID immediately; server creation runs concurrently.
+    // Retain the new-chat composer until attachment upload succeeds. Text-only
+    // chats still navigate immediately; a failed attachment attempt may leave
+    // an empty server conversation, but must never generate from a stripped one.
+    if (options?.pendingFiles?.length) {
+      try {
+        await serverCreation;
+      } catch (error) {
+        clearInitialStepState(conversationId);
+        setGenerating(conversationId, false);
+        throw error;
+      }
+    }
     return conversationId;
   }
 

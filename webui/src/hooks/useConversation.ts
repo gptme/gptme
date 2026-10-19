@@ -38,7 +38,12 @@ import { playChime } from '@/utils/audio';
 import { speakText } from '@/utils/tts';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
-import { ApiClientError, getApiErrorPresentation, getClientGeneration } from '@/utils/api';
+import {
+  ApiClientError,
+  AttachmentUploadError,
+  getApiErrorPresentation,
+  getClientGeneration,
+} from '@/utils/api';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
@@ -728,10 +733,11 @@ export function useConversation(conversationId: string, serverId?: string) {
           toast({
             variant: 'destructive',
             title: 'Upload failed',
-            description: 'Failed to upload attached files',
+            description: 'Your message was not sent. Check the files and try Send again.',
           });
-          // Continue sending the message without files
+          throw new AttachmentUploadError(error);
         }
+        options.onFilesUploaded?.();
       }
 
       // Create user message with pending status
