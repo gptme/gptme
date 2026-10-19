@@ -288,7 +288,7 @@ jobs:
           sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf libglib2.0-bin
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -366,6 +366,29 @@ jobs:
         with:
           projectPath: tauri
           args: ${{ matrix.args }}
+
+      - name: Verify packaged Linux callback dispatch
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test_dir=$(mktemp -d)
+          trap 'rm -rf "$test_dir"' EXIT
+          dpkg-deb --extract tauri/src-tauri/target/release/bundle/deb/*.deb "$test_dir/package"
+          mkdir "$test_dir/bin"
+          # Record what the actual desktop launcher passes, without starting a sidecar.
+          cat > "$test_dir/bin/gptme-tauri" <<'SH'
+          #!/bin/sh
+          printf '%s\n' "$@" > "$GPTME_DESKTOP_TEST_OUTPUT"
+          SH
+          chmod +x "$test_dir/bin/gptme-tauri"
+          export GPTME_DESKTOP_TEST_OUTPUT="$test_dir/argv"
+          callback='gptme://callback?code=desktop-launch-check&state=a%2Fb'
+          PATH="$test_dir/bin:$PATH" gio launch "$test_dir/package/usr/share/applications/gptme.desktop" "$callback"
+          for _attempt in {1..50}; do
+            [[ -s "$GPTME_DESKTOP_TEST_OUTPUT" ]] && break
+            sleep 0.1
+          done
+          [[ "$(cat "$GPTME_DESKTOP_TEST_OUTPUT")" == "$callback" ]]
 
   build-sidecar:
     name: Build sidecar (${{ matrix.os }})
