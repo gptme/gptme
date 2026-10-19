@@ -11,6 +11,12 @@
   "diff_fingerprint": "abc123def456",
   "rejected_finding_count": 1,
   "dropped_counts": {"unverified_absence": 1},
+  "head": "abc123def456",
+  "base": "000111",
+  "merge_base": "aaa222",
+  "reviewed_at": "2026-10-17T20:00:00Z",
+  "model": "claude-opus-5-5",
+  "engine": "anthropic",
   "findings": [
     {
       "body": "This variable is unused.",
@@ -23,7 +29,11 @@
       "category": "style",
       "agreement": 2,
       "independence_key": "fp:abc123",
-      "passes": 3
+      "passes": 3,
+      "quote": "unused_var = compute()",
+      "suggestion": "Remove this variable or use it.",
+      "verification": "Searched the file for usages of unused_var; none found.",
+      "security": false
     }
   ]
 }

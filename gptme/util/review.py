@@ -150,6 +150,20 @@ class ReviewFinding:
     #: ``agreement`` to compute a consensus rate: ``agreement / passes``.
     passes: int = 0
 
+    #: Quoted text from the diff that supports this finding.  Empty when the
+    #: reviewer did not produce a quote.
+    quote: str = ""
+
+    #: Suggested fix text from the reviewer.  Empty when not provided.
+    suggestion: str = ""
+
+    #: Explanation of how the reviewer verified the finding (e.g. code search,
+    #: schema check, test run).  Empty when not provided.
+    verification: str = ""
+
+    #: True when the reviewer classified this as a security-relevant finding.
+    security: bool = False
+
     def to_dict(self) -> dict:
         d: dict = {
             "body": self.body,
@@ -168,6 +182,14 @@ class ReviewFinding:
             d["independence_key"] = self.independence_key
         if self.passes:
             d["passes"] = self.passes
+        if self.quote:
+            d["quote"] = self.quote
+        if self.suggestion:
+            d["suggestion"] = self.suggestion
+        if self.verification:
+            d["verification"] = self.verification
+        if self.security:
+            d["security"] = self.security
         return d
 
     @classmethod
@@ -224,6 +246,13 @@ class ReviewFinding:
                 f"ReviewFinding.passes must be an int, got {type(passes_raw).__name__!r}: {passes_raw!r}"
             )
         passes = passes_raw
+        quote_raw = d.get("quote", "")
+        quote = quote_raw if isinstance(quote_raw, str) else ""
+        suggestion_raw = d.get("suggestion", "")
+        suggestion = suggestion_raw if isinstance(suggestion_raw, str) else ""
+        verification_raw = d.get("verification", "")
+        verification = verification_raw if isinstance(verification_raw, str) else ""
+        security = bool(d.get("security", False))
         return cls(
             body=body_raw,
             file=file_raw,
@@ -236,6 +265,10 @@ class ReviewFinding:
             agreement=agreement,
             independence_key=independence_key,
             passes=passes,
+            quote=quote,
+            suggestion=suggestion,
+            verification=verification,
+            security=security,
         )
 
     @classmethod
@@ -475,6 +508,30 @@ class ReviewArtifact:
     #: truncated.  ``None`` when not tracked.
     context_coverage: dict | None = None
 
+    # ------------------------------------------------------------------
+    # Target identity fields (from "ai-review-local" shape)
+    # ------------------------------------------------------------------
+
+    #: Head commit SHA of the reviewed diff.  Empty when not provided.
+    head: str = ""
+
+    #: Base commit SHA (merge base's parent) of the reviewed diff.  Empty when not provided.
+    base: str = ""
+
+    #: Three-way merge base SHA.  Empty when not provided.
+    merge_base: str = ""
+
+    #: ISO-8601 timestamp when the review was completed.  Empty when not provided.
+    reviewed_at: str = ""
+
+    #: Model identifier used by the reviewer (e.g. ``"claude-opus-5-5"``).
+    #: Empty when not provided.
+    model: str = ""
+
+    #: Inference engine/provider identifier (e.g. ``"anthropic"``, ``"openrouter"``).
+    #: Empty when not provided.
+    engine: str = ""
+
     #: Schema version for forward-compatibility.
     schema_version: Literal[2] = 2
 
@@ -539,6 +596,18 @@ class ReviewArtifact:
             d["consensus"] = self.consensus
         if self.context_coverage is not None:
             d["context_coverage"] = self.context_coverage
+        if self.head:
+            d["head"] = self.head
+        if self.base:
+            d["base"] = self.base
+        if self.merge_base:
+            d["merge_base"] = self.merge_base
+        if self.reviewed_at:
+            d["reviewed_at"] = self.reviewed_at
+        if self.model:
+            d["model"] = self.model
+        if self.engine:
+            d["engine"] = self.engine
         return d
 
     def to_json(self, *, indent: int = 2) -> str:
@@ -701,6 +770,19 @@ class ReviewArtifact:
             context_coverage_raw if isinstance(context_coverage_raw, dict) else None
         )
 
+        head_raw = d.get("head", "")
+        head = head_raw if isinstance(head_raw, str) else ""
+        base_raw = d.get("base", "")
+        base = base_raw if isinstance(base_raw, str) else ""
+        merge_base_raw = d.get("merge_base", "")
+        merge_base = merge_base_raw if isinstance(merge_base_raw, str) else ""
+        reviewed_at_raw = d.get("reviewed_at", "")
+        reviewed_at = reviewed_at_raw if isinstance(reviewed_at_raw, str) else ""
+        model_raw = d.get("model", "")
+        model = model_raw if isinstance(model_raw, str) else ""
+        engine_raw = d.get("engine", "")
+        engine = engine_raw if isinstance(engine_raw, str) else ""
+
         # Re-evaluate status after all metadata coercion, including suppression counts.
         if deserialization_errors > 0 and review_status == ReviewStatus.COMPLETE:
             review_status = ReviewStatus.INCOMPLETE
@@ -728,6 +810,12 @@ class ReviewArtifact:
             ledger_only_findings=ledger_only_findings,
             consensus=consensus,
             context_coverage=context_coverage,
+            head=head,
+            base=base,
+            merge_base=merge_base,
+            reviewed_at=reviewed_at,
+            model=model,
+            engine=engine,
         )
 
     @classmethod
@@ -927,6 +1015,13 @@ class ReviewArtifact:
                 errors += 1
                 passes_raw = 0
             passes = passes_raw
+            quote_raw = f_raw.get("quote", "")
+            quote = quote_raw if isinstance(quote_raw, str) else ""
+            suggestion_raw = f_raw.get("suggestion", "")
+            suggestion = suggestion_raw if isinstance(suggestion_raw, str) else ""
+            verification_raw = f_raw.get("verification", "")
+            verification = verification_raw if isinstance(verification_raw, str) else ""
+            security = bool(f_raw.get("security", False))
             findings.append(
                 ReviewFinding(
                     body=body_raw,
@@ -938,23 +1033,30 @@ class ReviewArtifact:
                     agreement=agreement,
                     independence_key=independence_key,
                     passes=passes,
+                    quote=quote,
+                    suggestion=suggestion,
+                    verification=verification,
+                    security=security,
                 )
             )
 
-        # Artifact-level union fields
+        # Artifact-level identity fields
         base_sha = d.get("base", "")
         merge_base_sha = d.get("merge_base", "")
         head_sha = d.get("head", "")
-        if (
-            isinstance(base_sha, str)
-            and isinstance(merge_base_sha, str)
-            and isinstance(head_sha, str)
-        ):
-            diff_fingerprint = "/".join(
-                filter(None, [base_sha, merge_base_sha, head_sha])
-            )
+        base = base_sha if isinstance(base_sha, str) else ""
+        merge_base = merge_base_sha if isinstance(merge_base_sha, str) else ""
+        head = head_sha if isinstance(head_sha, str) else ""
+        if base and merge_base and head:
+            diff_fingerprint = "/".join(filter(None, [base, merge_base, head]))
         else:
             diff_fingerprint = ""
+        reviewed_at_raw = d.get("reviewed_at", "")
+        reviewed_at = reviewed_at_raw if isinstance(reviewed_at_raw, str) else ""
+        model_raw = d.get("model", "")
+        model = model_raw if isinstance(model_raw, str) else ""
+        engine_raw = d.get("engine", "")
+        engine = engine_raw if isinstance(engine_raw, str) else ""
 
         rejected_raw = d.get("rejected_findings", [])
         rejected_findings = (
@@ -1032,6 +1134,12 @@ class ReviewArtifact:
             ledger_only_findings=ledger_only_findings,
             consensus=consensus,
             context_coverage=context_coverage,
+            head=head,
+            base=base,
+            merge_base=merge_base,
+            reviewed_at=reviewed_at,
+            model=model,
+            engine=engine,
         )
 
     @classmethod
@@ -1169,6 +1277,12 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
             ]
         },
         "context_coverage": {"oneOf": [{"type": "object"}, {"type": "null"}]},
+        "head": {"type": "string"},
+        "base": {"type": "string"},
+        "merge_base": {"type": "string"},
+        "reviewed_at": {"type": "string"},
+        "model": {"type": "string"},
+        "engine": {"type": "string"},
         "findings": {
             "type": "array",
             "items": {
@@ -1199,6 +1313,10 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
                     "agreement": {"type": "integer", "minimum": 0},
                     "independence_key": {"type": "string"},
                     "passes": {"type": "integer", "minimum": 0},
+                    "quote": {"type": "string"},
+                    "suggestion": {"type": "string"},
+                    "verification": {"type": "string"},
+                    "security": {"type": "boolean"},
                 },
                 "additionalProperties": False,
             },

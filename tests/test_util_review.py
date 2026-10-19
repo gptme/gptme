@@ -3791,3 +3791,127 @@ class TestSchemaFixtures:
         assert f.independence_key == "fp:abc123"
         assert f.passes == 3
         assert artifact.merge_safety == MergeSafety.SAFE
+        # New evidence fields
+        assert f.quote == "unused_var = compute()"
+        assert f.suggestion == "Remove this variable or use it."
+        assert (
+            f.verification == "Searched the file for usages of unused_var; none found."
+        )
+        assert f.security is False
+        # New artifact identity fields
+        assert artifact.head == "abc123def456"
+        assert artifact.base == "000111"
+        assert artifact.merge_base == "aaa222"
+        assert artifact.reviewed_at == "2026-10-17T20:00:00Z"
+        assert artifact.model == "claude-opus-5-5"
+        assert artifact.engine == "anthropic"
+
+    def test_finding_evidence_round_trip(self):
+        """Quote/suggestion/verification/security survive to_dict→from_dict."""
+        finding = ReviewFinding(
+            body="buffer overflow in write()",
+            file="src/io.c",
+            line=99,
+            severity=FindingSeverity.CRITICAL,
+            quote="buf[len] = 0;",
+            suggestion="Add a bounds check before writing.",
+            verification="Traced through the call path; no bounds check found.",
+            security=True,
+        )
+        d = finding.to_dict()
+        assert d["quote"] == "buffer overflow in write()".replace(
+            "buffer overflow in write()", finding.quote
+        )
+        assert d["quote"] == "buf[len] = 0;"
+        assert d["suggestion"] == "Add a bounds check before writing."
+        assert (
+            d["verification"] == "Traced through the call path; no bounds check found."
+        )
+        assert d["security"] is True
+        recovered = ReviewFinding.from_dict(d)
+        assert recovered.quote == finding.quote
+        assert recovered.suggestion == finding.suggestion
+        assert recovered.verification == finding.verification
+        assert recovered.security is True
+
+    def test_finding_evidence_absent_by_default(self):
+        """Empty/false evidence fields are omitted from to_dict."""
+        finding = ReviewFinding(body="minor issue", severity=FindingSeverity.WARNING)
+        d = finding.to_dict()
+        assert "quote" not in d
+        assert "suggestion" not in d
+        assert "verification" not in d
+        assert "security" not in d
+
+    def test_artifact_identity_round_trip(self):
+        """head/base/merge_base/reviewed_at/model/engine survive to_dict→from_dict."""
+        artifact = ReviewArtifact(
+            pr_owner="gptme",
+            pr_repo="gptme",
+            pr_number=100,
+            head="deadbeef",
+            base="cafebabe",
+            merge_base="00000000",
+            reviewed_at="2026-10-19T22:00:00Z",
+            model="claude-opus-5-5",
+            engine="openrouter",
+        )
+        d = artifact.to_dict()
+        assert d["head"] == "deadbeef"
+        assert d["base"] == "cafebabe"
+        assert d["merge_base"] == "00000000"
+        assert d["reviewed_at"] == "2026-10-19T22:00:00Z"
+        assert d["model"] == "claude-opus-5-5"
+        assert d["engine"] == "openrouter"
+        recovered = ReviewArtifact.from_dict(d)
+        assert recovered.head == "deadbeef"
+        assert recovered.base == "cafebabe"
+        assert recovered.merge_base == "00000000"
+        assert recovered.reviewed_at == "2026-10-19T22:00:00Z"
+        assert recovered.model == "claude-opus-5-5"
+        assert recovered.engine == "openrouter"
+
+    def test_local_review_finding_evidence_preserved(self):
+        """_from_local_review carries quote/suggestion/verification/security."""
+        local_artifact = {
+            "schema_version": 1,
+            "kind": "ai-review-local",
+            "repo": "gptme/gptme",
+            "base": "aaa",
+            "merge_base": "bbb",
+            "head": "ccc",
+            "reviewed_at": "2026-10-19T20:00:00Z",
+            "model": "deepseek-v4.1-flash",
+            "engine": "cloudflare",
+            "findings": [
+                {
+                    "body": "SQL injection risk",
+                    "file": "app/db.py",
+                    "line": 55,
+                    "severity": "P1",
+                    "class": "security",
+                    "quote": 'query = f"SELECT * FROM {table}"',
+                    "suggestion": "Use parameterised queries.",
+                    "verification": "Confirmed: f-string interpolated directly into SQL.",
+                    "security": True,
+                    "agreement": 3,
+                    "independence_key": "sql-inj-db55",
+                    "passes": 3,
+                }
+            ],
+        }
+        artifact = ReviewArtifact.from_dict(local_artifact)
+        assert artifact.review_status.value == "complete"
+        assert artifact.head == "ccc"
+        assert artifact.base == "aaa"
+        assert artifact.merge_base == "bbb"
+        assert artifact.reviewed_at == "2026-10-19T20:00:00Z"
+        assert artifact.model == "deepseek-v4.1-flash"
+        assert artifact.engine == "cloudflare"
+        assert len(artifact.findings) == 1
+        f = artifact.findings[0]
+        assert f.category == "security"
+        assert f.quote == 'query = f"SELECT * FROM {table}"'
+        assert f.suggestion == "Use parameterised queries."
+        assert f.verification == "Confirmed: f-string interpolated directly into SQL."
+        assert f.security is True
