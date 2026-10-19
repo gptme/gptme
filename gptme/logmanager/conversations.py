@@ -195,29 +195,33 @@ def _is_candidate_line(line: bytes) -> bool:
     return bool(line.strip()) and (b'"user"' in line or b'"assistant"' in line)
 
 
-def _read_tail_lines(f: BinaryIO, file_size: int) -> list[bytes]:
-    """Return the complete lines in the file tail.
+def _read_tail_lines(f: BinaryIO, file_size: int) -> Generator[bytes, None, None]:
+    """Yield tail lines newest first, reading each fixed-size chunk once.
 
-    Starts with a _TAIL_BYTES window and grows it backwards until the window
-    holds at least one complete user/assistant line. A final JSONL line
-    larger than the window (a long answer, or a big trailing tool result
-    after the last answer) used to consume the whole tail: the partial first
-    line was dropped and nothing complete remained, so fast metadata lost
-    the preview and model that the full scan reports.
+    The caller stops once it has both a preview candidate and a model.
+    Keep fragments of only the unfinished line, joining once when its start
+    is reached. Completed tool/system lines can be consumed and discarded
+    immediately instead of retaining and rereading an expanding tail window.
     """
-    window = _TAIL_BYTES
-    while True:
-        start = max(file_size - window, 0)
-        f.seek(start)
-        data = f.read()
-        if start == 0:
-            return data.splitlines()
-        # Drop the partial first line; the window starts mid-line.
-        newline = data.find(b"\n")
-        lines = data[newline + 1 :].splitlines() if newline != -1 else []
-        if any(_is_candidate_line(line) for line in lines):
-            return lines
-        window *= 4
+    position = file_size
+    fragments: list[bytes] = []
+    while position > 0:
+        size = min(position, _TAIL_BYTES)
+        position -= size
+        f.seek(position)
+        parts = f.read(size).split(b"\n")
+        # The rightmost part continues the line from the previous chunk.
+        fragments.append(parts.pop())
+        if parts:
+            line = b"".join(reversed(fragments))
+            fragments.clear()
+            yield line
+            # All interior lines are complete; the leftmost may be partial.
+            for line in reversed(parts[1:]):
+                yield line
+            fragments.append(parts[0])
+        if position == 0:
+            yield b"".join(reversed(fragments))
 
 
 def _fast_scan_tail(
@@ -247,25 +251,22 @@ def _fast_scan_tail(
     last_msg_line: bytes | None = None
     conv_model: str | None = None
     with open(conv_fn, "rb") as f:
-        tail_lines = _read_tail_lines(f, file_size)
-
-    # Scan tail lines in reverse for last user/assistant message + model
-    for line in reversed(tail_lines):
-        line = line.strip()
-        if not line:
-            continue
-        if last_msg_line is None and _is_candidate_line(line):
-            last_msg_line = line
-        if conv_model is None and b'"metadata"' in line:
-            try:
-                msg = json.loads(line)
-                meta = msg.get("metadata")
-                if meta and meta.get("model"):
-                    conv_model = meta["model"]
-            except (json.JSONDecodeError, TypeError):
-                pass
-        if last_msg_line is not None and conv_model is not None:
-            break
+        for line in _read_tail_lines(f, file_size):
+            line = line.strip()
+            if not line:
+                continue
+            if last_msg_line is None and _is_candidate_line(line):
+                last_msg_line = line
+            if conv_model is None and b'"metadata"' in line:
+                try:
+                    msg = json.loads(line)
+                    meta = msg.get("metadata")
+                    if meta and meta.get("model"):
+                        conv_model = meta["model"]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if last_msg_line is not None and conv_model is not None:
+                break
 
     return len_msgs, conv_model, last_msg_line
 

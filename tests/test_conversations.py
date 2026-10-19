@@ -2,6 +2,7 @@
 
 import json
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,10 @@ def _make_conversation(
     conv_dir = tmp_path / conv_id
     conv_dir.mkdir()
     jsonl = conv_dir / "conversation.jsonl"
-    jsonl.write_text("\n".join(json.dumps(msg) for msg in messages) + "\n")
+    jsonl.write_text(
+        "\n".join(json.dumps(msg, ensure_ascii=False) for msg in messages) + "\n",
+        encoding="utf-8",
+    )
     return conv_dir
 
 
@@ -506,6 +510,10 @@ def test_detail_false_long_unicode_final_message(logs_dir):
         },
     ]
     fast, full = _fast_and_full(logs_dir, "long-final-unicode", messages)
+    data = (logs_dir / "long-final-unicode" / "conversation.jsonl").read_bytes()
+    # The initial read starts on a UTF-8 continuation byte, not ASCII escapes.
+    boundary = len(data) - conversations_mod._TAIL_BYTES
+    assert data[boundary] & 0xC0 == 0x80
     assert fast.last_message_preview == full.last_message_preview
     assert (
         full.last_message_preview is not None
@@ -536,3 +544,63 @@ def test_detail_false_large_trailing_tool_message(logs_dir):
     assert fast.last_message_role == full.last_message_role == "assistant"
     assert fast.model == full.model == "synthetic/tool-model"
     assert fast.messages == full.messages == 3
+
+
+@pytest.mark.parametrize("trailing_newline", [False, True])
+def test_tail_reads_each_chunk_once(trailing_newline: bool) -> None:
+    """Large tool tails must not reread windows or pull in old history."""
+
+    class CountingReader(BytesIO):
+        reads: list[int]
+
+        def __init__(self, data: bytes) -> None:
+            super().__init__(data)
+            self.reads = []
+
+        def read(self, size: int | None = -1) -> bytes:
+            self.reads.append(-1 if size is None else size)
+            return super().read(size)
+
+    old = json.dumps({"role": "system", "content": "old" * 100000}).encode()
+    answer = json.dumps(
+        {"role": "assistant", "content": "answer", "metadata": {"model": "test"}}
+    ).encode()
+    tool = json.dumps({"role": "system", "content": "tool" * 20000}).encode()
+    tail = answer + b"\n" + tool + (b"\n" if trailing_newline else b"")
+    data = old + b"\n" + tail
+    reader = CountingReader(data)
+    for line in conversations_mod._read_tail_lines(reader, len(data)):
+        if conversations_mod._is_candidate_line(line):
+            assert line == answer
+            break
+    else:
+        pytest.fail("missing assistant line")
+    assert all(0 < size <= conversations_mod._TAIL_BYTES for size in reader.reads)
+    assert sum(reader.reads) <= len(tail) + conversations_mod._TAIL_BYTES
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 7, 32, 8192])
+@pytest.mark.parametrize("data", [b"", b"one", b"one\n", b"one\ntwo", b"one\n\ntwo\n"])
+def test_tail_line_chunk_boundaries(
+    monkeypatch: pytest.MonkeyPatch, chunk_size: int, data: bytes
+) -> None:
+    """Line reconstruction handles BOF, empty lines and a missing final LF."""
+    monkeypatch.setattr(conversations_mod, "_TAIL_BYTES", chunk_size)
+    lines = list(conversations_mod._read_tail_lines(BytesIO(data), len(data)))
+    assert [line for line in lines if line] == list(reversed(data.split()))
+
+
+def test_detail_false_long_user_message_keeps_previous_model(logs_dir):
+    """Completing a long user line must not hide the preceding model."""
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": "padding" * 20000},
+        {
+            "role": "assistant",
+            "content": "a" * 1000,
+            "metadata": {"model": "synthetic/previous-model"},
+        },
+        {"role": "user", "content": "u" * 16000},
+    ]
+    fast, full = _fast_and_full(logs_dir, "long-user-previous-model", messages)
+    assert fast.last_message_preview == full.last_message_preview
+    assert fast.model == full.model == "synthetic/previous-model"
