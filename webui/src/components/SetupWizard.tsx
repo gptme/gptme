@@ -66,8 +66,7 @@ function getCloudAuthUrl(): string {
 
   try {
     cloudBaseUrl = Function('return import.meta.env.VITE_GPTME_CLOUD_BASE_URL')() as
-      | string
-      | undefined;
+      string | undefined;
   } catch {
     // Jest / Node runtime (import.meta not available)
     if (typeof process !== 'undefined' && process.env) {
@@ -103,7 +102,8 @@ const CLOUD_AUTH_ORIGIN = new URL(CLOUD_AUTH_URL).origin;
 const CLOUD_AUTH_MESSAGE_TYPE = 'gptme-cloud-auth-code';
 const SERVER_START_RETRY_COUNT = 6;
 const SERVER_START_RETRY_DELAY_MS = 250;
-const SERVER_READY_RETRY_COUNT = 10;
+// A restarted PyInstaller sidecar can take several seconds, just like first launch.
+const SERVER_READY_RETRY_COUNT = 60;
 const SERVER_READY_RETRY_DELAY_MS = 250;
 // On first launch the managed sidecar may need several seconds to start.
 // Retry the initial connect button for up to 15 seconds before giving up.
