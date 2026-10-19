@@ -529,6 +529,11 @@ class KernelBackend:
             if not self.is_alive():
                 # Kernel has died; clean up so we restart below.
                 logger.warning("Kernel has died; restarting")
+                if self._kc is not None:
+                    # Stop the dead client's channels before discarding it, so
+                    # repeated crashes don't leak sockets and heartbeat threads.
+                    with contextlib.suppress(Exception):
+                        self._kc.stop_channels()
                 self._started = False
                 self._kc = None
                 self._km = None

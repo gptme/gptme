@@ -781,6 +781,61 @@ def test_kernel_death_mid_cell_is_reported_promptly(backend):
     assert backend.execute("1 + 1").result_text == "2"
 
 
+def test_repeated_crashes_restore_execution_helpers_and_cwd(
+    backend, tmp_path, monkeypatch
+):
+    """Real crashes stop old channels and recover helpers in the host's new cwd."""
+    monkeypatch.chdir(tmp_path)
+
+    def helper():
+        return "survived"
+
+    backend.register_bridge_function(helper)
+    with patch("gptme.tools.python_kernel.watch_memory") as watch:
+        assert backend.execute("state = 'before'").error is None
+        for generation in range(2):
+            old_client = backend._kc
+            old_target = watch.call_args.args[0]
+            assert old_client.channels_running
+            result = backend.execute(
+                "import os, signal; os.kill(os.getpid(), signal.SIGKILL)", timeout=30
+            )
+            assert result.error is not None
+            assert result.error["ename"] == "KernelDied"
+
+            new_cwd = tmp_path / str(generation)
+            new_cwd.mkdir()
+            monkeypatch.chdir(new_cwd)
+            with patch.object(
+                old_client, "stop_channels", wraps=old_client.stop_channels
+            ) as stop:
+                assert backend.execute("1 + 1").result_text == "2"
+            stop.assert_called_once_with()
+            assert not old_client.channels_running
+            assert backend._kc is not old_client
+            result = backend.execute("helper()")
+            assert result.error is None, result.error
+            assert result.result_text == "'survived'"
+            result = backend.execute("import os; os.getcwd()")
+            assert result.error is None
+            assert result.result_text == repr(str(new_cwd))
+
+            # A dead leader must not make the old group's surviving workers
+            # unmonitored. The callback still checks that original group.
+            with patch(
+                "gptme.tools.python_kernel.group_alive", return_value=True
+            ) as alive:
+                assert old_target.alive()
+                alive.assert_called_once_with(old_target.pgid)
+            assert watch.call_args.args[0].pgid != old_target.pgid
+
+    assert watch.call_count == 3  # initial kernel plus both replacements
+    current_client = backend._kc
+    backend.shutdown()
+    assert not current_client.channels_running
+    backend.shutdown()  # idempotent after a crash/restart sequence
+
+
 def test_old_kernel_workers_do_not_report_current_state_lost(backend):
     """A retained guard callback must describe its own kernel generation."""
     with patch("gptme.tools.python_kernel.watch_memory") as watch:
@@ -1150,6 +1205,70 @@ def test_ensure_started_cleans_up_os_errors(
     assert stopped == (
         list(range(1, failure_attempt + 1)) if failure_stage == "ready" else []
     )
+
+
+@pytest.mark.parametrize("replacement_fails", [False, True])
+def test_dead_kernel_stops_channels_before_replacement(
+    backend, monkeypatch, replacement_fails
+):
+    """A dead kernel's client channels are stopped before its replacement is built."""
+    import jupyter_client
+
+    events: list[str] = []
+
+    class OldClient:
+        def stop_channels(self):
+            events.append("stop_channels")
+
+    class OldManager:
+        def is_alive(self):
+            return False
+
+    backend._started = True
+    backend._kc = OldClient()
+    backend._km = OldManager()
+
+    class NewManager:
+        kernel_spec = None
+
+        def start_kernel(self, **_kw):
+            events.append("start")
+
+        def client(self):
+            events.append("client")
+            return _FakeKC()
+
+        def is_alive(self):
+            return True
+
+        def shutdown_kernel(self, **_kw):
+            pass
+
+    def make_manager():
+        events.append("construct")
+        if replacement_fails:
+            raise RuntimeError("replacement construction failed")
+        return NewManager()
+
+    monkeypatch.setattr(jupyter_client, "KernelManager", make_manager)
+    monkeypatch.setattr(
+        KernelBackend, "_find_project_python", staticmethod(lambda: None)
+    )
+    monkeypatch.setattr(KernelBackend, "_is_uv_project", staticmethod(lambda: False))
+    monkeypatch.setattr(backend, "_exec_silent", lambda *_a, **_kw: None)
+    monkeypatch.setattr(backend, "_watch_memory", lambda: events.append("watch_memory"))
+
+    if replacement_fails:
+        with pytest.raises(RuntimeError, match="replacement construction failed"):
+            backend._ensure_started()
+    else:
+        backend._ensure_started()
+        assert backend._started
+        assert "watch_memory" in events
+        assert events.index("start") > events.index("construct")
+
+    # The old client is cleaned up even if the replacement never gets built.
+    assert events.index("stop_channels") < events.index("construct")
 
 
 def test_ensure_started_uses_project_python_when_ipykernel_present(
