@@ -83,6 +83,35 @@ describe('useFileAutocomplete listing freshness', () => {
     expect(result.current.state.files.map((f) => f.name)).toEqual(['new.txt']);
   });
 
+  it('ignores a listing that resolves after the popup closed', async () => {
+    const { result } = setup();
+    let resolveFirst!: (files: FileType[]) => void;
+    mockListWorkspace.mockImplementationOnce(
+      () =>
+        new Promise<FileType[]>((resolve) => {
+          resolveFirst = resolve;
+        })
+    );
+
+    // Start a request, then close the popup before it resolves.
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.handleInputChange('@old', 4) as unknown as Promise<void>;
+    });
+    act(() => result.current.close());
+
+    serverFiles = [file('old.txt'), file('new.txt')];
+    await act(async () => {
+      resolveFirst([file('old.txt')]);
+      await pending;
+    });
+
+    await type(result, '@new');
+
+    expect(mockListWorkspace).toHaveBeenCalledTimes(2);
+    expect(result.current.state.files.map((f) => f.name)).toEqual(['new.txt']);
+  });
+
   it('drops a deleted file after the popup closed', async () => {
     const { result } = setup();
     await type(result, '@old');

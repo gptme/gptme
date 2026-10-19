@@ -43,8 +43,12 @@ export function useFileAutocomplete({
   // so files created or deleted since the last opening show up on the next one.
   const fileCache = useRef<Map<string, FileType[]>>(new Map());
   const currentValue = useRef<string>('');
+  // Bumped on every close so a listing request that resolves after the popup
+  // closed can neither repopulate the cache nor update the popup state.
+  const openingGeneration = useRef(0);
 
   const closePopup = useCallback((reset: Partial<AutocompleteState> = {}) => {
+    openingGeneration.current += 1;
     fileCache.current.clear();
     setState((prev) => ({ ...prev, isOpen: false, ...reset }));
   }, []);
@@ -59,9 +63,14 @@ export function useFileAutocomplete({
         return fileCache.current.get(cacheKey)!;
       }
 
+      const generation = openingGeneration.current;
       try {
         const files = await listWorkspace(conversationId, basePath || undefined);
-        fileCache.current.set(cacheKey, files);
+        // A request that started in an earlier opening must not repopulate the
+        // cache after the popup closed; the next opening needs a fresh listing.
+        if (openingGeneration.current === generation) {
+          fileCache.current.set(cacheKey, files);
+        }
         return files;
       } catch (error) {
         console.error('[useFileAutocomplete] Error listing workspace:', error);
@@ -122,6 +131,7 @@ export function useFileAutocomplete({
       }));
 
       // Fetch files and filter by query
+      const generation = openingGeneration.current;
       const files = await flattenFiles();
       const filtered = files.filter(
         (f) =>
@@ -129,8 +139,8 @@ export function useFileAutocomplete({
           f.path.toLowerCase().includes(trigger.query.toLowerCase())
       );
 
-      // Only update if value hasn't changed
-      if (currentValue.current === value) {
+      // Only update if this opening is still live and the value hasn't changed
+      if (openingGeneration.current === generation && currentValue.current === value) {
         setState((prev) => ({
           ...prev,
           files: filtered.slice(0, 10), // Limit to 10 suggestions
