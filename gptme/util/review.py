@@ -316,12 +316,15 @@ def _is_local_review(d: dict) -> bool:
 
 
 #: Severity translation for Bob's local-review artifact (``kind: "ai-review-local"``).
-#: That schema uses Px labels ordered P1 (blocking) → P4 (nitpick).
+#: The producer (gptme-contrib ``gptme_review``) emits only ``P0``/``P1``/``P2``,
+#: worst first, and maps core severities back with ``critical→P0``,
+#: ``error→P1``, ``warning→P2``. This table is that inverse, so a finding keeps
+#: its exact Px label across a round trip. In particular, a non-blocking P2 must
+#: not come back as a blocking P1. Any other label fails closed.
 _LOCAL_REVIEW_SEVERITY: dict[str, FindingSeverity] = {
-    "p1": FindingSeverity.CRITICAL,
-    "p2": FindingSeverity.ERROR,
-    "p3": FindingSeverity.WARNING,
-    "p4": FindingSeverity.NOTE,
+    "p0": FindingSeverity.CRITICAL,
+    "p1": FindingSeverity.ERROR,
+    "p2": FindingSeverity.WARNING,
 }
 
 
@@ -855,7 +858,7 @@ class ReviewArtifact:
     def _from_local_review(cls, d: dict) -> ReviewArtifact:
         """Ingest Bob's local-review artifact (``kind: "ai-review-local"``).
 
-        Maps P1/P2/P3/P4 severity to the canonical ``FindingSeverity`` enum and
+        Maps P0/P1/P2 severity to the canonical ``FindingSeverity`` enum and
         extracts PR coordinates from the top-level ``repo`` field.  The ``class``
         field is preserved as ``category``; ``agreement`` (multi-pass consensus
         count) is carried through to ``ReviewFinding.agreement``.
