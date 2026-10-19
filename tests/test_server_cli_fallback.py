@@ -96,6 +96,7 @@ def test_configured_model_without_key_still_serves_setup(
         XDG_CONFIG_HOME=str(tmp_path / ".config"),
         PYTHONPATH=str(repo),
         GPTME_SERVER_TOKEN="test-fallback-token",
+        PYTHON_DOTENV_DISABLED="1",
     )
     url = f"http://127.0.0.1:{unused_tcp_port}/api/v2"
     with (tmp_path / "server.log").open("w+") as log:
