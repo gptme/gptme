@@ -14,9 +14,12 @@ import {
 } from '@/utils/exportConversation';
 
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { ConversationItem, getConversationName } from './ConversationItem';
+import { ConversationItem, getConversationKey, getConversationName } from './ConversationItem';
 
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
+import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
+import { getClientForServer } from '@/stores/serverClients';
+import { useQueryClient } from '@tanstack/react-query';
 import type { ConversationSummary } from '@/types/conversation';
 import type { ExternalSessionCatalogItem } from '@/types/api';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
@@ -24,6 +27,7 @@ import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
+import { serverRegistry$ } from '@/stores/servers';
 import { toast } from 'sonner';
 
 const HARNESS_LABELS: Record<string, string> = {
@@ -110,6 +114,8 @@ export const ConversationList: FC<Props> = ({
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
   const connectionStatus = useConnectionStatus();
+  const queryClient = useQueryClient();
+  const registry = use$(serverRegistry$);
 
   const { toggleStar } = useConversationMetadata();
 
@@ -130,22 +136,37 @@ export const ConversationList: FC<Props> = ({
   };
 
   // Separately track local star state for optimistic UI updates.
-  // Keyed by conversation ID, value is the optimistic starred value.
+  // Keyed by the scoped server:id tuple, since the same conversation ID can
+  // exist independently on two registered servers.
   const [optimisticStars, setOptimisticStars] = useState<Record<string, boolean>>({});
 
   // Determine effective starred state: optimistic (if set) > server state
   const getIsStarred = useCallback(
     (conv: ConversationSummary) => {
-      if (conv.id in optimisticStars) return optimisticStars[conv.id];
+      const key = getConversationKey(conv);
+      if (key in optimisticStars) return optimisticStars[key];
       return conv.starred ?? false;
     },
     [optimisticStars]
   );
 
-  // Context menu state
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  // Context menu state. Server identity is part of the delete/rename target so
+  // a later confirmation cannot silently fall back to the primary server.
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    name: string;
+    serverId?: string;
+  } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  const [renameValue, setRenameValueState] = useState('');
+  // Mirror the controlled input value in a ref. The rename row lives inside a
+  // Legend <Computed>, so a submit handler must not rely on a possibly stale
+  // render closure for the just-typed value.
+  const renameValueRef = useRef('');
+  const setRenameValue = useCallback((value: string) => {
+    renameValueRef.current = value;
+    setRenameValueState(value);
+  }, []);
   // Guard against double-submit: onKeyDown(Enter) sets this before onBlur fires
   const renameCommittedRef = useRef(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -188,11 +209,13 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleStartRename = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.peek();
-    const currentName = storeConv?.data?.name || conv.name || conv.id;
+    // getConversationName is owner-aware: secondary rows never prefill from the
+    // primary's bare-ID cache.
+    const currentName = getConversationName(conv);
     renameCommittedRef.current = false;
-    setRenamingId(conv.id);
-    setRenameValue(currentName);
+    renameValueRef.current = currentName;
+    setRenamingId(getConversationKey(conv));
+    setRenameValueState(currentName);
   }, []);
 
   const handleRenameCancel = useCallback(() => {
@@ -201,33 +224,50 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleRenameSubmit = useCallback(
-    async (convId: string) => {
+    async (convId: string, serverId?: string, submittedValue?: string) => {
       if (renameCommittedRef.current) return;
       renameCommittedRef.current = true;
 
-      const trimmed = renameValue.trim();
+      const trimmed = (submittedValue ?? renameValueRef.current).trim();
       if (!trimmed) {
         setRenamingId(null);
         return;
       }
+      // A row carrying a serverId is owned by that server. If the owner has
+      // disappeared, fail closed instead of renaming the primary's same-ID log.
+      const owner = serverId ? getClientForServer(serverId) : api;
+      if (!owner) {
+        toast.error('Failed to rename conversation: owning server is no longer available');
+        setRenamingId(null);
+        return;
+      }
       try {
-        const currentConfig = await api.getChatConfig(convId);
-        await api.updateChatConfig(convId, {
+        const currentConfig = await owner.getChatConfig(convId);
+        await owner.updateChatConfig(convId, {
           ...currentConfig,
           chat: { ...currentConfig.chat, name: trimmed },
         });
-        // Update local store
-        const conv = conversations$.get(convId);
-        if (conv?.data) {
-          conv.data.name.set(trimmed);
+        const isPrimary = !serverId || serverId === registry.activeServerId;
+        // The global conversation store is keyed by bare ID with no owner
+        // metadata, so a secondary rename must not write a primary entry.
+        if (isPrimary) {
+          const conv = conversations$.get(convId);
+          if (conv?.data) {
+            conv.data.name.set(trimmed);
+          }
         }
+        await queryClient.invalidateQueries({
+          queryKey: isPrimary
+            ? conversationsQueryKey(owner.baseUrl)
+            : ['secondary-conversations', serverId],
+        });
         toast.success('Conversation renamed');
       } catch {
         toast.error('Failed to rename conversation');
       }
       setRenamingId(null);
     },
-    [api, renameValue]
+    [api, queryClient, registry.activeServerId]
   );
 
   // Sync URL → local state on browser back/forward (skip our own debounced writes).
@@ -781,6 +821,7 @@ export const ConversationList: FC<Props> = ({
         <DeleteConversationConfirmationDialog
           conversationName={deleteTarget.id}
           displayName={deleteTarget.name}
+          serverId={deleteTarget.serverId}
           open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) setDeleteTarget(null);

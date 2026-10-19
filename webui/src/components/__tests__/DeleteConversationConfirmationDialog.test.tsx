@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { DeleteConversationConfirmationDialog } from '../DeleteConversationConfirmationDialog';
 import {
   conversations$ as mockConversations$,
@@ -7,9 +7,27 @@ import {
 } from '@/stores/conversations';
 
 const mockDeleteConversation = jest.fn().mockResolvedValue(undefined);
+const mockSecondaryDeleteConversation = jest.fn().mockResolvedValue(undefined);
+const mockGetClientForServer = jest.fn();
 const testConversations$ = mockConversations$ as unknown as {
   set: (value: Map<string, { data: object }>) => void;
 };
+
+jest.mock('@/stores/serverClients', () => ({
+  getClientForServer: (serverId: string) => mockGetClientForServer(serverId),
+}));
+
+jest.mock('@/stores/servers', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { observable: obs } = require('@legendapp/state');
+  return {
+    serverRegistry$: obs({
+      servers: [{ id: 'primary', name: 'Primary', baseUrl: 'http://localhost:5700' }],
+      activeServerId: 'primary',
+      connectedServerIds: ['primary'],
+    }),
+  };
+});
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -38,7 +56,8 @@ function LocationProbe() {
 
 function renderDialog(
   conversationName = 'selected-chat',
-  currentRoute = `/chat/${conversationName}`
+  currentRoute = `/chat/${conversationName}`,
+  serverId?: string
 ) {
   const onDelete = jest.fn();
   render(
@@ -46,6 +65,7 @@ function renderDialog(
       <LocationProbe />
       <DeleteConversationConfirmationDialog
         conversationName={conversationName}
+        serverId={serverId}
         open={true}
         onOpenChange={jest.fn()}
         onDelete={onDelete}
@@ -58,6 +78,10 @@ function renderDialog(
 describe('DeleteConversationConfirmationDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetClientForServer.mockReturnValue({
+      baseUrl: 'http://secondary.test',
+      deleteConversation: mockSecondaryDeleteConversation,
+    });
     testConversations$.set(
       new Map([
         ['selected-chat', { data: {} }],
@@ -85,5 +109,121 @@ describe('DeleteConversationConfirmationDialog', () => {
     await waitFor(() => expect(onDelete).toHaveBeenCalled());
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat\/selected-chat$/);
     expect(mockSelectedConversation$.get()).toBe('selected-chat');
+  });
+
+  it('uses the selected ?server owner and redirects when deleting that server row', async () => {
+    renderDialog('selected-chat', '/chat/selected-chat?server=secondary', 'secondary');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(mockSecondaryDeleteConversation).toHaveBeenCalledWith('selected-chat')
+    );
+    expect(mockDeleteConversation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat$/);
+    expect(mockSelectedConversation$.get()).toBe('');
+  });
+
+  it('does not clear a same-id selection that switched server during delete', async () => {
+    let resolveDelete!: () => void;
+    mockSecondaryDeleteConversation.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveDelete = resolve;
+      })
+    );
+    const onDelete = jest.fn();
+
+    function SwitchServerProbe() {
+      const navigate = useNavigate();
+      return (
+        <button onClick={() => navigate('/chat/selected-chat?server=other')}>switch-server</button>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/chat/selected-chat?server=secondary']}>
+        <SwitchServerProbe />
+        <LocationProbe />
+        <DeleteConversationConfirmationDialog
+          conversationName="selected-chat"
+          serverId="secondary"
+          open={true}
+          onOpenChange={jest.fn()}
+          onDelete={onDelete}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(mockSecondaryDeleteConversation).toHaveBeenCalledWith('selected-chat')
+    );
+
+    // The user moves selection to another server with the same ID while the
+    // secondary delete is still in flight.
+    fireEvent.click(screen.getByText('switch-server'));
+    resolveDelete();
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalled());
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat\/selected-chat$/);
+    expect(mockSelectedConversation$.get()).toBe('selected-chat');
+  });
+
+  it('keeps the primary cache when selection switches to a same-id secondary owner', async () => {
+    let resolveDelete!: () => void;
+    mockDeleteConversation.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveDelete = resolve;
+      })
+    );
+    const onDelete = jest.fn();
+
+    function SwitchServerProbe() {
+      const navigate = useNavigate();
+      return (
+        <button onClick={() => navigate('/chat/selected-chat?server=secondary')}>
+          switch-server
+        </button>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/chat/selected-chat']}>
+        <SwitchServerProbe />
+        <LocationProbe />
+        <DeleteConversationConfirmationDialog
+          conversationName="selected-chat"
+          open={true}
+          onOpenChange={jest.fn()}
+          onDelete={onDelete}
+        />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mockDeleteConversation).toHaveBeenCalledWith('selected-chat'));
+
+    fireEvent.click(screen.getByText('switch-server'));
+    resolveDelete();
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalled());
+    // The primary row was deleted, but the selected same-ID conversation now
+    // belongs to another server; its bare-ID cache must remain.
+    expect(mockConversations$.get('selected-chat')).toBeTruthy();
+    expect(mockSelectedConversation$.get()).toBe('selected-chat');
+  });
+
+  it('fails closed when the sidebar row server is no longer registered', async () => {
+    mockGetClientForServer.mockReturnValue(null);
+    const { onDelete } = renderDialog('selected-chat', '/chat/selected-chat', 'secondary');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/owning server is no longer available/i)).toBeInTheDocument()
+    );
+    expect(mockDeleteConversation).not.toHaveBeenCalled();
+    expect(mockSecondaryDeleteConversation).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });
