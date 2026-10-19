@@ -20,6 +20,7 @@ import { appRoute } from '@/utils/routes';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useApi } from '@/contexts/ApiContext';
+import { conversationsCredentialsScope } from '@/hooks/useConversationsInfiniteQuery';
 import { ActivityCalendar } from '@/components/ActivityCalendar';
 import { getRelativeTimeString, toISODate } from '@/utils/time';
 import { chatRoute } from '@/utils/routes';
@@ -35,7 +36,13 @@ function useAllConversations() {
   const isConnected = use$(api.isConnected$);
 
   return useQuery({
-    queryKey: ['conversations-all', connectionConfig.baseUrl, isConnected],
+    // Scope by credentials, not just the server URL: a new account on the same
+    // server must not be served the previous account's cached summaries.
+    queryKey: [
+      'conversations-all',
+      connectionConfig.baseUrl,
+      conversationsCredentialsScope(connectionConfig),
+    ],
     queryFn: async () => {
       return await api.getConversations(100000, true);
     },
@@ -51,7 +58,12 @@ function useServerSearch(query: string) {
   const isConnected = use$(api.isConnected$);
 
   return useQuery({
-    queryKey: ['conversations-search', connectionConfig.baseUrl, query],
+    queryKey: [
+      'conversations-search',
+      connectionConfig.baseUrl,
+      conversationsCredentialsScope(connectionConfig),
+      query,
+    ],
     queryFn: () => api.searchConversations(query, SERVER_SEARCH_LIMIT),
     enabled: isConnected && query.length >= MIN_SERVER_SEARCH_LEN,
     staleTime: 30 * 1000,
