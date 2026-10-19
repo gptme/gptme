@@ -143,8 +143,9 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
       loadedLog: Message[],
       hasMoreBefore: boolean,
       client: IApiClient
-    ): Promise<Message[] | null> => {
-      if (isDemo) return loadedLog;
+    ): Promise<{ messages: Message[]; name: string } | null> => {
+      const loadedName = conversations$.get(conversationId)?.data?.name?.peek() || conversationId;
+      if (isDemo) return { messages: loadedLog, name: loadedName };
 
       const storeConv = conversations$.get(conversationId);
       const cachedGeneration = storeConv?.streamClientGeneration?.peek();
@@ -152,7 +153,9 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
         typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
       // Completeness is not ownership: the ID-keyed cache can still contain
       // another server's full transcript while the new owner's fetch is pending.
-      if (!hasMoreBefore && cacheBelongsToOwner) return loadedLog;
+      if (!hasMoreBefore && cacheBelongsToOwner) {
+        return { messages: loadedLog, name: loadedName };
+      }
       const selectedBranch = cacheBelongsToOwner
         ? (storeConv?.currentBranch?.peek() ?? 'main')
         : 'main';
@@ -164,7 +167,10 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
           toast.error(`Cannot export: branch "${selectedBranch}" is unavailable`);
           return null;
         }
-        return branchLog ?? full.log;
+        return {
+          messages: branchLog ?? full.log,
+          name: full.name || (cacheBelongsToOwner ? loadedName : conversationId),
+        };
       } catch {
         toast.error('Failed to load full conversation history');
         return null;
@@ -533,14 +539,17 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
                       );
                       if (!fullLog) return;
                       const exportOptions = { includeThinking, includeTools };
-                      const exportableMessages = getExportableMessages(fullLog, exportOptions);
+                      const exportableMessages = getExportableMessages(
+                        fullLog.messages,
+                        exportOptions
+                      );
                       if (!exportableMessages.length) {
                         toast.error('No visible messages to copy');
                         return;
                       }
                       try {
                         await copyConversationToClipboard(
-                          conv.data.name || conversationId,
+                          fullLog.name,
                           exportableMessages,
                           exportOptions
                         );
@@ -583,7 +592,10 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
                       if (!fullLog) return;
 
                       const exportOptions = { includeThinking, includeTools };
-                      const exportableMessages = getExportableMessages(fullLog, exportOptions);
+                      const exportableMessages = getExportableMessages(
+                        fullLog.messages,
+                        exportOptions
+                      );
                       if (!exportableMessages.length) {
                         toast.error('No visible messages to export');
                         return;
@@ -592,7 +604,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
                       reportDownloadOutcome(
                         exportConversationAsMarkdown(
                           conversationId,
-                          conv.data.name || conversationId,
+                          fullLog.name,
                           exportableMessages,
                           exportOptions
                         ),
@@ -628,11 +640,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
                       if (!fullLog) return;
 
                       reportDownloadOutcome(
-                        exportConversationAsJSON(
-                          conversationId,
-                          conv.data.name || conversationId,
-                          fullLog
-                        ),
+                        exportConversationAsJSON(conversationId, fullLog.name, fullLog.messages),
                         'Downloaded as JSON'
                       );
                     }}
