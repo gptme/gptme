@@ -373,7 +373,9 @@ jobs:
         run: |
           test_dir=$(mktemp -d)
           trap 'rm -rf "$test_dir"' EXIT
-          dpkg-deb --extract tauri/src-tauri/target/release/bundle/deb/*.deb "$test_dir/package"
+          deb_file=$(find tauri/src-tauri/target/release/bundle/deb -name '*.deb' -print -quit)
+          [[ -n "$deb_file" ]] || { echo "no .deb produced" >&2; exit 1; }
+          dpkg-deb --extract "$deb_file" "$test_dir/package"
           mkdir "$test_dir/bin"
           # Record what the actual desktop launcher passes, without starting a sidecar.
           cat > "$test_dir/bin/gptme-tauri" <<'SH'
