@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.app.json --noEmit && vite build",
     "build:dev": "tsc -p tsconfig.app.json --noEmit && vite build --mode development",
     "lint": "eslint . && tsc -p tsconfig.app.json --noEmit",
-    "lint:fix": "eslint . --fix && tsc -p tsconfig.app.json --noEmit",
+    "lint:fix": "eslint src e2e extension --fix && tsc -p tsconfig.app.json --noEmit",
     "knip": "knip --include files,dependencies",
     "format": "prettier --list-different --write \"**/*.{ts,tsx,js,jsx,json,css,html}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,html}\"",
