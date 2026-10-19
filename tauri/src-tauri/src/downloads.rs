@@ -27,7 +27,11 @@ pub fn sanitize_filename(suggested: &Path) -> Option<String> {
     let name = suggested.file_name()?.to_str()?;
     let cleaned: String = name
         .chars()
-        .filter(|c| !c.is_control() && *c != '/' && *c != '\\')
+        // Apply Windows' forbidden characters on every platform so suggested
+        // names remain portable, including ':' (alternate data streams).
+        .filter(|c| {
+            !c.is_control() && !matches!(*c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
         .collect();
     let cleaned = cleaned.trim();
     if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
@@ -206,6 +210,15 @@ mod tests {
             sanitize_filename(Path::new("a\\b.md")),
             Some("ab.md".to_string())
         );
+    }
+
+    #[test]
+    fn sanitize_strips_windows_reserved_characters() {
+        assert_eq!(
+            sanitize_filename(Path::new("foo:bar*?\"<>|.txt")),
+            Some("foobar.txt".to_string())
+        );
+        assert_eq!(sanitize_filename(Path::new(":*?\"<>|")), None);
     }
 
     #[test]
