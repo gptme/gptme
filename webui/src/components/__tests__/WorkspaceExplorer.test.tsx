@@ -44,6 +44,10 @@ describe('WorkspaceExplorer request ownership', () => {
     mockListWorkspace.mockReset();
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   function startWorkspaceThenAttachments() {
     const workspace = deferred<FileType[]>();
     const attachments = deferred<FileType[]>();
@@ -84,13 +88,12 @@ describe('WorkspaceExplorer request ownership', () => {
 
   it('does not show a stale request failure for the selected root', async () => {
     const { workspace, attachments } = startWorkspaceThenAttachments();
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await act(async () => attachments.resolve([file('attachment.txt')]));
     await act(async () => workspace.reject(new Error('stale workspace failure')));
 
     await waitFor(() => expect(screen.getByText('attachment.txt')).toBeInTheDocument());
     expect(screen.queryByText('stale workspace failure')).not.toBeInTheDocument();
-    consoleError.mockRestore();
   });
 });
