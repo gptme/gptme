@@ -100,6 +100,40 @@ class MergeSafety(str, Enum):
     UNKNOWN = "unknown"
 
 
+def _str_list(raw: object) -> list[str]:
+    """Keep the string entries of a list; anything else becomes empty."""
+    if not isinstance(raw, list):
+        return []
+    return [x for x in raw if isinstance(x, str)]
+
+
+def _consensus_evidence(d: dict) -> dict:
+    """Parse multi-pass consensus evidence shared by both finding readers.
+
+    These fields are diagnostic: a malformed value degrades to its empty
+    default rather than failing the artifact, matching ``quote``/``security``.
+    """
+    aspect_raw = d.get("aspect", "")
+    provenance_raw = d.get("provenance", [])
+    dka_raw = d.get("distinct_key_agreement", 0)
+    if isinstance(dka_raw, float) and dka_raw.is_integer():
+        dka_raw = int(dka_raw)
+    detail_raw = d.get("agreement_detail", {})
+    return {
+        "aspect": aspect_raw if isinstance(aspect_raw, str) else "",
+        "provenance": [p for p in provenance_raw if isinstance(p, dict)]
+        if isinstance(provenance_raw, list)
+        else [],
+        "distinct_keys": _str_list(d.get("distinct_keys")),
+        "distinct_key_agreement": dka_raw
+        if type(dka_raw) is int and dka_raw >= 0
+        else 0,
+        "agreement_detail": detail_raw if isinstance(detail_raw, dict) else {},
+        "merged_aspects": _str_list(d.get("merged_aspects")),
+        "merged_independence_keys": _str_list(d.get("merged_independence_keys")),
+    }
+
+
 @dataclass
 class ReviewFinding:
     """A single review finding produced by an AI reviewer.
@@ -164,6 +198,26 @@ class ReviewFinding:
     #: True when the reviewer classified this as a security-relevant finding.
     security: bool = False
 
+    #: Review aspect (lens) that produced this finding, e.g. ``"general"``.
+    aspect: str = ""
+
+    #: Per-pass origin records (``model``, ``pass``, ``aspect``, ...) for each
+    #: pass that reported this finding.  Empty for single-pass reviews.
+    provenance: list[dict] = field(default_factory=list)
+
+    #: Distinct ``model:aspect`` keys that reported this finding.
+    distinct_keys: list[str] = field(default_factory=list)
+
+    #: Number of distinct keys that agreed.  0 means not tracked.
+    distinct_key_agreement: int = 0
+
+    #: Pass numbers that ``agreed``/``dissented``/``did_not_look``.
+    agreement_detail: dict = field(default_factory=dict)
+
+    #: Aspects and independence keys of findings merged into this one.
+    merged_aspects: list[str] = field(default_factory=list)
+    merged_independence_keys: list[str] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         d: dict = {
             "body": self.body,
@@ -190,6 +244,18 @@ class ReviewFinding:
             d["verification"] = self.verification
         if self.security:
             d["security"] = self.security
+        for key in (
+            "aspect",
+            "provenance",
+            "distinct_keys",
+            "distinct_key_agreement",
+            "agreement_detail",
+            "merged_aspects",
+            "merged_independence_keys",
+        ):
+            value = getattr(self, key)
+            if value:
+                d[key] = value
         return d
 
     @classmethod
@@ -270,6 +336,7 @@ class ReviewFinding:
             suggestion=suggestion,
             verification=verification,
             security=security,
+            **_consensus_evidence(d),
         )
 
     @classmethod
@@ -1042,6 +1109,7 @@ class ReviewArtifact:
                     suggestion=suggestion,
                     verification=verification,
                     security=security,
+                    **_consensus_evidence(f_raw),
                 )
             )
 
@@ -1321,6 +1389,16 @@ REVIEW_ARTIFACT_SCHEMA_V2: dict = {
                     "suggestion": {"type": "string"},
                     "verification": {"type": "string"},
                     "security": {"type": "boolean"},
+                    "aspect": {"type": "string"},
+                    "provenance": {"type": "array", "items": {"type": "object"}},
+                    "distinct_keys": {"type": "array", "items": {"type": "string"}},
+                    "distinct_key_agreement": {"type": "integer", "minimum": 0},
+                    "agreement_detail": {"type": "object"},
+                    "merged_aspects": {"type": "array", "items": {"type": "string"}},
+                    "merged_independence_keys": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                 },
                 "additionalProperties": False,
             },

@@ -33,7 +33,17 @@
       "quote": "unused_var = compute()",
       "suggestion": "Remove this variable or use it.",
       "verification": "Searched the file for usages of unused_var; none found.",
-      "security": false
+      "security": false,
+      "aspect": "general",
+      "provenance": [
+        {"model": "claude-opus-5-5", "pass": 1, "aspect": "general"},
+        {"model": "claude-opus-5-5", "pass": 2, "aspect": "general"}
+      ],
+      "distinct_keys": ["claude-opus-5-5:general"],
+      "distinct_key_agreement": 1,
+      "agreement_detail": {"agreed": [1, 2], "dissented": [3], "did_not_look": []},
+      "merged_aspects": ["general", "correctness"],
+      "merged_independence_keys": ["claude-opus-5-5:general", "claude-opus-5-5:correctness"]
     }
   ]
 }
