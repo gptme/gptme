@@ -549,17 +549,30 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={async () => {
                       const conv = conversations$.get(conversationId)?.get();
                       if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
                       }
+
+                      // See the Copy handler above: don't silently export a
+                      // partial window of a long, paginated conversation.
+                      let fullLog = conv.data.log;
+                      if (!isDemo && conv.hasMoreBefore) {
+                        try {
+                          fullLog = (await api.getConversation(conversationId)).log;
+                        } catch {
+                          toast.error('Failed to load full conversation history');
+                          return;
+                        }
+                      }
+
                       reportDownloadOutcome(
                         exportConversationAsJSON(
                           conversationId,
                           conv.data.name || conversationId,
-                          conv.data.log
+                          fullLog
                         ),
                         'Downloaded as JSON'
                       );
