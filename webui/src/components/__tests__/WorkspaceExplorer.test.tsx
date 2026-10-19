@@ -70,11 +70,16 @@ describe('WorkspaceExplorer request ownership', () => {
   it('keeps loading while the selected root is pending after an older response settles', async () => {
     const { workspace, attachments } = startWorkspaceThenAttachments();
 
+    expect(screen.getByRole('status', { name: 'Loading files' })).toBeInTheDocument();
+
     await act(async () => workspace.resolve([file('wrong-workspace-file.txt')]));
     expect(screen.queryByText('wrong-workspace-file.txt')).not.toBeInTheDocument();
+    // The stale response must not clear the loading state of the selected root.
+    expect(screen.getByRole('status', { name: 'Loading files' })).toBeInTheDocument();
 
     await act(async () => attachments.resolve([file('attachment.txt')]));
     expect(await screen.findByText('attachment.txt')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading files' })).not.toBeInTheDocument();
   });
 
   it('does not show a stale request failure for the selected root', async () => {

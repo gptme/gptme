@@ -139,7 +139,11 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
           {error ? (
             <div className="flex h-full items-center justify-center text-destructive">{error}</div>
           ) : loading ? (
-            <div className="flex h-full items-center justify-center">
+            <div
+              className="flex h-full items-center justify-center"
+              role="status"
+              aria-label="Loading files"
+            >
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           ) : (
