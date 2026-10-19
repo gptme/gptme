@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { use$ } from '@legendapp/state/react';
 import { Button } from '@/components/ui/button';
 import { ModelPickerButton } from '@/components/ModelPicker';
 import { useApi } from '@/contexts/ApiContext';
@@ -26,7 +27,23 @@ function describeModelSource(source: UserSettingSource | null): string {
 }
 
 export function ServerDefaultModelSettings() {
+  const { api, isConnected$ } = useApi();
+  const isConnected = use$(isConnected$);
+  // Remount the whole editor when its owner changes, including a credential
+  // switch on the same URL or a disconnect/reconnect cycle.
+  const owner = JSON.stringify([api.baseUrl, api.authHeader, isConnected]);
+  return <OwnedDefaultModelSettings key={owner} isConnected={isConnected} />;
+}
+
+function OwnedDefaultModelSettings({ isConnected }: { isConnected: boolean }) {
   const { api } = useApi();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const { models, recommendedModels, isLoading: modelsLoading, error: modelsError } = useModels();
   const {
     settings,
@@ -38,7 +55,7 @@ export function ServerDefaultModelSettings() {
   const [userSelected, setUserSelected] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const isLoading = modelsLoading || settingsLoading;
+  const isLoading = !isConnected || modelsLoading || settingsLoading;
   const error = modelsError || settingsError;
 
   // Server-authoritative default model from /api/v2/user/settings
@@ -98,6 +115,7 @@ export function ServerDefaultModelSettings() {
       const result = data as SaveDefaultModelResponse;
       // Refetch from server to reflect the saved state authoritatively.
       // Reset userSelected so the refetch can update the picker to the confirmed model.
+      if (!mounted.current) return;
       setUserSelected(false);
       refetchSettings();
       toast.success(
@@ -106,9 +124,11 @@ export function ServerDefaultModelSettings() {
           : 'Default model updated.'
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save model');
+      if (mounted.current) {
+        toast.error(error instanceof Error ? error.message : 'Failed to save model');
+      }
     } finally {
-      setIsSaving(false);
+      if (mounted.current) setIsSaving(false);
     }
   };
 
