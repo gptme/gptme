@@ -40,13 +40,11 @@ type MockUseTauriServerStatusResult = {
   serverStatus: MockTauriServerStatus | null;
 };
 
-const mockUseTauriServerStatus = jest.fn(
-  (): MockUseTauriServerStatusResult => ({
-    isLoading: false,
-    managesLocalServer: false,
-    serverStatus: null,
-  })
-);
+const mockUseTauriServerStatus = jest.fn((): MockUseTauriServerStatusResult => ({
+  isLoading: false,
+  managesLocalServer: false,
+  serverStatus: null,
+}));
 
 let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
 let mockIsExchangingAuthCode = false;
@@ -1572,74 +1570,66 @@ describe('SetupWizard', () => {
     expect(calls).not.toContain('http://127.0.0.1:5700/api/v2/user/api-key');
   });
 
-  it('shows an error instead of falsely completing when the restarted server never comes back', async () => {
-    mockIsTauriEnvironment.mockReturnValue(true);
-    mockUseTauriServerStatus.mockReturnValue({
-      isLoading: false,
-      managesLocalServer: true,
-      serverStatus: {
-        running: true,
-        port: 5700,
-        port_available: false,
-        manages_local_server: true,
-      },
-    });
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ provider_configured: false }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          models: [
-            {
-              id: 'anthropic/claude-sonnet-4-7',
-              provider: 'anthropic',
-              model: 'claude-sonnet-4-7',
-            },
-          ],
-          recommended: ['anthropic/claude-sonnet-4-7'],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: 'ok', env_var: 'ANTHROPIC_API_KEY' }),
-      })
-      .mockRejectedValue(new Error('connection refused'));
-    mockConnect.mockImplementation(async () => {
-      isConnected$.set(true);
-    });
-    mockInvokeTauri.mockResolvedValue(undefined);
+  it.each([
+    { name: 'slow', readyAfterMs: 3000 },
+    { name: 'unavailable', readyAfterMs: Infinity },
+  ])('handles a $name sidecar after saving an API key', async ({ readyAfterMs }) => {
+    jest.useFakeTimers();
+    try {
+      let restartedAt: number | null = null;
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.endsWith('/api/v2/models')) {
+          return {
+            ok: true,
+            json: async () => ({
+              models: [
+                {
+                  id: 'anthropic/claude-sonnet-4-7',
+                  provider: 'anthropic',
+                  model: 'claude-sonnet-4-7',
+                },
+              ],
+              recommended: ['anthropic/claude-sonnet-4-7'],
+            }),
+          };
+        }
+        if (url.endsWith('/api/v2/user/api-key')) {
+          return { ok: true, json: async () => ({ status: 'ok' }) };
+        }
+        if (restartedAt !== null && Date.now() - restartedAt < readyAfterMs) {
+          throw new TypeError('Load failed');
+        }
+        return {
+          ok: true,
+          json: async () => ({ provider_configured: restartedAt !== null }),
+        };
+      });
+      mockInvokeTauri.mockImplementation(async (command: string) => {
+        if (command === 'start_server') restartedAt = Date.now();
+      });
+      await reachProviderStep();
+      fireEvent.change(screen.getByLabelText(/api key/i), {
+        target: { value: 'sk-ant-test-key' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
 
-    render(
-      <SettingsProvider>
-        <SetupWizard />
-      </SettingsProvider>
-    );
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2500);
+      });
+      expect(screen.getByRole('button', { name: /saving/i })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
-    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
-    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-ant-test-key' } });
-    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
-
-    await waitFor(
-      () => {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(13500);
+      });
+      if (Number.isFinite(readyAfterMs)) {
+        expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+      } else {
         expect(screen.getByText(/server did not come back in time/i)).toBeInTheDocument();
-      },
-      { timeout: 4000 }
-    );
-    expect(screen.queryByRole('heading', { name: /you're all set/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /i configured a provider/i })).toBeEnabled();
+      }
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('surfaces API key save errors without advancing', async () => {
