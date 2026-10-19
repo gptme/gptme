@@ -266,7 +266,9 @@ describe('ConversationSettings JSON export', () => {
     async (_format, button, exporter) => {
       const foreignClient = { getConversation: mockGetConversation };
       const ownerLog: Message[] = [{ role: 'user', content: 'SECONDARY-ONLY' }];
-      const ownerClient = { getConversation: jest.fn().mockResolvedValue({ log: ownerLog }) };
+      const ownerClient = {
+        getConversation: jest.fn().mockResolvedValue({ log: ownerLog, name: 'Secondary title' }),
+      };
       mockGetClient.mockReturnValue(ownerClient);
       setLoadedConversation([{ role: 'user', content: 'PRIMARY-SECRET' }], false);
       conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(foreignClient));
@@ -277,6 +279,7 @@ describe('ConversationSettings JSON export', () => {
       await waitFor(() => expect(exporter).toHaveBeenCalledTimes(1));
       expect(ownerClient.getConversation).toHaveBeenCalledWith('conv-1');
       expect(exporter.mock.calls[0][_format === 'Copy' ? 1 : 2]).toEqual(ownerLog);
+      expect(exporter.mock.calls[0][_format === 'Copy' ? 0 : 1]).toBe('Secondary title');
       expect(mockGetConversation).not.toHaveBeenCalled();
     }
   );
