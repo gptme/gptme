@@ -144,7 +144,11 @@ jest.mock('@/components/ui/dialog', () => {
       );
     },
     DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    DialogFooter: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <div className={className} data-testid="dialog-footer">
+        {children}
+      </div>
+    ),
     DialogHeader: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
       <div {...props}>{children}</div>
     ),
@@ -983,13 +987,25 @@ describe('SetupWizard', () => {
     expect(dialog.className).toContain('overflow-y-auto');
 
     // Native selects with long model identifiers must not widen the dialog's
-    // grid column past its max width.
-    for (const id of ['setup-api-key-provider', 'setup-api-key-model']) {
+    // grid column past its max width. Covers all three selects on this step,
+    // including the subscription provider select.
+    for (const id of [
+      'setup-api-key-provider',
+      'setup-api-key-model',
+      'setup-subscription-provider',
+    ]) {
       const select = document.getElementById(id);
       expect(select).not.toBeNull();
       expect(select?.className).toContain('w-full');
       expect(select?.className).toContain('min-w-0');
     }
+
+    // The footer must be able to wrap without its rows touching: `flex-wrap`
+    // plus a row gap from `gap-2`, while the column gap is zeroed at `sm`.
+    const footer = screen.getByTestId('dialog-footer');
+    expect(footer.className).toContain('flex-wrap');
+    expect(footer.className).toContain('gap-2');
+    expect(footer.className).toContain('sm:gap-x-0');
   });
 
   it('reopens directly to provider setup when requested externally', async () => {
