@@ -52,6 +52,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Both runners read the same .pre-commit-config.yaml and accept the same
+# ``run`` subcommands (``--all-files``/``--files``). Prefer the reference
+# implementation, fall back to prek (the Rust reimplementation) when only it
+# is installed — otherwise checks silently disable in prek-only repos.
+PRECOMMIT_RUNNERS = ("pre-commit", "prek")
+
+
+def get_precommit_runner() -> str | None:
+    """Return the available pre-commit runner, or None if neither is installed."""
+    for candidate in PRECOMMIT_RUNNERS:
+        if shutil.which(candidate):
+            return candidate
+    return None
+
 
 def use_checks() -> bool:
     """Check if pre-commit checks are enabled.
@@ -83,9 +97,9 @@ def use_checks() -> bool:
 
     enabled = explicit_enabled or has_config
 
-    # Check for pre-commit availability
-    if enabled and not shutil.which("pre-commit"):
-        logger.warning("pre-commit not found, disabling pre-commit checks")
+    # Check for a pre-commit runner (pre-commit or prek)
+    if enabled and not get_precommit_runner():
+        logger.warning("neither pre-commit nor prek found, disabling pre-commit checks")
         return False
 
     return enabled
@@ -163,15 +177,20 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         logger.debug("Pre-commit checks not enabled")
         return False, None
 
+    runner = get_precommit_runner()
+    if runner is None:
+        logger.debug("No pre-commit runner available")
+        return False, None
+
     if all_files:
-        cmd = ["pre-commit", "run", "--all-files"]
+        cmd = [runner, "run", "--all-files"]
     else:
         modified = _get_modified_files()
         if modified:
-            cmd = ["pre-commit", "run", "--files", *modified]
+            cmd = [runner, "run", "--files", *modified]
         else:
             logger.debug("No modified files found, falling back to --all-files")
-            cmd = ["pre-commit", "run", "--all-files"]
+            cmd = [runner, "run", "--all-files"]
     start_time = time.monotonic()
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
@@ -329,8 +348,8 @@ def run_precommit_on_file(
 
 
 def check_precommit_available() -> bool:
-    """Check if pre-commit is available."""
-    return shutil.which("pre-commit") is not None
+    """Check if a pre-commit runner (pre-commit or prek) is available."""
+    return get_precommit_runner() is not None
 
 
 def run_full_precommit_checks(
