@@ -31,7 +31,6 @@ import { type FC, memo } from 'react';
 import { Computed } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
-import { serverRegistry$ } from '@/stores/servers';
 
 /** strip leading YYYY-MM-DD from name if present */
 export function stripDate(name: string): string {
@@ -51,12 +50,18 @@ export function getConversationKey(conv: Pick<ConversationSummary, 'id' | 'serve
   return JSON.stringify([conv.serverId ?? null, conv.id]);
 }
 
+/**
+ * Whether the shared store entry for this bare ID was loaded by the row's own
+ * server. The store keeps a single entry per ID, so a same-ID conversation
+ * from another server must not lend it a cached title or live state.
+ */
+export function storeEntryOwnedByRow(conv: Pick<ConversationSummary, 'id' | 'serverId'>): boolean {
+  const entry = conversations$.get(conv.id)?.peek();
+  return (entry?.serverId ?? null) === (conv.serverId ?? null);
+}
+
 export function getConversationName(conv: ConversationSummary): string {
-  // The global conversation store is keyed by bare ID with no server owner.
-  // Never let a secondary row read the primary's same-ID cached title.
-  const isPrimary = !conv.serverId || conv.serverId === serverRegistry$.peek().activeServerId;
-  if (!isPrimary) return conv.name || stripDate(conv.id);
-  const storeConv = conversations$.get(conv.id)?.get();
+  const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
   return storeConv?.data?.name || conv.name || stripDate(conv.id);
 }
 
@@ -123,12 +128,16 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
   const isDemo = !!demoConv;
   const conversationKey = getConversationKey(conv);
   const isRenaming = renamingId === conversationKey;
-  const isPrimaryRow = !conv.serverId || conv.serverId === serverRegistry$.peek().activeServerId;
 
   const conversationContent = (
     <Computed>
       {() => {
-        const convObs = isPrimaryRow ? conversations$.get(conv.id) : undefined;
+        // Read live state only from an entry this row's server loaded. A
+        // secondary row must still show its own connected/generating/pending
+        // indicators, but never the primary's same-ID state (or vice versa).
+        const storeConv$ = conversations$.get(conv.id);
+        const ownedByRow = (storeConv$?.serverId?.get?.() ?? null) === (conv.serverId ?? null);
+        const convObs = ownedByRow ? storeConv$ : undefined;
         // Subscribe to lightweight reactive fields so live-state indicators update
         // without subscribing to data.log (the hot path during AI generation).
         const convIsConnected = convObs?.isConnected?.get?.();

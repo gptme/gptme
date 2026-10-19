@@ -5,6 +5,7 @@ import type { Message, StreamingMessage } from '@/types/conversation';
 import type { ChatOptions } from '@/components/ChatInput';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { isDemoMode } from '@/utils/connectionConfig';
+import { serverRegistry$ } from '@/stores/servers';
 import { use$, useObservable } from '@legendapp/state/react';
 import {
   conversations$,
@@ -80,6 +81,13 @@ export function useConversation(conversationId: string, serverId?: string) {
       initConversation(conversationId);
     }
   }, [conversationId, conversation$]);
+
+  // Record which server loaded this bare-ID store entry. Sidebar rows compare
+  // this against their own owner before trusting the cached title or live state,
+  // because the same conversation ID can exist on two servers.
+  useEffect(() => {
+    conversation$?.serverId.set(serverId ?? serverRegistry$.peek().activeServerId);
+  }, [conversation$, serverId]);
 
   // Ensure the conversation's chat config is loaded whenever it's missing.
   // The main load+connect effect below early-returns for already-connected

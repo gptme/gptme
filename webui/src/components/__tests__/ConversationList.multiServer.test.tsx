@@ -265,6 +265,65 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
     });
   });
 
+  it('removes the loaded store entry when deleting the server that owns it', async () => {
+    // The secondary conversation was opened earlier, then the user selected a
+    // different conversation before deleting it from the sidebar.
+    selectedConversation$.set('another-chat');
+    (conversations$.set as (value: Map<string, unknown>) => void)(
+      new Map([[sharedId, { serverId: 'secondary', data: { name: 'Secondary Chat', log: [] } }]])
+    );
+    renderList([secondaryConversation]);
+
+    fireEvent.contextMenu(screen.getByText('Secondary Chat'));
+    fireEvent.click(await screen.findByText('Delete'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    await waitFor(() =>
+      expect(mockSecondaryClient.deleteConversation).toHaveBeenCalledWith(sharedId)
+    );
+    // Without this the refreshed secondary query drops the row and MainLayout
+    // re-adds the stale loaded entry as an ownerless conversation.
+    await waitFor(() => expect(conversations$.get(sharedId)?.peek()).toBeUndefined());
+  });
+
+  it('shows live indicators on a secondary row that owns the loaded entry', () => {
+    (conversations$.set as (value: Map<string, unknown>) => void)(
+      new Map([
+        [
+          sharedId,
+          {
+            serverId: 'secondary',
+            isGenerating: true,
+            isConnected: false,
+            data: { name: 'Secondary Chat', log: [] },
+          },
+        ],
+      ])
+    );
+    renderList([secondaryConversation]);
+
+    expect(secondaryRow().querySelector('.animate-spin')).toBeInTheDocument();
+  });
+
+  it('does not show another server’s live state on a same-id row', () => {
+    (conversations$.set as (value: Map<string, unknown>) => void)(
+      new Map([
+        [
+          sharedId,
+          {
+            serverId: 'primary',
+            isGenerating: true,
+            isConnected: false,
+            data: { name: 'Primary Chat', log: [] },
+          },
+        ],
+      ])
+    );
+    renderList();
+
+    expect(secondaryRow().querySelector('.animate-spin')).not.toBeInTheDocument();
+  });
+
   it('treats an explicit registered primary serverId as primary, not secondary', async () => {
     renderList([primaryConversation]);
     fireEvent.click(screen.getByLabelText('Star conversation'));

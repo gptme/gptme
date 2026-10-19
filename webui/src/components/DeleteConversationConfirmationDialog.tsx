@@ -98,13 +98,18 @@ export function DeleteConversationConfirmationDialog({
       selectedConversation$.set('');
       navigate(appRoute('/chat'), { replace: true });
     }
-    // The global conversation store is keyed by bare ID and carries no owner
-    // metadata. Mutating it for a secondary delete could evict the primary's
-    // same-ID cache, so only the primary flow writes it. The owner query is
-    // still invalidated below and will reload from the correct server.
+    // Drop the loaded store entry only when it belongs to the deleted owner.
+    // Otherwise the refreshed owner query would remove the server row while
+    // MainLayout re-adds the stale loaded entry as an ownerless row. A same-ID
+    // entry loaded from another server (or a selection that moved there while
+    // the request was in flight) must survive.
+    // A row without a serverId is owned by the active (primary) server, which
+    // is also how useConversation stamps its store entries.
+    const targetStoreOwnerId = serverId ?? serverRegistry$.peek().activeServerId;
+    const loadedEntryOwner = conversations$.get(conversationName)?.peek()?.serverId ?? null;
     const selectionMovedToOtherOwnerSameId =
       selectedConversation$.peek() === conversationName && currentSelectedOwnerId !== targetOwnerId;
-    if (targetIsPrimary && !selectionMovedToOtherOwnerSameId) {
+    if (loadedEntryOwner === targetStoreOwnerId && !selectionMovedToOtherOwnerSameId) {
       conversations$.delete(conversationName);
     }
     queryClient.invalidateQueries({

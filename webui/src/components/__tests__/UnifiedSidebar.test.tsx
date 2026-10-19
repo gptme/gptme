@@ -5,11 +5,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { UnifiedSidebar } from '../UnifiedSidebar';
 
-const mockIsDemoMode = jest.fn(() => false);
-
 jest.mock('@/utils/connectionConfig', () => ({
-  isDemoMode: () => mockIsDemoMode(),
+  isDemoMode: jest.fn(() => false),
 }));
+
+// Resolve the mock through the registry: the factory above is hoisted above
+// this const, and importing UnifiedSidebar now pulls in serverClients, which
+// calls isDemoMode() during module evaluation. A factory closing over a
+// later-initialized const would hit the temporal dead zone there.
+const mockIsDemoMode = jest.requireMock('@/utils/connectionConfig').isDemoMode as jest.Mock;
 
 const mockGetExternalSessions = jest.fn();
 const mockGetServerInfo = jest.fn(async () => ({}));

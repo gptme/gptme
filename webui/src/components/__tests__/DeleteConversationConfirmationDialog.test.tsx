@@ -120,7 +120,9 @@ describe('DeleteConversationConfirmationDialog', () => {
       expect(mockSecondaryDeleteConversation).toHaveBeenCalledWith('selected-chat')
     );
     expect(mockDeleteConversation).not.toHaveBeenCalled();
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat$/);
+    // The redirect happens after the delete promise resolves; wait for it
+    // instead of racing the continuation under parallel suite load.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat$/));
     expect(mockSelectedConversation$.get()).toBe('');
   });
 

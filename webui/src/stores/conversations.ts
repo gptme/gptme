@@ -33,6 +33,11 @@ export type ConversationConnectionStatus =
 export interface ConversationState {
   // The conversation data
   data: ConversationResponse;
+  // Server that loaded this entry. The store is keyed by bare conversation ID,
+  // but IDs are only unique per server, so sidebar rows must check this before
+  // reading live state or a cached title for a same-ID conversation on another
+  // server. `undefined` means the primary/active server.
+  serverId?: string;
   // Whether this conversation is currently generating
   isGenerating: boolean;
   // Whether this conversation has an active event stream
