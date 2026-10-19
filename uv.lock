@@ -2257,7 +2257,7 @@ wheels = [
 
 [[package]]
 name = "gptme"
-version = "0.35.1"
+version = "0.35.2.dev20261019"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
