@@ -15,6 +15,7 @@ from .base import (
     Parameter,
     ToolSpec,
     ToolUse,
+    file_newline,
     get_path,
 )
 from .patch import Patch
@@ -297,10 +298,13 @@ def execute_append_impl(
 
     # Add newline before content if existing file doesn't end with one
     before = _read_text_safe(path) or ""
+    newline = file_newline(path) if before else ""
+    if before:
+        content = content.replace("\r\n", "\n")
     if before and not before.endswith("\n"):
         content = "\n" + content
 
-    with open(path, "a", encoding="utf-8", newline="") as f:
+    with open(path, "a", encoding="utf-8", newline=newline) as f:
         f.write(content)
     yield Message("system", f"Appended to {path_with_tilde(path_display)}")
 

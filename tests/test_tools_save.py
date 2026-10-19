@@ -104,6 +104,30 @@ def test_append_tool_placeholders(tmp_path: Path):
         assert "placeholder lines" in messages[0].content
 
 
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+@pytest.mark.parametrize("final_newline", [False, True])
+@pytest.mark.parametrize(
+    "content",
+    ["third\nfourth", "third\nfourth\n", "third\r\nfourth", "third\r\nfourth\r\n"],
+)
+def test_append_preserves_line_endings(
+    tmp_path: Path, newline: bytes, final_newline: bool, content: str
+) -> None:
+    path = tmp_path / "existing.txt"
+    original = newline.join([b"first", b"second"])
+    if final_newline:
+        original += newline
+    path.write_bytes(original)
+
+    messages = list(execute_append(content, [str(path)], None))
+
+    assert len(messages) == 1
+    assert "Appended to" in messages[0].content
+    assert path.read_bytes() == newline.join(
+        [b"first", b"second", b"third", b"fourth", b""]
+    )
+
+
 def test_save_tool_path_traversal_relative(tmp_path: Path):
     """Test that path traversal via relative paths is blocked."""
     import os
