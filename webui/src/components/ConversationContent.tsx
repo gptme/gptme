@@ -1222,6 +1222,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         <div className="mx-auto max-w-2xl p-4">
           <ChatInput
             conversationId={conversationId}
+            serverId={serverId}
             onSend={handleSendMessage}
             onInterrupt={interruptGeneration}
             isReadOnly={isReadOnly}
