@@ -146,9 +146,12 @@ export function useSpeechToText(): UseSpeechToTextReturn {
     sttAuthTokenRef.current = clientSettings.sttAuthToken;
   }, [clientSettings.sttAuthToken]);
 
-  const releaseRecordingSession = useCallback((session: RecordingSession | null) => {
-    session?.stream.getTracks().forEach((track) => track.stop());
-  }, []);
+  const releaseRecordingSession = useCallback(
+    (session: Pick<RecordingSession, 'stream'> | null) => {
+      session?.stream.getTracks().forEach((track) => track.stop());
+    },
+    []
+  );
 
   const startListening = useCallback(() => {
     // When user explicitly chooses server STT, skip browser path
@@ -218,8 +221,10 @@ export function useSpeechToText(): UseSpeechToTextReturn {
     const gen = ++fallbackSetupGenRef.current;
 
     void (async () => {
+      let acquiredStream: MediaStream | null = null;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        acquiredStream = stream;
         if (fallbackSetupGenRef.current !== gen) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -306,6 +311,8 @@ export function useSpeechToText(): UseSpeechToTextReturn {
 
         mediaRecorder.start();
       } catch (error) {
+        // Construction/start can throw before recordingRef owns a usable session.
+        releaseRecordingSession(acquiredStream ? { stream: acquiredStream } : null);
         console.warn('Recorded speech-to-text setup failed:', error);
         if (fallbackSetupGenRef.current === gen) {
           recordingRef.current = null;

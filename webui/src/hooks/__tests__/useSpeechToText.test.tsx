@@ -23,7 +23,7 @@ jest.mock('@/contexts/SettingsContext', () => ({
 }));
 
 class MockMediaStream {
-  private tracks = [{ stop: jest.fn() }];
+  private tracks = [{ stop: jest.fn() }, { stop: jest.fn() }];
 
   getTracks(): MediaStreamTrack[] {
     return this.tracks as unknown as MediaStreamTrack[];
@@ -275,6 +275,134 @@ describe('useSpeechToText', () => {
 
     expect(transcribeAudio.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ language: 'en' }));
     expect(handler).toHaveBeenCalledWith('server transcript');
+  });
+
+  it.each(['constructor', 'start'] as const)(
+    'releases every acquired track when recorder %s fails and permits retry',
+    async (failure) => {
+      const failedStream = new MockMediaStream();
+      const retryStream = new MockMediaStream();
+      jest
+        .mocked(navigator.mediaDevices.getUserMedia)
+        .mockResolvedValueOnce(failedStream as unknown as MediaStream)
+        .mockResolvedValueOnce(retryStream as unknown as MediaStream);
+      const setupError = new Error(`recorder ${failure} failed`);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      if (failure === 'constructor') {
+        const recorder = jest.fn().mockImplementationOnce(() => {
+          throw setupError;
+        });
+        Object.assign(recorder, { isTypeSupported: MockMediaRecorder.isTypeSupported });
+        window.MediaRecorder = recorder as unknown as typeof MediaRecorder;
+      } else {
+        jest.spyOn(MockMediaRecorder.prototype, 'start').mockImplementationOnce(() => {
+          throw setupError;
+        });
+      }
+      const handler = jest.fn();
+      const { result, unmount } = renderHook(() => useSpeechToText());
+
+      await act(async () => {
+        result.current.onFinalResult(handler);
+        result.current.startListening();
+      });
+
+      expect(result.current.state).toBe('error');
+      expect(warn).toHaveBeenCalledWith('Recorded speech-to-text setup failed:', setupError);
+      for (const track of failedStream.getTracks()) {
+        expect(track.stop).toHaveBeenCalledTimes(1);
+      }
+      expect(transcribeAudio).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      window.MediaRecorder = MockMediaRecorder as unknown as typeof MediaRecorder;
+      await act(async () => result.current.startListening());
+      expect(result.current.state).toBe('listening');
+      for (const track of retryStream.getTracks()) {
+        expect(track.stop).not.toHaveBeenCalled();
+      }
+      await act(async () => result.current.stopListening());
+      expect(result.current.state).toBe('idle');
+      expect(handler).toHaveBeenCalledWith('server transcript');
+      expect(transcribeAudio).toHaveBeenCalledTimes(1);
+      unmount();
+      for (const stream of [failedStream, retryStream]) {
+        for (const track of stream.getTracks()) {
+          expect(track.stop).toHaveBeenCalledTimes(1);
+        }
+      }
+    }
+  );
+
+  it.each(['stop', 'unmount'] as const)(
+    'releases a late permission stream after %s without starting a recorder',
+    async (cancel) => {
+      const stream = new MockMediaStream();
+      let resolvePermission!: (stream: MediaStream) => void;
+      jest.mocked(navigator.mediaDevices.getUserMedia).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolvePermission = resolve;
+        })
+      );
+      const start = jest.spyOn(MockMediaRecorder.prototype, 'start');
+      const { result, unmount } = renderHook(() => useSpeechToText());
+      act(() => result.current.startListening());
+      if (cancel === 'unmount') unmount();
+      else act(() => result.current.stopListening());
+
+      await act(async () => resolvePermission(stream as unknown as MediaStream));
+
+      expect(start).not.toHaveBeenCalled();
+      expect(transcribeAudio).not.toHaveBeenCalled();
+      if (cancel === 'stop') {
+        expect(result.current.state).toBe('idle');
+        unmount();
+      }
+      for (const track of stream.getTracks()) {
+        expect(track.stop).toHaveBeenCalledTimes(1);
+      }
+    }
+  );
+
+  it('releases an active recording on unmount without transcribing', async () => {
+    const stream = new MockMediaStream();
+    jest
+      .mocked(navigator.mediaDevices.getUserMedia)
+      .mockResolvedValueOnce(stream as unknown as MediaStream);
+    const { result, unmount } = renderHook(() => useSpeechToText());
+    await act(async () => result.current.startListening());
+    expect(result.current.state).toBe('listening');
+    unmount();
+    expect(transcribeAudio).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const track of stream.getTracks()) expect(track.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an obsolete permission rejection clear a newer recording', async () => {
+    let rejectPermission!: (error: Error) => void;
+    const stream = new MockMediaStream();
+    jest
+      .mocked(navigator.mediaDevices.getUserMedia)
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          rejectPermission = reject;
+        })
+      )
+      .mockResolvedValueOnce(stream as unknown as MediaStream);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result, unmount } = renderHook(() => useSpeechToText());
+    act(() => result.current.startListening());
+    act(() => result.current.stopListening());
+    await act(async () => result.current.startListening());
+    await act(async () => rejectPermission(new Error('obsolete permission request')));
+
+    expect(result.current.state).toBe('listening');
+    for (const track of stream.getTracks()) expect(track.stop).not.toHaveBeenCalled();
+    await act(async () => result.current.stopListening());
+    expect(transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(result.current.state).toBe('idle');
+    unmount();
+    for (const track of stream.getTracks()) expect(track.stop).toHaveBeenCalledTimes(1);
   });
 
   it('uses the refreshed sttAuthToken for cloud transcription without recreating the callback', async () => {
