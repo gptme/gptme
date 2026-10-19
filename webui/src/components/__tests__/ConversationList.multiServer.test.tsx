@@ -23,6 +23,10 @@ const mockGetClientForServer = getClientForServer as jest.MockedFunction<typeof 
 
 const mockPrimaryApi = {
   baseUrl: 'http://primary.test',
+  getConversation: jest.fn().mockResolvedValue({
+    name: 'Primary Chat',
+    log: [{ role: 'user', content: 'primary private message' }],
+  }),
   deleteConversation: jest.fn().mockResolvedValue(undefined),
   getChatConfig: jest.fn().mockResolvedValue({
     chat: { name: 'Primary Chat', model: 'keep-model' },
@@ -35,6 +39,10 @@ const mockPrimaryApi = {
 
 const mockSecondaryClient = {
   baseUrl: 'http://secondary.test',
+  getConversation: jest.fn().mockResolvedValue({
+    name: 'Secondary Chat',
+    log: [{ role: 'user', content: 'secondary full history' }],
+  }),
   deleteConversation: jest.fn().mockResolvedValue(undefined),
   getChatConfig: jest.fn().mockResolvedValue({
     chat: { name: 'Secondary Chat', model: 'keep-model' },
@@ -54,6 +62,8 @@ jest.mock('@/contexts/ApiContext', () => {
       // client — not a fixed primary. A hard-coded mock lets the family routing
       // below pass here while misrouting in the browser.
       api: registry.peek().activeServerId === 'secondary' ? mockSecondaryClient : mockPrimaryApi,
+      getClient: (serverId?: string) =>
+        serverId === 'secondary' ? mockSecondaryClient : mockPrimaryApi,
       connectionConfig: { baseUrl: 'http://primary.test', apiKey: '' },
       isConnected$: observable(true),
     }),
@@ -200,7 +210,7 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
 
   it.each(['Markdown', 'JSON'])(
     'never exports another server’s cached messages as %s',
-    (format) => {
+    async (format) => {
       (conversations$.set as (value: Map<string, unknown>) => void)(
         new Map([
           [
@@ -219,11 +229,16 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
       fireEvent.contextMenu(screen.getByText('Secondary Chat'));
       fireEvent.click(screen.getByText(format));
 
-      expect(exportConversationAsMarkdown).not.toHaveBeenCalled();
-      expect(exportConversationAsJSON).not.toHaveBeenCalled();
-      expect(toast.error).toHaveBeenCalledWith(
-        'No messages to export. Open the conversation first.'
+      const exporter =
+        format === 'Markdown' ? exportConversationAsMarkdown : exportConversationAsJSON;
+      await waitFor(() =>
+        expect(exporter).toHaveBeenCalledWith(sharedId, 'Secondary Chat', [
+          { role: 'user', content: 'secondary full history' },
+        ])
       );
+      expect(mockSecondaryClient.getConversation).toHaveBeenCalledWith(sharedId);
+      expect(mockPrimaryApi.getConversation).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
     }
   );
 
