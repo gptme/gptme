@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { MemoryRouter } from 'react-router-dom';
 import { ConversationList } from '../ConversationList';
 import { serverRegistry$ } from '@/stores/servers';
+import { getClientGeneration } from '@/utils/api';
 
 const mockGetConversation = jest.fn();
 const mockGetClient = jest.fn(() => ({ getConversation: mockGetConversation }));
@@ -77,6 +78,8 @@ function setLoadedConversation(
   overrides: {
     hasMoreBefore?: boolean;
     name?: string;
+    currentBranch?: string;
+    streamClientGeneration?: number;
   } = {}
 ) {
   conversations$.set('conv-1', {
@@ -103,7 +106,8 @@ function setLoadedConversation(
     showInitialSystem: false,
     chatConfig: null,
     needsInitialStep: false,
-    currentBranch: 'main',
+    currentBranch: overrides.currentBranch ?? 'main',
+    streamClientGeneration: overrides.streamClientGeneration,
     logRevision: 0,
     logOffset: 70,
     hasMoreBefore: overrides.hasMoreBefore ?? true,
@@ -379,6 +383,135 @@ describe('ConversationList exports', () => {
     const exportedMessages = mockExportJSON.mock.calls[0][2] as Message[];
     expect(exportedMessages[0].content).toBe('SECONDARY-OLDEST-SENTINEL');
     expect(exportedMessages[119].content).toBe('SECONDARY-NEWEST-SENTINEL');
+  });
+
+  it('exports the owner-verified selected branch from the full branch map', async () => {
+    const ownerClient = { getConversation: mockGetConversation };
+    const mainLog = fullMessages();
+    const featureLog: Message[] = [
+      { role: 'user', content: 'FEATURE-OLDEST' },
+      { role: 'assistant', content: 'FEATURE-MIDDLE' },
+      { role: 'user', content: 'FEATURE-NEWEST' },
+    ];
+    mockGetClient.mockReturnValue(ownerClient);
+    // The live stream (and therefore the branch selector) belongs to this row's
+    // server, so the cached currentBranch is trustworthy — but the messages
+    // still must come from the fresh full response, not the cached window.
+    setLoadedConversation(mainLog.slice(70), {
+      currentBranch: 'feature',
+      streamClientGeneration: getClientGeneration(ownerClient),
+    });
+    mockGetConversation.mockResolvedValue({
+      id: 'conv-1',
+      name: 'Full history chat',
+      log: mainLog,
+      logfile: 'conv-1',
+      branches: { main: mainLog, feature: featureLog },
+      workspace: '/tmp',
+    });
+
+    renderList();
+    await openExport('JSON');
+
+    await waitFor(() => expect(mockExportJSON).toHaveBeenCalledTimes(1));
+    const exportedMessages = mockExportJSON.mock.calls[0][2] as Message[];
+    expect(exportedMessages.map((message) => message.content)).toEqual([
+      'FEATURE-OLDEST',
+      'FEATURE-MIDDLE',
+      'FEATURE-NEWEST',
+    ]);
+  });
+
+  it('fails closed when the verified selected branch is missing from the response', async () => {
+    const ownerClient = { getConversation: mockGetConversation };
+    const mainLog = fullMessages();
+    mockGetClient.mockReturnValue(ownerClient);
+    setLoadedConversation(mainLog.slice(70), {
+      currentBranch: 'feature',
+      streamClientGeneration: getClientGeneration(ownerClient),
+    });
+    mockGetConversation.mockResolvedValue({
+      id: 'conv-1',
+      name: 'Full history chat',
+      log: mainLog,
+      logfile: 'conv-1',
+      branches: { main: mainLog },
+      workspace: '/tmp',
+    });
+
+    renderList();
+    await openExport('JSON');
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Cannot export: branch "feature" is unavailable')
+    );
+    expect(mockExportJSON).not.toHaveBeenCalled();
+    expect(mockReportDownloadOutcome).not.toHaveBeenCalled();
+  });
+
+  it('ignores a foreign cache branch and exports the owning server main log', async () => {
+    const secondaryServerId = 'server-2';
+    const foreignClient = { getConversation: jest.fn() };
+    const ownerClient = { getConversation: jest.fn() };
+    const mainLog = fullMessages();
+    const ownerFeature: Message[] = [{ role: 'user', content: 'OWNER-FEATURE' }];
+
+    mockGetClient.mockImplementation((serverId?: string) =>
+      serverId === secondaryServerId ? ownerClient : foreignClient
+    );
+    serverRegistry$.set({
+      servers: [
+        {
+          id: SERVER_ID,
+          name: 'Local',
+          baseUrl: 'http://localhost:5700',
+          authToken: null,
+          useAuthToken: false,
+          isPreset: true,
+          createdAt: 0,
+          lastUsedAt: 0,
+        },
+        {
+          id: secondaryServerId,
+          name: 'Secondary',
+          baseUrl: 'http://localhost:5701',
+          authToken: null,
+          useAuthToken: false,
+          isPreset: false,
+          createdAt: 0,
+          lastUsedAt: 0,
+        },
+      ],
+      activeServerId: SERVER_ID,
+      connectedServerIds: [SERVER_ID, secondaryServerId],
+    });
+    // Complete primary cache for the same conv id, with a selected branch. The
+    // stream generation proves it belongs to the primary client, not the row.
+    setLoadedConversation(fullMessages().slice(70), {
+      currentBranch: 'feature',
+      streamClientGeneration: getClientGeneration(foreignClient),
+    });
+    ownerClient.getConversation.mockResolvedValue({
+      id: 'conv-1',
+      name: 'Secondary server title',
+      log: mainLog,
+      logfile: 'conv-1',
+      branches: { main: mainLog, feature: ownerFeature },
+      workspace: '/tmp',
+    });
+
+    renderList(conv({ serverId: secondaryServerId, serverName: 'Secondary' }));
+    await openExport('JSON');
+
+    await waitFor(() => expect(mockExportJSON).toHaveBeenCalledTimes(1));
+    expect(ownerClient.getConversation).toHaveBeenCalledWith('conv-1');
+    expect(foreignClient.getConversation).not.toHaveBeenCalled();
+    const exportedMessages = mockExportJSON.mock.calls[0][2] as Message[];
+    expect(exportedMessages).toHaveLength(120);
+    expect(exportedMessages[0].content).toBe('OLDEST-SENTINEL');
+    expect(exportedMessages[119].content).toBe('NEWEST-SENTINEL');
+    expect(exportedMessages.map((message) => message.content)).not.toContain('FOREIGN-FEATURE');
+    expect(exportedMessages.map((message) => message.content)).not.toContain('OWNER-FEATURE');
   });
 
   it('does not expose an export menu for demo conversations', async () => {

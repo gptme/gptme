@@ -4,6 +4,8 @@ import { observable } from '@legendapp/state';
 import type { Message } from '@/types/conversation';
 import { ConversationSettings } from '../ConversationSettings';
 import { conversations$ } from '@/stores/conversations';
+import { serverRegistry$ } from '@/stores/servers';
+import { getClientGeneration } from '@/utils/api';
 import { demoConversations } from '@/democonversations';
 
 // Radix primitives used by the settings form observe layout in jsdom tests.
@@ -16,6 +18,7 @@ if (typeof global.ResizeObserver === 'undefined') {
 }
 
 const mockGetConversation = jest.fn();
+const mockGetClient = jest.fn();
 const mockExportMarkdown = jest.fn();
 const mockExportJSON = jest.fn();
 const mockCopyToClipboard = jest.fn();
@@ -29,6 +32,7 @@ jest.mock('@/contexts/ApiContext', () => ({
       updateChatConfig: jest.fn(),
       deleteConversation: jest.fn(),
     },
+    getClient: mockGetClient,
     isConnected$: observable(true),
   }),
 }));
@@ -154,10 +158,40 @@ function setLoadedConversation(messages: Message[], hasMoreBefore: boolean) {
   });
 }
 
+const SERVER_ID = 'server-1';
+const SECONDARY_SERVER_ID = 'server-2';
+
 describe('ConversationSettings JSON export', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetClient.mockImplementation(() => ({ getConversation: mockGetConversation }));
     conversations$.set(new Map());
+    serverRegistry$.set({
+      servers: [
+        {
+          id: SERVER_ID,
+          name: 'Local',
+          baseUrl: 'http://localhost:5700',
+          authToken: null,
+          useAuthToken: false,
+          isPreset: true,
+          createdAt: 0,
+          lastUsedAt: 0,
+        },
+        {
+          id: SECONDARY_SERVER_ID,
+          name: 'Secondary',
+          baseUrl: 'http://localhost:5701',
+          authToken: null,
+          useAuthToken: false,
+          isPreset: false,
+          createdAt: 0,
+          lastUsedAt: 0,
+        },
+      ],
+      activeServerId: SERVER_ID,
+      connectedServerIds: [SERVER_ID, SECONDARY_SERVER_ID],
+    });
   });
 
   it('fetches full history before exporting JSON for a paginated conversation', async () => {
@@ -182,6 +216,99 @@ describe('ConversationSettings JSON export', () => {
     expect(exportedMessages[0].content).toBe('OLDEST-SENTINEL');
     expect(exportedMessages[119].content).toBe('NEWEST-SENTINEL');
     expect(mockReportDownloadOutcome).toHaveBeenCalledWith(undefined, 'Downloaded as JSON');
+  });
+
+  it('fetches the full history from the owning server for a same-ID secondary conversation', async () => {
+    const secondaryServerId = 'server-2';
+    const secondaryFull = fullMessages().map((message, index) => ({
+      ...message,
+      content:
+        index === 0
+          ? 'SECONDARY-OLDEST-SENTINEL'
+          : index === 119
+            ? 'SECONDARY-NEWEST-SENTINEL'
+            : `secondary-${index}`,
+    }));
+    const secondaryGetConversation = jest.fn().mockResolvedValue({
+      id: 'conv-1',
+      name: 'Full history chat',
+      log: secondaryFull,
+      logfile: 'conv-1',
+      branches: {},
+      workspace: '/tmp',
+    });
+    mockGetClient.mockImplementation((serverId?: string) =>
+      serverId === secondaryServerId
+        ? { getConversation: secondaryGetConversation }
+        : { getConversation: mockGetConversation }
+    );
+    setLoadedConversation(fullMessages().slice(70), true);
+
+    render(<ConversationSettings conversationId="conv-1" serverId={secondaryServerId} />);
+    fireEvent.click(screen.getByRole('button', { name: /Download \.json/ }));
+
+    await waitFor(() => expect(mockExportJSON).toHaveBeenCalledTimes(1));
+    expect(mockGetClient).toHaveBeenCalledWith(secondaryServerId);
+    expect(secondaryGetConversation).toHaveBeenCalledWith('conv-1');
+    expect(mockGetConversation).not.toHaveBeenCalled();
+    const exportedMessages = mockExportJSON.mock.calls[0][2] as Message[];
+    expect(exportedMessages[0].content).toBe('SECONDARY-OLDEST-SENTINEL');
+    expect(exportedMessages[119].content).toBe('SECONDARY-NEWEST-SENTINEL');
+  });
+
+  it('fails closed when the owning server is removed after render', async () => {
+    const secondaryGetConversation = jest.fn();
+    setLoadedConversation(fullMessages().slice(70), true);
+    mockGetClient.mockImplementation((serverId?: string) =>
+      serverId === SECONDARY_SERVER_ID
+        ? { getConversation: secondaryGetConversation }
+        : { getConversation: mockGetConversation }
+    );
+
+    render(<ConversationSettings conversationId="conv-1" serverId={SECONDARY_SERVER_ID} />);
+    serverRegistry$.set({ servers: [], activeServerId: '', connectedServerIds: [] });
+    fireEvent.click(screen.getByRole('button', { name: /Download \.json/ }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Cannot export: conversation server is unavailable')
+    );
+    expect(mockGetClient).not.toHaveBeenCalled();
+    expect(secondaryGetConversation).not.toHaveBeenCalled();
+    expect(mockGetConversation).not.toHaveBeenCalled();
+    expect(mockExportJSON).not.toHaveBeenCalled();
+  });
+
+  it('preserves an owner-verified selected branch across a full-history fetch', async () => {
+    const ownerClient = { getConversation: mockGetConversation };
+    const mainLog = fullMessages();
+    const featureLog: Message[] = [
+      { role: 'user', content: 'FEATURE-OLDEST' },
+      { role: 'assistant', content: 'FEATURE-MIDDLE' },
+      { role: 'user', content: 'FEATURE-NEWEST' },
+    ];
+    mockGetClient.mockReturnValue(ownerClient);
+    setLoadedConversation(mainLog.slice(70), true);
+    conversations$.get('conv-1').currentBranch.set('feature');
+    conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(ownerClient));
+    mockGetConversation.mockResolvedValue({
+      id: 'conv-1',
+      name: 'Full history chat',
+      log: mainLog,
+      logfile: 'conv-1',
+      branches: { main: mainLog, feature: featureLog },
+      workspace: '/tmp',
+    });
+
+    render(<ConversationSettings conversationId="conv-1" serverId={SERVER_ID} />);
+    fireEvent.click(screen.getByRole('button', { name: /Download \.json/ }));
+
+    await waitFor(() => expect(mockExportJSON).toHaveBeenCalledTimes(1));
+    const exportedMessages = mockExportJSON.mock.calls[0][2] as Message[];
+    expect(exportedMessages.map((message) => message.content)).toEqual([
+      'FEATURE-OLDEST',
+      'FEATURE-MIDDLE',
+      'FEATURE-NEWEST',
+    ]);
   });
 
   it('does not download and reports an error when JSON full-history fetch fails', async () => {
