@@ -1,11 +1,12 @@
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { SetupWizard } from '../SetupWizard';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { ChatInput } from '../ChatInput';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useModels } from '@/hooks/useModels';
 
 const mockFetch = jest.fn();
 const mockInvokeTauri = jest.fn();
@@ -159,5 +160,45 @@ it.each(['untouched', 'explicit choice', 'existing conversation'])(
           ? 'gpt-4.1'
           : 'gpt-4o';
     await waitFor(() => expect(screen.getByTestId('model-selector')).toHaveTextContent(expected));
+  }
+);
+
+it.each(['resolve', 'reject'] as const)(
+  'ignores an old model request that settles via %s after setup refresh',
+  async (settlement) => {
+    setupWizard$.providerStatusVersion.set(0);
+    mockFetch.mockReset();
+    let resolveOld!: (value: unknown) => void;
+    let rejectOld!: (reason: Error) => void;
+    const oldRequest = new Promise((resolve, reject) => {
+      resolveOld = resolve;
+      rejectOld = reject;
+    });
+    const fresh = {
+      models: [{ id: 'openrouter/deepseek/deepseek-v4.1-flash' }],
+      default: 'openrouter/deepseek/deepseek-v4.1-flash',
+      recommended: ['openrouter/deepseek/deepseek-v4.1-flash'],
+    };
+    mockFetch.mockReturnValueOnce(oldRequest).mockResolvedValueOnce({
+      ok: true,
+      json: async () => fresh,
+    });
+    Object.defineProperty(window, 'fetch', { writable: true, value: mockFetch });
+    const { result } = renderHook(() => useModels());
+    expect(result.current.isLoading).toBe(true);
+    act(() => {
+      setupWizard$.providerStatusVersion.set(1);
+    });
+    await waitFor(() => expect(result.current.defaultModel).toBe(fresh.default));
+    expect(result.current.isLoading).toBe(false);
+    await act(async () => {
+      if (settlement === 'reject') rejectOld(new Error('stale request failed'));
+      else resolveOld({ ok: true, json: async () => ({ models: [], default: 'old/model' }) });
+    });
+    expect(result.current.defaultModel).toBe(fresh.default);
+    expect(result.current.models).toEqual(fresh.models);
+    expect(result.current.recommendedModels).toEqual(fresh.recommended);
+    expect(result.current.error).toBeNull();
+    expect(result.current.isLoading).toBe(false);
   }
 );
