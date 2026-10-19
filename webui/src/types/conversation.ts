@@ -30,6 +30,17 @@ export interface Message {
   _status?: 'pending' | 'sent' | 'failed';
   /** Client-only: error message when _status is 'failed' */
   _error?: string;
+  /** Client-only: persistence outcome and generation settings for explicit Retry. */
+  _retry?: {
+    persistence: 'saved' | 'rejected' | 'unknown';
+    options: {
+      model?: string;
+      stream?: boolean;
+      maxTokens?: number;
+      temperature?: number;
+      topP?: number;
+    };
+  };
 }
 
 export interface StreamingMessage extends Message {
