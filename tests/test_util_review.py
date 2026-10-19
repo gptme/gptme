@@ -3444,6 +3444,27 @@ class TestLocalReviewArtifactIngestion:
         expected = "origin/master/" + "a" * 40 + "/" + "b" * 40
         assert artifact.diff_fingerprint == expected
 
+    @pytest.mark.parametrize(
+        ("drop", "expected"),
+        [
+            ("base", "a" * 40 + "/" + "b" * 40),
+            ("merge_base", "origin/master/" + "b" * 40),
+            ("head", "origin/master/" + "a" * 40),
+        ],
+    )
+    def test_diff_fingerprint_preserved_with_partial_identity(self, drop, expected):
+        """A partial identity keeps the fingerprint from the values it has.
+
+        The separate ``base``/``merge_base``/``head`` fields are allowed to be
+        missing; requiring all three to build ``diff_fingerprint`` would drop
+        metadata the artifact already carried.
+        """
+        data = _local_review_artifact()
+        data.pop(drop)
+        artifact = ReviewArtifact.from_dict(data)
+        assert artifact.diff_fingerprint == expected
+        assert getattr(artifact, drop) == ""
+
     def test_rejected_finding_count_from_list(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
         assert artifact.rejected_finding_count == 1

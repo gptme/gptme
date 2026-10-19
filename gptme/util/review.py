@@ -1047,10 +1047,9 @@ class ReviewArtifact:
         base = base_sha if isinstance(base_sha, str) else ""
         merge_base = merge_base_sha if isinstance(merge_base_sha, str) else ""
         head = head_sha if isinstance(head_sha, str) else ""
-        if base and merge_base and head:
-            diff_fingerprint = "/".join(filter(None, [base, merge_base, head]))
-        else:
-            diff_fingerprint = ""
+        # Join whichever identity values are present: a partially-populated
+        # artifact keeps the fingerprint it had instead of losing it.
+        diff_fingerprint = "/".join(filter(None, [base, merge_base, head]))
         reviewed_at_raw = d.get("reviewed_at", "")
         reviewed_at = reviewed_at_raw if isinstance(reviewed_at_raw, str) else ""
         model_raw = d.get("model", "")
