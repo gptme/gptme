@@ -52,6 +52,13 @@ make tauri-build
 
 The built application will be in `tauri/src-tauri/target/release/bundle/`.
 
+## Cloud sign-in on Linux
+
+Launching the AppImage registers `gptme://` callbacks for your user account.
+Registration requires `xdg-mime` and `update-desktop-database` (provided by
+`xdg-utils` and `desktop-file-utils` on Debian/Ubuntu). If you move the AppImage,
+launch it from its new location before signing in again so the handler is updated.
+
 ## Project Structure
 
 - `src-tauri/` - Tauri backend (Rust): app lifecycle, server management, IPC

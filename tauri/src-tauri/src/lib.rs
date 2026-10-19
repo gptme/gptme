@@ -767,11 +767,12 @@ pub fn run() {
             log::info!("Starting gptme application");
 
             #[cfg(desktop)]
-            if cfg!(debug_assertions) {
+            if cfg!(any(debug_assertions, target_os = "linux")) {
+                // AppImages need runtime registration even in release builds.
                 if let Err(e) = app.deep_link().register_all() {
                     log::warn!("Failed to register deep-link schemes: {}", e);
                 } else {
-                    log::info!("Deep-link scheme 'gptme://' registered for development");
+                    log::info!("Deep-link scheme 'gptme://' registered");
                 }
             }
 
