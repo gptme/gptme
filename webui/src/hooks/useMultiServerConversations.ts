@@ -28,16 +28,20 @@ export function useSecondaryServerConversations() {
         const client = getClientForServer(server.id);
         if (!client) return [];
 
-        // connectedServerIds survives a reload but the pooled client's connected
-        // state does not, and nothing else probes secondaries on startup.
-        // Without this the list call throws "Not connected to API" and the
-        // server's conversations silently vanish until a manual reconnect.
-        if (!client.isConnected$.get() && !(await client.checkConnection())) {
-          console.warn(`[MultiServer] "${server.name}" is unreachable; skipping its conversations`);
-          return [];
-        }
-
         try {
+          // connectedServerIds survives a reload but the pooled client's connected
+          // state does not, and nothing else probes secondaries on startup.
+          // Without this the list call throws "Not connected to API" and the
+          // server's conversations silently vanish until a manual reconnect.
+          // The probe stays inside the try: a throwing checkConnection must not
+          // turn into a query error, it is just another unreachable server.
+          if (!client.isConnected$.get() && !(await client.checkConnection())) {
+            console.warn(
+              `[MultiServer] "${server.name}" is unreachable; skipping its conversations`
+            );
+            return [];
+          }
+
           const result = await client.getConversationsPaginated(undefined, 50);
           return result.conversations.map((conv) => ({
             ...conv,

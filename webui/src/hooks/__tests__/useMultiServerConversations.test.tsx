@@ -107,6 +107,22 @@ describe('useSecondaryServerConversations', () => {
     });
   });
 
+  it('lists nothing when the connection probe throws', async () => {
+    persistSecondaryAsConnected();
+    const client = makeClient(false);
+    client.checkConnection.mockRejectedValueOnce(new Error('network down'));
+    mockGetClientForServer.mockReturnValue(client as never);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useSecondaryServerConversations(), {
+      wrapper: wrapperFor(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(client.getConversationsPaginated).not.toHaveBeenCalled();
+    expect(result.current.secondaryConversations).toEqual([]);
+  });
+
   it('lists nothing for an unreachable persisted secondary without fetching', async () => {
     persistSecondaryAsConnected();
     const client = makeClient(false);
