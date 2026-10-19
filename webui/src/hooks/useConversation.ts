@@ -86,8 +86,17 @@ export function useConversation(conversationId: string, serverId?: string) {
   // this against their own owner before trusting the cached title or live state,
   // because the same conversation ID can exist on two servers.
   useEffect(() => {
-    conversation$?.serverId.set(serverId ?? serverRegistry$.peek().activeServerId);
-  }, [conversation$, serverId]);
+    const requestedOwner = serverId ?? serverRegistry$.peek().activeServerId;
+    const entry = conversation$?.peek();
+    if (entry?.serverId !== undefined && entry.serverId !== requestedOwner) {
+      // The same bare ID was previously loaded from another server. Its cached
+      // payload does not belong to the requested owner, and the load effect
+      // would skip the fetch because the entry looks hydrated. Start fresh so
+      // the data is re-fetched from the requested server.
+      initConversation(conversationId);
+    }
+    conversation$?.serverId.set(requestedOwner);
+  }, [conversation$, conversationId, serverId]);
 
   // Ensure the conversation's chat config is loaded whenever it's missing.
   // The main load+connect effect below early-returns for already-connected

@@ -924,4 +924,38 @@ describe('useConversation', () => {
     // Late onMessageStart belongs to the edit, so it must not interrupt again.
     expect(interruptGenerationApi).toHaveBeenCalledTimes(2);
   });
+
+  it('reloads a same-ID entry that was loaded from another server', async () => {
+    initConversation('shared-id', {
+      id: 'shared-id',
+      name: 'Server A chat',
+      log: [
+        {
+          role: 'user',
+          content: 'Only on server A',
+          timestamp: '2026-06-07T00:00:00.000Z',
+        },
+      ],
+      logfile: 'shared-id',
+      branches: {},
+      workspace: '.',
+    });
+    conversations$.get('shared-id')!.serverId.set('server-a');
+    (primaryClient.getConversation as jest.Mock).mockResolvedValue({
+      id: 'shared-id',
+      name: 'Server B chat',
+      log: [],
+      logfile: 'shared-id',
+      branches: {},
+      workspace: '.',
+    });
+
+    renderHook(() => useConversation('shared-id', 'server-b'));
+
+    await waitFor(() =>
+      expect(conversations$.get('shared-id')!.data.name.get()).toBe('Server B chat')
+    );
+    expect(conversations$.get('shared-id')!.serverId.get()).toBe('server-b');
+    expect(primaryClient.getConversation).toHaveBeenCalledWith('shared-id', { limit: 50 });
+  });
 });
