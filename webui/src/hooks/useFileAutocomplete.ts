@@ -39,9 +39,19 @@ export function useFileAutocomplete({
     cursorPosition: 0,
   });
 
-  // Cache file listings
+  // Cache file listings for one popup opening; cleared whenever the popup closes
+  // so files created or deleted since the last opening show up on the next one.
   const fileCache = useRef<Map<string, FileType[]>>(new Map());
   const currentValue = useRef<string>('');
+  // Bumped on every close so a listing request that resolves after the popup
+  // closed can neither repopulate the cache nor update the popup state.
+  const openingGeneration = useRef(0);
+
+  const closePopup = useCallback((reset: Partial<AutocompleteState> = {}) => {
+    openingGeneration.current += 1;
+    fileCache.current.clear();
+    setState((prev) => ({ ...prev, isOpen: false, ...reset }));
+  }, []);
 
   // Flatten directory structure for autocomplete
   const flattenFiles = useCallback(
@@ -53,9 +63,14 @@ export function useFileAutocomplete({
         return fileCache.current.get(cacheKey)!;
       }
 
+      const generation = openingGeneration.current;
       try {
         const files = await listWorkspace(conversationId, basePath || undefined);
-        fileCache.current.set(cacheKey, files);
+        // A request that started in an earlier opening must not repopulate the
+        // cache after the popup closed; the next opening needs a fresh listing.
+        if (openingGeneration.current === generation) {
+          fileCache.current.set(cacheKey, files);
+        }
         return files;
       } catch (error) {
         console.error('[useFileAutocomplete] Error listing workspace:', error);
@@ -96,14 +111,14 @@ export function useFileAutocomplete({
       currentValue.current = value;
 
       if (!enabled || !conversationId) {
-        setState((prev) => ({ ...prev, isOpen: false }));
+        closePopup();
         return;
       }
 
       const trigger = findTrigger(value, cursorPos);
 
       if (!trigger) {
-        setState((prev) => ({ ...prev, isOpen: false, query: '', files: [] }));
+        closePopup({ query: '', files: [] });
         return;
       }
 
@@ -116,6 +131,7 @@ export function useFileAutocomplete({
       }));
 
       // Fetch files and filter by query
+      const generation = openingGeneration.current;
       const files = await flattenFiles();
       const filtered = files.filter(
         (f) =>
@@ -123,15 +139,15 @@ export function useFileAutocomplete({
           f.path.toLowerCase().includes(trigger.query.toLowerCase())
       );
 
-      // Only update if value hasn't changed
-      if (currentValue.current === value) {
+      // Only update if this opening is still live and the value hasn't changed
+      if (openingGeneration.current === generation && currentValue.current === value) {
         setState((prev) => ({
           ...prev,
           files: filtered.slice(0, 10), // Limit to 10 suggestions
         }));
       }
     },
-    [enabled, conversationId, findTrigger, flattenFiles]
+    [enabled, conversationId, findTrigger, flattenFiles, closePopup]
   );
 
   // Handle keyboard navigation
@@ -167,14 +183,14 @@ export function useFileAutocomplete({
 
         case 'Escape':
           e.preventDefault();
-          setState((prev) => ({ ...prev, isOpen: false }));
+          closePopup();
           return true;
 
         default:
           return false;
       }
     },
-    [state.isOpen, state.files, state.selectedIndex]
+    [state.isOpen, state.files, state.selectedIndex, closePopup]
   );
 
   // Select a file and return new input value
@@ -190,20 +206,18 @@ export function useFileAutocomplete({
       const after = value.slice(state.cursorPosition);
       const newValue = `${before}@${file.path}${after}`;
 
-      setState((prev) => ({ ...prev, isOpen: false, query: '', files: [] }));
+      closePopup({ query: '', files: [] });
 
       return newValue;
     },
-    [findTrigger, state.cursorPosition]
+    [findTrigger, state.cursorPosition, closePopup]
   );
 
   const setSelectedIndex = useCallback((index: number) => {
     setState((prev) => ({ ...prev, selectedIndex: index }));
   }, []);
 
-  const close = useCallback(() => {
-    setState((prev) => ({ ...prev, isOpen: false }));
-  }, []);
+  const close = useCallback(() => closePopup(), [closePopup]);
 
   return {
     state,
