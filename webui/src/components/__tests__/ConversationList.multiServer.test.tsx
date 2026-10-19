@@ -7,6 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ConversationSummary } from '@/types/conversation';
 import type { IApiClient } from '@/utils/api';
 import { getClientForServer } from '@/stores/serverClients';
+import { serverRegistry$ } from '@/stores/servers';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { toast } from 'sonner';
 import { exportConversationAsJSON, exportConversationAsMarkdown } from '@/utils/exportConversation';
@@ -176,6 +177,7 @@ function secondaryRow(): HTMLElement {
 describe('ConversationList sidebar mutation ownership (two servers, same id)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    serverRegistry$.activeServerId.set('primary');
     mockGetClientForServer.mockImplementation((serverId: string) => {
       if (serverId === 'secondary') return mockSecondaryClient as unknown as IApiClient;
       if (serverId === 'primary') return mockPrimaryApi as unknown as IApiClient;
@@ -402,7 +404,6 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
   });
 
   it('renames a secondary row while it is the active server through the secondary family only', async () => {
-    const { serverRegistry$ } = await import('@/stores/servers');
     // Activate the secondary server; primary-ness must follow client
     // ownership, not active-server identity.
     serverRegistry$.set({
@@ -433,9 +434,6 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
     });
     // The primary-owned store entry must not be clobbered.
     expect(conversations$.get(sharedId)?.peek()?.data.name).toBe('Primary Chat');
-
-    // Restore the default registry for other tests.
-    serverRegistry$.set({ ...serverRegistry$.get(), activeServerId: 'primary' });
   });
 
   it('reverts optimistic star state on failure without touching the primary', async () => {

@@ -31,10 +31,19 @@ jest.mock('@/stores/servers', () => {
 });
 
 jest.mock('@/contexts/ApiContext', () => ({
-  useApi: () => ({
-    api: { deleteConversation: mockDeleteConversation },
-    connectionConfig: { baseUrl: 'http://localhost:5700' },
-  }),
+  useApi: () => {
+    // Production's primary client follows activeServerId, not a fixed server.
+    const { serverRegistry$ } = jest.requireMock('@/stores/servers');
+    return {
+      api: {
+        deleteConversation:
+          serverRegistry$.peek().activeServerId === 'secondary'
+            ? mockSecondaryDeleteConversation
+            : mockDeleteConversation,
+      },
+      connectionConfig: { baseUrl: 'http://localhost:5700' },
+    };
+  },
 }));
 
 jest.mock('@tanstack/react-query', () => ({
@@ -173,7 +182,7 @@ describe('DeleteConversationConfirmationDialog', () => {
     expect(mockSelectedConversation$.get()).toBe('selected-chat');
   });
 
-  it('keeps the primary cache when selection switches to a same-id secondary owner', async () => {
+  it('keeps the secondary cache when selection switches to a same-id secondary owner', async () => {
     let resolveDelete!: () => void;
     mockDeleteConversation.mockReturnValueOnce(
       new Promise<void>((resolve) => {
@@ -208,12 +217,15 @@ describe('DeleteConversationConfirmationDialog', () => {
     await waitFor(() => expect(mockDeleteConversation).toHaveBeenCalledWith('selected-chat'));
 
     fireEvent.click(screen.getByText('switch-server'));
+    // Simulate the selected secondary conversation replacing the shared cache.
+    // The deleted primary owner's payload should not be the value we preserve.
+    const secondaryEntry = { serverId: 'secondary', data: { name: 'Secondary Chat' } };
+    testConversations$.set(new Map([['selected-chat', secondaryEntry]]));
     resolveDelete();
 
     await waitFor(() => expect(onDelete).toHaveBeenCalled());
-    // The primary row was deleted, but the selected same-ID conversation now
-    // belongs to another server; its bare-ID cache must remain.
-    expect(mockConversations$.get('selected-chat')).toBeTruthy();
+    // Check the actual stored value, not Legend State's always-truthy node.
+    expect(mockConversations$.get('selected-chat')?.peek()).toEqual(secondaryEntry);
     expect(mockSelectedConversation$.get()).toBe('selected-chat');
   });
 
@@ -238,6 +250,23 @@ describe('DeleteConversationConfirmationDialog', () => {
     expect(mockDeleteConversation).toHaveBeenCalledWith('selected-chat');
     expect(mockConversations$.get('selected-chat')?.peek()).toBeUndefined();
     expect(mockSelectedConversation$.get()).toBe('another-chat');
+  });
+
+  it('treats an ownerless row as active-server owned when the secondary server is active', async () => {
+    serverRegistry$.activeServerId.set('secondary');
+    testConversations$.set(
+      new Map([['selected-chat', { serverId: 'secondary', data: { name: 'Secondary Chat' } }]])
+    );
+    const { onDelete } = renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalled());
+    expect(mockSecondaryDeleteConversation).toHaveBeenCalledWith('selected-chat');
+    expect(mockDeleteConversation).not.toHaveBeenCalled();
+    expect(mockConversations$.get('selected-chat')?.peek()).toBeUndefined();
+    expect(mockSelectedConversation$.get()).toBe('');
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat$/);
   });
 
   it('fails closed when the sidebar row server is no longer registered', async () => {
