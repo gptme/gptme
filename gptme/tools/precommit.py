@@ -289,29 +289,34 @@ def run_precommit_on_file(
         logger.debug("Per-file pre-commit checks disabled, skipping hook")
         return
 
+    runner = get_precommit_runner()
+    if runner is None:
+        logger.debug("No pre-commit runner available, skipping hook")
+        return
+
     try:
-        # Check if pre-commit is available
+        # Check if the runner is working
         check_result = subprocess.run(
-            ["pre-commit", "--version"],
+            [runner, "--version"],
             check=False,
             capture_output=True,
             text=True,
             timeout=5,
         )
         if check_result.returncode != 0:
-            logger.debug("pre-commit not available, skipping hook")
+            logger.debug("pre-commit runner not available, skipping hook")
             return
 
     except KeyboardInterrupt:
         raise
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        logger.debug("pre-commit not found or timed out, skipping hook")
+        logger.debug("pre-commit runner not found or timed out, skipping hook")
         return
 
     try:
         # Run pre-commit on the specific file
         result = subprocess.run(
-            ["pre-commit", "run", "--files", str(path)],
+            [runner, "run", "--files", str(path)],
             check=False,
             capture_output=True,
             text=True,

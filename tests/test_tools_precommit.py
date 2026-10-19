@@ -591,6 +591,23 @@ class TestRunPrecommitOnFile:
         assert msgs[0].hide is True
 
     @patch("subprocess.run")
+    def test_uses_prek_when_only_prek_installed(
+        self, mock_run: MagicMock, tmp_path: Path, monkeypatch
+    ):
+        """Per-file hook invokes prek when pre-commit is absent."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        mock_run.return_value = _mock_subprocess_run()
+        with (
+            _mock_config({"GPTME_CHECK": "true", "GPTME_CHECK_PER_FILE": "true"}),
+            _mock_which_available("prek"),
+        ):
+            list(run_precommit_on_file(None, tmp_path, tmp_path / "f.py", "content"))
+        calls = [call.args[0] for call in mock_run.call_args_list]
+        assert calls[0] == ["prek", "--version"]
+        assert calls[1] == ["prek", "run", "--files", str(tmp_path / "f.py")]
+
+    @patch("subprocess.run")
     def test_check_fails(self, mock_run: MagicMock, tmp_path: Path, monkeypatch):
         """Yields visible failure message when file fails checks."""
         monkeypatch.chdir(tmp_path)
