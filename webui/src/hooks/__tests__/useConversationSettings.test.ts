@@ -87,7 +87,45 @@ describe('conversation settings round trip', () => {
     expect(config.mcp.servers[0].args).toEqual(['server.js', '--verbose']);
   });
 
-  it('matches the original server by name when the list is reordered', () => {
+  it('preserves argv when a server is renamed but its args are untouched', () => {
+    const original = makeConfig();
+    const values = chatConfigToFormValues(original);
+    values.mcp.servers![0].name = 'filesystem-renamed';
+
+    const config = formValuesToChatConfig(values, original);
+
+    expect(config.mcp.servers[0].args).toEqual([
+      'server.js',
+      '--config={"a":1,"b":2}',
+      ' padded ',
+      '',
+    ]);
+  });
+
+  it("preserves each server's own argv when one is removed", () => {
+    const original = makeConfig();
+    original.mcp.servers.unshift({
+      name: 'first',
+      enabled: false,
+      command: 'first-cmd',
+      args: ['x', 'y'],
+      env: {},
+    });
+    const values = chatConfigToFormValues(original);
+    values.mcp.servers = values.mcp.servers!.slice(1);
+
+    const config = formValuesToChatConfig(values, original);
+
+    expect(config.mcp.servers).toHaveLength(1);
+    expect(config.mcp.servers[0].args).toEqual([
+      'server.js',
+      '--config={"a":1,"b":2}',
+      ' padded ',
+      '',
+    ]);
+  });
+
+  it('keeps the original argv when the list is reordered', () => {
     const original = makeConfig();
     original.mcp.servers.push({
       name: 'other',

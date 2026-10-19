@@ -34,6 +34,9 @@ export const chatConfigToFormValues = (config: ChatConfig | null | undefined): F
         enabled: server.enabled ?? false,
         command: server.command || '',
         args: formatServerArgs(server.args),
+        // Carry the original argv with the form row so renames, reorders and
+        // removals cannot make an unchanged field resolve to another server.
+        originalArgs: server.args ?? [],
         env: server.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : [],
       })) || [],
   },
@@ -49,27 +52,14 @@ const formatServerArgs = (args: string[] | null | undefined): string => args?.jo
  * on commas, and that parse is documented as lossy for arguments that contain
  * commas, significant whitespace, or empty strings.
  */
-const resolveServerArgs = (
-  text: string,
-  original: { name: string; args: string[] | null } | undefined
-): string[] => {
-  if (original && text === formatServerArgs(original.args)) {
-    return original.args ?? [];
+const resolveServerArgs = (text: string, originalArgs: string[] | undefined): string[] => {
+  if (originalArgs && text === formatServerArgs(originalArgs)) {
+    return originalArgs;
   }
   return text
     .split(',')
     .map((arg) => arg.trim())
     .filter(Boolean);
-};
-
-const findOriginalServer = (
-  server: { name: string },
-  index: number,
-  originals: { name: string; args: string[] | null }[] | undefined
-): { name: string; args: string[] | null } | undefined => {
-  if (!originals) return undefined;
-  const byName = originals.find((candidate) => candidate.name === server.name);
-  return byName ?? originals[index];
 };
 
 export const formValuesToChatConfig = (
@@ -95,14 +85,11 @@ export const formValuesToChatConfig = (
       {} as Record<string, string>
     ) || {};
 
-  const newMcpServers = values.mcp?.servers?.map((server, index) => ({
+  const newMcpServers = values.mcp?.servers?.map((server) => ({
     name: server.name,
     enabled: server.enabled,
     command: server.command,
-    args: resolveServerArgs(
-      server.args,
-      findOriginalServer(server, index, originalConfig.mcp?.servers)
-    ),
+    args: resolveServerArgs(server.args, server.originalArgs),
     env:
       server.env?.reduce(
         (acc, { key, value }) => {
