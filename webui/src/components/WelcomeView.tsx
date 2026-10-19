@@ -127,19 +127,20 @@ export const WelcomeView = () => {
     setIsSubmitting(true);
 
     try {
-      // Create conversation with immediate placeholder and get ID
+      // Text-only chats navigate immediately. Attached files keep this composer
+      // mounted until upload and message persistence finish.
       const conversationId = await api.createConversationWithPlaceholder(message, {
         model: options?.model,
         stream: options?.stream,
         workspace: options?.workspace || '.',
         pendingFiles: options?.pendingFiles,
+        onFilesUploaded: options?.onFilesUploaded,
         maxTokens: options?.maxTokens,
         temperature: options?.temperature,
         topP: options?.topP,
       });
 
-      // Navigate immediately - server-side creation happens in background
-      // Errors from backend are handled via toast in api.ts
+      // The placeholder's initial step starts after the chat view subscribes.
       navigate(chatRoute(conversationId));
 
       // Invalidate conversations query to refresh the list (async, don't block)
@@ -147,10 +148,10 @@ export const WelcomeView = () => {
         queryKey: conversationsQueryKey(connectionConfig.baseUrl),
       });
     } catch (error) {
-      // This only catches synchronous errors (e.g., local state issues)
-      // Server-side errors are handled in api.ts with toast notifications
+      // Propagate attachment failures so ChatInput retains the unsent draft.
       console.error('Failed to create conversation:', error);
       toast.error('Failed to start conversation. Please try again.');
+      throw error;
     } finally {
       setIsSubmitting(false);
     }

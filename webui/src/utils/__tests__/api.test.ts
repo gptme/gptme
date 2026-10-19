@@ -9,6 +9,8 @@ jest.mock('@/stores/conversations', () => ({
   setMaxTokens: jest.fn(),
   setTemperature: jest.fn(),
   setTopP: jest.fn(),
+  clearInitialStepState: jest.fn(),
+  replaceLog: jest.fn(),
 }));
 jest.mock('@/stores/servers', () => ({
   serverRegistry$: { get: jest.fn(() => ({ servers: [], activeServerId: null })) },
