@@ -40,13 +40,11 @@ type MockUseTauriServerStatusResult = {
   serverStatus: MockTauriServerStatus | null;
 };
 
-const mockUseTauriServerStatus = jest.fn(
-  (): MockUseTauriServerStatusResult => ({
-    isLoading: false,
-    managesLocalServer: false,
-    serverStatus: null,
-  })
-);
+const mockUseTauriServerStatus = jest.fn((): MockUseTauriServerStatusResult => ({
+  isLoading: false,
+  managesLocalServer: false,
+  serverStatus: null,
+}));
 
 let mockConnectionBaseUrl = 'http://127.0.0.1:5700';
 let mockIsExchangingAuthCode = false;
@@ -134,10 +132,10 @@ jest.mock('@/components/ui/dialog', () => {
           <div>{children}</div>
         </DialogContext.Provider>
       ) : null,
-    DialogContent: ({ children }: { children: React.ReactNode }) => {
+    DialogContent: ({ children, className }: { children: React.ReactNode; className?: string }) => {
       const onOpenChange = useContext(DialogContext);
       return (
-        <div>
+        <div className={className} data-testid="dialog-content">
           {children}
           <button aria-label="Close" onClick={() => onOpenChange?.(false)}>
             <span>X</span>
@@ -941,6 +939,57 @@ describe('SetupWizard', () => {
     expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).not.toMatchObject({
       hasCompletedSetup: true,
     });
+  });
+
+  it('keeps the provider step scrollable and its selects inside the dialog width', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ provider_configured: false }),
+    });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    // The 800x600 desktop default window is shorter than the provider form, so
+    // the dialog must scroll instead of clipping its heading and footer.
+    const dialog = screen.getByTestId('dialog-content');
+    expect(dialog.className).toContain('max-h-[calc(100vh-2rem)]');
+    expect(dialog.className).toContain('overflow-y-auto');
+
+    // Native selects with long model identifiers must not widen the dialog's
+    // grid column past its max width.
+    for (const id of ['setup-api-key-provider', 'setup-api-key-model']) {
+      const select = document.getElementById(id);
+      expect(select).not.toBeNull();
+      expect(select?.className).toContain('w-full');
+      expect(select?.className).toContain('min-w-0');
+    }
   });
 
   it('reopens directly to provider setup when requested externally', async () => {

@@ -66,8 +66,7 @@ function getCloudAuthUrl(): string {
 
   try {
     cloudBaseUrl = Function('return import.meta.env.VITE_GPTME_CLOUD_BASE_URL')() as
-      | string
-      | undefined;
+      string | undefined;
   } catch {
     // Jest / Node runtime (import.meta not available)
     if (typeof process !== 'undefined' && process.env) {
@@ -822,7 +821,7 @@ export function SetupWizard() {
       }}
     >
       <DialogContent
-        className="sm:max-w-md"
+        className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-md"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={closeWizard}
       >
@@ -1151,7 +1150,7 @@ export function SetupWizard() {
                       <Label htmlFor="setup-api-key-provider">Provider</Label>
                       <select
                         id="setup-api-key-provider"
-                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        className="h-9 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                         value={apiKeyProvider}
                         onChange={(e) => setApiKeyProvider(e.target.value as ApiKeyProvider)}
                         disabled={apiKeySaving}
@@ -1167,7 +1166,7 @@ export function SetupWizard() {
                       <Label htmlFor="setup-api-key-model">Default model</Label>
                       <select
                         id="setup-api-key-model"
-                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        className="h-9 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                         value={apiKeyModel}
                         onChange={(e) => setApiKeyModel(e.target.value)}
                         disabled={apiKeySaving || modelsLoading || providerModels.length === 0}
@@ -1283,7 +1282,7 @@ export function SetupWizard() {
                     <Label htmlFor="setup-subscription-provider">Subscription</Label>
                     <select
                       id="setup-subscription-provider"
-                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                      className="h-9 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                       value={subscriptionProvider}
                       onChange={(e) =>
                         setSubscriptionProvider(e.target.value as SubscriptionProvider)
@@ -1349,7 +1348,7 @@ export function SetupWizard() {
                 </div>
               </div>
             )}
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="flex-wrap gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => setStep('cloud')}>
                 Use gptme.ai instead
               </Button>
