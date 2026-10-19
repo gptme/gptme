@@ -1348,7 +1348,7 @@ export function SetupWizard() {
                 </div>
               </div>
             )}
-            <DialogFooter className="flex-wrap gap-2 sm:gap-0">
+            <DialogFooter className="flex-wrap gap-2 sm:gap-x-0">
               <Button variant="outline" onClick={() => setStep('cloud')}>
                 Use gptme.ai instead
               </Button>
