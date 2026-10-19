@@ -68,9 +68,11 @@ export function DeleteConversationConfirmationDialog({
     // identity must not change mid-flight just because the active server did.
     const activeServerAtConfirm = serverRegistry$.peek().activeServerId;
     const targetOwnerId = serverId ?? activeServerAtConfirm;
-    // Primary-ness is client ownership (owner === api), not active-server
-    // identity: deleting through a secondary while it happens to be active
-    // still targets the secondary query family, never the primary list.
+    // `api` is getPrimaryClient() — the *active* server's pooled client. The
+    // active server's rows live in the ['conversations', baseUrl] family;
+    // every other connected server lives in ['secondary-conversations',
+    // serverId]. So client identity is the family test, including when the
+    // secondary server is the active one.
     const targetIsPrimary = owner === api;
 
     // Delete conversation

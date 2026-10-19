@@ -251,10 +251,14 @@ export const ConversationList: FC<Props> = ({
           ...currentConfig,
           chat: { ...currentConfig.chat, name: trimmed },
         });
-        // Primary-ness is about which client owns the row (the pooled owner
-        // being the primary client), not which server is currently active:
-        // a secondary row while its server is active still mutates through
-        // the secondary query family.
+        // `api` is getPrimaryClient() — the *active* server's pooled client,
+        // not a fixed primary. The active server's rows are served by the
+        // ['conversations', baseUrl] family; every other connected server is
+        // served by ['secondary-conversations', serverId]
+        // (useMultiServerConversations excludes the active server). So client
+        // identity is the family test: owner === api means this row is in the
+        // active family, whether that server is the first one or a promoted
+        // secondary.
         const isPrimary = owner === api;
         // The global conversation store is keyed by bare ID, so only write the
         // optimistic title when the loaded entry actually belongs to this row.

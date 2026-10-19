@@ -30,9 +30,12 @@ export function useConversationMetadata() {
 
   const invalidateOwner = useCallback(
     async (serverId: string | undefined, client: IApiClient) => {
-      // Primary-ness is client ownership, not active-server identity: a
-      // secondary row while its server is active still belongs to the
-      // secondary query family, never the primary list.
+      // `api` is getPrimaryClient() — the *active* server's pooled client, not
+      // a fixed primary. The active server's rows live in the
+      // ['conversations', baseUrl] family; every other connected server lives
+      // in ['secondary-conversations', serverId] (useMultiServerConversations
+      // excludes the active server). Client identity is therefore the family
+      // test, including when a promoted secondary is the active server.
       const isPrimary = client === api;
       const queryKey = isPrimary
         ? conversationsQueryKey(client.baseUrl)

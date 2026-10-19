@@ -24,7 +24,11 @@ const mockGetClientForServer = getClientForServer as jest.MockedFunction<typeof 
 const mockPrimaryApi = {
   baseUrl: 'http://primary.test',
   deleteConversation: jest.fn().mockResolvedValue(undefined),
-  getChatConfig: jest.fn(),
+  getChatConfig: jest.fn().mockResolvedValue({
+    chat: { name: 'Primary Chat', model: 'keep-model' },
+    env: { KEEP: 'me' },
+    mcp: { servers: [] },
+  }),
   updateChatConfig: jest.fn().mockResolvedValue(undefined),
   patchConversationMetadata: jest.fn().mockResolvedValue(undefined),
 };
@@ -41,13 +45,20 @@ const mockSecondaryClient = {
   patchConversationMetadata: jest.fn().mockResolvedValue(undefined),
 };
 
-jest.mock('@/contexts/ApiContext', () => ({
-  useApi: () => ({
-    api: mockPrimaryApi,
-    connectionConfig: { baseUrl: 'http://primary.test', apiKey: '' },
-    isConnected$: observable(true),
-  }),
-}));
+jest.mock('@/contexts/ApiContext', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { serverRegistry$: registry } = require('@/stores/servers');
+  return {
+    useApi: () => ({
+      // Production: api = getPrimaryClient(), i.e. the *active* server's pooled
+      // client — not a fixed primary. A hard-coded mock lets the family routing
+      // below pass here while misrouting in the browser.
+      api: registry.peek().activeServerId === 'secondary' ? mockSecondaryClient : mockPrimaryApi,
+      connectionConfig: { baseUrl: 'http://primary.test', apiKey: '' },
+      isConnected$: observable(true),
+    }),
+  };
+});
 
 // Keep the real row component but replace Radix's focus-managed context menu
 // with a minimal one so a test can edit the rename input without an auto-blur
@@ -403,9 +414,11 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
     });
   });
 
-  it('renames a secondary row while it is the active server through the secondary family only', async () => {
-    // Activate the secondary server; primary-ness must follow client
-    // ownership, not active-server identity.
+  it('renames a promoted secondary row through the active conversation family', async () => {
+    // Activate the secondary server. `api` follows the active server, exactly
+    // as getPrimaryClient() does in production, so this row is served by the
+    // ['conversations', baseUrl] family — useMultiServerConversations only
+    // populates the secondary family for *non-active* servers.
     serverRegistry$.set({
       ...serverRegistry$.get(),
       activeServerId: 'secondary',
@@ -423,17 +436,39 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => expect(mockSecondaryClient.updateChatConfig).toHaveBeenCalled());
-    // The secondary query family is invalidated, never the primary list.
     await waitFor(() =>
       expect(mockInvalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['secondary-conversations', 'secondary'],
+        queryKey: ['conversations', 'http://secondary.test'],
+      })
+    );
+    expect(mockInvalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ['secondary-conversations', 'secondary'],
+    });
+    // The primary-owned store entry must not be clobbered.
+    expect(conversations$.get(sharedId)?.peek()?.data.name).toBe('Primary Chat');
+  });
+
+  it('renames a non-active primary row through the secondary family', async () => {
+    // Mirror case: the secondary is active, so the primary is now a secondary
+    // server and its list lives under ['secondary-conversations', 'primary'].
+    serverRegistry$.activeServerId.set('secondary');
+
+    renderList();
+    fireEvent.contextMenu(screen.getByText('Primary Chat'));
+    fireEvent.click(screen.getByText('Rename'));
+    const input = screen.getByTestId('conversation-rename-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Renamed Primary' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(mockPrimaryApi.updateChatConfig).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['secondary-conversations', 'primary'],
       })
     );
     expect(mockInvalidateQueries).not.toHaveBeenCalledWith({
       queryKey: ['conversations', 'http://primary.test'],
     });
-    // The primary-owned store entry must not be clobbered.
-    expect(conversations$.get(sharedId)?.peek()?.data.name).toBe('Primary Chat');
   });
 
   it('reverts optimistic star state on failure without touching the primary', async () => {
