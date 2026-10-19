@@ -385,6 +385,50 @@ describe('ConversationList exports', () => {
     expect(exportedMessages[119].content).toBe('SECONDARY-NEWEST-SENTINEL');
   });
 
+  it.each(['Markdown', 'JSON'] as const)(
+    'exports a store-only row as %s using its verified client instead of assuming primary',
+    async (format) => {
+      const primaryClient = { getConversation: jest.fn() };
+      const ownerLog: Message[] = [{ role: 'user', content: 'STORE-OWNER-ONLY' }];
+      const ownerClient = {
+        getConversation: jest.fn().mockResolvedValue({ log: ownerLog, name: 'Store owner' }),
+      };
+      mockGetClient.mockImplementation((serverId?: string) =>
+        serverId === 'server-2' ? ownerClient : primaryClient
+      );
+      const primary = serverRegistry$.peek().servers[0];
+      serverRegistry$.servers.set([
+        primary,
+        { ...primary, id: 'server-2', baseUrl: 'http://localhost:5701' },
+      ]);
+      setLoadedConversation(ownerLog, {
+        hasMoreBefore: false,
+        streamClientGeneration: getClientGeneration(ownerClient),
+      });
+
+      renderList(conv({ serverId: undefined }));
+      await openExport(format);
+
+      const exporter = format === 'JSON' ? mockExportJSON : mockExportMarkdown;
+      await waitFor(() => expect(exporter).toHaveBeenCalledTimes(1));
+      expect(ownerClient.getConversation).toHaveBeenCalledWith('conv-1');
+      expect(primaryClient.getConversation).not.toHaveBeenCalled();
+      expect(exporter.mock.calls[0][2]).toEqual(ownerLog);
+    }
+  );
+
+  it('fails closed for a store-only row without verifiable ownership', async () => {
+    setLoadedConversation(fullMessages(), { hasMoreBefore: false });
+    renderList(conv({ serverId: undefined }));
+    await openExport('JSON');
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Cannot export: conversation server is unavailable')
+    );
+    expect(mockGetConversation).not.toHaveBeenCalled();
+    expect(mockExportJSON).not.toHaveBeenCalled();
+  });
+
   it('exports the owner-verified selected branch from the full branch map', async () => {
     const ownerClient = { getConversation: mockGetConversation };
     const mainLog = fullMessages();
