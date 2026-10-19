@@ -6018,3 +6018,41 @@ def test_v2_config_patch_rebuild_uses_model_default_tool_format(
     assert patch_response.status_code == 200
     # The patch rebuild must consult the model default, not fall back to markdown.
     assert prompt.call_args.kwargs["tool_format"] == "tool"
+
+
+def test_v2_chat_config_preserves_mcp_argv_and_null_tool_format(client: FlaskClient):
+    """A config PATCH round-trips exact MCP argv and the absent tool format.
+
+    The webui sends the full config on every save, so an unrelated settings
+    change must not alter argv that contains commas/whitespace or pin a format.
+    """
+    conversation_id = create_conversation(client)["conversation_id"]
+    args = ["server.js", '--config={"a":1,"b":2}', " padded ", ""]
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={
+            "chat": {"tool_format": None},
+            "mcp": {
+                "enabled": True,
+                "auto_start": False,
+                "servers": [
+                    {
+                        "name": "filesystem",
+                        "enabled": True,
+                        "command": "npx",
+                        "args": args,
+                        "env": {},
+                    }
+                ],
+            },
+        },
+    )
+    assert response.status_code == 200
+
+    config = ChatConfig.from_dict(
+        client.get(f"/api/v2/conversations/{conversation_id}/config").get_json()
+    )
+    assert config.tool_format is None
+    assert config.mcp is not None
+    assert config.mcp.servers[0].args == args
