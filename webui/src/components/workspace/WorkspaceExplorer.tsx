@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { useWorkspaceApi } from '@/utils/workspaceApi';
@@ -40,17 +40,24 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
     }
   }, [navigateTo]);
 
+  // Only the latest listing request may update state: switching root, path or
+  // show-hidden while a request is pending must not let the older response win.
+  const latestRequestRef = useRef(0);
+
   const loadFiles = useCallback(async () => {
+    const requestId = ++latestRequestRef.current;
+    const isCurrent = () => requestId === latestRequestRef.current;
     try {
       setLoading(true);
       setError(null);
       const data = await listWorkspace(conversationId, currentPath, showHidden, activeRoot);
-      setFiles(data);
+      if (isCurrent()) setFiles(data);
     } catch (err) {
+      if (!isCurrent()) return;
       console.error('Error loading workspace:', err);
       setError(err instanceof Error ? err.message : 'Failed to load workspace');
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [conversationId, currentPath, showHidden, activeRoot, listWorkspace]);
 
@@ -132,7 +139,11 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
           {error ? (
             <div className="flex h-full items-center justify-center text-destructive">{error}</div>
           ) : loading ? (
-            <div className="flex h-full items-center justify-center">
+            <div
+              className="flex h-full items-center justify-center"
+              role="status"
+              aria-label="Loading files"
+            >
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           ) : (
