@@ -164,7 +164,8 @@ const SECONDARY_SERVER_ID = 'server-2';
 describe('ConversationSettings JSON export', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetClient.mockImplementation(() => ({ getConversation: mockGetConversation }));
+    const ownerClient = { getConversation: mockGetConversation };
+    mockGetClient.mockReturnValue(ownerClient);
     conversations$.set(new Map());
     serverRegistry$.set({
       servers: [
@@ -256,6 +257,44 @@ describe('ConversationSettings JSON export', () => {
     expect(exportedMessages[119].content).toBe('SECONDARY-NEWEST-SENTINEL');
   });
 
+  it.each([
+    ['JSON', /Download \.json/, mockExportJSON],
+    ['Markdown', /Download \.md/, mockExportMarkdown],
+    ['Copy', /^Copy$/, mockCopyToClipboard],
+  ])(
+    'fetches the owner log for %s when a complete cache belongs to another server',
+    async (_format, button, exporter) => {
+      const foreignClient = { getConversation: mockGetConversation };
+      const ownerLog: Message[] = [{ role: 'user', content: 'SECONDARY-ONLY' }];
+      const ownerClient = { getConversation: jest.fn().mockResolvedValue({ log: ownerLog }) };
+      mockGetClient.mockReturnValue(ownerClient);
+      setLoadedConversation([{ role: 'user', content: 'PRIMARY-SECRET' }], false);
+      conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(foreignClient));
+
+      render(<ConversationSettings conversationId="conv-1" serverId={SECONDARY_SERVER_ID} />);
+      fireEvent.click(screen.getByRole('button', { name: button }));
+
+      await waitFor(() => expect(exporter).toHaveBeenCalledTimes(1));
+      expect(ownerClient.getConversation).toHaveBeenCalledWith('conv-1');
+      expect(exporter.mock.calls[0][_format === 'Copy' ? 1 : 2]).toEqual(ownerLog);
+      expect(mockGetConversation).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not export a complete foreign cache when the owner fetch fails', async () => {
+    setLoadedConversation([{ role: 'user', content: 'PRIMARY-SECRET' }], false);
+    mockGetConversation.mockRejectedValue(new Error('offline'));
+
+    render(<ConversationSettings conversationId="conv-1" serverId={SECONDARY_SERVER_ID} />);
+    fireEvent.click(screen.getByRole('button', { name: /Download \.json/ }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Failed to load full conversation history')
+    );
+    expect(mockExportJSON).not.toHaveBeenCalled();
+    expect(mockReportDownloadOutcome).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the owning server is removed after render', async () => {
     const secondaryGetConversation = jest.fn();
     setLoadedConversation(fullMessages().slice(70), true);
@@ -332,6 +371,7 @@ describe('ConversationSettings JSON export', () => {
       { role: 'assistant', content: 'hidden assistant', hide: true },
     ];
     setLoadedConversation(rawMessages, false);
+    conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(mockGetClient()));
 
     render(<ConversationSettings conversationId="conv-1" />);
     fireEvent.click(screen.getByRole('button', { name: /Download \.json/ }));
@@ -356,6 +396,7 @@ describe('ConversationSettings JSON export', () => {
 
   it('exports the loaded log without fetching for a short conversation', async () => {
     setLoadedConversation(fullMessages().slice(115), false);
+    conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(mockGetClient()));
 
     render(<ConversationSettings conversationId="conv-1" />);
     fireEvent.click(screen.getByRole('button', { name: /Download \.json/ }));

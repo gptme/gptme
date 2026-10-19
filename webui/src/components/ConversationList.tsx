@@ -192,23 +192,28 @@ export const ConversationList: FC<Props> = ({
    */
   const loadFullExportLog = useCallback(
     async (conv: ConversationSummary): Promise<{ messages: Message[]; name: string } | null> => {
-      // getClient() falls back to the primary server for unknown IDs, so the
-      // registry check is what makes a missing owner fail closed.
-      if (
-        !conv.serverId ||
-        !serverRegistry$.get().servers.some((server) => server.id === conv.serverId)
-      ) {
+      const servers = serverRegistry$.get().servers;
+      const storeConv = conversations$.get(conv.id);
+      const cachedGeneration = storeConv?.streamClientGeneration?.peek();
+      // Store-only rows have no serverId yet. Recover their owner only from
+      // the live client's generation, never by assuming they are primary.
+      const ownerId =
+        conv.serverId ??
+        (typeof cachedGeneration === 'number'
+          ? servers.find((server) => getClientGeneration(getClient(server.id)) === cachedGeneration)
+              ?.id
+          : undefined);
+      // getClient() falls back to primary for unknown IDs; validate first.
+      if (!ownerId || !servers.some((server) => server.id === ownerId)) {
         toast.error('Cannot export: conversation server is unavailable');
         return null;
       }
 
-      const client = getClient(conv.serverId);
+      const client = getClient(ownerId);
       // Snapshot the selected branch before awaiting. The store is shared by
       // conversation ID, so only trust its branch selector when the live stream
       // was created on this row's client; otherwise that cache may belong to a
       // same-ID conversation on another server.
-      const storeConv = conversations$.get(conv.id);
-      const cachedGeneration = storeConv?.streamClientGeneration?.peek();
       const cacheBelongsToRow =
         typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
       const selectedBranch = cacheBelongsToRow

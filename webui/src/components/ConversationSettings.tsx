@@ -144,12 +144,15 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
       hasMoreBefore: boolean,
       client: IApiClient
     ): Promise<Message[] | null> => {
-      if (isDemo || !hasMoreBefore) return loadedLog;
+      if (isDemo) return loadedLog;
 
       const storeConv = conversations$.get(conversationId);
       const cachedGeneration = storeConv?.streamClientGeneration?.peek();
       const cacheBelongsToOwner =
         typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
+      // Completeness is not ownership: the ID-keyed cache can still contain
+      // another server's full transcript while the new owner's fetch is pending.
+      if (!hasMoreBefore && cacheBelongsToOwner) return loadedLog;
       const selectedBranch = cacheBelongsToOwner
         ? (storeConv?.currentBranch?.peek() ?? 'main')
         : 'main';
