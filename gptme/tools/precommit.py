@@ -52,6 +52,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Both runners read the same .pre-commit-config.yaml and accept the same
+# ``run`` subcommands (``--all-files``/``--files``). Prefer the reference
+# implementation, fall back to prek (the Rust reimplementation) when only it
+# is installed — otherwise checks silently disable in prek-only repos.
+PRECOMMIT_RUNNERS = ("pre-commit", "prek")
+
+
+def get_precommit_runner() -> str | None:
+    """Return the available pre-commit runner, or None if neither is installed."""
+    for candidate in PRECOMMIT_RUNNERS:
+        if shutil.which(candidate):
+            return candidate
+    return None
+
 
 def use_checks() -> bool:
     """Check if pre-commit checks are enabled.
@@ -83,9 +97,9 @@ def use_checks() -> bool:
 
     enabled = explicit_enabled or has_config
 
-    # Check for pre-commit availability
-    if enabled and not shutil.which("pre-commit"):
-        logger.warning("pre-commit not found, disabling pre-commit checks")
+    # Check for a pre-commit runner (pre-commit or prek)
+    if enabled and not get_precommit_runner():
+        logger.warning("neither pre-commit nor prek found, disabling pre-commit checks")
         return False
 
     return enabled
@@ -163,15 +177,20 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         logger.debug("Pre-commit checks not enabled")
         return False, None
 
+    runner = get_precommit_runner()
+    if runner is None:
+        logger.debug("No pre-commit runner available")
+        return False, None
+
     if all_files:
-        cmd = ["pre-commit", "run", "--all-files"]
+        cmd = [runner, "run", "--all-files"]
     else:
         modified = _get_modified_files()
         if modified:
-            cmd = ["pre-commit", "run", "--files", *modified]
+            cmd = [runner, "run", "--files", *modified]
         else:
             logger.debug("No modified files found, falling back to --all-files")
-            cmd = ["pre-commit", "run", "--all-files"]
+            cmd = [runner, "run", "--all-files"]
     start_time = time.monotonic()
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
@@ -185,8 +204,16 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         if e.returncode == 130:
             raise KeyboardInterrupt from None
         # If no pre-commit config found
-        # Can happen in nested git repos, since we check parent dirs but pre-commit only checks the current repo.
-        if ".pre-commit-config.yaml is not a file" in e.stdout:
+        # Can happen in nested git repos, since we check parent dirs but the
+        # runner only checks the current repo. The two runners word it
+        # differently, and prek writes it to stderr:
+        #   pre-commit: "=====> .pre-commit-config.yaml is not a file" (stdout)
+        #   prek: "No `prek.toml` or `.pre-commit-config.yaml` found" (stderr)
+        runner_output = f"{e.stdout or ''}\n{e.stderr or ''}"
+        if (
+            ".pre-commit-config.yaml is not a file" in runner_output
+            or "No `prek.toml` or `.pre-commit-config.yaml` found" in runner_output
+        ):
             return False, None
 
         logger.error(f"Pre-commit checks failed: {e}")
@@ -270,29 +297,34 @@ def run_precommit_on_file(
         logger.debug("Per-file pre-commit checks disabled, skipping hook")
         return
 
+    runner = get_precommit_runner()
+    if runner is None:
+        logger.debug("No pre-commit runner available, skipping hook")
+        return
+
     try:
-        # Check if pre-commit is available
+        # Check if the runner is working
         check_result = subprocess.run(
-            ["pre-commit", "--version"],
+            [runner, "--version"],
             check=False,
             capture_output=True,
             text=True,
             timeout=5,
         )
         if check_result.returncode != 0:
-            logger.debug("pre-commit not available, skipping hook")
+            logger.debug("pre-commit runner not available, skipping hook")
             return
 
     except KeyboardInterrupt:
         raise
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        logger.debug("pre-commit not found or timed out, skipping hook")
+        logger.debug("pre-commit runner not found or timed out, skipping hook")
         return
 
     try:
         # Run pre-commit on the specific file
         result = subprocess.run(
-            ["pre-commit", "run", "--files", str(path)],
+            [runner, "run", "--files", str(path)],
             check=False,
             capture_output=True,
             text=True,
@@ -329,8 +361,8 @@ def run_precommit_on_file(
 
 
 def check_precommit_available() -> bool:
-    """Check if pre-commit is available."""
-    return shutil.which("pre-commit") is not None
+    """Check if a pre-commit runner (pre-commit or prek) is available."""
+    return get_precommit_runner() is not None
 
 
 def run_full_precommit_checks(

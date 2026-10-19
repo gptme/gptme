@@ -24,6 +24,7 @@ from gptme.tools.autocommit import tool as autocommit_tool
 from gptme.tools.precommit import (
     _get_modified_files,
     check_precommit_available,
+    get_precommit_runner,
     handle_precommit_command,
     run_checks_per_file,
     run_full_precommit_checks,
@@ -59,6 +60,14 @@ def _mock_subprocess_run(returncode: int = 0, stdout: str = "", stderr: str = ""
 def _mock_which(path: str | None = "/usr/bin/pre-commit"):
     """Return a patched shutil.which."""
     return patch("gptme.tools.precommit.shutil.which", return_value=path)
+
+
+def _mock_which_available(*available: str):
+    """Return a patched shutil.which that only resolves the named binaries."""
+    return patch(
+        "gptme.tools.precommit.shutil.which",
+        side_effect=lambda name: f"/usr/bin/{name}" if name in available else None,
+    )
 
 
 # ── TestUseChecks ─────────────────────────────────────────────────────────
@@ -150,6 +159,32 @@ class TestUseChecks:
         assert (
             "GPTME_CHECK is enabled but no .pre-commit-config.yaml found" in caplog.text
         )
+
+    def test_enabled_with_prek_only(self, tmp_path: Path, monkeypatch):
+        """prek satisfies the runner requirement when pre-commit is absent."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        with _mock_config({"GPTME_CHECK": ""}), _mock_which_available("prek"):
+            assert use_checks() is True
+
+
+# ── TestGetPrecommitRunner ────────────────────────────────────────────────
+
+
+class TestGetPrecommitRunner:
+    """Tests for get_precommit_runner — runner detection and preference."""
+
+    def test_prefers_pre_commit(self):
+        with _mock_which_available("pre-commit", "prek"):
+            assert get_precommit_runner() == "pre-commit"
+
+    def test_falls_back_to_prek(self):
+        with _mock_which_available("prek"):
+            assert get_precommit_runner() == "prek"
+
+    def test_returns_none_when_neither_installed(self):
+        with _mock_which_available():
+            assert get_precommit_runner() is None
 
 
 # ── TestRunChecksPerFile ──────────────────────────────────────────────────
@@ -281,6 +316,19 @@ class TestRunPrecommitChecks:
             run_precommit_checks(all_files=True)
         args = mock_run.call_args[0][0]
         assert "--all-files" in args
+
+    @patch("subprocess.run")
+    def test_uses_prek_when_only_prek_installed(
+        self, mock_run: MagicMock, tmp_path: Path, monkeypatch
+    ):
+        """Invokes prek with the same run arguments when pre-commit is absent."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        mock_run.return_value = _mock_subprocess_run()
+        with _mock_config({"GPTME_CHECK": "true"}), _mock_which_available("prek"):
+            run_precommit_checks(all_files=True)
+        args = mock_run.call_args[0][0]
+        assert args == ["prek", "run", "--all-files"]
 
     @patch("gptme.tools.precommit._get_modified_files")
     @patch("subprocess.run")
@@ -445,6 +493,27 @@ class TestRunPrecommitChecks:
         assert success is False
         assert output is None
 
+    @patch("subprocess.run")
+    def test_nested_repo_prek_stderr_returns_false_none(
+        self, mock_run: MagicMock, tmp_path: Path, monkeypatch
+    ):
+        """prek reports the nested-repo no-config case on stderr."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1,
+            "prek",
+            output="",
+            stderr=(
+                "error: No `prek.toml` or `.pre-commit-config.yaml` found in the "
+                "current directory or parent directories."
+            ),
+        )
+        with _mock_config({"GPTME_CHECK": "true"}), _mock_which_available("prek"):
+            success, output = run_precommit_checks()
+        assert success is False
+        assert output is None
+
 
 # ── TestHandlePrecommitCommand ────────────────────────────────────────────
 
@@ -543,6 +612,23 @@ class TestRunPrecommitOnFile:
         assert msgs[0].hide is True
 
     @patch("subprocess.run")
+    def test_uses_prek_when_only_prek_installed(
+        self, mock_run: MagicMock, tmp_path: Path, monkeypatch
+    ):
+        """Per-file hook invokes prek when pre-commit is absent."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        mock_run.return_value = _mock_subprocess_run()
+        with (
+            _mock_config({"GPTME_CHECK": "true", "GPTME_CHECK_PER_FILE": "true"}),
+            _mock_which_available("prek"),
+        ):
+            list(run_precommit_on_file(None, tmp_path, tmp_path / "f.py", "content"))
+        calls = [call.args[0] for call in mock_run.call_args_list]
+        assert calls[0] == ["prek", "--version"]
+        assert calls[1] == ["prek", "run", "--files", str(tmp_path / "f.py")]
+
+    @patch("subprocess.run")
     def test_check_fails(self, mock_run: MagicMock, tmp_path: Path, monkeypatch):
         """Yields visible failure message when file fails checks."""
         monkeypatch.chdir(tmp_path)
@@ -607,6 +693,10 @@ class TestCheckPrecommitAvailable:
 
     def test_available_when_found(self):
         with _mock_which():
+            assert check_precommit_available() is True
+
+    def test_available_with_prek_only(self):
+        with _mock_which_available("prek"):
             assert check_precommit_available() is True
 
     def test_unavailable_when_not_found(self):
