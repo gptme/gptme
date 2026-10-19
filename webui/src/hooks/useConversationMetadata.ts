@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/contexts/ApiContext';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 import { getClientForServer } from '@/stores/serverClients';
-import { serverRegistry$ } from '@/stores/servers';
 import type { IApiClient } from '@/utils/api';
 
 /**
@@ -31,15 +30,16 @@ export function useConversationMetadata() {
 
   const invalidateOwner = useCallback(
     async (serverId: string | undefined, client: IApiClient) => {
-      // Secondary rows live in their own per-server query. Invalidate only the
-      // owning query: never the primary list for a secondary mutation.
-      const isPrimary = !serverId || serverId === serverRegistry$.peek().activeServerId;
+      // Primary-ness is client ownership, not active-server identity: a
+      // secondary row while its server is active still belongs to the
+      // secondary query family, never the primary list.
+      const isPrimary = client === api;
       const queryKey = isPrimary
         ? conversationsQueryKey(client.baseUrl)
         : ['secondary-conversations', serverId];
       await queryClient.invalidateQueries({ queryKey });
     },
-    [queryClient]
+    [queryClient, api]
   );
 
   const toggleStar = useCallback(

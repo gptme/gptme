@@ -337,6 +337,43 @@ describe('ConversationList sidebar mutation ownership (two servers, same id)', (
     });
   });
 
+  it('renames a secondary row while it is the active server through the secondary family only', async () => {
+    const { serverRegistry$ } = await import('@/stores/servers');
+    // Activate the secondary server; primary-ness must follow client
+    // ownership, not active-server identity.
+    serverRegistry$.set({
+      ...serverRegistry$.get(),
+      activeServerId: 'secondary',
+    });
+    // The store entry belongs to the primary server (same bare ID).
+    (conversations$.set as (value: Map<string, unknown>) => void)(
+      new Map([[sharedId, { serverId: 'primary', data: { name: 'Primary Chat' } }]])
+    );
+
+    renderList();
+    fireEvent.contextMenu(screen.getByText('Secondary Chat'));
+    fireEvent.click(screen.getByText('Rename'));
+    const input = screen.getByTestId('conversation-rename-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Renamed Secondary' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(mockSecondaryClient.updateChatConfig).toHaveBeenCalled());
+    // The secondary query family is invalidated, never the primary list.
+    await waitFor(() =>
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['secondary-conversations', 'secondary'],
+      })
+    );
+    expect(mockInvalidateQueries).not.toHaveBeenCalledWith({
+      queryKey: ['conversations', 'http://primary.test'],
+    });
+    // The primary-owned store entry must not be clobbered.
+    expect(conversations$.get(sharedId)?.peek()?.data.name).toBe('Primary Chat');
+
+    // Restore the default registry for other tests.
+    serverRegistry$.set({ ...serverRegistry$.get(), activeServerId: 'primary' });
+  });
+
   it('reverts optimistic star state on failure without touching the primary', async () => {
     mockSecondaryClient.patchConversationMetadata.mockRejectedValueOnce(new Error('nope'));
     renderList();

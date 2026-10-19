@@ -6,6 +6,7 @@ import type { ChatOptions } from '@/components/ChatInput';
 import { DEMO_AGENT, demoConversations, getDemoMessages } from '@/democonversations';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { serverRegistry$ } from '@/stores/servers';
+import { getClientForServer } from '@/stores/serverClients';
 import { use$, useObservable } from '@legendapp/state/react';
 import {
   conversations$,
@@ -92,7 +93,12 @@ export function useConversation(conversationId: string, serverId?: string) {
       // The same bare ID was previously loaded from another server. Its cached
       // payload does not belong to the requested owner, and the load effect
       // would skip the fetch because the entry looks hydrated. Start fresh so
-      // the data is re-fetched from the requested server.
+      // the data is re-fetched from the requested server. Close the previous
+      // owner's live stream first: its callbacks address the entry by bare ID
+      // (setGenerating/addMessage/...), so a still-open stream would keep
+      // writing the old server's events into the entry that now belongs to
+      // the requested server.
+      getClientForServer(entry.serverId)?.closeEventStream(conversationId);
       initConversation(conversationId);
     }
     conversation$?.serverId.set(requestedOwner);

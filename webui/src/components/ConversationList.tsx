@@ -14,7 +14,12 @@ import {
 } from '@/utils/exportConversation';
 
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { ConversationItem, getConversationKey, getConversationName } from './ConversationItem';
+import {
+  ConversationItem,
+  getConversationKey,
+  getConversationName,
+  storeEntryOwnedByRow,
+} from './ConversationItem';
 
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
@@ -27,7 +32,7 @@ import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
-import { serverRegistry$ } from '@/stores/servers';
+
 import { toast } from 'sonner';
 
 const HARNESS_LABELS: Record<string, string> = {
@@ -115,7 +120,6 @@ export const ConversationList: FC<Props> = ({
   const isConnected = use$(isConnected$);
   const connectionStatus = useConnectionStatus();
   const queryClient = useQueryClient();
-  const registry = use$(serverRegistry$);
 
   const { toggleStar } = useConversationMetadata();
 
@@ -247,10 +251,14 @@ export const ConversationList: FC<Props> = ({
           ...currentConfig,
           chat: { ...currentConfig.chat, name: trimmed },
         });
-        const isPrimary = !serverId || serverId === registry.activeServerId;
-        // The global conversation store is keyed by bare ID with no owner
-        // metadata, so a secondary rename must not write a primary entry.
-        if (isPrimary) {
+        // Primary-ness is about which client owns the row (the pooled owner
+        // being the primary client), not which server is currently active:
+        // a secondary row while its server is active still mutates through
+        // the secondary query family.
+        const isPrimary = owner === api;
+        // The global conversation store is keyed by bare ID, so only write the
+        // optimistic title when the loaded entry actually belongs to this row.
+        if (isPrimary && storeEntryOwnedByRow({ id: convId, serverId })) {
           const conv = conversations$.get(convId);
           if (conv?.data) {
             conv.data.name.set(trimmed);
@@ -267,7 +275,7 @@ export const ConversationList: FC<Props> = ({
       }
       setRenamingId(null);
     },
-    [api, queryClient, registry.activeServerId]
+    [api, queryClient]
   );
 
   // Sync URL → local state on browser back/forward (skip our own debounced writes).
