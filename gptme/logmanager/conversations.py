@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import tomlkit
 
@@ -190,6 +190,40 @@ def _count_messages(path: str, mtime: float) -> int:
     return count
 
 
+def _is_candidate_line(line: bytes) -> bool:
+    """Cheap pre-filter for a user/assistant message line (see _parse_preview)."""
+    return bool(line.strip()) and (b'"user"' in line or b'"assistant"' in line)
+
+
+def _read_tail_lines(f: BinaryIO, file_size: int) -> Generator[bytes, None, None]:
+    """Yield tail lines newest first, reading each fixed-size chunk once.
+
+    The caller stops once it has both a preview candidate and a model.
+    Keep fragments of only the unfinished line, joining once when its start
+    is reached. Completed tool/system lines can be consumed and discarded
+    immediately instead of retaining and rereading an expanding tail window.
+    """
+    position = file_size
+    fragments: list[bytes] = []
+    while position > 0:
+        size = min(position, _TAIL_BYTES)
+        position -= size
+        f.seek(position)
+        parts = f.read(size).split(b"\n")
+        # The rightmost part continues the line from the previous chunk.
+        fragments.append(parts.pop())
+        if parts:
+            line = b"".join(reversed(fragments))
+            fragments.clear()
+            yield line
+            # All interior lines are complete; the leftmost may be partial.
+            for line in reversed(parts[1:]):
+                yield line
+            fragments.append(parts[0])
+        if position == 0:
+            yield b"".join(reversed(fragments))
+
+
 def _fast_scan_tail(
     conv_fn: Path, file_size: int
 ) -> tuple[int, str | None, bytes | None]:
@@ -217,28 +251,22 @@ def _fast_scan_tail(
     last_msg_line: bytes | None = None
     conv_model: str | None = None
     with open(conv_fn, "rb") as f:
-        if file_size > _TAIL_BYTES:
-            f.seek(file_size - _TAIL_BYTES)
-            f.readline()  # skip partial first line
-        tail_lines = f.readlines()
-
-    # Scan tail lines in reverse for last user/assistant message + model
-    for line in reversed(tail_lines):
-        line = line.strip()
-        if not line:
-            continue
-        if last_msg_line is None and (b'"user"' in line or b'"assistant"' in line):
-            last_msg_line = line
-        if conv_model is None and b'"metadata"' in line:
-            try:
-                msg = json.loads(line)
-                meta = msg.get("metadata")
-                if meta and meta.get("model"):
-                    conv_model = meta["model"]
-            except (json.JSONDecodeError, TypeError):
-                pass
-        if last_msg_line is not None and conv_model is not None:
-            break
+        for line in _read_tail_lines(f, file_size):
+            line = line.strip()
+            if not line:
+                continue
+            if last_msg_line is None and _is_candidate_line(line):
+                last_msg_line = line
+            if conv_model is None and b'"metadata"' in line:
+                try:
+                    msg = json.loads(line)
+                    meta = msg.get("metadata")
+                    if meta and meta.get("model"):
+                        conv_model = meta["model"]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if last_msg_line is not None and conv_model is not None:
+                break
 
     return len_msgs, conv_model, last_msg_line
 
