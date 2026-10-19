@@ -129,6 +129,29 @@ describe('HistoryView credential-scoped caches', () => {
     expect(screen.queryByText('Alice chat')).not.toBeInTheDocument();
   });
 
+  it('ignores an in-flight previous-account request that resolves after the credential change', async () => {
+    const client = newClient();
+    mockConnectionConfig = account(aliceToken);
+    const aliceFetch = pending<ConversationSummary[]>();
+    mockGetConversations.mockReturnValueOnce(aliceFetch.promise);
+
+    const view = renderHistory(client);
+    await waitFor(() => expect(mockGetConversations).toHaveBeenCalledTimes(1));
+
+    mockGetConversations.mockResolvedValueOnce([conversation('bob-chat', 'Bob chat')]);
+    switchTo(view, client, account(bobToken));
+    expect(await screen.findByText('Bob chat')).toBeInTheDocument();
+    expect(mockGetConversations).toHaveBeenCalledTimes(2);
+
+    // Alice's request completing late must not overwrite Bob's rendered list.
+    await act(async () => {
+      aliceFetch.resolve([conversation('alice-chat', 'Alice chat')]);
+    });
+
+    expect(screen.getByText('Bob chat')).toBeInTheDocument();
+    expect(screen.queryByText('Alice chat')).not.toBeInTheDocument();
+  });
+
   it('does not fall back to previous account data when the new account request fails', async () => {
     const client = newClient();
     mockConnectionConfig = account(aliceToken);
