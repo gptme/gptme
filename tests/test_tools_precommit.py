@@ -493,6 +493,27 @@ class TestRunPrecommitChecks:
         assert success is False
         assert output is None
 
+    @patch("subprocess.run")
+    def test_nested_repo_prek_stderr_returns_false_none(
+        self, mock_run: MagicMock, tmp_path: Path, monkeypatch
+    ):
+        """prek reports the nested-repo no-config case on stderr."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1,
+            "prek",
+            output="",
+            stderr=(
+                "error: No `prek.toml` or `.pre-commit-config.yaml` found in the "
+                "current directory or parent directories."
+            ),
+        )
+        with _mock_config({"GPTME_CHECK": "true"}), _mock_which_available("prek"):
+            success, output = run_precommit_checks()
+        assert success is False
+        assert output is None
+
 
 # ── TestHandlePrecommitCommand ────────────────────────────────────────────
 

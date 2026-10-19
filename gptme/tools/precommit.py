@@ -204,8 +204,16 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         if e.returncode == 130:
             raise KeyboardInterrupt from None
         # If no pre-commit config found
-        # Can happen in nested git repos, since we check parent dirs but pre-commit only checks the current repo.
-        if ".pre-commit-config.yaml is not a file" in e.stdout:
+        # Can happen in nested git repos, since we check parent dirs but the
+        # runner only checks the current repo. The two runners word it
+        # differently, and prek writes it to stderr:
+        #   pre-commit: "=====> .pre-commit-config.yaml is not a file" (stdout)
+        #   prek: "No `prek.toml` or `.pre-commit-config.yaml` found" (stderr)
+        runner_output = f"{e.stdout or ''}\n{e.stderr or ''}"
+        if (
+            ".pre-commit-config.yaml is not a file" in runner_output
+            or "No `prek.toml` or `.pre-commit-config.yaml` found" in runner_output
+        ):
             return False, None
 
         logger.error(f"Pre-commit checks failed: {e}")
