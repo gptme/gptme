@@ -7,15 +7,15 @@ import { toast } from 'sonner';
 import type { ChatConfig } from '@/types/api';
 import { useEffect, useState } from 'react';
 import { use$ } from '@legendapp/state/react';
-import { ToolFormat } from '@/types/api';
 import { demoConversations } from '@/democonversations';
 
-const chatConfigToFormValues = (config: ChatConfig | null | undefined): FormSchema => ({
+export const chatConfigToFormValues = (config: ChatConfig | null | undefined): FormSchema => ({
   chat: {
     name: config?.chat.name || '',
     model: config?.chat.model || '',
     tools: config?.chat.tools?.map((tool) => ({ name: tool })) || [],
-    tool_format: config?.chat.tool_format || ToolFormat.MARKDOWN,
+    // Preserve the absence of an explicit format: null means "use the model default".
+    tool_format: config?.chat.tool_format ?? null,
     stream: config?.chat.stream ?? true,
     interactive: config?.chat.interactive ?? false,
     workspace: config?.chat.workspace || '',
@@ -33,11 +33,110 @@ const chatConfigToFormValues = (config: ChatConfig | null | undefined): FormSche
         name: server.name || '',
         enabled: server.enabled ?? false,
         command: server.command || '',
-        args: server.args?.join(', ') || '',
+        args: formatServerArgs(server.args),
         env: server.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : [],
       })) || [],
   },
 });
+
+const formatServerArgs = (args: string[] | null | undefined): string => args?.join(', ') ?? '';
+
+/**
+ * Resolve the argv array for a server from its editable text field.
+ *
+ * The text field is a display representation, so an unchanged field must map
+ * back to the exact original argv. Only a deliberately edited field is parsed
+ * on commas, and that parse is documented as lossy for arguments that contain
+ * commas, significant whitespace, or empty strings.
+ */
+const resolveServerArgs = (
+  text: string,
+  original: { name: string; args: string[] | null } | undefined
+): string[] => {
+  if (original && text === formatServerArgs(original.args)) {
+    return original.args ?? [];
+  }
+  return text
+    .split(',')
+    .map((arg) => arg.trim())
+    .filter(Boolean);
+};
+
+const findOriginalServer = (
+  server: { name: string },
+  index: number,
+  originals: { name: string; args: string[] | null }[] | undefined
+): { name: string; args: string[] | null } | undefined => {
+  if (!originals) return undefined;
+  const byName = originals.find((candidate) => candidate.name === server.name);
+  return byName ?? originals[index];
+};
+
+export const formValuesToChatConfig = (
+  values: FormSchema,
+  originalConfig: ChatConfig
+): ChatConfig => {
+  const originalSystemPrompt = originalConfig.chat.system_prompt || '';
+
+  const toolsStringArray = values.chat.tools?.map((tool) => tool.name);
+  const newTools = toolsStringArray?.length ? toolsStringArray : null;
+  const systemPromptInput = values.chat.system_prompt || '';
+  const newSystemPrompt = systemPromptInput.trim()
+    ? systemPromptInput
+    : originalSystemPrompt
+      ? ''
+      : null;
+  const newEnv =
+    values.chat.env?.reduce(
+      (acc, { key, value }) => {
+        if (key.trim()) acc[key.trim()] = value;
+        return acc;
+      },
+      {} as Record<string, string>
+    ) || {};
+
+  const newMcpServers = values.mcp?.servers?.map((server, index) => ({
+    name: server.name,
+    enabled: server.enabled,
+    command: server.command,
+    args: resolveServerArgs(
+      server.args,
+      findOriginalServer(server, index, originalConfig.mcp?.servers)
+    ),
+    env:
+      server.env?.reduce(
+        (acc, { key, value }) => {
+          if (key.trim()) acc[key.trim()] = value;
+          return acc;
+        },
+        {} as Record<string, string>
+      ) || {},
+  }));
+
+  return {
+    ...originalConfig,
+    chat: {
+      ...originalConfig.chat,
+      name: values.chat.name || null,
+      model: values.chat.model || null,
+      tools: newTools,
+      tool_format: values.chat.tool_format ?? null,
+      stream: values.chat.stream,
+      interactive: values.chat.interactive,
+      workspace: values.chat.workspace,
+      system_prompt: newSystemPrompt,
+      temperature: values.chat.temperature ?? null,
+      top_p: values.chat.top_p ?? null,
+      max_tokens: values.chat.max_tokens ?? null,
+    },
+    env: newEnv,
+    mcp: {
+      enabled: values.mcp.enabled,
+      auto_start: values.mcp.auto_start,
+      servers: newMcpServers || [],
+    },
+  };
+};
 
 export const useConversationSettings = (conversationId: string) => {
   const { api } = useApi();
@@ -112,68 +211,9 @@ export const useConversationSettings = (conversationId: string) => {
       return;
     }
 
-    // Capture original tools for comparison later
     const originalTools = originalConfig.chat.tools;
     const originalSystemPrompt = originalConfig.chat.system_prompt || '';
-
-    const toolsStringArray = values.chat.tools?.map((tool) => tool.name);
-    const newTools = toolsStringArray?.length ? toolsStringArray : null;
-    const systemPromptInput = values.chat.system_prompt || '';
-    const newSystemPrompt = systemPromptInput.trim()
-      ? systemPromptInput
-      : originalSystemPrompt
-        ? ''
-        : null;
-    const newEnv =
-      values.chat.env?.reduce(
-        (acc, { key, value }) => {
-          if (key.trim()) acc[key.trim()] = value;
-          return acc;
-        },
-        {} as Record<string, string>
-      ) || {};
-
-    const newMcpServers = values.mcp?.servers?.map((server) => ({
-      name: server.name,
-      enabled: server.enabled,
-      command: server.command,
-      args: server.args
-        .split(',')
-        .map((arg) => arg.trim())
-        .filter(Boolean),
-      env:
-        server.env?.reduce(
-          (acc, { key, value }) => {
-            if (key.trim()) acc[key.trim()] = value;
-            return acc;
-          },
-          {} as Record<string, string>
-        ) || {},
-    }));
-
-    const newConfig: ChatConfig = {
-      ...originalConfig,
-      chat: {
-        ...originalConfig.chat,
-        name: values.chat.name || null,
-        model: values.chat.model || null,
-        tools: newTools,
-        tool_format: values.chat.tool_format || null,
-        stream: values.chat.stream,
-        interactive: values.chat.interactive,
-        workspace: values.chat.workspace,
-        system_prompt: newSystemPrompt,
-        temperature: values.chat.temperature ?? null,
-        top_p: values.chat.top_p ?? null,
-        max_tokens: values.chat.max_tokens ?? null,
-      },
-      env: newEnv,
-      mcp: {
-        enabled: values.mcp.enabled,
-        auto_start: values.mcp.auto_start,
-        servers: newMcpServers || [],
-      },
-    };
+    const newConfig: ChatConfig = formValuesToChatConfig(values, originalConfig);
 
     try {
       await api.updateChatConfig(conversationId, newConfig);
