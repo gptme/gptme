@@ -187,6 +187,44 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         report_type: test_results
 
+  # Newest supported Python: the minimal install on 3.15, without coverage uploads.
+  test-py315:
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
+    name: Test on Python 3.15 without API keys or extras
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE: false
+      OPENAI_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      DEEPSEEK_API_KEY: ''
+      OPENROUTER_API_KEY: ''
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: 'recursive'
+    - name: Install apt dependencies
+      run: sudo apt-get update && sudo apt-get install -y universal-ctags pandoc tmux x11-xserver-utils xvfb
+
+    - name: Set up Xvfb
+      run: |
+        Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
+
+    - uses: astral-sh/setup-uv@v7
+      with:
+        python-version: '3.15'
+
+    - name: Install dependencies (no extras)
+      run: uv sync --frozen
+
+    - name: Run tests (no extras, fast only)
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: make test
+
   # Windows smoke tests: a narrow, no-API slice covering the areas that actually
   # bit users (filesystem paths, config loading, CLI entrypoints). Deliberately
   # not a full matrix — a broad skip-marked suite would only buy fake confidence.

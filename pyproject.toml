@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Utilities",
     "Programming Language :: Python :: 3",
 ]
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.10,<3.16"
 dependencies = [
     "click>=8.4,<9",
     "click-default-group>=1.2.4,<2",
@@ -105,7 +105,7 @@ telemetry = [
 ]
 dspy = [
     "dspy>=3.2.1,<4; python_full_version <= '3.13.0'",
-    "sentence-transformers>=5.6.1,<6",
+    "sentence-transformers>=5.6.1,<6; python_version < '3.15'",
 ]
 swebench = [  # narrow install for the SWE-bench public benchmark lane
     "datasets>=5.0.0",  # for SWE-bench eval
@@ -113,10 +113,10 @@ swebench = [  # narrow install for the SWE-bench public benchmark lane
 ]
 eval = [
     "dspy>=3.2.1,<4; python_full_version <= '3.13.0'",
-    "sentence-transformers>=5.6.1,<6",
+    "sentence-transformers>=5.6.1,<6; python_version < '3.15'",
     "datasets>=5.0.0",
     "swebench>=1.0",
-    "terminal-bench>=0.1; python_version >= '3.12'",
+    "terminal-bench>=0.1; python_version >= '3.12' and python_version < '3.15'",
 ]
 all = [
     "flask>=3.0,<4",
@@ -134,7 +134,7 @@ all = [
     "sounddevice",
     "scipy",
     "dspy>=3.2.1,<4; python_full_version <= '3.13.0'",
-    "sentence-transformers>=5.6.1,<6",
+    "sentence-transformers>=5.6.1,<6; python_version < '3.15'",
     "opentelemetry-api>=1.20.0,<2",
     "opentelemetry-sdk>=1.20.0,<2",
     "opentelemetry-exporter-otlp>=1.34.1,<2",
