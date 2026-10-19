@@ -34,6 +34,14 @@
       "icons/icon.ico"
     ],
     "externalBin": ["../bins/gptme-server"],
+    "linux": {
+      "deb": {
+        "desktopTemplate": "gptme.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "gptme.desktop"
+      }
+    },
     "macOS": {
       "infoPlist": "./Info.plist"
     },
