@@ -333,4 +333,46 @@ describe('ChatInput draft ownership', () => {
     rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
     expect(textbox().value).toBe('typed before the server hydrated');
   });
+
+  it("does not hand one owner's text to another owner that resolves later", () => {
+    const serverA: ServerConfig = {
+      id: 'srv-a',
+      name: 'A',
+      ...SERVER_A,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    const serverB: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    serverRegistry$.servers.set([serverA]);
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-a' });
+    type('only for account A');
+    expect(Object.values(draftEntries())).toEqual(['only for account A']);
+
+    // The owner disappears (e.g. its server is removed in another tab) while
+    // the composer stays mounted for the same conversation id.
+    serverRegistry$.servers.set([]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-a' });
+    expect(textbox().value).toBe('only for account A');
+
+    // A different owner then becomes known for that same conversation id. Its
+    // composer must not adopt A's text, and A's text must never be written
+    // under B's key.
+    serverRegistry$.servers.set([serverB]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('');
+    expect(writesTo(encodeURIComponent('http://server-b:5700'))).not.toContain(
+      'only for account A'
+    );
+
+    // A's text is still there when its own owner returns.
+    serverRegistry$.servers.set([serverA]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-a' });
+    expect(textbox().value).toBe('only for account A');
+  });
 });

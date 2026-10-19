@@ -4,6 +4,40 @@ const readDraft = (key: string | null) =>
   key && typeof window !== 'undefined' ? localStorage.getItem(key) || '' : '';
 
 /**
+ * The draft text plus who it belongs to.
+ *
+ * `key` is the persistable localStorage key for the current owner, or null
+ * while the owner is unknown (unregistered or not-yet-hydrated server).
+ * `owner` is the key the text came from; it survives a null key so text is
+ * never handed to a different owner that becomes known later. A null owner
+ * means the text was typed while no owner was known, so the next owner to
+ * become known may adopt it (that is the same composer, just hydrated).
+ */
+type DraftState = {
+  key: string | null;
+  owner: string | null;
+  text: string;
+};
+
+function nextDraft(prev: DraftState, storageKey: string | null): DraftState {
+  if (storageKey === null) {
+    // Owner unknown: memory-only, but keep the text and its true owner.
+    return { key: null, owner: prev.owner, text: prev.text };
+  }
+  if (prev.owner === storageKey) {
+    // Same owner returning (e.g. after a registry reload): its text is ours.
+    return { key: storageKey, owner: storageKey, text: prev.text };
+  }
+  const stored = readDraft(storageKey);
+  if (prev.owner === null) {
+    // Typed while no owner was known; adopt it into the owner that resolved.
+    return { key: storageKey, owner: storageKey, text: stored || prev.text };
+  }
+  // A different owner: never carry the outgoing owner's text across.
+  return { key: storageKey, owner: storageKey, text: stored };
+}
+
+/**
  * Unsent composer text persisted in localStorage under `storageKey` (see
  * `composerDraftKey`). A null key keeps the text in memory only.
  *
@@ -15,21 +49,16 @@ const readDraft = (key: string | null) =>
 export function useComposerDraft(
   storageKey: string | null
 ): [string, Dispatch<SetStateAction<string>>] {
-  const [draft, setDraft] = useState(() => ({ key: storageKey, text: readDraft(storageKey) }));
+  const [draft, setDraft] = useState<DraftState>(() => ({
+    key: storageKey,
+    owner: storageKey,
+    text: readDraft(storageKey),
+  }));
   let current = draft;
   if (draft.key !== storageKey) {
     // Adjust state during render, not in an effect, so no render or effect
     // ever pairs the outgoing text with the incoming key.
-    //
-    // A null key means the owner is unknown (e.g. a conversation on a server
-    // that is not registered or not hydrated yet), so its text is memory-only:
-    // keep what the user typed rather than discarding it. The same carries the
-    // other way — text typed while the owner was unknown is not overwritten by
-    // an empty stored draft once the owner becomes known.
-    const stored = readDraft(storageKey);
-    const text =
-      storageKey === null ? draft.text : stored || (draft.key === null ? draft.text : '');
-    current = { key: storageKey, text };
+    current = nextDraft(draft, storageKey);
     setDraft(current);
   }
 
@@ -45,7 +74,7 @@ export function useComposerDraft(
   const setText: Dispatch<SetStateAction<string>> = useCallback(
     (next) =>
       setDraft((prev) => ({
-        key: prev.key,
+        ...prev,
         text: typeof next === 'function' ? next(prev.text) : next,
       })),
     []
