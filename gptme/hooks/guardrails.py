@@ -11,6 +11,13 @@ BELOW the model and ABOVE the OS that:
 1. **Blocks destructive shell commands** — ``rm -rf /``, ``curl | bash``, etc.
 2. **Blocks secret-path reads** — ``~/.ssh``, ``~/.aws``, ``.env``, ``*.pem``
    files, etc., from both ``shell`` (cat/grep/less) and ``read`` tools.
+3. **Blocks obvious credential output** — shell xtrace, environment/state
+   dumps, and sensitive variable expansions printed by echo/printf. Uses
+   literal shell syntax, not a sandbox: arbitrary programs, dynamic command
+   names and obfuscated expansions remain outside this policy. Quoted prose
+   and non-executed heredoc data are not commands. ``printenv PATH/HOME/LANG``
+   and other explicitly non-secret diagnostics are allowed; ``compgen -e``
+   lists names only. Existing secret-path rules still apply independently.
 
 **Modes** (set via ``GPTME_GUARDRAILS`` env var):
   ``shadow``  — log what would be blocked, return ``None`` (allow, fall through).
@@ -270,7 +277,11 @@ def guardrail_hook(
                 block_reason = f"Destructive shell command blocked: {reason}"
                 if matched:
                     block_reason += f" (matched: {matched!r})"
-            elif not block_reason:
+            else:
+                from ._credential_output import credential_output_reason
+
+                block_reason = credential_output_reason(cmd)
+            if not block_reason:
                 secret = _find_secret_path_in_cmd(cmd)
                 if secret:
                     block_reason = (
