@@ -830,6 +830,45 @@ def test_tools_info_json_invalid_tool_stays_machine_readable():
     )
 
 
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["tools", "info", "nonexistent-tool"],
+        ["tools", "info", "nonexistent-tool", "--json"],
+        ["tools", "call", "nonexistent-tool", "fn"],
+    ],
+    ids=["info-text", "info-json", "call-text"],
+)
+def test_missing_tool_suggestions_exclude_unavailable(
+    monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    """Suggestions filter mixed discovery results regardless of host dependencies."""
+    discovered = [
+        SimpleNamespace(name="unavailable-tool", is_available=False),
+        SimpleNamespace(name="available-tool", is_available=True),
+    ]
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: discovered)
+    monkeypatch.setattr("gptme.tools.get_tool", lambda name: None)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda: None)
+
+    result = CliRunner().invoke(main, args)
+
+    assert result.exit_code == 1
+    if "--json" in args:
+        data = json.loads(result.output)
+        assert data["tool"] == "nonexistent-tool"
+        assert "not found" in data["error"]
+        assert data["available_tools"] == ["available-tool"]
+    else:
+        assert "Tool 'nonexistent-tool' not found. Available tools:" in result.output
+        listed = [
+            line.strip().removeprefix("- ")
+            for line in result.output.splitlines()
+            if line.strip().startswith("- ")
+        ]
+        assert listed == ["available-tool"]
+
+
 def test_tools_call_non_default_tool():
     """Non-default tools that expose functions must be callable.
 
