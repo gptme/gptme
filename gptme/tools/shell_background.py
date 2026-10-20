@@ -114,6 +114,9 @@ class BackgroundJob:
     process_group_id: int | None = field(default=None, repr=False)
     _reader_thread: threading.Thread | None = field(default=None, repr=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    _capture_finished: threading.Event = field(
+        default_factory=threading.Event, repr=False
+    )
     _buffer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _completion_notified: bool = field(default=False, repr=False)
     _wait_expired: bool = field(default=False, repr=False)
@@ -144,6 +147,7 @@ class BackgroundJob:
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
+        self._capture_finished.clear()
         self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self._reader_thread.start()
 
@@ -233,6 +237,9 @@ class BackgroundJob:
         for fd in (stdout_fd, stderr_fd):
             if fd >= 0:
                 self._append_output(fd, stdout_fd, b"", final=True)
+        # Consumers can render the notification before this thread returns.
+        # Capture is final now, even though the notifying thread is still alive.
+        self._capture_finished.set()
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:
@@ -303,7 +310,11 @@ class BackgroundJob:
 
     def is_output_complete(self) -> bool:
         """Check whether the reader has drained all inherited output pipes."""
-        return self._reader_thread is None or not self._reader_thread.is_alive()
+        return (
+            self._capture_finished.is_set()
+            or self._reader_thread is None
+            or not self._reader_thread.is_alive()
+        )
 
     def elapsed_time(self) -> float:
         """Get elapsed time in seconds."""

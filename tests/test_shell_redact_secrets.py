@@ -364,3 +364,50 @@ def test_final_log_preserves_source_but_redacts_credentials(tmp_path):
     assert "TOKEN_LIMIT=4096" in saved
     assert GH_TOKEN not in saved
     assert "GITHUB_TOKEN=[REDACTED]" in saved
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+@pytest.mark.parametrize("secret", [False, True])
+def test_completion_notification_sees_finished_capture(monkeypatch, stream, secret):
+    """Completion can be consumed before the notifying reader thread exits."""
+    import subprocess
+    import sys
+
+    import gptme.tools.shell_background as background
+
+    text = f"GITHUB_TOKEN={GH_TOKEN}" if secret else "TOKEN_LIMIT=4096"
+    process = subprocess.Popen(
+        [sys.executable, "-c", f"import sys; sys.{stream}.write({text!r})"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    job = background.BackgroundJob(
+        id=1, command="synthetic-output", process=process, start_time=0
+    )
+    notifications = []
+
+    def consume_completion(completed):
+        # Run synchronously inside the reader to make the scheduling race exact.
+        notifications.append(
+            (completed.is_output_complete(), background._completion_message(completed))
+        )
+
+    monkeypatch.setattr(background, "_notify_completion", consume_completion)
+    try:
+        job.start_reader()
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=10)
+        assert not job._reader_thread.is_alive()
+        assert len(notifications) == 1
+        complete, message = notifications[0]
+        assert complete
+        if secret:
+            assert GH_TOKEN not in message.content
+            assert "GITHUB_TOKEN=[REDACTED]" in message.content
+        else:
+            assert text in message.content
+    finally:
+        process.wait(timeout=10)
+        assert process.stdout is not None and process.stderr is not None
+        process.stdout.close()
+        process.stderr.close()
