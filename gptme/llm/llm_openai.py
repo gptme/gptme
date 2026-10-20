@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import math
 import os
 import re
 from collections.abc import Generator, Iterable, Iterator, Mapping
@@ -261,6 +262,22 @@ def _openrouter_provider_from(obj: Any) -> str | None:
     return None
 
 
+def _reported_cost(usage: Any) -> float | None:
+    """Return the provider-billed USD cost in ``usage.cost``, if valid.
+
+    With BYOK, OpenRouter's ``cost`` is only its own fee; the upstream spend
+    is billed elsewhere, so the catalog estimate is the better figure.
+    """
+    if _obj_get(usage, "is_byok", False) is True:
+        return None
+    value = _obj_get(usage, "cost", None)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
+
+
 def _record_usage(
     usage,
     model: str,
@@ -317,6 +334,12 @@ def _record_usage(
     elif detect.startswith("anthropic/"):
         provider = "anthropic"
 
+    # OpenRouter returns the billed amount when usage accounting is requested.
+    # Prefer it over a catalog estimate, which cannot see the serving host's
+    # rate. Other providers report no cost, and a proxy (gptme/...) may bill
+    # differently from its upstream, so only trust a direct OpenRouter route.
+    reported_cost = _reported_cost(usage) if model.startswith("openrouter/") else None
+
     # Record the LLM request with token usage
     record_llm_request(
         provider=provider,
@@ -327,18 +350,21 @@ def _record_usage(
         cache_creation_tokens=cache_creation_tokens,
         cache_read_tokens=cache_read_tokens,
         total_tokens=total_tokens,
+        cost=reported_cost,
     )
 
     # Calculate cost for metadata
-
-    cost = _calculate_llm_cost(
-        provider=provider,
-        model=model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_creation_tokens=cache_creation_tokens,
-        cache_read_tokens=cache_read_tokens,
-    )
+    if reported_cost is not None:
+        cost = reported_cost
+    else:
+        cost = _calculate_llm_cost(
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_read_tokens=cache_read_tokens,
+        )
 
     # Build nested usage data
     usage_data: UsageData = {}
@@ -363,7 +389,11 @@ def _record_usage(
         metadata["reasoning_effort"] = reasoning_effort
     if usage_data:
         metadata["usage"] = usage_data
-    if cost > 0:
+    if reported_cost is not None:
+        # A reported zero is a known free request, not a missing price.
+        metadata["cost"] = reported_cost
+        metadata["cost_source"] = "provider"
+    elif cost > 0:
         metadata["cost"] = cost
     return metadata
 
