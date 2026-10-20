@@ -309,3 +309,50 @@ def test_incremental_output_after_eviction_keeps_new_lines(monkeypatch, stream):
     assert "prefix was evicted" not in second
     third = list(background.execute_output_command("1 --new"))[0].content
     assert "No new output" in third
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+@pytest.mark.parametrize("draining", [False, True])
+def test_finished_background_source_without_newline(
+    monkeypatch, tmp_path, stream, draining
+):
+    from unittest.mock import Mock
+
+    import gptme.tools.shell_background as background
+
+    process = Mock(returncode=0)
+    process.poll.return_value = 0
+    job = background.BackgroundJob(
+        id=1, command="synthetic", process=process, start_time=0, log_dir=tmp_path
+    )
+    if draining:
+        job._reader_thread = Mock()
+        job._reader_thread.is_alive.return_value = True
+    text = "ok\n" * 3000 + "TOKEN_LIMIT=4096"
+    getattr(job, f"{stream}_buffer").append(text)
+    monkeypatch.setattr(background, "get_background_job", lambda _: job)
+    result = list(background.execute_output_command("1"))[0].content
+    assert job.log_path is not None
+    for output in (result, job.log_path.read_text()):
+        if draining:
+            assert "TOKEN_LIMIT=4096" not in output
+        else:
+            assert "TOKEN_LIMIT=4096" in output
+
+
+def test_final_log_preserves_source_but_redacts_credentials(tmp_path):
+    from unittest.mock import Mock
+
+    from gptme.tools.shell_background import BackgroundJob, _write_job_log
+
+    job = BackgroundJob(
+        id=1, command="synthetic", process=Mock(), start_time=0, log_dir=tmp_path
+    )
+    path = _write_job_log(
+        job, "TOKEN_LIMIT=4096", f"GITHUB_TOKEN={GH_TOKEN}", final=True
+    )
+    assert path is not None
+    saved = path.read_text()
+    assert "TOKEN_LIMIT=4096" in saved
+    assert GH_TOKEN not in saved
+    assert "GITHUB_TOKEN=[REDACTED]" in saved

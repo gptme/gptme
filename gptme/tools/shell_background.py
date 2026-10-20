@@ -391,7 +391,9 @@ def control_commands_help(job_id: int) -> str:
 _job_log_lock = threading.Lock()
 
 
-def _sanitize_job_output(stdout: str, stderr: str) -> tuple[str, str, int]:
+def _sanitize_job_output(
+    stdout: str, stderr: str, *, complete: bool = False
+) -> tuple[str, str, int]:
     """Sanitize at presentation/storage, leaving raw buffer offsets intact."""
     from ..config import get_config
     from ..util.redact import redact_secret_values_from_output, redact_secrets_from_text
@@ -407,14 +409,20 @@ def _sanitize_job_output(stdout: str, stderr: str) -> tuple[str, str, int]:
         head, sep, tail = text.rpartition("\n")
         return head + sep + redact_secrets_from_text(tail)
 
-    stdout, stderr = hide_partial(stdout), hide_partial(stderr)
+    if not complete:
+        stdout, stderr = hide_partial(stdout), hide_partial(stderr)
     stdout, n_out = redact_secret_values_from_output(stdout)
     stderr, n_err = redact_secret_values_from_output(stderr)
     return stdout, stderr, n_out + n_err
 
 
 def _write_job_log(
-    job: BackgroundJob, stdout: str, stderr: str, *, final: bool
+    job: BackgroundJob,
+    stdout: str,
+    stderr: str,
+    *,
+    final: bool,
+    complete: bool = False,
 ) -> Path | None:
     """Write a job's output to its log file; return the path, or None.
 
@@ -426,14 +434,21 @@ def _write_job_log(
     with _job_log_lock:
         if job._final_log_written:
             return job.log_path
-        path = _write_job_log_locked(job, stdout, stderr, final=final)
+        path = _write_job_log_locked(
+            job, stdout, stderr, final=final, complete=complete
+        )
         if path is not None and final:
             job._final_log_written = True
         return path
 
 
 def _write_job_log_locked(
-    job: BackgroundJob, stdout: str, stderr: str, *, final: bool
+    job: BackgroundJob,
+    stdout: str,
+    stderr: str,
+    *,
+    final: bool,
+    complete: bool = False,
 ) -> Path | None:
     assert job.log_dir is not None
     if job.log_path is None:
@@ -445,7 +460,7 @@ def _write_job_log_locked(
         )
     if not final:
         stdout, stderr = _omit_evicted_line(job, stdout, stderr)
-    stdout, stderr, _ = _sanitize_job_output(stdout, stderr)
+    stdout, stderr, _ = _sanitize_job_output(stdout, stderr, complete=final or complete)
     dropped = job._stdout_buffer_start + job._stderr_buffer_start
     parts = [f"$ {job.command}\n"]
     if dropped and not final:
@@ -495,11 +510,14 @@ def format_job_output(
     stderr: str,
     *,
     omit_evicted_prefix: bool = True,
+    complete: bool = False,
 ) -> str:
     """Render the tails of a job's output, naming the full log if truncated."""
     if omit_evicted_prefix:
         stdout, stderr = _omit_evicted_line(job, stdout, stderr)
-    stdout, stderr, redacted_lines = _sanitize_job_output(stdout, stderr)
+    stdout, stderr, redacted_lines = _sanitize_job_output(
+        stdout, stderr, complete=complete
+    )
     blocks: list[str] = []
     truncated = bool(job._stdout_buffer_start or job._stderr_buffer_start)
     for name, text, limit in (
@@ -513,7 +531,9 @@ def format_job_output(
             text = f"...(truncated, showing last {limit} of {len(text)} chars)...\n{text[-limit:]}"
         blocks.append(md_codeblock(name, text))
     if truncated:
-        log_path = _write_job_log(job, *job.get_output(), final=False)
+        log_path = _write_job_log(
+            job, *job.get_output(), final=False, complete=complete
+        )
         dropped = job._stdout_buffer_start + job._stderr_buffer_start
         if log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")
@@ -773,8 +793,9 @@ def _completion_message(job: BackgroundJob) -> Message:
             f"(`{job.command}`), which had already finished: {notice}",
         )
     status = f"exit code {job.process.returncode}"
+    complete = not job.is_running() and job.is_output_complete()
     stdout, stderr = job.get_output()
-    details = format_job_output(job, stdout, stderr)
+    details = format_job_output(job, stdout, stderr, complete=complete)
     suffix = f"\n\n{details}" if details else "\n\nNo output."
     if job.kill_reason:
         suffix = f"\n\n{job.kill_reason}{suffix}"
@@ -1059,6 +1080,9 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
 
     from ..config import get_config
 
+    # Sample completion before reading: a live snapshot must remain conservative
+    # even if the reader finishes immediately after we captured it.
+    complete = not job.is_running() and job.is_output_complete()
     stdout, stderr = job.get_output(
         incremental=incremental,
         line_context=bool(
@@ -1088,7 +1112,13 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         # Incremental get_output already omits only a slice at the eviction
         # boundary; later slices must keep their first new line.
         msg += (
-            format_job_output(job, stdout, stderr, omit_evicted_prefix=not incremental)
+            format_job_output(
+                job,
+                stdout,
+                stderr,
+                omit_evicted_prefix=not incremental,
+                complete=complete,
+            )
             + "\n\n"
         )
     else:
