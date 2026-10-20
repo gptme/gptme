@@ -250,7 +250,7 @@ are allowed. Using a credential as a process argument is distinct from printing
 it; existing secret-path rules still apply independently.
 
 Secret paths reached indirectly
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The secret-path rule also inspects pathname globs in literal reader commands
 (``cat``, ``head``, ``tail``, ``less``, ``more``, ``sed``, ``awk`` and grep variants).
