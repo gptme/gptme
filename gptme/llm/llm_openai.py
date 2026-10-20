@@ -56,6 +56,7 @@ from .openai_responses import (
     _tool_spec_to_responses_tool,
     served_model_from,
 )
+from .provider_plugins import is_plugin_provider
 from .request_limits import bounded_attempts, bounded_client, reserve_request
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
@@ -1468,10 +1469,20 @@ def _resolve_reasoning_effort(provider: Provider, model_meta: ModelMeta) -> str 
     Raises ``ValueError`` when the level is not one the provider accepts.
     """
     effort = get_config().get_env(ENV_THINKING_EFFORT)
+    minimax_flash = (
+        provider == "openrouter"
+        and model_meta.model.split("@", 1)[0] == "minimax/minimax-m3.1-flash:free"
+    )
     if effort is None:
-        return None
+        # Flash uses adaptive thinking rather than a fixed reasoning-token budget.
+        return "max" if minimax_flash else None
     effort = effort.strip().lower()
-    if provider == "moonshot" and model_meta.model == "kimi-k3":
+    if minimax_flash:
+        valid_set, label = (
+            {"low", "medium", "high", "xhigh", "max"},
+            "MiniMax-M3.1-Flash",
+        )
+    elif provider == "moonshot" and model_meta.model == "kimi-k3":
         valid_set, label = _KIMI_K3_REASONING_EFFORTS, "Kimi K3"
     elif not model_meta.supports_reasoning:
         return None
@@ -2645,11 +2656,13 @@ def _transform_msgs_for_special_provider(
 
     # Reasoning models need the structured field restored from gptme's <think>
     # representation before historical messages go back to the provider.
-    # OpenRouter requires it on tool-call turns; K3 requires it on every turn.
+    # OpenRouter and OpenAI-compatible plugins need it on tool-call turns;
+    # K3 requires it on every turn.
     preserve_all_reasoning = model.provider == "moonshot" and model.model == "kimi-k3"
-    if (model.provider == "openrouter" and model.supports_reasoning) or (
-        preserve_all_reasoning
-    ):
+    if (
+        model.supports_reasoning
+        and (model.provider == "openrouter" or is_plugin_provider(model.provider_key))
+    ) or preserve_all_reasoning:
         # DeepSeek models routed through OpenRouter also require string (not
         # array) content on tool-result messages — same strictness as direct
         # deepseek provider.  Detected by the OpenRouter model namespace prefix.
@@ -2742,8 +2755,10 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
     # whose models default to the "tool" format must serialize here; otherwise
     # the default crashes with "Provider doesn't support tools API" — which is
     # exactly what gemini, groq, and xai did.
-    if model.provider in OPENAI_COMPAT_PROVIDERS or is_custom_provider(
-        model.model.split("/")[0]
+    if (
+        model.provider in OPENAI_COMPAT_PROVIDERS
+        or is_custom_provider(model.provider_key)
+        or is_plugin_provider(model.provider_key)
     ):
         all_required = all(p.required for p in spec.parameters)
         supports_strict = model.supports_strict_tools and all_required
@@ -2986,7 +3001,8 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         provider="openrouter",
         model=model_id,
         context=model_data.get("context_length", 128_000),
-        max_output=model_data.get("max_completion_tokens"),
+        max_output=model_data.get("max_completion_tokens")
+        or (model_data.get("top_provider") or {}).get("max_completion_tokens"),
         supports_streaming=True,  # Most OpenRouter models support streaming
         supports_vision=vision,
         supports_reasoning=reasoning and include_reasoning,
