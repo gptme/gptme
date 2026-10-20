@@ -285,3 +285,27 @@ def test_evicted_assignment_context_cannot_leak_to_log(tmp_path):
     assert GH_TOKEN not in result
     assert job.log_path is not None
     assert GH_TOKEN not in job.log_path.read_text()
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_incremental_output_after_eviction_keeps_new_lines(monkeypatch, stream):
+    from unittest.mock import Mock
+
+    import gptme.tools.shell_background as background
+
+    job = background.BackgroundJob(
+        id=1, command="synthetic", process=Mock(), start_time=0
+    )
+    buffer = getattr(job, f"{stream}_buffer")
+    buffer.append(GH_TOKEN + "\nold output\n")
+    setattr(job, f"_{stream}_buffer_start", 13)
+    monkeypatch.setattr(background, "get_background_job", lambda _: job)
+    first = list(background.execute_output_command("1 --new"))[0].content
+    assert GH_TOKEN not in first
+    assert "old output" in first
+    buffer.append("build succeeded\n")
+    second = list(background.execute_output_command("1 --new"))[0].content
+    assert "build succeeded" in second
+    assert "prefix was evicted" not in second
+    third = list(background.execute_output_command("1 --new"))[0].content
+    assert "No new output" in third

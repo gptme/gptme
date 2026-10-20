@@ -285,6 +285,14 @@ class BackgroundJob:
                     stderr_start = stderr.rfind("\n", 0, stderr_start) + 1
             new_stdout = stdout[stdout_start:]
             new_stderr = stderr[stderr_start:]
+            if line_context:
+                new_stdout, new_stderr = _omit_evicted_line(
+                    self,
+                    new_stdout,
+                    new_stderr,
+                    stdout_boundary=stdout_start == 0,
+                    stderr_boundary=stderr_start == 0,
+                )
             self._stdout_read_offset = self._stdout_buffer_start + len(stdout)
             self._stderr_read_offset = self._stderr_buffer_start + len(stderr)
             return new_stdout, new_stderr
@@ -456,17 +464,24 @@ def _write_job_log_locked(
     return job.log_path
 
 
-def _omit_evicted_line(job: BackgroundJob, stdout: str, stderr: str) -> tuple[str, str]:
+def _omit_evicted_line(
+    job: BackgroundJob,
+    stdout: str,
+    stderr: str,
+    *,
+    stdout_boundary: bool = True,
+    stderr_boundary: bool = True,
+) -> tuple[str, str]:
     """Discard a first line whose assignment context may have been evicted."""
     from ..config import get_config
 
     if get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
-        if job._stdout_buffer_start:
+        if stdout and stdout_boundary and job._stdout_buffer_start:
             stdout = (
                 "[first retained line omitted: its prefix was evicted]\n"
                 + stdout.partition("\n")[2]
             )
-        if job._stderr_buffer_start:
+        if stderr and stderr_boundary and job._stderr_buffer_start:
             stderr = (
                 "[first retained line omitted: its prefix was evicted]\n"
                 + stderr.partition("\n")[2]
@@ -474,9 +489,16 @@ def _omit_evicted_line(job: BackgroundJob, stdout: str, stderr: str) -> tuple[st
     return stdout, stderr
 
 
-def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
+def format_job_output(
+    job: BackgroundJob,
+    stdout: str,
+    stderr: str,
+    *,
+    omit_evicted_prefix: bool = True,
+) -> str:
     """Render the tails of a job's output, naming the full log if truncated."""
-    stdout, stderr = _omit_evicted_line(job, stdout, stderr)
+    if omit_evicted_prefix:
+        stdout, stderr = _omit_evicted_line(job, stdout, stderr)
     stdout, stderr, redacted_lines = _sanitize_job_output(stdout, stderr)
     blocks: list[str] = []
     truncated = bool(job._stdout_buffer_start or job._stderr_buffer_start)
@@ -1063,7 +1085,12 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         )
 
     if stdout or stderr:
-        msg += format_job_output(job, stdout, stderr) + "\n\n"
+        # Incremental get_output already omits only a slice at the eviction
+        # boundary; later slices must keep their first new line.
+        msg += (
+            format_job_output(job, stdout, stderr, omit_evicted_prefix=not incremental)
+            + "\n\n"
+        )
     else:
         msg += "No new output.\n" if incremental else "No output yet.\n"
 
