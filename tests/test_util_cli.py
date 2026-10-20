@@ -393,7 +393,8 @@ def test_chats_search_scans_history_before_applying_limit(
     assert "2026-01-01-chat-01" in text_result.output
     assert "2026-01-01-chat-00" not in text_result.output
     assert "test-ignored-match" not in text_result.output
-    assert "(2 conversations, showing 1)" in text_result.output
+    assert "Search results for 'history-needle' (showing 1):" in text_result.output
+    assert "(2 conversations, showing 1)" not in text_result.output
 
     json_result = runner.invoke(
         main, ["chats", "search", "history-needle", "--limit", "1", "--json"]

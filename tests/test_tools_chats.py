@@ -2,6 +2,7 @@ import json
 import os
 import sys
 
+from gptme.logmanager import ConversationMeta
 from gptme.tools import init_tools
 from gptme.tools.chats import _format_message_with_context, list_chats, search_chats
 
@@ -204,3 +205,45 @@ def test_search_chats_nonpositive_limit_skips_history(tmp_path, monkeypatch, cap
         search_chats("needle", max_results=limit)
         captured = capsys.readouterr()
         assert captured.out == "No results found for query: 'needle'\n"
+
+
+def test_search_chats_date_stops_after_result_limit(tmp_path, monkeypatch, capsys):
+    """Date sorting stops loading history after enough matches."""
+    conv_dir = tmp_path / "newest-match"
+    conv_dir.mkdir()
+    log_path = conv_dir / "conversation.jsonl"
+    log_path.write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "content": "needle",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n"
+    )
+    conversation = ConversationMeta(
+        id="newest-match",
+        name="Newest match",
+        path=str(log_path),
+        created=1,
+        modified=1,
+        messages=1,
+        branches=1,
+        workspace=".",
+    )
+
+    requested_details: list[bool] = []
+
+    def conversations(*, detail: bool = True):
+        requested_details.append(detail)
+        yield conversation
+        raise AssertionError("date search loaded history after reaching its limit")
+
+    monkeypatch.setattr("gptme.logmanager.get_user_conversations", conversations)
+
+    search_chats("needle", max_results=1)
+    captured = capsys.readouterr()
+    assert requested_details == [False]
+    assert "Search results for 'needle' (showing 1):" in captured.out
+    assert "1. Newest match (1 matches):" in captured.out
