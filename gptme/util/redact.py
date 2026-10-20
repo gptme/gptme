@@ -1,7 +1,8 @@
 """Secret redaction for text that enters a conversation automatically.
 
 Used to sanitize content that gptme injects into a session on its own — e.g.
-the dirty-working-tree diff hook — as well as subagent workspace context.
+the dirty-working-tree diff hook — as well as subagent workspace context and
+shell tool output (where a value must also look like a credential).
 Targets lines whose variable/field name marks them as a secret so a value is
 replaced with ``[REDACTED]`` while the surrounding context is preserved.
 
@@ -226,6 +227,30 @@ def _redact_line(line: str) -> str:
         return f"{indent}{name}{sep}{_REDACTED}{trailing}{ending}"
 
     return line
+
+
+def redact_secret_values_from_output(content: str) -> tuple[str, int]:
+    """Redact secret-shaped values on secret-named lines of command output.
+
+    Stricter than :func:`redact_secrets_from_text`: command output often holds
+    source code (``cat config.py``), where ``TOKEN_LIMIT = 4096`` or
+    ``API_KEY = os.environ["X"]`` must stay intact for later edits. A line is
+    redacted only when its name marks a secret *and* its value has the shape of
+    a real credential (see :func:`looks_like_secret_value`), which is what an
+    accidental ``env`` or ``cat .env`` dump prints.
+
+    Returns the redacted text and the number of lines changed.
+    """
+    redacted = 0
+    out: list[str] = []
+    for line in content.splitlines(keepends=True):
+        match = _ENV_ASSIGN_RE.search(line) or _COLON_ASSIGN_RE.search(line)
+        if match and looks_like_secret_value(match.group(5)):
+            out.append(_redact_line(line))
+            redacted += 1
+        else:
+            out.append(line)
+    return "".join(out), redacted
 
 
 def redact_secrets_from_messages(messages: list[Message]) -> list[Message]:
