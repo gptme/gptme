@@ -206,6 +206,9 @@ class MessageMetadata(TypedDict, total=False):
     # `resolved_model` (OpenRouter subprovider @suffix form), which is unchanged.
     served_model: str
     cost: float  # Cost in USD
+    # "provider" when ``cost`` is the amount the provider billed (OpenRouter
+    # usage accounting); absent when ``cost`` is a catalog-price estimate.
+    cost_source: Literal["provider"]
     usage: UsageData
     # Anchor provider usage to the stored input prefix. Compaction, edits, or
     # branch changes invalidate it rather than replaying a stale large count.

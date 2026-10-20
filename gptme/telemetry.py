@@ -448,8 +448,12 @@ def record_llm_request(
     cache_creation_tokens: int | None = None,
     cache_read_tokens: int | None = None,
     total_tokens: int | None = None,
+    cost: float | None = None,
 ) -> None:
     """Record LLM API request metrics with optional token usage.
+
+    ``cost`` is a provider-billed amount; when omitted it is estimated from
+    the model catalog.
 
     Creates a span with cost and cache metrics for Jaeger analysis,
     and records metrics for Prometheus/Grafana dashboards.
@@ -483,14 +487,15 @@ def record_llm_request(
                 f"Total tokens {total_tokens} ({diff_pct:.1%} diff) does not match sum of parts {total_in + total_out}, this is an implementation issue."
             )
 
-    cost = _calculate_llm_cost(
-        provider=provider,
-        model=model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_creation_tokens=cache_creation_tokens,
-        cache_read_tokens=cache_read_tokens,
-    )
+    if cost is None:
+        cost = _calculate_llm_cost(
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_read_tokens=cache_read_tokens,
+        )
     logger.debug(f"LLM request cost: ${cost:.6f}")
 
     # Record to CostTracker for session-level aggregation
