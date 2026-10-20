@@ -262,9 +262,11 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     redacted = 0
     out: list[str] = []
     for line in content.splitlines(keepends=True):
-        match = _ENV_ASSIGN_RE.search(line) or _COLON_ASSIGN_RE.search(line)
+        body = line.rstrip("\r\n")
+        ending = line[len(body) :]
+        match = _ENV_ASSIGN_RE.search(body) or _COLON_ASSIGN_RE.search(body)
         if match and _looks_like_output_secret(match.group(5)):
-            out.append(_redact_line(line))
+            out.append(_redact_line(body) + ending)
             redacted += 1
         else:
             out.append(line)

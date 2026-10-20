@@ -204,3 +204,40 @@ def test_real_background_output_is_redacted(monkeypatch, tmp_path, promote):
         reset_background_jobs()
         shell.close()
         shell_module.get_shell().close()
+
+
+@pytest.mark.parametrize("ending", ["\r\n", "\r", "\n", ""])
+@pytest.mark.parametrize("quote", ["", "'", '"'])
+def test_output_preserves_line_endings(ending, quote):
+    out, n = redact_secret_values_from_output(
+        f"GITHUB_TOKEN={quote}{GH_TOKEN}{quote}{ending}"
+    )
+    assert n == 1
+    assert out == f"GITHUB_TOKEN=[REDACTED]{ending}"
+
+
+def test_incremental_output_retains_assignment_context(monkeypatch):
+    from unittest.mock import Mock
+
+    import gptme.tools.shell_background as background
+
+    job = background.BackgroundJob(
+        id=1,
+        command="synthetic-output",
+        process=Mock(),
+        start_time=0,
+        stdout_buffer=["GITHUB_TOKEN="],
+        stderr_buffer=["SERVICE_TOKEN="],
+    )
+    monkeypatch.setattr(background, "get_background_job", lambda _: job)
+    first = list(background.execute_output_command("1 --new"))
+    job.stdout_buffer.append(GH_TOKEN + "\n")
+    job.stderr_buffer.append(OR_KEY + "\n")
+    second = list(background.execute_output_command("1 --new"))
+    rendered = "\n".join(m.content for m in first + second)
+    assert GH_TOKEN not in rendered
+    assert OR_KEY not in rendered
+    assert "GITHUB_TOKEN=[REDACTED]" in rendered
+    assert "SERVICE_TOKEN=[REDACTED]" in rendered
+    third = list(background.execute_output_command("1 --new"))
+    assert "No new output" in third[0].content

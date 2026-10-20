@@ -260,7 +260,9 @@ class BackgroundJob:
         with self._buffer_lock:
             return self._append_to_buffer_locked(buffer, data)
 
-    def get_output(self, *, incremental: bool = False) -> tuple[str, str]:
+    def get_output(
+        self, *, incremental: bool = False, line_context: bool = False
+    ) -> tuple[str, str]:
         """Get accumulated stdout and stderr, optionally since the last read."""
         with self._buffer_lock:
             if self._output_callback is not None:
@@ -273,6 +275,14 @@ class BackgroundJob:
 
             stdout_start = max(self._stdout_read_offset - self._stdout_buffer_start, 0)
             stderr_start = max(self._stderr_read_offset - self._stderr_buffer_start, 0)
+            # Redaction needs the assignment at the beginning of a line even
+            # when a previous --new read stopped halfway through that line.
+            # Replay that line only when new data arrived; offsets stay raw.
+            if line_context:
+                if stdout_start < len(stdout):
+                    stdout_start = stdout.rfind("\n", 0, stdout_start) + 1
+                if stderr_start < len(stderr):
+                    stderr_start = stderr.rfind("\n", 0, stderr_start) + 1
             new_stdout = stdout[stdout_start:]
             new_stderr = stderr[stderr_start:]
             self._stdout_read_offset = self._stdout_buffer_start + len(stdout)
@@ -996,7 +1006,14 @@ def execute_output_command(job_id_str: str) -> Generator[Message, None, None]:
         )
         return
 
-    stdout, stderr = job.get_output(incremental=incremental)
+    from ..config import get_config
+
+    stdout, stderr = job.get_output(
+        incremental=incremental,
+        line_context=bool(
+            get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True)
+        ),
+    )
     if job.is_running():
         status = "Running"
     elif not job.is_output_complete():
