@@ -307,7 +307,7 @@ describe('ChatInput draft ownership', () => {
     expect(draftEntries()).toEqual({});
   });
 
-  it('keeps text typed while the owner is unknown instead of wiping it', () => {
+  it('keeps unknown-owner text memory-only and loads the resolved owner draft', () => {
     const secondary: ServerConfig = {
       id: 'srv-b',
       name: 'B',
@@ -322,16 +322,38 @@ describe('ChatInput draft ownership', () => {
     expect(textbox().value).toBe('typed before the server hydrated');
     expect(draftEntries()).toEqual({});
 
-    // The owner becomes known: the in-memory text is kept and now persisted.
+    // Even the same server id cannot prove which account owned unknown text.
+    // Load only the resolved owner's saved draft, never adopt unknown text.
     serverRegistry$.servers.set([secondary]);
     rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
-    expect(textbox().value).toBe('typed before the server hydrated');
-    expect(Object.values(draftEntries())).toEqual(['typed before the server hydrated']);
+    expect(textbox().value).toBe('');
+    expect(draftEntries()).toEqual({});
 
-    // Losing the owner again must not discard what is in the composer either.
+    type('typed for the known owner');
     serverRegistry$.servers.set([]);
     rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
-    expect(textbox().value).toBe('typed before the server hydrated');
+    expect(textbox().value).toBe('typed for the known owner');
+  });
+
+  it('does not adopt unknown-owner text when a different server resolves', () => {
+    const serverB: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-a' });
+    type('private text for unregistered A');
+    expect(draftEntries()).toEqual({});
+
+    // The composer stays mounted because the conversation id is unchanged.
+    serverRegistry$.servers.set([serverB]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('');
+    expect(writesTo(encodeURIComponent(SERVER_B.baseUrl))).not.toContain(
+      'private text for unregistered A'
+    );
   });
 
   it("does not hand one owner's text to another owner that resolves later", () => {

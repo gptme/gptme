@@ -10,8 +10,8 @@ const readDraft = (key: string | null) =>
  * while the owner is unknown (unregistered or not-yet-hydrated server).
  * `owner` is the key the text came from; it survives a null key so text is
  * never handed to a different owner that becomes known later. A null owner
- * means the text was typed while no owner was known, so the next owner to
- * become known may adopt it (that is the same composer, just hydrated).
+ * means the text was typed while no owner was known; it cannot safely be
+ * attributed to any server or account that subsequently resolves.
  */
 type DraftState = {
   key: string | null;
@@ -28,13 +28,9 @@ function nextDraft(prev: DraftState, storageKey: string | null): DraftState {
     // Same owner returning (e.g. after a registry reload): its text is ours.
     return { key: storageKey, owner: storageKey, text: prev.text };
   }
-  const stored = readDraft(storageKey);
-  if (prev.owner === null) {
-    // Typed while no owner was known; adopt it into the owner that resolved.
-    return { key: storageKey, owner: storageKey, text: stored || prev.text };
-  }
-  // A different owner: never carry the outgoing owner's text across.
-  return { key: storageKey, owner: storageKey, text: stored };
+  // A different or previously unknown owner: load only its saved draft.
+  // Registry hydration alone cannot prove who owned text typed without a key.
+  return { key: storageKey, owner: storageKey, text: readDraft(storageKey) };
 }
 
 /**
