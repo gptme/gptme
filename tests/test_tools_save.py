@@ -45,6 +45,42 @@ def test_save_tool(tmp_path: Path):
     assert path.read_text() == content
 
 
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+@pytest.mark.parametrize("final_newline", [False, True])
+@pytest.mark.parametrize(
+    "content",
+    ["third\nfourth", "third\nfourth\n", "third\r\nfourth", "third\r\nfourth\r\n"],
+)
+def test_save_preserves_line_endings(
+    tmp_path: Path, newline: bytes, final_newline: bool, content: str
+) -> None:
+    path = tmp_path / "existing.txt"
+    original = newline.join([b"first", b"second"])
+    if final_newline:
+        original += newline
+    path.write_bytes(original)
+
+    messages = list(execute_save(content, [str(path)], None))
+
+    assert len(messages) == 1
+    assert "Saved to" in messages[0].content
+    assert path.read_bytes() == newline.join([b"third", b"fourth", b""])
+
+
+@pytest.mark.parametrize("original", [None, b"", b"\xff\xfe\r\n"])
+@pytest.mark.parametrize("content", ["first\nsecond\n", "first\r\nsecond\r\n"])
+def test_save_without_text_convention(
+    tmp_path: Path, original: bytes | None, content: str
+) -> None:
+    path = tmp_path / "new.txt"
+    if original is not None:
+        path.write_bytes(original)
+
+    list(execute_save(content, [str(path)], None))
+
+    assert path.read_bytes() == content.encode("utf-8")
+
+
 def test_save_tool_placeholders(tmp_path: Path):
     """Test that the save tool detects placeholder lines."""
     path = tmp_path / "test.txt"
