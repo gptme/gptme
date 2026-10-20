@@ -50,7 +50,7 @@ _COLON_ASSIGN_RE = re.compile(
 # Simpler pattern for export statements and env-var assignment lines
 _ENV_ASSIGN_RE = re.compile(
     r"""(?ix)
-    ^(export\s+)?                            # optional 'export'
+    ^(\s*(?:export\s+)?)                     # optional leading whitespace and/or 'export'
     (                                        # group 2: variable name
         [\w\-]*?                             # zero or more chars before keyword
         (?:

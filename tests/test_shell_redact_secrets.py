@@ -37,6 +37,14 @@ def test_yaml_style_value_is_redacted():
     assert out == "  github_token: [REDACTED]\n"
 
 
+def test_indented_dotenv_assignment_is_redacted():
+    """Indented dotenv entries (valid in some loaders) must not bypass redaction."""
+    out, n = redact_secret_values_from_output(f"  GITHUB_TOKEN={GH_TOKEN}\n")
+    assert n == 1
+    assert GH_TOKEN not in out
+    assert "GITHUB_TOKEN=[REDACTED]" in out
+
+
 @pytest.mark.parametrize(
     "line",
     [
