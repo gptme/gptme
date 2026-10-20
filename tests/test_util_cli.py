@@ -778,6 +778,19 @@ def test_tools_info():
     assert result.exit_code != 0  # returns non-zero for not found tool
     assert "not found" in result.output
 
+    # Error message must only list tools whose dependencies are installed
+    from gptme.tools import get_available_tools as _get_available_tools
+
+    available_in_env = {t.name for t in _get_available_tools() if t.is_available}
+    listed_in_error = {
+        line.strip().lstrip("- ")
+        for line in result.output.splitlines()
+        if line.strip().startswith("- ")
+    }
+    assert listed_in_error.issubset(available_in_env), (
+        f"tools info error lists unavailable tools: {listed_in_error - available_in_env}"
+    )
+
     # Test JSON output (stable schema — instructions/examples always present)
     result = runner.invoke(main, ["tools", "info", "shell", "--json"])
     assert result.exit_code == 0
@@ -806,6 +819,54 @@ def test_tools_info_json_invalid_tool_stays_machine_readable():
     assert data["tool"] == "nonexistent-tool"
     assert "not found" in data["error"]
     assert "shell" in data["available_tools"]
+
+    # available_tools must only contain tools whose deps are installed
+    from gptme.tools import get_available_tools as _get_available_tools
+
+    available_in_env = {t.name for t in _get_available_tools() if t.is_available}
+    assert set(data["available_tools"]).issubset(available_in_env), (
+        f"JSON available_tools contains unavailable tools: "
+        f"{set(data['available_tools']) - available_in_env}"
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["tools", "info", "nonexistent-tool"],
+        ["tools", "info", "nonexistent-tool", "--json"],
+        ["tools", "call", "nonexistent-tool", "fn"],
+    ],
+    ids=["info-text", "info-json", "call-text"],
+)
+def test_missing_tool_suggestions_exclude_unavailable(
+    monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    """Suggestions filter mixed discovery results regardless of host dependencies."""
+    discovered = [
+        SimpleNamespace(name="unavailable-tool", is_available=False),
+        SimpleNamespace(name="available-tool", is_available=True),
+    ]
+    monkeypatch.setattr("gptme.tools.get_available_tools", lambda: discovered)
+    monkeypatch.setattr("gptme.tools.get_tool", lambda name: None)
+    monkeypatch.setattr("gptme.tools.init_tools", lambda: None)
+
+    result = CliRunner().invoke(main, args)
+
+    assert result.exit_code == 1
+    if "--json" in args:
+        data = json.loads(result.output)
+        assert data["tool"] == "nonexistent-tool"
+        assert "not found" in data["error"]
+        assert data["available_tools"] == ["available-tool"]
+    else:
+        assert "Tool 'nonexistent-tool' not found. Available tools:" in result.output
+        listed = [
+            line.strip().removeprefix("- ")
+            for line in result.output.splitlines()
+            if line.strip().startswith("- ")
+        ]
+        assert listed == ["available-tool"]
 
 
 def test_tools_call_non_default_tool():
