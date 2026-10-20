@@ -1048,6 +1048,7 @@ class TestNativeRefRepoFlag:
             ["pr", "checks", "--repo", "other/repo", "4451"],
             ["pr", "checks", "#4451", "-R", "other/repo"],
             ["pr", "checks", "4451", "--repo=other/repo"],
+            ["pr", "checks", "4451", "-Rother/repo"],
         ],
     )
     @patch("gptme.tools.gh._wait_for_checks")
