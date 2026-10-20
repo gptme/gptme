@@ -386,12 +386,20 @@ _job_log_lock = threading.Lock()
 def _sanitize_job_output(stdout: str, stderr: str) -> tuple[str, str, int]:
     """Sanitize at presentation/storage, leaving raw buffer offsets intact."""
     from ..config import get_config
-    from ..util.redact import redact_secret_values_from_output
+    from ..util.redact import redact_secret_values_from_output, redact_secrets_from_text
     from .shell import strip_ansi_codes
 
     stdout, stderr = strip_ansi_codes(stdout), strip_ansi_codes(stderr)
     if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
         return stdout, stderr, 0
+
+    # Live reads can stop before an opaque value reaches the shape threshold.
+    # Conservatively hide a trailing incomplete assignment before publication.
+    def hide_partial(text: str) -> str:
+        head, sep, tail = text.rpartition("\n")
+        return head + sep + redact_secrets_from_text(tail)
+
+    stdout, stderr = hide_partial(stdout), hide_partial(stderr)
     stdout, n_out = redact_secret_values_from_output(stdout)
     stderr, n_err = redact_secret_values_from_output(stderr)
     return stdout, stderr, n_out + n_err
@@ -427,6 +435,8 @@ def _write_job_log_locked(
             / "shell-jobs"
             / f"job-{job.id}-{int(job.start_time)}.log"
         )
+    if not final:
+        stdout, stderr = _omit_evicted_line(job, stdout, stderr)
     stdout, stderr, _ = _sanitize_job_output(stdout, stderr)
     dropped = job._stdout_buffer_start + job._stderr_buffer_start
     parts = [f"$ {job.command}\n"]
@@ -446,8 +456,21 @@ def _write_job_log_locked(
     return job.log_path
 
 
+def _omit_evicted_line(job: BackgroundJob, stdout: str, stderr: str) -> tuple[str, str]:
+    """Discard a first line whose assignment context may have been evicted."""
+    from ..config import get_config
+
+    if get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        if job._stdout_buffer_start:
+            stdout = stdout.partition("\n")[2]
+        if job._stderr_buffer_start:
+            stderr = stderr.partition("\n")[2]
+    return stdout, stderr
+
+
 def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
     """Render the tails of a job's output, naming the full log if truncated."""
+    stdout, stderr = _omit_evicted_line(job, stdout, stderr)
     stdout, stderr, redacted_lines = _sanitize_job_output(stdout, stderr)
     blocks: list[str] = []
     truncated = False

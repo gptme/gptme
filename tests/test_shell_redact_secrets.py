@@ -241,3 +241,47 @@ def test_incremental_output_retains_assignment_context(monkeypatch):
     assert "SERVICE_TOKEN=[REDACTED]" in rendered
     third = list(background.execute_output_command("1 --new"))
     assert "No new output" in third[0].content
+
+
+@pytest.mark.parametrize("quote", ["", "'", '"'])
+def test_dotenv_comment_does_not_hide_credential(quote):
+    text = f"GITHUB_TOKEN={quote}{GH_TOKEN}{quote} # production\n"
+    out, n = redact_secret_values_from_output(text)
+    assert n == 1
+    assert GH_TOKEN not in out
+
+
+def test_partial_background_credential_is_not_published():
+    from unittest.mock import Mock
+
+    from gptme.tools.shell_background import BackgroundJob, format_job_output
+
+    prefix = OPAQUE[:20]
+    job = BackgroundJob(id=1, command="synthetic", process=Mock(), start_time=0)
+    result = format_job_output(job, f"SERVICE_TOKEN={prefix}", "")
+    assert prefix not in result
+
+
+def test_evicted_assignment_context_cannot_leak_to_log(tmp_path):
+    from unittest.mock import Mock
+
+    from gptme.tools.shell_background import (
+        _MAX_BUFFER_SIZE,
+        BackgroundJob,
+        format_job_output,
+    )
+
+    job = BackgroundJob(
+        id=1, command="synthetic", process=Mock(), start_time=0, log_dir=tmp_path
+    )
+    for chunk in (
+        "GITHUB_TOKEN=",
+        GH_TOKEN + "\n",
+        "ok\n" * (_MAX_BUFFER_SIZE // 3 - 15),
+    ):
+        job._stdout_buffer_start += job._append_to_buffer(job.stdout_buffer, chunk)
+    assert job.get_output()[0].startswith(GH_TOKEN)
+    result = format_job_output(job, *job.get_output())
+    assert GH_TOKEN not in result
+    assert job.log_path is not None
+    assert GH_TOKEN not in job.log_path.read_text()
