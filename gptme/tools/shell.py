@@ -98,6 +98,7 @@ from ..util.ask_execute import execute_with_confirmation
 from ..util.context import md_codeblock
 from ..util.context_savings import record_context_savings
 from ..util.output_storage import save_large_output
+from ..util.redact import redact_secret_values_from_output
 from ..util.tokens import get_tokenizer, len_tokens
 from .base import (
     Parameter,
@@ -2898,6 +2899,16 @@ def _format_shell_output(
     stdout = strip_ansi_codes(stdout)
     stderr = strip_ansi_codes(stderr)
 
+    # Keep credentials printed by accident (`env`, `cat .env`) out of the
+    # conversation and the provider request.
+    from ..config import get_config  # deferred: avoid import cycle
+
+    redacted_lines = 0
+    if get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        stdout, n_out = redact_secret_values_from_output(stdout)
+        stderr, n_err = redact_secret_values_from_output(stderr)
+        redacted_lines = n_out + n_err
+
     compact_stdout = None
     if (
         returncode == 0
@@ -3025,6 +3036,13 @@ def _format_shell_output(
         pass  # Header already describes the termination; return code is synthetic
     elif returncode:
         msg += f"Return code: {returncode}\n"
+
+    if redacted_lines:
+        msg += (
+            f"Redacted secret values on {redacted_lines} output "
+            f"{'line' if redacted_lines == 1 else 'lines'} "
+            "(set GPTME_SHELL_REDACT_SECRETS=0 to disable)\n"
+        )
 
     return msg
 
