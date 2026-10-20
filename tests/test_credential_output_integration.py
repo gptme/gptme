@@ -148,6 +148,12 @@ def test_non_enforcing_modes_retain_auto_confirm_behavior(
         ("bash - <<'EOF'\nprintenv\nEOF", True),
         ('echo "$(printf %s "$API_KEY")"', True),
         ("API_KEY=synthetic echo ready", False),
+        ("printenv SESSION_LABEL CARGO_TARGET_DIR", False),
+        ("printenv --null SESSION_LABEL", False),
+        ("printenv -- SESSION_LABEL", False),
+        ("printenv SESSION_LABEL API_KEY", True),
+        ("printenv -- -API_KEY SESSION_LABEL", True),
+        ("env | grep '^SESSION_LABEL='", True),
         ('echo "$(test -n "$API_KEY" && printf configured)"', False),
     ],
 )

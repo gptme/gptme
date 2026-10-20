@@ -121,7 +121,11 @@ def _command_reason(words: list[str], depth: int) -> str | None:
     if name == "printenv":
         if args in [["--help"], ["--version"]]:
             return None
-        operands = [arg for arg in args if not arg.startswith("-")]
+        operands = args[:]
+        while operands and operands[0] in {"-0", "--null"}:
+            operands.pop(0)
+        if operands and operands[0] == "--":
+            operands.pop(0)
         return (
             None
             if operands
