@@ -1033,3 +1033,83 @@ class TestHandlePrMerge:
         assert mock_merge.call_args[1]["auto"] is True
         assert mock_merge.call_args[1]["delete_branch"] is True
         assert mock_merge.call_args[1]["match_head_commit"] == "sha123"
+
+
+# --- --repo/-R on native ref commands ---
+
+
+class TestNativeRefRepoFlag:
+    """``--repo``/``-R`` must pick the repo and never fill a positional slot."""
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["pr", "checks", "4451", "--repo", "other/repo"],
+            ["pr", "checks", "--repo", "other/repo", "4451"],
+            ["pr", "checks", "#4451", "-R", "other/repo"],
+            ["pr", "checks", "4451", "--repo=other/repo"],
+            ["pr", "checks", "4451", "-Rother/repo"],
+        ],
+    )
+    @patch("gptme.tools.gh._wait_for_checks")
+    def test_pr_checks_uses_repo_flag(self, mock_wait, argv):
+        mock_wait.return_value = iter([])
+        list(execute_gh(None, argv, None))
+        mock_wait.assert_called_once_with(
+            "other",
+            "repo",
+            "https://github.com/other/repo/pull/4451",
+            commit_sha=None,
+        )
+
+    @patch("gptme.tools.gh._wait_for_checks")
+    def test_pr_checks_commit_sha_survives_repo_flag(self, mock_wait):
+        mock_wait.return_value = iter([])
+        argv = ["pr", "checks", "--repo", "other/repo", "42", "deadbeef"]
+        list(execute_gh(None, argv, None))
+        assert mock_wait.call_args.kwargs["commit_sha"] == "deadbeef"
+
+    @patch("gptme.tools.gh._wait_for_checks")
+    def test_structured_command_honors_repo_flag(self, mock_wait):
+        mock_wait.return_value = iter([])
+        list(execute_gh(None, None, {"command": "pr checks 7 --repo other/repo"}))
+        assert mock_wait.call_args.args[:2] == ("other", "repo")
+
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_uses_repo_flag(self, mock_content):
+        mock_content.return_value = "body"
+        list(execute_gh(None, ["issue", "view", "42", "-R", "other/repo"], None))
+        mock_content.assert_called_once_with("other", "repo", "42")
+
+    @patch("gptme.tools.gh.get_github_pr_content")
+    def test_pr_view_uses_repo_flag(self, mock_content):
+        mock_content.return_value = "body"
+        list(execute_gh(None, ["pr", "view", "42", "--repo", "other/repo"], None))
+        mock_content.assert_called_once_with("https://github.com/other/repo/pull/42")
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_targets_repo_flag(self, mock_merge):
+        mock_merge.return_value = {"success": True, "message": "merged"}
+        argv = ["pr", "merge", "42", "--repo", "other/repo", "--rebase"]
+        list(execute_gh(None, argv, None))
+        assert mock_merge.call_args.args == ("other", "repo", "42")
+        assert mock_merge.call_args.kwargs["method"] == "rebase"
+
+    @patch("gptme.tools.gh._wait_for_checks")
+    def test_explicit_ref_wins_over_repo_flag(self, mock_wait):
+        mock_wait.return_value = iter([])
+        argv = ["pr", "checks", "owner/repo#5", "--repo", "other/repo"]
+        list(execute_gh(None, argv, None))
+        assert mock_wait.call_args.args[:2] == ("owner", "repo")
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["pr", "checks", "42", "--repo"],
+            ["pr", "view", "42", "--repo", "noslash"],
+        ],
+    )
+    def test_invalid_repo_flag_errors(self, argv):
+        messages = list(execute_gh(None, argv, None))
+        assert len(messages) == 1
+        assert "Invalid or missing repository" in messages[0].content

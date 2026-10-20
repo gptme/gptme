@@ -581,6 +581,47 @@ def _parse_run_repo(flags: list[str]) -> tuple[str | None, str | None]:
     return repo, None
 
 
+# Native handlers that resolve a positional PR/issue reference.
+_NATIVE_REF_COMMANDS = {
+    ("pr", "merge"),
+    ("pr", "status"),
+    ("pr", "checks"),
+    ("pr", "view"),
+    ("issue", "view"),
+}
+
+
+def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
+    """Strip ``--repo``/``-R`` from a native ref command and fold it into the ref.
+
+    The handlers read the reference and extras (e.g. a commit SHA) by position,
+    so a flag left in place was read as a positional value and a bare ``N``
+    resolved against the working directory's repo instead of the named one.
+    An explicit ``owner/repo#N`` or URL reference wins over the flag.
+    """
+    positional: list[str] = []
+    repo_flags: list[str] = []
+    rest = args[2:]
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token in ("--repo", "-R"):
+            repo_flags.extend(rest[i : i + 2])
+            i += 2
+            continue
+        if token.startswith("--repo=") or (token.startswith("-R") and len(token) > 2):
+            repo_flags.append(token)
+        else:
+            positional.append(token)
+        i += 1
+    repo, err = _parse_run_repo(repo_flags)
+    if err:
+        return args, err
+    if repo and positional and re.fullmatch(r"#?\d+", positional[0]):
+        positional[0] = f"{repo}#{positional[0].lstrip('#')}"
+    return [*args[:2], *positional], None
+
+
 def execute_gh(
     code: str | None,
     args: list[str] | None,
@@ -600,6 +641,12 @@ def execute_gh(
             args = shlex.split(kwargs["command"])
         except ValueError as e:
             yield Message("system", f"Error parsing command: {e}")
+            return
+
+    if args and tuple(args[:2]) in _NATIVE_REF_COMMANDS:
+        args, repo_err = _apply_repo_flag(args)
+        if repo_err:
+            yield Message("system", repo_err)
             return
 
     if args and len(args) >= 2 and args[0] == "pr" and args[1] == "merge":
