@@ -223,6 +223,46 @@ def test_unrecoverable_empty_stream_logs_shape_not_content(
     assert "secret" not in caplog.text
 
 
+def test_no_deltas_recovers_text_from_incomplete_and_fires_callbacks_in_order() -> None:
+    """response.incomplete with output but no deltas must recover text and fire incomplete_callback before usage_callback."""
+
+    call_log: list[str] = []
+
+    def incomplete_cb() -> None:
+        call_log.append("incomplete")
+
+    def usage_cb(usage: object) -> None:
+        call_log.append("usage")
+
+    events = [
+        {"type": "response.created"},
+        {
+            "type": "response.incomplete",
+            "response": {
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "truncated reply"}],
+                    }
+                ],
+                "usage": {"output_tokens": 100},
+            },
+        },
+    ]
+    result = "".join(
+        _stream_responses_events(
+            events,
+            incomplete_callback=incomplete_cb,
+            usage_callback=usage_cb,
+        )
+    )
+    assert result == "truncated reply"
+    assert call_log == ["incomplete", "usage"], (
+        "incomplete_callback must fire before usage_callback"
+    )
+
+
 def test_terminal_output_not_replayed_after_deltas() -> None:
     events = [
         {"type": "response.output_text.delta", "delta": "hello"},
