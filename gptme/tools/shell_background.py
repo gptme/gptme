@@ -462,9 +462,15 @@ def _omit_evicted_line(job: BackgroundJob, stdout: str, stderr: str) -> tuple[st
 
     if get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
         if job._stdout_buffer_start:
-            stdout = stdout.partition("\n")[2]
+            stdout = (
+                "[first retained line omitted: its prefix was evicted]\n"
+                + stdout.partition("\n")[2]
+            )
         if job._stderr_buffer_start:
-            stderr = stderr.partition("\n")[2]
+            stderr = (
+                "[first retained line omitted: its prefix was evicted]\n"
+                + stderr.partition("\n")[2]
+            )
     return stdout, stderr
 
 
@@ -473,7 +479,7 @@ def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
     stdout, stderr = _omit_evicted_line(job, stdout, stderr)
     stdout, stderr, redacted_lines = _sanitize_job_output(stdout, stderr)
     blocks: list[str] = []
-    truncated = False
+    truncated = bool(job._stdout_buffer_start or job._stderr_buffer_start)
     for name, text, limit in (
         ("stdout", stdout, _STDOUT_DISPLAY_CHARS),
         ("stderr", stderr, _STDERR_DISPLAY_CHARS),
