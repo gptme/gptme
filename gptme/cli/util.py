@@ -1353,20 +1353,24 @@ def tools_info(
         if tool_name in available_dict:
             tool = available_dict[tool_name]
         else:
+            # Only list tools that are actually available (deps installed)
+            available_names = sorted(
+                name for name, t in available_dict.items() if t.is_available
+            )
             if as_json:
                 click.echo(
                     json.dumps(
                         {
                             "tool": tool_name,
                             "error": f"Tool '{tool_name}' not found",
-                            "available_tools": sorted(available_dict.keys()),
+                            "available_tools": available_names,
                         },
                         indent=2,
                     )
                 )
             else:
                 print(f"Tool '{tool_name}' not found. Available tools:")
-                for name in sorted(available_dict.keys()):
+                for name in available_names:
                     print(f"  - {name}")
             sys.exit(1)
 
@@ -1425,7 +1429,9 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
     tool = get_tool(tool_name)
     if not tool:
         print(f"Tool '{tool_name}' not found. Available tools:")
-        for t in sorted(get_available_tools(), key=lambda t: t.name):
+        for t in sorted(
+            (t for t in get_available_tools() if t.is_available), key=lambda t: t.name
+        ):
             print(f"- {t.name}")
         sys.exit(1)
 
