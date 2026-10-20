@@ -3819,6 +3819,21 @@ class TestSchemaFixtures:
             f.verification == "Searched the file for usages of unused_var; none found."
         )
         assert f.security is False
+        # Consensus evidence fields
+        assert f.aspect == "general"
+        assert [p["pass"] for p in f.provenance] == [1, 2]
+        assert f.distinct_keys == ["claude-opus-5-5:general"]
+        assert f.distinct_key_agreement == 1
+        assert f.agreement_detail == {
+            "agreed": [1, 2],
+            "dissented": [3],
+            "did_not_look": [],
+        }
+        assert f.merged_aspects == ["general", "correctness"]
+        assert f.merged_independence_keys == [
+            "claude-opus-5-5:general",
+            "claude-opus-5-5:correctness",
+        ]
         # New artifact identity fields
         assert artifact.head == "abc123def456"
         assert artifact.base == "000111"
@@ -3863,6 +3878,84 @@ class TestSchemaFixtures:
         assert "suggestion" not in d
         assert "verification" not in d
         assert "security" not in d
+
+    def test_local_review_consensus_evidence_survives_round_trip(self):
+        """Multi-pass consensus evidence from ai-review-local survives v2 round trip."""
+        evidence = {
+            "aspect": "general",
+            "provenance": [
+                {"model": "m", "pass": 1, "aspect": "general"},
+                {"model": "m", "pass": 2, "aspect": "general"},
+            ],
+            "distinct_keys": ["m:general"],
+            "distinct_key_agreement": 1,
+            "agreement_detail": {
+                "agreed": [1, 2],
+                "dissented": [],
+                "did_not_look": [3],
+            },
+            "merged_aspects": ["general"],
+            "merged_independence_keys": ["m:general"],
+        }
+        artifact = ReviewArtifact.from_dict(
+            {
+                "schema_version": 1,
+                "kind": "ai-review-local",
+                "repo": "gptme/gptme",
+                "base": "b",
+                "merge_base": "mb",
+                "head": "h",
+                "findings": [
+                    {
+                        "severity": "P1",
+                        "file": "a.py",
+                        "line": 3,
+                        "body": "bug",
+                        "class": "bug",
+                        "agreement": 2,
+                        "passes": 3,
+                        **evidence,
+                    }
+                ],
+            }
+        )
+        assert artifact.validation_errors == 0
+        out = artifact.to_dict()["findings"][0]
+        for key, value in evidence.items():
+            assert out[key] == value, key
+        Draft7Validator(REVIEW_ARTIFACT_SCHEMA_V2).validate(artifact.to_dict())
+        restored = ReviewArtifact.from_json(artifact.to_json())
+        assert restored.to_dict() == artifact.to_dict()
+
+    def test_consensus_evidence_malformed_degrades_to_defaults(self):
+        """Malformed diagnostic evidence is dropped, not coerced or fatal."""
+        f = ReviewFinding.from_dict(
+            {
+                "body": "bug",
+                "aspect": 7,
+                "provenance": [{"pass": 1}, "pass-2", None],
+                "distinct_keys": ["a", 3],
+                "distinct_key_agreement": -1,
+                "agreement_detail": ["agreed"],
+                "merged_aspects": "general",
+                "merged_independence_keys": None,
+            }
+        )
+        assert f.aspect == ""
+        assert f.provenance == [{"pass": 1}]
+        assert f.distinct_keys == ["a"]
+        assert f.distinct_key_agreement == 0
+        assert f.agreement_detail == {}
+        assert f.merged_aspects == []
+        assert f.merged_independence_keys == []
+        d = f.to_dict()
+        for key in (
+            "aspect",
+            "agreement_detail",
+            "merged_aspects",
+            "distinct_key_agreement",
+        ):
+            assert key not in d
 
     @pytest.mark.parametrize("raw", ["false", "true", 1, 0, None])
     def test_finding_security_rejects_non_bool(self, raw):
