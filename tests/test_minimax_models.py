@@ -325,3 +325,39 @@ def test_saved_custom_provider_request(
     assert body["model"] == custom.default_model
     assert "reasoning" not in body and "reasoning_effort" not in body
     assert config.user.providers == [custom]
+
+
+@pytest.mark.parametrize("saved_as", ["favorite", "default", None])
+def test_server_preserves_explicit_saved_choices(
+    catalog: Catalog, client: Any, monkeypatch: pytest.MonkeyPatch, saved_as: str | None
+) -> None:
+    from gptme.server import api_v2
+
+    config = get_config()
+    legacy_id = f"openrouter/{LEGACY}"
+    favorites = [legacy_id] if saved_as == "favorite" else []
+    monkeypatch.setattr(config.user.models, "favorites", favorites)
+    monkeypatch.setattr(api_v2, "Config", lambda: config)
+    monkeypatch.setattr(api_v2, "PROVIDERS", ["openrouter"])
+    monkeypatch.setattr(
+        api_v2,
+        "get_default_model",
+        lambda: get_model(
+            legacy_id if saved_as == "default" else f"openrouter/{FLASH}"
+        ),
+    )
+    response = client.get("/api/v2/models")
+    assert response.status_code == 200
+    data = response.get_json()
+    ids = [model["id"] for model in data["models"]]
+    assert ids[:3] == [
+        f"openrouter/{FLASH}",
+        "openrouter/other/model",
+        f"openrouter/{M3}",
+    ]
+    assert (legacy_id in ids) == (saved_as is not None)
+    assert data["favorites"] == favorites
+    assert data["default"] == (
+        legacy_id if saved_as == "default" else f"openrouter/{FLASH}"
+    )
+    assert config.user.models.favorites == favorites
