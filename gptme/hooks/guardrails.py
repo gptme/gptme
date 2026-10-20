@@ -194,7 +194,10 @@ def _find_secret_path_in_cmd(cmd: str) -> str | None:
             continue
         if _is_secret_path(token):
             return token
-    return None
+
+    from ._secret_reach import find_secret_reach
+
+    return find_secret_reach(cmd, _is_secret_path, _normalize_path_token)
 
 
 def _read_paths_from_tool_use(tool_use: "ToolUse") -> list[str]:

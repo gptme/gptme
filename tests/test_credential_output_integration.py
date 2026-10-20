@@ -164,3 +164,28 @@ def test_review_regressions_through_confirmation_chain(
     else:
         assert received == [command]
         assert [message.content for message in messages] == [SYNTHETIC_MARKER]
+
+
+@pytest.mark.parametrize("shape", ["native", "markdown"])
+@pytest.mark.parametrize("mode", ["enforce", "shadow", "off"])
+@pytest.mark.parametrize(
+    "command", ["cat config/*", "grep -rn TOKEN .", "grep -rn 'def foo' ."]
+)
+def test_secret_reach_through_confirmation_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, mode: str, command: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("TOKEN=synthetic-only\n")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "client.pem").write_text("synthetic-only\n")
+    _register_chain(monkeypatch, mode)
+
+    messages, received = _execute_synthetic(command, shape)
+    blocked = mode == "enforce" and "def foo" not in command
+    assert received == ([] if blocked else [command])
+    if blocked:
+        assert any(
+            "Secret path access blocked" in message.content for message in messages
+        )
+    else:
+        assert [message.content for message in messages] == [SYNTHETIC_MARKER]

@@ -249,6 +249,34 @@ and literal presence diagnostics (``${#API_KEY}``, ``${API_KEY:+configured}``)
 are allowed. Using a credential as a process argument is distinct from printing
 it; existing secret-path rules still apply independently.
 
+Secret paths reached indirectly
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The secret-path rule also inspects pathname globs in literal reader commands
+(``cat``, ``head``, ``tail``, ``less``, ``more``, ``sed``, ``awk`` and grep variants).
+For example, ``cat config/*`` is flagged if it expands to a protected ``.pem``
+file. Quoted and escaped wildcard characters remain literal. GNU grep's
+``-r``/``-R`` and ``--recursive`` searches inspect protected files in the search
+root and its immediate child directories, including wildcard directory operands.
+Ordinary ``rg`` recursion is not added: hidden/ignore rules differ from grep.
+
+A simple grep pattern must match a non-comment assignment line in dotenv files
+(or any line in other protected file formats). This leaves searches such as
+``grep -rn 'def foo' .`` alone while detecting ``grep -rn API_KEY .`` when a
+matching assignment is in reach. Include/exclude filters, fixed strings,
+case-insensitive, word and whole-line matching are recognized. Context searches
+are conservative; quiet/count/filename-only searches do not add reach refusals.
+Complex regular expressions are conservatively flagged when a protected file
+is reached, rather than evaluated with an unbounded backtracking engine.
+
+Reach checking shares a 256-directory-entry budget across the command and reads
+at most 64 KiB of each candidate. It does not walk deep trees, follow directory
+symlinks during recursive discovery, track shell ``cd`` commands, execute scripts,
+or resolve innocuously named symlinks to their targets. Exhausted budgets and
+unreadable files can leave misses. The existing literal-path rule is unchanged,
+including its conservative treatment of explicitly named protected paths.
+Refusals and shadow logs report paths only, never candidate file contents.
+
 This is a bounded accidental-disclosure policy, **not a shell sandbox**.
 It does not resolve dynamic command names, arbitrary interpreters, sourced
 files, script contents, ``eval``, all wrapper options or obfuscated expansions.

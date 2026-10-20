@@ -1,0 +1,201 @@
+"""Secret reach tests inspect inert commands and synthetic files only."""
+
+from pathlib import Path
+
+import pytest
+
+from gptme.hooks.guardrails import _find_secret_path_in_cmd, guardrail_hook
+from gptme.tools.base import ToolUse
+
+
+@pytest.fixture
+def secret_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "# synthetic fixture\nOPENROUTER_API_KEY=synthetic\n"
+    )
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / ".env.local").write_text("TOKEN=synthetic\n")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "client.pem").write_text("synthetic certificate\n")
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat config/*",
+        "cat config/*.p?m",
+        "cat .[e]nv",
+        "grep -rn OPENROUTER .",
+        "grep -r -e OPENROUTER .",
+        "grep --recursive --regexp=TOKEN nested",
+        "grep -rF OPENROUTER .",
+        "grep -ri openrouter .",
+        "grep -r TOKEN nested; echo done",
+        "echo before && grep -rn OPENROUTER .",
+    ],
+)
+def test_secret_reach_is_detected(secret_tree: Path, command: str) -> None:
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -rn 'def foo' .",
+        "grep -rF 'def foo' .",
+        "grep -rn OPENROUTER config",
+        "grep -rn OPENROUTER --include='*.py' .",
+        "grep -r TOKEN --exclude-dir=nested .",
+        "grep -rn OPENROUTER --include '*.py' .",
+        "cat config/*.txt",
+        "echo 'config/*'",
+        "printf '%s' 'grep -rn OPENROUTER .'",
+        "cat <<'EOF'\ngrep -rn OPENROUTER .\nEOF",
+        "rg OPENROUTER .",
+    ],
+)
+def test_ordinary_searches_stay_allowed(secret_tree: Path, command: str) -> None:
+    assert _find_secret_path_in_cmd(command) is None
+
+
+@pytest.mark.parametrize(
+    ("mode", "blocked"), [("enforce", True), ("shadow", False), ("off", False)]
+)
+def test_hook_modes(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, mode: str, blocked: bool
+) -> None:
+    monkeypatch.setenv("GPTME_GUARDRAILS", mode)
+    result = guardrail_hook(
+        ToolUse(tool="shell", args=[], content="grep -rn OPENROUTER .")
+    )
+    assert (result is not None) is blocked
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -r TOKEN n*",
+        "grep -r -A1 'synthetic fixture' .",
+        "grep -r synthetic config",
+        "grep -rE '(a+)+$' .",
+    ],
+)
+def test_review_reach_cases(secret_tree: Path, command: str) -> None:
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -rw TOK nested",
+        "grep -rx TOKEN nested",
+        "grep -rq TOKEN nested",
+        "grep -rl TOKEN nested",
+        "grep -rc TOKEN nested",
+        "grep -r TOKEN --include='*.py' n*",
+        "cat config/'*'/*",
+        "cat config/\\*/*",
+    ],
+)
+def test_review_benign_cases(secret_tree: Path, command: str) -> None:
+    (secret_tree / "config" / "keys").mkdir()
+    (secret_tree / "config" / "keys" / "client.pem").write_text("synthetic\n")
+    assert _find_secret_path_in_cmd(command) is None
+
+
+def test_shared_directory_budget(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from gptme.hooks import _secret_reach
+
+    for index in range(30):
+        (secret_tree / "config" / f"file{index}.txt").touch()
+    monkeypatch.setattr(_secret_reach, "_LIMIT", 10)
+    real_scandir = os.scandir
+    visited = []
+
+    class CountingScan:
+        def __init__(self, path):
+            self.entries = real_scandir(path)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.entries.close()
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            entry = next(self.entries)
+            visited.append(entry.name)
+            return entry
+
+    monkeypatch.setattr(_secret_reach.os, "scandir", CountingScan)
+    assert _find_secret_path_in_cmd("cat config/nomatch*") is None
+    assert len(visited) <= 10
+
+
+def test_backtracking_pattern_is_not_executed(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.hooks import _secret_reach
+
+    (secret_tree / ".env").write_text("TOKEN=" + "a" * 64 + "!\n")
+
+    def unexpected_compile(*args, **kwargs):
+        raise AssertionError("Complex grep patterns must not reach Python re")
+
+    monkeypatch.setattr(_secret_reach.re, "compile", unexpected_compile)
+    assert _find_secret_path_in_cmd("grep -rE '(a+)+$' .") is not None
+
+
+def test_glob_filters_apply_to_files(secret_tree: Path) -> None:
+    # The old token scanner does not consider .[e]nv a literal secret path.
+    assert (
+        _find_secret_path_in_cmd("grep -r OPENROUTER --include='*.py' .[e]nv") is None
+    )
+
+
+def test_refusal_does_not_include_file_contents(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("GPTME_GUARDRAILS", "shadow")
+    (secret_tree / ".env").write_text("TOKEN=unique-synthetic-value\n")
+    assert (
+        guardrail_hook(ToolUse(tool="shell", args=[], content="grep -r TOKEN ."))
+        is None
+    )
+    assert "Secret path access" in caplog.text
+    assert "unique-synthetic-value" not in caplog.text
+
+
+def test_quoted_glob_does_not_expand(secret_tree: Path) -> None:
+    assert _find_secret_path_in_cmd("cat 'config/*'") is None
+
+
+def test_file_symlinks_in_globs(secret_tree: Path) -> None:
+    # This policy does not resolve targets of innocuously named symlinks.
+    (secret_tree / "config" / "link.txt").symlink_to(secret_tree / ".env")
+    assert _find_secret_path_in_cmd("cat config/link.*") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -rF 'absent\nTOKEN' nested",
+        "grep -r 'absent\nTOKEN' nested",
+        "grep -r --exclude='[.]env.local' --include='[.]env.local' TOKEN nested",
+    ],
+)
+def test_grep_pattern_and_filter_alternatives(secret_tree: Path, command: str) -> None:
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+def test_excluded_traversal_root(secret_tree: Path) -> None:
+    assert _find_secret_path_in_cmd("grep -r --exclude-dir=nested TOKEN nested") is None
