@@ -5,6 +5,10 @@ for (const kind of ['existing', 'new']) {
     let rejectUpload = true;
     const messages: { content: string; files?: string[] }[] = [];
     let steps = 0;
+    let releasePost!: () => void;
+    const postGate = new Promise<void>((resolve) => {
+      releasePost = resolve;
+    });
     await page.route('**/api/**', async (route) => {
       const request = route.request();
       const path = new URL(request.url()).pathname;
@@ -37,6 +41,7 @@ for (const kind of ['existing', 'new']) {
       if (/\/conversations\/[^/]+$/.test(path)) {
         if (request.method() === 'POST') {
           messages.push(request.postDataJSON());
+          if (kind === 'new') await postGate;
           return reply({ status: 'ok' });
         }
         if (request.method() === 'PUT')
@@ -75,6 +80,16 @@ for (const kind of ['existing', 'new']) {
     rejectUpload = false;
     await input.press('Enter');
     await expect.poll(() => messages.length).toBe(1);
+    if (kind === 'new') {
+      await expect(input).toBeDisabled();
+      await expect(input).toHaveValue('Keep this exact draft and attachment');
+      await expect(page.getByRole('button', { name: 'Remove file receipt.txt' })).toBeDisabled();
+      await expect(page.locator('input[type=file][aria-label="Attach files"]')).toBeDisabled();
+      await expect(page).toHaveURL(/\/$/);
+      await page.screenshot({ path: 'test-results/upload-post-pending-new.png', fullPage: true });
+      releasePost();
+      await expect(page).toHaveURL(/\/chat\//);
+    }
     await expect.poll(() => steps).toBe(1);
     expect(messages[0]).toMatchObject({
       content: 'Keep this exact draft and attachment',
