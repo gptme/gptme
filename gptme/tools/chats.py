@@ -102,11 +102,14 @@ def search_chats(
     if not query.strip():
         print("Error: search query cannot be empty.", file=sys.stderr)
         return
+    if max_results <= 0:
+        print(f"No results found for query: '{query}'")
+        return
 
-    from ..logmanager import LogManager, list_conversations  # fmt: skip
+    from ..logmanager import LogManager, get_user_conversations  # fmt: skip
 
     results: list[dict] = []
-    for conv in list_conversations(10 * max_results):
+    for conv in get_user_conversations():
         log_path = Path(conv.path)
         log_manager = LogManager.load(log_path, lock=False)
 

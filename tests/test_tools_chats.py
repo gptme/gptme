@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 
 from gptme.tools import init_tools
@@ -150,3 +151,56 @@ def test_search_chats_with_empty_after_strip(tmp_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     # Should exit early with an error message, not crash
     assert "search query cannot be empty" in captured.err
+
+
+def test_search_chats_count_sort_includes_matches_beyond_scan_cutoff(
+    tmp_path, monkeypatch, capsys
+):
+    """Count sorting considers older matches before applying max_results."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    base = 1_700_000_000
+    for index in range(12):
+        conv_id = f"2026-01-01-chat-{index:02d}"
+        conv_dir = tmp_path / conv_id
+        conv_dir.mkdir()
+        contents = "\n".join(
+            json.dumps(
+                {
+                    "role": "user",
+                    "content": "count-needle" if index < 2 else "unmatched",
+                    "timestamp": f"2026-01-01T00:00:{match:02d}+00:00",
+                }
+            )
+            for match in range(3 if index == 0 else 1)
+        )
+        (conv_dir / "conversation.jsonl").write_text(contents + "\n")
+        os.utime(conv_dir / "conversation.jsonl", (base + index, base + index))
+
+    from gptme.tools.chats import search_chats
+
+    search_chats("count-needle", max_results=1, sort="count")
+    captured = capsys.readouterr()
+    assert "2026-01-01-chat-00" in captured.out
+    assert "2026-01-01-chat-01" not in captured.out
+    assert "(3 matches)" in captured.out
+    assert "No results found" not in captured.out
+
+
+def test_search_chats_nonpositive_limit_skips_history(tmp_path, monkeypatch, capsys):
+    """Nonpositive limits preserve the empty result behavior without scanning."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fail_get_user_conversations():
+        raise AssertionError("history should not be enumerated")
+
+    monkeypatch.setattr(
+        "gptme.logmanager.get_user_conversations", fail_get_user_conversations
+    )
+
+    from gptme.tools.chats import search_chats
+
+    for limit in (0, -1):
+        search_chats("needle", max_results=limit)
+        captured = capsys.readouterr()
+        assert captured.out == "No results found for query: 'needle'\n"
