@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
+import { setupWizard$ } from '@/stores/setupWizard';
 import { buildModelsFetchError } from '@/utils/modelsError';
 import { isDemoMode } from '@/utils/connectionConfig';
 import { formatUnknownError } from '@/utils/errors';
@@ -28,6 +29,9 @@ export interface ModelsResponse {
 export function useModels() {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
+  // Setup can restart the same server without changing its URL, token or
+  // connected flag. Refresh the catalog/default alongside provider status.
+  const providerStatusVersion = use$(setupWizard$.providerStatusVersion);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
@@ -52,6 +56,7 @@ export function useModels() {
       return;
     }
 
+    let cancelled = false;
     const fetchModels = async () => {
       try {
         setIsLoading(true);
@@ -74,12 +79,14 @@ export function useModels() {
         }
 
         const data: ModelsResponse = await response.json();
+        if (cancelled) return;
 
         setModels(data.models);
         setDefaultModel(data.default || null);
         setRecommendedModels(data.recommended || []);
         setFavoritesState(data.favorites || []);
       } catch (err) {
+        if (cancelled) return;
         console.error('Failed to fetch models:', err);
         setError(formatUnknownError(err, 'Failed to fetch models'));
         setModels([]);
@@ -87,12 +94,15 @@ export function useModels() {
         setRecommendedModels([]);
         setFavoritesState([]);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     fetchModels();
-  }, [api.baseUrl, api.authHeader, isConnected]);
+    return () => {
+      cancelled = true;
+    };
+  }, [api.baseUrl, api.authHeader, isConnected, providerStatusVersion]);
 
   const authedHeaders = useCallback(() => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };

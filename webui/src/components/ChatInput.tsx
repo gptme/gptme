@@ -732,8 +732,23 @@ export const ChatInput: FC<Props> = ({
     }
   }, [conversationModel, defaultModel, apiDefaultModel, hasExplicitModelSelection]);
 
+  // A refreshed server default is not a conversation switch and must not
+  // discard a model the user explicitly chose for this draft.
+  const modelOwnerRef = useRef<{
+    conversationId: typeof conversationId;
+    conversationModel: typeof conversationModel;
+  } | null>(null);
   // Sync local state with store when conversation changes
   useEffect(() => {
+    const previous = modelOwnerRef.current;
+    if (
+      previous &&
+      previous.conversationId === conversationId &&
+      previous.conversationModel === conversationModel
+    ) {
+      return;
+    }
+    modelOwnerRef.current = { conversationId, conversationModel };
     setHasExplicitModelSelection(false);
     setSelectedModel(conversationModel || defaultModel || apiDefaultModel || '');
     setMaxTokens(
