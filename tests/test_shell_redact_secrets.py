@@ -45,6 +45,9 @@ def test_yaml_style_value_is_redacted():
         'GITHUB_TOKEN="$(gh auth token)"\n',
         "password: ${DB_PASSWORD}\n",
         "max_tokens: 1024\n",
+        'GITHUB_TOKEN = "ghp_" + secrets.token_hex(20)\n',
+        'GITHUB_TOKEN = "ghp_" + suffix\n',
+        "API_KEY = sk_placeholder()\n",
     ],
 )
 def test_source_code_lines_are_kept(line):
@@ -52,6 +55,75 @@ def test_source_code_lines_are_kept(line):
     out, n = redact_secret_values_from_output(line)
     assert n == 0
     assert out == line
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.aB3_dE-fG4hI5jK6",
+        "Zq8_x7Wm-K2pL9vR4tY6uN3bH5jC1",
+        "0123456789abcdef0123456789abcdef",
+    ],
+)
+@pytest.mark.parametrize("quote", ["", "'", '"'])
+def test_output_specific_credentials(value, quote):
+    out, n = redact_secret_values_from_output(f"SERVICE_TOKEN={quote}{value}{quote}\n")
+    assert n == 1
+    assert value not in out
+    assert out == "SERVICE_TOKEN=[REDACTED]\n"
+
+
+@pytest.mark.parametrize("final", [False, True])
+def test_background_display_and_logs_are_redacted(tmp_path, final):
+    from unittest.mock import Mock
+
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        _write_job_log,
+        format_job_output,
+    )
+
+    stdout = f"\x1b[32mGITHUB_TOKEN={GH_TOKEN}\x1b[0m\n" + "ok\n" * 3000
+    stderr = f"API_KEY={OR_KEY}\n"
+    job = BackgroundJob(
+        id=1,
+        command="synthetic-output",
+        process=Mock(),
+        start_time=0,
+        stdout_buffer=[stdout],
+        stderr_buffer=[stderr],
+        log_dir=tmp_path,
+    )
+    if final:
+        _write_job_log(job, stdout, stderr, final=True)
+    rendered = format_job_output(job, stdout, stderr)
+    assert job.log_path is not None
+    saved = job.log_path.read_text()
+    for text in (rendered, saved):
+        assert GH_TOKEN not in text
+        assert OR_KEY not in text
+        assert "API_KEY=[REDACTED]" in text
+    assert "GITHUB_TOKEN=[REDACTED]" in saved
+    assert "Redacted secret values on 2 output lines" in rendered
+
+
+def test_background_redaction_opt_out(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    from gptme.tools.shell_background import (
+        BackgroundJob,
+        _write_job_log,
+        format_job_output,
+    )
+
+    monkeypatch.setenv("GPTME_SHELL_REDACT_SECRETS", "0")
+    text = f"GITHUB_TOKEN={GH_TOKEN}\n"
+    job = BackgroundJob(
+        id=1, command="synthetic-output", process=Mock(), start_time=0, log_dir=tmp_path
+    )
+    assert GH_TOKEN in format_job_output(job, text, "")
+    path = _write_job_log(job, text, "", final=True)
+    assert path is not None and GH_TOKEN in path.read_text()
 
 
 def _run(monkeypatch, command: str) -> str:
@@ -86,3 +158,49 @@ def test_shell_tool_redaction_opt_out(monkeypatch):
     result = _run(monkeypatch, 'echo "GITHUB_TOKEN=$FAKE_VALUE"')
     assert GH_TOKEN in result
     assert "Redacted secret values" not in result
+
+
+@pytest.mark.parametrize("promote", [False, True])
+def test_real_background_output_is_redacted(monkeypatch, tmp_path, promote):
+    """Promotion, explicit background, output/wait and completion share the guard."""
+    from gptme.tools.shell_background import (
+        background_job_completion_hook,
+        execute_output_command,
+        execute_wait_command,
+        list_background_jobs,
+        reset_background_jobs,
+    )
+
+    reset_background_jobs()
+    monkeypatch.setenv("FAKE_VALUE", GH_TOKEN)
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "0.25")
+    monkeypatch.setattr(
+        shell_module, "check_with_shellcheck", lambda cmd: (False, False, "")
+    )
+    shell = shell_module.ShellSession(cwd=str(tmp_path))
+    shell_module.set_shell(shell)
+    try:
+        messages = list(
+            execute_shell(
+                None,
+                None,
+                {
+                    "command": 'printf "GITHUB_TOKEN=%s\\n" "$FAKE_VALUE"; sleep 1',
+                    "background": "false" if promote else "true",
+                },
+            )
+        )
+        job = list_background_jobs()[0]
+        messages.extend(execute_output_command(str(job.id)))
+        messages.extend(execute_wait_command(str(job.id), "5"))
+        messages.extend(background_job_completion_hook(None))
+        result = "\n".join(m.content for m in messages)
+        assert GH_TOKEN not in result
+        assert "GITHUB_TOKEN=[REDACTED]" in result
+        if promote:
+            assert "Output so far" in messages[0].content
+            assert "GITHUB_TOKEN=[REDACTED]" in messages[0].content
+    finally:
+        reset_background_jobs()
+        shell.close()
+        shell_module.get_shell().close()

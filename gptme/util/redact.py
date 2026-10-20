@@ -229,6 +229,24 @@ def _redact_line(line: str) -> str:
     return line
 
 
+def _looks_like_output_secret(value: str) -> bool:
+    """Match credential literals, not source expressions or filename rules."""
+    # Assignment regexes remove an optional pair of outer quotes. Quotes left
+    # inside the value (e.g. 'ghp_" + suffix') identify an expression, not a key.
+    if not re.fullmatch(r"[A-Za-z0-9_./+=-]+", value):
+        return False
+    if _SECRET_VALUE_PREFIX_RE.match(value):
+        return True
+    # JWTs have three base64url segments; unlike paths, dots are meaningful.
+    if re.fullmatch(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", value):
+        return True
+    if not re.fullmatch(r"[A-Za-z0-9_+/=-]{24,}", value):
+        return False
+    return any(c.isdigit() for c in value) and (
+        any(c.isupper() for c in value) or bool(re.fullmatch(r"[0-9a-f]{24,}", value))
+    )
+
+
 def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     """Redact secret-shaped values on secret-named lines of command output.
 
@@ -236,7 +254,7 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     source code (``cat config.py``), where ``TOKEN_LIMIT = 4096`` or
     ``API_KEY = os.environ["X"]`` must stay intact for later edits. A line is
     redacted only when its name marks a secret *and* its value has the shape of
-    a real credential (see :func:`looks_like_secret_value`), which is what an
+    a credential literal (including JWTs and opaque URL-safe tokens), which is what an
     accidental ``env`` or ``cat .env`` dump prints.
 
     Returns the redacted text and the number of lines changed.
@@ -245,7 +263,7 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     out: list[str] = []
     for line in content.splitlines(keepends=True):
         match = _ENV_ASSIGN_RE.search(line) or _COLON_ASSIGN_RE.search(line)
-        if match and looks_like_secret_value(match.group(5)):
+        if match and _looks_like_output_secret(match.group(5)):
             out.append(_redact_line(line))
             redacted += 1
         else:

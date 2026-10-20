@@ -373,6 +373,20 @@ def control_commands_help(job_id: int) -> str:
 _job_log_lock = threading.Lock()
 
 
+def _sanitize_job_output(stdout: str, stderr: str) -> tuple[str, str, int]:
+    """Sanitize at presentation/storage, leaving raw buffer offsets intact."""
+    from ..config import get_config
+    from ..util.redact import redact_secret_values_from_output
+    from .shell import strip_ansi_codes
+
+    stdout, stderr = strip_ansi_codes(stdout), strip_ansi_codes(stderr)
+    if not get_config().get_env_bool("GPTME_SHELL_REDACT_SECRETS", True):
+        return stdout, stderr, 0
+    stdout, n_out = redact_secret_values_from_output(stdout)
+    stderr, n_err = redact_secret_values_from_output(stderr)
+    return stdout, stderr, n_out + n_err
+
+
 def _write_job_log(
     job: BackgroundJob, stdout: str, stderr: str, *, final: bool
 ) -> Path | None:
@@ -403,6 +417,7 @@ def _write_job_log_locked(
             / "shell-jobs"
             / f"job-{job.id}-{int(job.start_time)}.log"
         )
+    stdout, stderr, _ = _sanitize_job_output(stdout, stderr)
     dropped = job._stdout_buffer_start + job._stderr_buffer_start
     parts = [f"$ {job.command}\n"]
     if dropped and not final:
@@ -423,6 +438,7 @@ def _write_job_log_locked(
 
 def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
     """Render the tails of a job's output, naming the full log if truncated."""
+    stdout, stderr, redacted_lines = _sanitize_job_output(stdout, stderr)
     blocks: list[str] = []
     truncated = False
     for name, text, limit in (
@@ -445,6 +461,11 @@ def format_job_output(job: BackgroundJob, stdout: str, stderr: str) -> str:
             blocks.append(
                 f"Output log (earliest {dropped} chars were not retained): `{log_path}`"
             )
+    if redacted_lines:
+        blocks.append(
+            f"Redacted secret values on {redacted_lines} output lines "
+            "(set GPTME_SHELL_REDACT_SECRETS=0 to disable)"
+        )
     return "\n\n".join(blocks)
 
 
