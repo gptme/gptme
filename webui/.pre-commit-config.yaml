@@ -12,11 +12,11 @@ repos:
     name: lint
     stages: [pre-commit]
     types_or: [javascript, jsx, ts, tsx]
-    entry: npm run lint:fix
+    entry: npx eslint --fix
     language: system
-    pass_filenames: false
+    pass_filenames: true
 
-  # handled by lint:fix
+  # handled by lint hook above
   #- id: format
   #  name: format
   #  stages: [commit]
