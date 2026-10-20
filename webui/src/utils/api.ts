@@ -1762,7 +1762,6 @@ export class ApiClient {
         const filePaths = uploadResult.files.map((f) => f.path);
         const attachedMessage = { ...message, files: filePaths };
         replaceLog(conversationId, [attachedMessage]);
-        options.onFilesUploaded?.();
         try {
           await this.sendMessage(conversationId, attachedMessage);
         } catch (error) {
@@ -1792,6 +1791,10 @@ export class ApiClient {
             },
           ]);
         }
+        // Keep the new-chat draft locked through persistence. The caller
+        // navigates as soon as creation resolves, discarding any new files
+        // attached if we release the composer while the POST is still pending.
+        options.onFilesUploaded?.();
       } else {
         // No files: create conversation with the initial message.
         // useConversation will call step() after subscribing (needsInitialStep: true above).

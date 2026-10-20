@@ -1301,7 +1301,12 @@ export const ChatInput: FC<Props> = ({
               <QueuedMessageBadge
                 key={index}
                 message={messageQueue.length > 1 ? `(${index + 1}) ${msg.text}` : msg.text}
-                onClear={() => setMessageQueue((prev) => prev.filter((_, i) => i !== index))}
+                onClear={() => {
+                  // A failed upload never starts generation, so discarding it
+                  // must re-arm the flush for messages waiting behind it.
+                  if (index === 0 && msg.uploadFailed) wasBusy.current = true;
+                  setMessageQueue((prev) => prev.filter((_, i) => i !== index));
+                }}
                 onRetry={
                   msg.uploadFailed
                     ? () => {

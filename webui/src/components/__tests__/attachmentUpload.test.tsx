@@ -269,6 +269,80 @@ it.each(['existing', 'new'])(
   }
 );
 
+it('keeps a new-chat attachment draft locked until message persistence finishes', async () => {
+  jest
+    .spyOn(mockClient, 'uploadFiles')
+    .mockResolvedValue({ files: [{ name: 'one.txt', path: 'attachments/one.txt' }] } as any);
+  let finishPost!: () => void;
+  const post = jest.spyOn(mockClient, 'sendMessage').mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finishPost = resolve;
+      })
+  );
+  const create = jest.spyOn(mockClient, 'createConversationWithPlaceholder');
+  const { container } = render(<NewComposer />);
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'first draft' } });
+  const fileInput = container.querySelector('input[type="file"]')!;
+  fireEvent.change(fileInput, { target: { files: [new File(['one'], 'one.txt')] } });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  expect(input).toBeDisabled();
+  expect(input).toHaveValue('first draft');
+  expect(screen.getByText('one.txt')).toBeInTheDocument();
+  fireEvent.change(fileInput, { target: { files: [new File(['two'], 'two.txt')] } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(screen.queryByText('two.txt')).not.toBeInTheDocument();
+  expect(create).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    finishPost();
+  });
+  await waitFor(() => expect(input).not.toBeDisabled());
+  expect(input).toHaveValue('');
+  expect(screen.queryByText('one.txt')).not.toBeInTheDocument();
+});
+
+it('sends the next queued message when a failed head upload is discarded', async () => {
+  const upload = jest
+    .spyOn(mockClient, 'uploadFiles')
+    .mockRejectedValue(new ApiClientError('Too large', 413));
+  const post = jest.spyOn(mockClient, 'sendMessage');
+  const state = conversations$.get('upload-existing')!;
+  state.isGenerating.set(true);
+  const { container } = render(<ExistingComposer />);
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'failed head' } });
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['one'], 'one.txt')] },
+  });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+  fireEvent.change(input, { target: { value: 'next queued message' } });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+  await act(async () => {
+    state.isGenerating.set(false);
+  });
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Retry upload' })).toBeInTheDocument()
+  );
+  expect(post).not.toHaveBeenCalled();
+  await act(async () => {
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear queued message' })[0]);
+  });
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  expect(post).toHaveBeenCalledWith(
+    'upload-existing',
+    expect.objectContaining({ content: 'next queued message' })
+  );
+  expect(upload).toHaveBeenCalledTimes(1);
+});
+
 // Opt-in integration against tests/fixtures/retry_server.py. Only SSE and the
 // LLM boundary are stubbed; upload, append, HTTP history and JSONL are real.
 (process.env.GPTME_RETRY_TEST_SERVER ? describe : describe.skip)(
