@@ -243,8 +243,10 @@ source text or variable values.
 
 Benign forms include ``env NAME=value command``, ``env -i ... command``,
 ``set +x``, name-only ``compgen -e``, literal quoted documentation and heredoc
-data not used as shell code. ``printenv`` allows only explicitly non-secret
-names: PATH, HOME, LANG, SHELL, TERM, PWD, USER, LOGNAME and TZ. Variable length
+data not used as shell code. ``printenv NAME ...`` is allowed when every
+operand is a literal variable name that does not look secret (the same
+KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL name rule as ``echo "$NAME"``); bare
+``printenv`` and dynamic operands stay blocked. Variable length
 and literal presence diagnostics (``${#API_KEY}``, ``${API_KEY:+configured}``)
 are allowed. Using a credential as a process argument is distinct from printing
 it; existing secret-path rules still apply independently.
