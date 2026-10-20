@@ -645,6 +645,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="pst-show_toc_level nav section-nav flex-column">
@@ -892,6 +893,41 @@ confirmation hooks (<code class="docutils literal notranslate"><span class="pre"
 execution in autonomous runs. This is what makes the hook usable as a real
 guardrail rather than a prompt.</p>
 </div>
+</section>
+<section id="built-in-credential-output-policy">
+<h3>Built-in Credential-Output Policy<a class="headerlink" href="#built-in-credential-output-policy" title="Link to this heading">#</a></h3>
+<p>The built-in <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> confirmation hook (priority 200) also recognizes
+obvious credential-output shell commands. Like its existing destructive-command
+and secret-path rules, it follows <code class="docutils literal notranslate"><span class="pre">GPTME_GUARDRAILS</span></code>: <code class="docutils literal notranslate"><span class="pre">shadow</span></code> (default) logs
+and allows, <code class="docutils literal notranslate"><span class="pre">enforce</span></code> skips execution, and <code class="docutils literal notranslate"><span class="pre">off</span></code> disables the hook. Merely
+installing this detector does <strong>not</strong> enable enforcement. The hook must also
+be registered and allowed by the runtime’s hook configuration.</p>
+<p>Covered literal syntax includes shell xtrace (<code class="docutils literal notranslate"><span class="pre">bash</span> <span class="pre">-eux</span></code>, <code class="docutils literal notranslate"><span class="pre">sh</span> <span class="pre">-x</span></code>,
+<code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">-x</span></code>, <code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">-o</span> <span class="pre">xtrace</span></code>, <code class="docutils literal notranslate"><span class="pre">BASH_XTRACEFD</span></code> assignments), environment dumps
+(<code class="docutils literal notranslate"><span class="pre">env</span></code>, <code class="docutils literal notranslate"><span class="pre">printenv</span></code>), variable-state dumps (bare <code class="docutils literal notranslate"><span class="pre">set</span></code>, <code class="docutils literal notranslate"><span class="pre">export</span></code>/<code class="docutils literal notranslate"><span class="pre">declare</span></code>/
+<code class="docutils literal notranslate"><span class="pre">typeset</span></code> and their <code class="docutils literal notranslate"><span class="pre">-p</span></code> forms), and sensitive variable expansions printed
+by <code class="docutils literal notranslate"><span class="pre">echo</span></code>/<code class="docutils literal notranslate"><span class="pre">printf</span></code>. Sensitive names have a KEY, TOKEN, SECRET, PASSWORD,
+PASSWD or CREDENTIAL(S) underscore-delimited component. Simple <code class="docutils literal notranslate"><span class="pre">env</span></code>,
+<code class="docutils literal notranslate"><span class="pre">command</span></code>, <code class="docutils literal notranslate"><span class="pre">exec</span></code> and option-free <code class="docutils literal notranslate"><span class="pre">sudo</span></code> wrappers, shell <code class="docutils literal notranslate"><span class="pre">-c</span></code> strings,
+command substitutions and shell-fed heredocs are inspected. Shell options
+are inspected only before the script/command argument, not script arguments.
+Refusal reasons and shadow logs contain a fixed description, never matched
+source text or variable values.</p>
+<p>Benign forms include <code class="docutils literal notranslate"><span class="pre">env</span> <span class="pre">NAME=value</span> <span class="pre">command</span></code>, <code class="docutils literal notranslate"><span class="pre">env</span> <span class="pre">-i</span> <span class="pre">...</span> <span class="pre">command</span></code>,
+<code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">+x</span></code>, name-only <code class="docutils literal notranslate"><span class="pre">compgen</span> <span class="pre">-e</span></code>, literal quoted documentation and heredoc
+data not used as shell code. <code class="docutils literal notranslate"><span class="pre">printenv</span></code> allows only explicitly non-secret
+names: PATH, HOME, LANG, SHELL, TERM, PWD, USER, LOGNAME and TZ. Variable length
+and literal presence diagnostics (<code class="docutils literal notranslate"><span class="pre">${#API_KEY}</span></code>, <code class="docutils literal notranslate"><span class="pre">${API_KEY:+configured}</span></code>)
+are allowed. Using a credential as a process argument is distinct from printing
+it; existing secret-path rules still apply independently.</p>
+<p>This is a bounded accidental-disclosure policy, <strong>not a shell sandbox</strong>.
+It does not resolve dynamic command names, arbitrary interpreters, sourced
+files, script contents, <code class="docutils literal notranslate"><span class="pre">eval</span></code>, all wrapper options or obfuscated expansions.
+Function definitions and unreachable branches are scanned conservatively.
+Name-only pipelines following a dump are still blocked: a downstream filter
+is not proof that tracing or intermediate output cannot expose a credential.
+Do not infer new-pattern false-positive rates from older shadow logs; evaluate
+fresh exposure before enabling the entire hook in unattended sessions.</p>
 </section>
 </section>
 <section id="managing-hooks">
@@ -1244,6 +1280,7 @@ If not provided, defaults will be loaded from env/config.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="pst-show_toc_level nav section-nav flex-column">

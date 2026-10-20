@@ -14128,6 +14128,45 @@ execution is auto-confirmed (autonomous mode).
    execution in autonomous runs. This is what makes the hook usable as a real
    guardrail rather than a prompt.
 
+Built-in Credential-Output Policy
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The built-in ``guardrails`` confirmation hook (priority 200) also recognizes
+obvious credential-output shell commands. Like its existing destructive-command
+and secret-path rules, it follows ``GPTME_GUARDRAILS``: ``shadow`` (default) logs
+and allows, ``enforce`` skips execution, and ``off`` disables the hook. Merely
+installing this detector does **not** enable enforcement. The hook must also
+be registered and allowed by the runtime's hook configuration.
+
+Covered literal syntax includes shell xtrace (``bash -eux``, ``sh -x``,
+``set -x``, ``set -o xtrace``, ``BASH_XTRACEFD`` assignments), environment dumps
+(``env``, ``printenv``), variable-state dumps (bare ``set``, ``export``/``declare``/
+``typeset`` and their ``-p`` forms), and sensitive variable expansions printed
+by ``echo``/``printf``. Sensitive names have a KEY, TOKEN, SECRET, PASSWORD,
+PASSWD or CREDENTIAL(S) underscore-delimited component. Simple ``env``,
+``command``, ``exec`` and option-free ``sudo`` wrappers, shell ``-c`` strings,
+command substitutions and shell-fed heredocs are inspected. Shell options
+are inspected only before the script/command argument, not script arguments.
+Refusal reasons and shadow logs contain a fixed description, never matched
+source text or variable values.
+
+Benign forms include ``env NAME=value command``, ``env -i ... command``,
+``set +x``, name-only ``compgen -e``, literal quoted documentation and heredoc
+data not used as shell code. ``printenv`` allows only explicitly non-secret
+names: PATH, HOME, LANG, SHELL, TERM, PWD, USER, LOGNAME and TZ. Variable length
+and literal presence diagnostics (``${#API_KEY}``, ``${API_KEY:+configured}``)
+are allowed. Using a credential as a process argument is distinct from printing
+it; existing secret-path rules still apply independently.
+
+This is a bounded accidental-disclosure policy, **not a shell sandbox**.
+It does not resolve dynamic command names, arbitrary interpreters, sourced
+files, script contents, ``eval``, all wrapper options or obfuscated expansions.
+Function definitions and unreachable branches are scanned conservatively.
+Name-only pipelines following a dump are still blocked: a downstream filter
+is not proof that tracing or intermediate output cannot expose a credential.
+Do not infer new-pattern false-positive rates from older shadow logs; evaluate
+fresh exposure before enabling the entire hook in unattended sessions.
+
 Managing Hooks
 --------------
 
