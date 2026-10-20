@@ -686,6 +686,20 @@ class TestRunDiagnostics:
 class TestCLI:
     """Test CLI interface."""
 
+    @pytest.fixture
+    def quiet_diagnostic_logs(self):
+        """Isolate JSON assertions from stdout handlers left by earlier CLI tests.
+
+        Match the plugin JSON test below: these tests invoke doctor directly,
+        without a fresh CLI process and its own logging configuration.
+        """
+        disabled_before = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        try:
+            yield
+        finally:
+            logging.disable(disabled_before)
+
     @staticmethod
     def _no_provider_diagnostics():
         results = [
@@ -722,7 +736,7 @@ class TestCLI:
         assert result.exit_code in (0, 1)
         # Verbose should show more details (paths, fix hints)
 
-    def test_cli_json_output(self):
+    def test_cli_json_output(self, quiet_diagnostic_logs):
         """Test JSON output flag works."""
         runner = CliRunner()
         result = runner.invoke(main, ["--json"])
@@ -735,7 +749,7 @@ class TestCLI:
         assert "results" in output
         assert isinstance(output["results"], list)
 
-    def test_cli_json_structure(self):
+    def test_cli_json_structure(self, quiet_diagnostic_logs):
         """Test JSON output has correct structure."""
         runner = CliRunner()
         result = runner.invoke(main, ["--json"])
