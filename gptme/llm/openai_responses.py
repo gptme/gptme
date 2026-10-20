@@ -401,6 +401,23 @@ def _messages_to_responses_input(
     return instructions, _pair_missing_tool_results(items)
 
 
+def _completed_output_chunks(response_obj: Any) -> Generator[str, None, None]:
+    """Rebuild text/tool-call chunks from a terminal response's ``output``."""
+    for item in _obj_get(response_obj, "output", None) or []:
+        item_type = _obj_get(item, "type")
+        if item_type == "message":
+            for part in _obj_get(item, "content", None) or []:
+                if _obj_get(part, "type") == "output_text":
+                    text = _obj_get(part, "text", "")
+                    if text:
+                        yield text
+        elif item_type == "function_call":
+            name = _obj_get(item, "name", "")
+            call_id = _obj_get(item, "call_id", "") or _obj_get(item, "id", "")
+            arguments = _obj_get(item, "arguments", "") or ""
+            yield f"\n@{canonical_tool_name(name)}({call_id}): {arguments}"
+
+
 def _stream_responses_events(
     event_iter: Iterable[Any],
     *,
@@ -409,6 +426,66 @@ def _stream_responses_events(
     incomplete_callback: Callable[[], None] | None = None,
 ) -> Generator[str, None, None]:
     """Process a Responses API event stream, yielding formatted text chunks.
+
+    If no delta produced any chunk, the turn is rebuilt from the terminal
+    response's ``output`` items: a stream can report positive output usage
+    while delivering no deltas (openai-subscription gpt-6.1-sol, ~4% of
+    sessions on 2026-10-20), which otherwise surfaces as an empty turn. When
+    that also yields nothing, the event and output item types (never their
+    content) are logged so the missing shape can be identified.
+    """
+    event_types: dict[str, int] = {}
+    terminal: dict[str, Any] = {}
+
+    def _counted(events: Iterable[Any]) -> Generator[Any, None, None]:
+        for event in events:
+            event_type = str(_obj_get(event, "type", "") or "?")
+            event_types[event_type] = event_types.get(event_type, 0) + 1
+            yield event
+
+    emitted = False
+    for chunk in _stream_responses_event_chunks(
+        _counted(event_iter),
+        usage_callback=usage_callback,
+        model_callback=model_callback,
+        incomplete_callback=incomplete_callback,
+        terminal=terminal,
+    ):
+        emitted = emitted or bool(chunk)
+        yield chunk
+    if emitted:
+        return
+
+    response_obj = terminal.get("response")
+    recovered = [c for c in _completed_output_chunks(response_obj) if c]
+    if recovered:
+        logger.warning(
+            "Responses stream sent no deltas; recovered %d chunk(s) from the "
+            "terminal response output",
+            len(recovered),
+        )
+        yield from recovered
+        return
+    if event_types:
+        logger.warning(
+            "Responses stream produced no content: events=%s output_items=%s",
+            event_types,
+            [
+                _obj_get(item, "type")
+                for item in (_obj_get(response_obj, "output", None) or [])
+            ],
+        )
+
+
+def _stream_responses_event_chunks(
+    event_iter: Iterable[Any],
+    *,
+    usage_callback: Callable[[Any], None] | None = None,
+    model_callback: Callable[[str], None] | None = None,
+    incomplete_callback: Callable[[], None] | None = None,
+    terminal: dict[str, Any] | None = None,
+) -> Generator[str, None, None]:
+    """Delta-level worker for :func:`_stream_responses_events`.
 
     Works with both OpenAI SDK event objects and raw SSE dicts from the
     subscription provider — ``_obj_get()`` handles both dict and attribute access.
@@ -533,6 +610,8 @@ def _stream_responses_events(
             "response.incomplete",
         ):
             response_obj = _obj_get(event, "response", None)
+            if terminal is not None:
+                terminal["response"] = response_obj
             if event_type == "response.incomplete":
                 details = _obj_get(response_obj, "incomplete_details", None)
                 logger.warning(
