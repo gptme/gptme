@@ -220,7 +220,7 @@ execution is auto-confirmed (autonomous mode).
    guardrail rather than a prompt.
 
 Built-in Credential-Output Policy
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The built-in ``guardrails`` confirmation hook (priority 200) also recognizes
 obvious credential-output shell commands. Like its existing destructive-command

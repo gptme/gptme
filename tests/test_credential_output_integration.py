@@ -138,3 +138,29 @@ def test_non_enforcing_modes_retain_auto_confirm_behavior(
         assert "Guardrail (shadow): would block" in caplog.text
     else:
         assert "Guardrail (shadow): would block" not in caplog.text
+
+
+@pytest.mark.parametrize("shape", ["native", "markdown"])
+@pytest.mark.parametrize(
+    ("command", "blocked"),
+    [
+        ("bash -s arg <<'EOF'\nprintenv\nEOF", True),
+        ("bash - <<'EOF'\nprintenv\nEOF", True),
+        ('echo "$(printf %s "$API_KEY")"', True),
+        ("API_KEY=synthetic echo ready", False),
+        ('echo "$(test -n "$API_KEY" && printf configured)"', False),
+    ],
+)
+def test_review_regressions_through_confirmation_chain(
+    monkeypatch: pytest.MonkeyPatch, command: str, blocked: bool, shape: str
+) -> None:
+    _register_chain(monkeypatch, "enforce")
+
+    messages, received = _execute_synthetic(command, shape)
+
+    if blocked:
+        assert received == []
+        assert any("Blocked by guardrail" in message.content for message in messages)
+    else:
+        assert received == [command]
+        assert [message.content for message in messages] == [SYNTHETIC_MARKER]

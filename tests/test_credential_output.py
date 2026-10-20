@@ -51,6 +51,13 @@ from gptme.tools.base import ToolUse
         'env printf "%s" "$API_KEY"',
         "env bash <<'EOF'\nprintenv\nEOF",
         "bash <<'EOF'\nset -x\nEOF",
+        "bash -s arg <<'EOF'\nprintenv\nEOF",
+        "bash - <<'EOF'\nprintenv\nEOF",
+        "bash -s -- arg <<'EOF'\nprintenv\nEOF",
+        "bash -es arg <<'EOF'\nprintenv\nEOF",
+        "bash -s - arg <<'EOF'\nprintenv\nEOF",
+        'echo "$(printf %s "$API_KEY")"',
+        'API_KEY=synthetic echo "$OTHER_TOKEN"',
     ],
 )
 def test_credential_output_is_blocked(command, monkeypatch):
@@ -96,6 +103,14 @@ def test_credential_output_is_blocked(command, monkeypatch):
         "set -e",
         "set -o",
         "set -o pipefail",
+        "API_KEY=synthetic echo ready",
+        "API_KEY=synthetic printf '%s' ready",
+        'echo "$(test -n "$API_KEY" && printf configured)"',
+        'printf "%s" "$(test -n "$API_KEY" && printf configured)"',
+        "bash script.sh <<'EOF'\nprintenv\nEOF",
+        "bash - script.sh <<'EOF'\nprintenv\nEOF",
+        "bash -sc 'cat' arg <<'EOF'\nprintenv\nEOF",
+        "bash -s arg <<'EOF'\nprintf configured\nEOF",
     ],
 )
 def test_benign_commands_are_not_credential_output(command, monkeypatch):

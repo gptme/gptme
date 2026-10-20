@@ -81,12 +81,16 @@ def _shell_options(args: list[str]) -> tuple[bool, str | None, bool]:
     """Return xtrace enabled, -c script, and whether stdin supplies shell code."""
     i = 0
     command_string = False
+    stdin_mode = False
     while i < len(args):
         arg = args[i]
         if arg == "--":
             i += 1
             break
-        if not arg.startswith(("-", "+")) or arg == "-":
+        if arg == "-":
+            i += 1  # End options; a following operand is still a script path.
+            break
+        if not arg.startswith(("-", "+")):
             break
         if arg in {"--rcfile", "--init-file", "-O", "+O"}:
             i += 2
@@ -100,9 +104,11 @@ def _shell_options(args: list[str]) -> tuple[bool, str | None, bool]:
             if "x" in arg[1:]:
                 return True, None, False
             command_string |= "c" in arg[1:]
+        if not arg.startswith("--") and "s" in arg[1:]:
+            stdin_mode = arg.startswith("-")
         i += 1
     script = args[i] if command_string and i < len(args) else None
-    return False, script, not command_string and i == len(args)
+    return False, script, not command_string and (stdin_mode or i == len(args))
 
 
 def _command_reason(words: list[str], depth: int) -> str | None:
@@ -135,9 +141,13 @@ def _command_reason(words: list[str], depth: int) -> str | None:
 
 
 def _prints_secret_expansion(node: "Node") -> bool:
-    pending = list(node.named_children)
+    pending = list(node.children_by_field_name("argument"))
     while pending:
         child = pending.pop()
+        # Substitutions execute their own commands; the main traversal checks
+        # those separately. Assignments and redirects are not printed argv.
+        if child.type == "command_substitution":
+            continue
         if child.type == "variable_name" and _SECRET_NAME.search(
             (child.text or b"").decode()
         ):
