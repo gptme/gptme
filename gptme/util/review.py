@@ -1129,6 +1129,17 @@ class ReviewArtifact:
         model = model_raw if isinstance(model_raw, str) else ""
         engine_raw = d.get("engine", "")
         engine = engine_raw if isinstance(engine_raw, str) else ""
+        # The local writer records wall-clock as ``elapsed_s``; it is the same
+        # measure as ``review_duration_s``. Telemetry, so a bad value is dropped
+        # rather than failing the artifact (as for ``model``/``engine``).
+        elapsed_raw = d.get("elapsed_s", 0.0)
+        review_duration_s = (
+            float(elapsed_raw)
+            if isinstance(elapsed_raw, int | float)
+            and not isinstance(elapsed_raw, bool)
+            and elapsed_raw >= 0
+            else 0.0
+        )
 
         rejected_raw = d.get("rejected_findings", [])
         rejected_findings = (
@@ -1194,6 +1205,7 @@ class ReviewArtifact:
                 ReviewStatus.INCOMPLETE if errors else ReviewStatus.COMPLETE
             ),
             validation_errors=errors,
+            review_duration_s=review_duration_s,
             target_kind="ai-review-local",
             diff_fingerprint=diff_fingerprint,
             rejected_finding_count=rejected_finding_count,

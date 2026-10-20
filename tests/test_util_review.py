@@ -3439,6 +3439,21 @@ class TestLocalReviewArtifactIngestion:
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
         assert artifact.target_kind == "ai-review-local"
 
+    def test_elapsed_s_becomes_review_duration(self):
+        raw = {**_local_review_artifact(), "elapsed_s": 41.5}
+        artifact = ReviewArtifact.from_dict(raw)
+        assert artifact.review_duration_s == 41.5
+        assert artifact.review_status == ReviewStatus.COMPLETE
+        assert ReviewArtifact.from_dict(artifact.to_dict()).review_duration_s == 41.5
+
+    @pytest.mark.parametrize("bad", ["41.5", -1, True, None, [1]])
+    def test_invalid_elapsed_s_is_dropped_not_fatal(self, bad):
+        artifact = ReviewArtifact.from_dict(
+            {**_local_review_artifact(), "elapsed_s": bad}
+        )
+        assert artifact.review_duration_s == 0.0
+        assert artifact.review_status == ReviewStatus.COMPLETE
+
     def test_diff_fingerprint_built_from_shas(self):
         artifact = ReviewArtifact.from_dict(_local_review_artifact())
         expected = "origin/master/" + "a" * 40 + "/" + "b" * 40
