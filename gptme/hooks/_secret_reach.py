@@ -99,7 +99,7 @@ def _parse_grep(args: list[str]) -> _Grep:
             result.filters.append((flag == "include", value))
         elif flag == "exclude_dir":
             result.exclude_dirs.append(value)
-        elif flag in "ABC" and value != "0":
+        elif flag in "ABC" and value.strip("0"):
             result.flags += "C"
 
     for arg in args_iter:
@@ -115,7 +115,10 @@ def _parse_grep(args: list[str]) -> _Grep:
             continue
         if arg.startswith("-") and len(arg) > 1:
             for index, flag in enumerate(arg[1:], 1):
-                result.flags += flag
+                if flag not in "ABC":
+                    result.flags += flag
+                if flag in "123456789":
+                    result.flags += "C"
                 if flag in "efmABCdD":
                     value_option(flag, arg[index + 1 :] or next(args_iter, ""))
                     break
@@ -210,7 +213,9 @@ def _matches_values(grep: _Grep, path: str) -> bool:
         else:
             # Only non-repeating regex syntax is evaluated. This intentionally
             # over-approximates complex BRE/ERE/PCRE rather than risk ReDoS.
-            if any(char in pattern for char in "*+?{(|\\"):
+            if any(char in pattern for char in "*+?{(|\\") or any(
+                marker in pattern for marker in ("[:", "[.", "[=")
+            ):
                 return True
             source = pattern
         if "w" in grep.flags:
@@ -270,18 +275,24 @@ def find_secret_reach(
         recursive = bool(grep and name != "rg" and set(grep.flags) & {"r", "R"})
         if recursive and not files:
             files = ["."]
-        patterns = {}
+        patterns: dict[str, list[str]] = {}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()
             pattern = _glob_pattern(raw)
             if pattern:
                 try:
-                    patterns[shlex.split(raw)[0]] = normalize(pattern)
+                    patterns.setdefault(shlex.split(raw)[0], []).append(
+                        normalize(pattern)
+                    )
                 except (ValueError, IndexError):
                     pass
         for operand in files:
             expanded = (
-                _expand(patterns[operand], budget)
+                (
+                    path
+                    for pattern in patterns[operand]
+                    for path in _expand(pattern, budget)
+                )
                 if operand in patterns
                 else [normalize(operand)]
             )

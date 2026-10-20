@@ -199,3 +199,28 @@ def test_grep_pattern_and_filter_alternatives(secret_tree: Path, command: str) -
 
 def test_excluded_traversal_root(secret_tree: Path) -> None:
     assert _find_secret_path_in_cmd("grep -r --exclude-dir=nested TOKEN nested") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -r '[[:upper:]]' .",
+        "grep -r -1 'synthetic fixture' .",
+        "grep -r1 'synthetic fixture' .",
+        "cat config/*/* config/'*'/*",
+        "cat config/'*'/* config/*/*",
+    ],
+)
+def test_greptile_missed_reach_regressions(secret_tree: Path, command: str) -> None:
+    (secret_tree / "config" / "keys").mkdir()
+    (secret_tree / "config" / "keys" / "client.pem").write_text("synthetic\n")
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize("option", ["-0", "-00", "-C0"])
+def test_zero_context_does_not_include_comments(secret_tree: Path, option: str) -> None:
+    assert _find_secret_path_in_cmd(f"grep -r {option} 'synthetic fixture' .") is None
+
+
+def test_fixed_posix_class_is_literal(secret_tree: Path) -> None:
+    assert _find_secret_path_in_cmd("grep -rF '[[:upper:]]' .") is None
