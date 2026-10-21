@@ -177,7 +177,7 @@ def _make_log_manager_with_messages(messages: list[Message]):
 
 class TestChatsSearchJson:
     @patch("gptme.logmanager.LogManager")
-    @patch("gptme.logmanager.list_conversations")
+    @patch("gptme.logmanager.get_user_conversations")
     @patch("gptme.tools.get_tools", return_value=[MagicMock()])
     def test_search_json_output(self, _mock_tools, mock_list_convs, mock_lm):
         """Test that search --json produces valid JSON with matches."""
@@ -201,7 +201,7 @@ class TestChatsSearchJson:
         assert len(data[0]["snippets"]) == 2
 
     @patch("gptme.logmanager.LogManager")
-    @patch("gptme.logmanager.list_conversations")
+    @patch("gptme.logmanager.get_user_conversations")
     @patch("gptme.tools.get_tools", return_value=[MagicMock()])
     def test_search_json_no_results(self, _mock_tools, mock_list_convs, mock_lm):
         """Test search --json with no matches."""
@@ -217,7 +217,7 @@ class TestChatsSearchJson:
         assert data == []
 
     @patch("gptme.logmanager.LogManager")
-    @patch("gptme.logmanager.list_conversations")
+    @patch("gptme.logmanager.get_user_conversations")
     @patch("gptme.tools.get_tools", return_value=[MagicMock()])
     def test_search_json_snippets_truncated(
         self, _mock_tools, mock_list_convs, mock_lm
@@ -237,7 +237,7 @@ class TestChatsSearchJson:
         assert len(data[0]["snippets"][0]["content"]) == 200
 
     @patch("gptme.logmanager.LogManager")
-    @patch("gptme.logmanager.list_conversations")
+    @patch("gptme.logmanager.get_user_conversations")
     @patch("gptme.tools.get_tools", return_value=[MagicMock()])
     def test_search_json_max_3_snippets(self, _mock_tools, mock_list_convs, mock_lm):
         """Test that at most 3 snippet previews are returned per conversation."""
@@ -254,7 +254,7 @@ class TestChatsSearchJson:
         assert len(data[0]["snippets"]) == 3
 
     @patch("gptme.logmanager.LogManager")
-    @patch("gptme.logmanager.list_conversations")
+    @patch("gptme.logmanager.get_user_conversations")
     @patch("gptme.tools.get_tools", return_value=[MagicMock()])
     def test_search_json_snippet_fields(self, _mock_tools, mock_list_convs, mock_lm):
         """Test that snippets contain expected fields."""

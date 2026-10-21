@@ -338,6 +338,78 @@ def test_chats_search_matches_and_context_options(tmp_path, monkeypatch, mocker)
     assert "2| **needle** second" in result.output
 
 
+def test_chats_search_scans_history_before_applying_limit(
+    tmp_path, monkeypatch, mocker
+):
+    """Search limits matching conversations, not the history scan."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    mocker.patch("gptme.cli.cmd_chats.get_tools", return_value=[SimpleNamespace()])
+    runner = CliRunner()
+
+    base = time.time() - 10_000
+    for index in range(12):
+        conv_id = f"2026-01-01-chat-{index:02d}"
+        conv_dir = tmp_path / conv_id
+        conv_dir.mkdir()
+        metadata = (
+            {
+                "model": "test-model",
+                "cost": 0.125,
+                "usage": {"input_tokens": 10, "output_tokens": 4},
+            }
+            if index == 1
+            else None
+        )
+        message: dict[str, object] = {
+            "role": "user",
+            "content": "history-needle" if index < 2 else "unmatched",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        }
+        if metadata:
+            message["metadata"] = metadata
+        (conv_dir / "conversation.jsonl").write_text(json.dumps(message) + "\n")
+        # The two matching conversations are older than the ten unmatched ones.
+        os.utime(conv_dir / "conversation.jsonl", (base + index, base + index))
+
+    # Matching test output must remain excluded from native user history.
+    test_dir = tmp_path / "test-ignored-match"
+    test_dir.mkdir()
+    (test_dir / "conversation.jsonl").write_text(
+        json.dumps(
+            {
+                "role": "user",
+                "content": "history-needle",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n"
+    )
+    os.utime(test_dir / "conversation.jsonl", (base + 100, base + 100))
+
+    text_result = runner.invoke(
+        main, ["chats", "search", "history-needle", "--limit", "1"]
+    )
+    assert text_result.exit_code == 0, text_result.output
+    assert "2026-01-01-chat-01" in text_result.output
+    assert "2026-01-01-chat-00" not in text_result.output
+    assert "test-ignored-match" not in text_result.output
+    assert "Search results for 'history-needle' (showing 1):" in text_result.output
+    assert "(2 conversations, showing 1)" not in text_result.output
+
+    json_result = runner.invoke(
+        main, ["chats", "search", "history-needle", "--limit", "1", "--json"]
+    )
+    assert json_result.exit_code == 0, json_result.output
+    results = json.loads(json_result.output)
+    assert [result["id"] for result in results] == ["2026-01-01-chat-01"]
+    assert all(result["matches"] == 1 for result in results)
+    assert results[0]["model"] == "test-model"
+    assert results[0]["total_cost"] == 0.125
+    assert results[0]["total_input_tokens"] == 10
+    assert results[0]["total_output_tokens"] == 4
+    assert "test-ignored-match" not in json_result.output
+
+
 def test_chats_read_start_and_context_options(tmp_path, monkeypatch, mocker):
     """`chats read` should include prior messages when --context is requested."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))

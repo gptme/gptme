@@ -158,11 +158,11 @@ def chats_search(
                 "only gptme native sessions will be included.",
                 err=True,
             )
-        from ..logmanager import LogManager, list_conversations  # fmt: skip
+        from ..logmanager import LogManager, get_user_conversations  # fmt: skip
         from ..tools.chats import _get_matching_messages  # fmt: skip
 
         results = []
-        for conv in list_conversations(10 * limit):
+        for conv in get_user_conversations():
             log_path = Path(conv.path)
             log_manager = LogManager.load(log_path, lock=False)
             matching = _get_matching_messages(log_manager, query)
