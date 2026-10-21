@@ -25,7 +25,7 @@ from ..memory import MemoryEntry, MemoryRoot, MemoryStore, slugify, update_index
 from ..memory.schema import MemoryParseError
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import ToolSpec, ToolUse
+from .base import Parameter, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,15 @@ def execute_memory(
     kwargs: dict[str, str] | None = None,
 ) -> Generator[Message, None, None]:
     """Execute the memory tool — save a memory entry with user confirmation."""
+    # Normalize native kwargs → legacy positional form
+    if not args and kwargs:
+        name_from_kwargs = kwargs.get("name", "").strip()
+        content_from_kwargs = kwargs.get("content", "").strip()
+        if name_from_kwargs:
+            args = [name_from_kwargs]
+        if content_from_kwargs and not code:
+            code = content_from_kwargs
+
     if not args:
         yield Message(
             "system",
@@ -158,5 +167,18 @@ tool = ToolSpec(
     examples=examples,
     execute=execute_memory,
     block_types=["memory"],
-    parameters=[],
+    parameters=[
+        Parameter(
+            name="name",
+            type="string",
+            description="Slug-friendly name for the memory (e.g. 'prefer-short-answers').",
+            required=True,
+        ),
+        Parameter(
+            name="content",
+            type="string",
+            description="The memory body text. First line is the one-line summary; rest is the detail.",
+            required=True,
+        ),
+    ],
 )
