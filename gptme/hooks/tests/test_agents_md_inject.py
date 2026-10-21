@@ -803,3 +803,23 @@ class TestStartupLoadedAgentWorkspace:
         notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
         assert len(notices) == 1
         assert "agent workspace 'erbot'" in notices[0].content
+
+
+class TestStartupLoadedSymlinkedWorkspace:
+    """A symlinked instruction file is loaded from its configured location."""
+
+    def test_symlinked_file_admits_its_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        shared = tmp_path / "shared" / "AGENTS.md"
+        shared.parent.mkdir(parents=True)
+        shared.write_text("# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)

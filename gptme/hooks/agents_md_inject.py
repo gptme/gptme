@@ -49,7 +49,7 @@ from ..message import Message
 from ..prompts import (
     _loaded_agent_files_var,
     find_agent_files_in_tree,
-    resolve_prompt_files,
+    resolve_prompt_file_paths,
 )
 from ..util.context_dedup import _content_hash
 
@@ -203,8 +203,10 @@ def _prompt_file_roots() -> set[Path]:
     if not files:
         return roots
     config_dir = Path(config_path).expanduser().resolve().parent
-    for path in resolve_prompt_files(files, config_dir):
-        for location in (path.parent, path.resolve().parent):
+    for configured, resolved in resolve_prompt_file_paths(files, config_dir):
+        # A symlinked file is loaded from its configured location, so that
+        # location decides which workspace the session carries it from.
+        for location in (configured.parent, resolved.parent):
             found = _nearest_agent_root(location)
             if found is not None:
                 roots.add(found[0])

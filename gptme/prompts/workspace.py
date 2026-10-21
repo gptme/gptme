@@ -150,36 +150,50 @@ def prompt_workspace_runtime(
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
 
-def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
-    """Resolve configured prompt files the way startup does.
+def resolve_prompt_file_paths(
+    entries: list[str], config_dir: Path
+) -> list[tuple[Path, Path]]:
+    """Resolve configured prompt files, keeping both the configured and target path.
 
     - absolute paths are used as-is
     - ``~`` is expanded
     - relative paths resolve against the config directory (e.g. ~/.config/gptme)
     - files that don't exist are skipped, since startup skips them too
 
+    The configured path matters for symlinked files: it tells which workspace
+    the file was loaded *from*, which the target path does not.
+
     Shared with the agents_md_inject hook, which must resolve the same files
     to know which agent workspaces the session already carries.
     """
-    resolved: list[Path] = []
+    pairs: list[tuple[Path, Path]] = []
     seen: set[str] = set()
     for entry in entries:
         p = Path(entry).expanduser()
         if not p.is_absolute():
             p = config_dir / entry
         try:
-            p = p.resolve()
+            resolved = p.resolve()
         except OSError:
             # If resolve fails (e.g., path doesn't exist yet), keep as-is
-            pass
-        if not p.exists():
-            logger.debug(f"User-configured file not found: {p}")
+            resolved = p
+        if not resolved.exists():
+            logger.debug(f"User-configured file not found: {resolved}")
             continue
-        rp = str(p)
-        if rp not in seen:
-            seen.add(rp)
-            resolved.append(p)
-    return resolved
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append((p, resolved))
+    return pairs
+
+
+def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
+    """Resolve configured prompt files the way startup does.
+
+    See :func:`resolve_prompt_file_paths` for the resolution rules.
+    """
+    return [resolved for _, resolved in resolve_prompt_file_paths(entries, config_dir)]
 
 
 def find_agent_files_in_tree(
