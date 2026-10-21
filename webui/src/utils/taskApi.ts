@@ -3,13 +3,26 @@ import { getApiBaseUrl, getAuthHeader } from '@/utils/connectionConfig';
 import { withLocalAddressSpace } from '@/utils/addressSpace';
 import { chatRoute } from '@/utils/routes';
 
+export interface TaskConnection {
+  baseUrl: string;
+  authHeader: string | null;
+}
+
+const currentConnection = (): TaskConnection => ({
+  baseUrl: getApiBaseUrl(),
+  authHeader: getAuthHeader(),
+});
+
 /**
  * Helper function to add auth headers to fetch options.
- * Also opts into Chrome LNA (`targetAddressSpace: 'local'`) when the active
+ * Also opts into Chrome LNA (`targetAddressSpace: 'local'`) when the bound
  * server is a local address, so a hosted page can reach a loopback gptme-server.
  */
-const getFetchOptions = (options: RequestInit = {}): RequestInit => {
-  const authHeader = getAuthHeader();
+const getFetchOptions = (
+  options: RequestInit = {},
+  connection: TaskConnection = currentConnection()
+): RequestInit => {
+  const { authHeader } = connection;
   const headers = {
     ...options.headers,
   };
@@ -18,7 +31,7 @@ const getFetchOptions = (options: RequestInit = {}): RequestInit => {
     (headers as Record<string, string>)['Authorization'] = authHeader;
   }
 
-  return withLocalAddressSpace(getApiBaseUrl(), {
+  return withLocalAddressSpace(connection.baseUrl, {
     ...options,
     headers,
   });
@@ -31,13 +44,16 @@ export const taskApi = {
   /**
    * List all tasks with current status information.
    */
-  async listTasks(includeArchived: boolean = false): Promise<Task[]> {
-    const url = new URL(`${getApiBaseUrl()}/api/v2/tasks`);
+  async listTasks(
+    includeArchived: boolean = false,
+    connection: TaskConnection = currentConnection()
+  ): Promise<Task[]> {
+    const url = new URL(`${connection.baseUrl}/api/v2/tasks`);
     if (includeArchived) {
       url.searchParams.set('include_archived', 'true');
     }
 
-    const response = await fetch(url.toString(), getFetchOptions());
+    const response = await fetch(url.toString(), getFetchOptions({}, connection));
     if (!response.ok) {
       throw new Error(`Failed to list tasks: ${response.status} ${response.statusText}`);
     }
@@ -48,16 +64,22 @@ export const taskApi = {
   /**
    * Create a new task and initial conversation.
    */
-  async createTask(request: CreateTaskRequest): Promise<Task> {
+  async createTask(
+    request: CreateTaskRequest,
+    connection: TaskConnection = currentConnection()
+  ): Promise<Task> {
     const response = await fetch(
-      `${getApiBaseUrl()}/api/v2/tasks`,
-      getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      `${connection.baseUrl}/api/v2/tasks`,
+      getFetchOptions(
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
         },
-        body: JSON.stringify(request),
-      })
+        connection
+      )
     );
 
     if (!response.ok) {
@@ -73,8 +95,11 @@ export const taskApi = {
   /**
    * Get detailed information about a specific task.
    */
-  async getTask(taskId: string): Promise<Task> {
-    const response = await fetch(`${getApiBaseUrl()}/api/v2/tasks/${taskId}`, getFetchOptions());
+  async getTask(taskId: string, connection: TaskConnection = currentConnection()): Promise<Task> {
+    const response = await fetch(
+      `${connection.baseUrl}/api/v2/tasks/${taskId}`,
+      getFetchOptions({}, connection)
+    );
     if (!response.ok) {
       if (response.status === 404) {
         throw new Error(`Task not found: ${taskId} (${response.status} ${response.statusText})`);
@@ -112,12 +137,18 @@ export const taskApi = {
   /**
    * Archive a task (hide from active view but preserve data).
    */
-  async archiveTask(taskId: string): Promise<void> {
+  async archiveTask(
+    taskId: string,
+    connection: TaskConnection = currentConnection()
+  ): Promise<void> {
     const response = await fetch(
-      `${getApiBaseUrl()}/api/v2/tasks/${taskId}/archive`,
-      getFetchOptions({
-        method: 'POST',
-      })
+      `${connection.baseUrl}/api/v2/tasks/${taskId}/archive`,
+      getFetchOptions(
+        {
+          method: 'POST',
+        },
+        connection
+      )
     );
 
     if (!response.ok) {
@@ -131,12 +162,18 @@ export const taskApi = {
   /**
    * Unarchive a task (restore to active view).
    */
-  async unarchiveTask(taskId: string): Promise<void> {
+  async unarchiveTask(
+    taskId: string,
+    connection: TaskConnection = currentConnection()
+  ): Promise<void> {
     const response = await fetch(
-      `${getApiBaseUrl()}/api/v2/tasks/${taskId}/unarchive`,
-      getFetchOptions({
-        method: 'POST',
-      })
+      `${connection.baseUrl}/api/v2/tasks/${taskId}/unarchive`,
+      getFetchOptions(
+        {
+          method: 'POST',
+        },
+        connection
+      )
     );
 
     if (!response.ok) {
