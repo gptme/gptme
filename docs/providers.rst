@@ -239,6 +239,18 @@ entry point, making them available right after installation:
 .. code-block:: sh
 
     pip install gptme-provider-minimax
-    gptme "hello" -m minimax/MiniMax-M3
+    gptme "hello" -m minimax/MiniMax-M3.1-Flash
+
+MiniMax plugin authors can offer ``MiniMax-M3.1-Flash`` first and ``MiniMax-M3``
+as the alternate, using ``https://api.minimax.io/v1``. Existing explicit model
+IDs and custom provider configurations continue to resolve unchanged.
+
+For OpenRouter, use ``openrouter/minimax/minimax-m3.1-flash:free`` or
+``openrouter/minimax/minimax-m3``. The ordinary model list shows these current
+MiniMax text choices; ``gptme-util models --include-deprecated`` also shows legacy
+choices. Flash uses adaptive reasoning with ``max`` effort by default.
+``GPTME_THINKING_EFFORT`` accepts ``low``, ``medium``, ``high``, ``xhigh``, or
+``max`` for this OpenRouter route; disabling reasoning is not supported.
+Plugin-specific effort handling remains the plugin's responsibility.
 
 See :doc:`providers-integration` to write one.

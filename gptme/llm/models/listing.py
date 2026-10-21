@@ -120,14 +120,35 @@ def _apply_model_filters(
 ) -> list[ModelMeta]:
     """Apply vision, reasoning, and deprecation filters to models."""
     filtered_models = []
+    # Curate ordinary gateway choices without changing the upstream catalog used
+    # to resolve explicit/saved IDs. Plugin and custom catalogs remain user-owned.
+    current_minimax = ("minimax/minimax-m3.1-flash:free", "minimax/minimax-m3")
     for model in models:
-        if not include_deprecated and model.deprecated:
+        if not include_deprecated and (
+            model.deprecated
+            or (
+                model.provider == "openrouter"
+                and model.model.startswith("minimax/minimax-")
+                and model.model not in current_minimax
+            )
+        ):
             continue
         if vision_only and not model.supports_vision:
             continue
         if reasoning_only and not model.supports_reasoning:
             continue
         filtered_models.append(model)
+    positions = [
+        i
+        for i, model in enumerate(filtered_models)
+        if model.provider == "openrouter" and model.model in current_minimax
+    ]
+    ordered = sorted(
+        (filtered_models[i] for i in positions),
+        key=lambda model: current_minimax.index(model.model),
+    )
+    for i, model in zip(positions, ordered, strict=True):
+        filtered_models[i] = model
     return filtered_models
 
 

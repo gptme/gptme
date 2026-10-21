@@ -2795,6 +2795,19 @@ def api_models():
     for provider in providers_to_check:
         provider_models = _get_models_for_provider(provider, dynamic_fetch=True)
         models = _apply_model_filters(provider_models, include_deprecated=False)
+        if provider == "openrouter":
+            # Curate discovery without dropping explicit saved MiniMax choices.
+            saved_ids = set(config.user.models.favorites)
+            if default_model:
+                saved_ids.add(default_model.full)
+            listed_ids = {model.full for model in models}
+            models.extend(
+                model
+                for model in provider_models
+                if model.model.startswith("minimax/")
+                and model.full in saved_ids
+                and model.full not in listed_ids
+            )
         models_data.extend(
             {
                 "id": model.full,
