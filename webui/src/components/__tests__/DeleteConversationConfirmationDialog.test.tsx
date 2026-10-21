@@ -266,7 +266,9 @@ describe('DeleteConversationConfirmationDialog', () => {
     expect(mockDeleteConversation).not.toHaveBeenCalled();
     expect(mockConversations$.get('selected-chat')?.peek()).toBeUndefined();
     expect(mockSelectedConversation$.get()).toBe('');
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat$/);
+    // Navigate is called synchronously before onDelete, but the DOM location
+    // update may settle after the first React flush under CI load — use waitFor.
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^\/chat$/));
   });
 
   it('fails closed when the sidebar row server is no longer registered', async () => {
