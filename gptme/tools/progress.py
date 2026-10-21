@@ -26,7 +26,7 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 from ..message import Message
-from .base import ToolSpec
+from .base import Parameter, ToolSpec
 
 if TYPE_CHECKING:
     pass
@@ -69,6 +69,8 @@ def execute_progress(
     from .subagent.execution import get_current_agent_id
     from .subagent.hooks import notify_progress
 
+    if code is None and kwargs:
+        code = kwargs.get("message")
     message = (code or "").strip()
     if not message:
         yield Message(
@@ -146,5 +148,13 @@ subagent("analysis", "Analyze the entire codebase for security issues")
 """,
     execute=execute_progress,
     block_types=["progress"],
+    parameters=[
+        Parameter(
+            name="message",
+            type="string",
+            description="Brief status: what is done so far and what remains",
+            required=True,
+        ),
+    ],
     available=True,
 )

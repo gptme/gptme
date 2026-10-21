@@ -157,6 +157,8 @@ def execute_form(
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
     """Present a form to the user and collect their responses."""
+    if code is None and kwargs:
+        code = kwargs.get("fields")
     if not code:
         yield Message("system", "No form fields provided")
         return

@@ -815,6 +815,8 @@ def execute_hashline_edit(
         yield Message("system", "hashline_edit: no path provided")
         return
 
+    if code is None and kwargs:
+        code = kwargs.get("edit")
     body = (code or "").strip()
     if not body:
         yield Message("system", "hashline_edit: empty edit block")

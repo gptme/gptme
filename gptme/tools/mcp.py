@@ -85,6 +85,8 @@ def execute_mcp(
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
     """Execute MCP management commands."""
+    if code is None and kwargs:
+        code = kwargs.get("command")
     if not code:
         yield Message("system", "No command provided")
         return
