@@ -690,8 +690,11 @@ class TestForeignAgentWorkspace:
         assert "x" * 100 not in content
 
 
-def _set_prompt_files(monkeypatch, files: list[str]) -> None:
-    """Make the session look like it loaded ``files`` at startup."""
+def _set_prompt_files(monkeypatch, files: list[str], config_path=None) -> None:
+    """Make the session look like it loaded ``files`` at startup.
+
+    ``config_path`` is where relative entries resolve from, as at startup.
+    """
     from gptme.hooks import agents_md_inject
 
     class _FakePrompt:
@@ -710,6 +713,8 @@ def _set_prompt_files(monkeypatch, files: list[str]) -> None:
     monkeypatch.setattr(
         agents_md_inject, "get_config", lambda: _FakeConfig(files), raising=True
     )
+    if config_path is not None:
+        monkeypatch.setattr(agents_md_inject, "config_path", str(config_path))
 
 
 class TestStartupLoadedAgentWorkspace:
@@ -747,6 +752,38 @@ class TestStartupLoadedAgentWorkspace:
         _set_prompt_files(monkeypatch, [])
 
         msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+    def test_relative_path_resolves_against_config_dir(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A relative prompt file resolves against the config dir, as at startup."""
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        _set_prompt_files(
+            monkeypatch,
+            ["../erbot/AGENTS.md"],
+            config_path=config_dir / "config.toml",
+        )
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_missing_prompt_file_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A configured file that doesn't exist was not loaded, so not exempt."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        # The file is configured but missing, so it was never loaded.
+        _set_prompt_files(monkeypatch, [str(alice / "optional.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
 
         assert _injected(msgs) == []
         notices = [m for m in msgs if "agent-workspace-skipped" in m.content]

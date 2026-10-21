@@ -42,11 +42,15 @@ from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any
 
-from ..config import get_config, get_project_config
+from ..config import config_path, get_config, get_project_config
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
+from ..prompts import (
+    _loaded_agent_files_var,
+    find_agent_files_in_tree,
+    resolve_prompt_files,
+)
 from ..util.context_dedup import _content_hash
 
 # Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
@@ -185,6 +189,10 @@ def _prompt_file_roots() -> set[Path]:
     ``prompt.files``) has adopted that identity: the workspace is part of the
     session's own context, never foreign. Without this, a session without an
     agent name would skip the very instructions it was started with.
+
+    The files are resolved exactly as startup resolves them (relative entries
+    against the config directory, missing files skipped), so the exemption
+    matches the instructions the session actually carries.
     """
     roots: set[Path] = set()
     try:
@@ -192,11 +200,10 @@ def _prompt_file_roots() -> set[Path]:
     except Exception as e:  # config problems shouldn't break the hook
         logger.debug(f"Could not read prompt files from config: {e}")
         return roots
-    for entry in files:
-        try:
-            path = Path(entry).expanduser()
-        except (OSError, ValueError):
-            continue
+    if not files:
+        return roots
+    config_dir = Path(config_path).expanduser().resolve().parent
+    for path in resolve_prompt_files(files, config_dir):
         for location in (path.parent, path.resolve().parent):
             found = _nearest_agent_root(location)
             if found is not None:

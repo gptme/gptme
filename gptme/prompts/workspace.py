@@ -150,6 +150,38 @@ def prompt_workspace_runtime(
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
 
+def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
+    """Resolve configured prompt files the way startup does.
+
+    - absolute paths are used as-is
+    - ``~`` is expanded
+    - relative paths resolve against the config directory (e.g. ~/.config/gptme)
+    - files that don't exist are skipped, since startup skips them too
+
+    Shared with the agents_md_inject hook, which must resolve the same files
+    to know which agent workspaces the session already carries.
+    """
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for entry in entries:
+        p = Path(entry).expanduser()
+        if not p.is_absolute():
+            p = config_dir / entry
+        try:
+            p = p.resolve()
+        except OSError:
+            # If resolve fails (e.g., path doesn't exist yet), keep as-is
+            pass
+        if not p.exists():
+            logger.debug(f"User-configured file not found: {p}")
+            continue
+        rp = str(p)
+        if rp not in seen:
+            seen.add(rp)
+            resolved.append(p)
+    return resolved
+
+
 def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
@@ -345,23 +377,11 @@ def prompt_workspace(
             )
         except (ImportError, OSError, ValueError, AttributeError):
             user_files = []
-        if user_files:
-            for entry in user_files:
-                p = Path(entry).expanduser()
-                if not p.is_absolute():
-                    p = config_dir / entry
-                try:
-                    p = p.resolve()
-                except OSError:
-                    # If resolve fails (e.g., path doesn't exist yet), keep as-is
-                    pass
-                if p.exists():
-                    rp = str(p)
-                    if rp not in seen_paths:
-                        context_files.append(p)
-                        seen_paths.add(rp)
-                else:
-                    logger.debug(f"User-configured file not found: {p}")
+        for p in resolve_prompt_files(user_files, config_dir):
+            rp = str(p)
+            if rp not in seen_paths:
+                context_files.append(p)
+                seen_paths.add(rp)
 
     # Apply exclude patterns from project config (glob-matched against file names and paths)
     if project and project.exclude:
