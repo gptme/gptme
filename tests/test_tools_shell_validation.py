@@ -5,6 +5,7 @@ and redirection detection in gptme/tools/shell_validation.py.
 """
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -1878,6 +1879,66 @@ def test_shellcheck_blocks_broken_commands(default_shellcheck, cmd):
     has_issues, should_block, message = check_with_shellcheck(cmd)
     assert has_issues and should_block
     assert "prevent execution" in message
+
+
+@needs_shellcheck
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo ===",
+        "echo ===; ls",
+        "echo ===; grep -rn foo . | head -10",
+    ],
+)
+def test_shellcheck_sc2284_does_not_block(default_shellcheck, cmd):
+    """`echo ===` (a common section separator) is flagged by shellcheck 0.9.x
+    as an error-severity SC2284 ("use [ x = y ] to compare values"), which
+    used to reject the whole command before it ran."""
+    has_issues, should_block, _ = check_with_shellcheck(cmd)
+    assert not should_block
+
+
+@pytest.mark.parametrize("show_warnings", [False, True])
+@pytest.mark.parametrize("custom_error_code", [False, True])
+@pytest.mark.parametrize("other_error", [False, True])
+def test_shellcheck_sc2284_error_response(
+    default_shellcheck,
+    monkeypatch,
+    mocker,
+    show_warnings,
+    custom_error_code,
+    other_error,
+) -> None:
+    """Exercise the exemption regardless of installed ShellCheck version."""
+    mocker.patch("gptme.tools.shell_validation.shutil.which", return_value="shellcheck")
+    output = "<command>:2:1: error: Quote '==' if literal. [SC2284]\n"
+    if other_error:
+        output += "<command>:2:10: error: Quote $@ to prevent splitting. [SC2068]\n"
+    run = mocker.patch(
+        "gptme.tools.shell_validation.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args=["shellcheck"], returncode=1, stdout=output, stderr=""
+        ),
+    )
+    if show_warnings:
+        monkeypatch.setenv("GPTME_SHELLCHECK_WARNINGS", "1")
+    if custom_error_code:
+        monkeypatch.setenv("GPTME_SHELLCHECK_ERROR_CODES", "SC2284")
+
+    has_issues, should_block, message = check_with_shellcheck("echo ===; rm $@")
+
+    run.assert_called_once()
+    assert should_block is other_error
+    assert has_issues is (other_error or show_warnings)
+    if other_error:
+        assert "prevent execution" in message
+        assert "SC2068" in message
+        assert "SC2284" not in message
+    elif show_warnings:
+        assert "potential issues" in message
+        assert "SC2284" in message
+    else:
+        assert message == ""
 
 
 @needs_shellcheck
