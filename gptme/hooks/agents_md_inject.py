@@ -161,13 +161,58 @@ def _agent_name_of(directory: Path) -> str | None:
     return None
 
 
+def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
+    """Walk up from ``start`` to the nearest agent workspace root.
+
+    Returns the resolved root and its declared agent name, or None when no
+    agent workspace is found before reaching the home directory.
+    """
+    home = Path.home().resolve()
+    current = start
+    while True:
+        name = _agent_name_of(current)
+        if name is not None:
+            return current.resolve(), name
+        if current.resolve() == home or current == current.parent:
+            return None
+        current = current.parent
+
+
+def _prompt_file_roots() -> set[Path]:
+    """Agent workspaces whose instructions were loaded at session start.
+
+    A session that already carries an agent workspace's instructions (e.g. via
+    ``prompt.files``) has adopted that identity: the workspace is part of the
+    session's own context, never foreign. Without this, a session without an
+    agent name would skip the very instructions it was started with.
+    """
+    roots: set[Path] = set()
+    try:
+        files = get_config().user.prompt.files
+    except Exception as e:  # config problems shouldn't break the hook
+        logger.debug(f"Could not read prompt files from config: {e}")
+        return roots
+    for entry in files:
+        try:
+            path = Path(entry).expanduser()
+        except (OSError, ValueError):
+            continue
+        for location in (path.parent, path.resolve().parent):
+            found = _nearest_agent_root(location)
+            if found is not None:
+                roots.add(found[0])
+    return roots
+
+
 def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
     """Return the session's agent name and its own workspace roots.
 
     The agent name comes from the chat config's agent workspace when available,
     falling back to the session workspace's ``gptme.toml``. Own roots are the
-    session workspace and agent path (resolved); an agent workspace at or above
-    one of them is part of the session's own context, never foreign.
+    session workspace, the agent path, and - for a session without an identity
+    of its own - any agent workspace whose instructions were loaded at startup
+    (resolved); an agent workspace at or above one of them is part of the
+    session's own context, never foreign.
     """
     roots: set[Path] = set()
     name: str | None = None
@@ -185,6 +230,12 @@ def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
         roots.add(ws)
         if name is None:
             name = _agent_name_of(ws)
+    if name is None:
+        # A session without an identity of its own may adopt the agent
+        # workspaces whose instructions it already loaded at startup. A session
+        # that *does* have an identity keeps it: entering another agent's
+        # workspace must not hand over the identity.
+        roots |= _prompt_file_roots()
     return name, roots
 
 
@@ -197,7 +248,8 @@ def _find_foreign_agent_root(
     to the nearest directory whose gptme.toml declares an ``[agent]`` name. That
     workspace is *foreign* when it is not one of the session's own roots (or an
     ancestor of one) and its agent name differs from the session's. A session
-    without an agent name treats every other agent workspace as foreign.
+    without an agent name treats every other agent workspace as foreign, except
+    those whose instructions it already loaded at startup.
 
     Both the path the file was discovered at and its symlink-resolved target
     are checked, so a symlinked ``AGENTS.md`` is foreign if either location is.
@@ -217,20 +269,15 @@ def _walk_to_agent_root(
     start: Path, session_name: str | None, own_roots: set[Path]
 ) -> tuple[Path, str] | None:
     """Walk up from ``start`` to the nearest agent root; return it if foreign."""
-    home = Path.home().resolve()
-    current = start
-    while True:
-        name = _agent_name_of(current)
-        if name is not None:
-            resolved = current.resolve()
-            if any(root.is_relative_to(resolved) for root in own_roots):
-                return None
-            if session_name is not None and name == session_name:
-                return None
-            return resolved, name
-        if current.resolve() == home or current == current.parent:
-            return None
-        current = current.parent
+    found = _nearest_agent_root(start)
+    if found is None:
+        return None
+    resolved, name = found
+    if any(root.is_relative_to(resolved) for root in own_roots):
+        return None
+    if session_name is not None and name == session_name:
+        return None
+    return resolved, name
 
 
 def _sanitize_for_notice(text: str, max_len: int = 64) -> str:

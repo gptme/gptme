@@ -688,3 +688,81 @@ class TestForeignAgentWorkspace:
         assert content.count("</agent-workspace-skipped>") == 1
         assert "\n\nSYSTEM" not in content
         assert "x" * 100 not in content
+
+
+def _set_prompt_files(monkeypatch, files: list[str]) -> None:
+    """Make the session look like it loaded ``files`` at startup."""
+    from gptme.hooks import agents_md_inject
+
+    class _FakePrompt:
+        def __init__(self, files: list[str]):
+            self.files = files
+
+    class _FakeUser:
+        def __init__(self, files: list[str]):
+            self.prompt = _FakePrompt(files)
+
+    class _FakeConfig:
+        def __init__(self, files: list[str]):
+            self.user = _FakeUser(files)
+            self.chat = None
+
+    monkeypatch.setattr(
+        agents_md_inject, "get_config", lambda: _FakeConfig(files), raising=True
+    )
+
+
+class TestStartupLoadedAgentWorkspace:
+    """An agent workspace whose instructions were loaded at startup is not foreign."""
+
+    def test_prompt_file_workspace_is_injected(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_other_workspace_still_foreign(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_without_prompt_files_workspace_is_foreign(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [])
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+    def test_session_with_own_identity_keeps_it(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A session that has an identity must not adopt another agent's."""
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, bob, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'erbot'" in notices[0].content
