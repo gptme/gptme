@@ -335,6 +335,8 @@ html_context = {"default_mode": "auto"}
 
 html_theme_options = {
     "repository_url": "https://github.com/gptme/gptme",
+    # Theme defaults to "main" when unset; gptme's default branch is master.
+    "repository_branch": "master",
     "path_to_docs": "docs",
     "use_repository_button": True,
     "use_edit_page_button": True,
