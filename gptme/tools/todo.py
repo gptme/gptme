@@ -161,6 +161,9 @@ def _write_operations(tooluse: ToolUse) -> list[str]:
         body = tooluse.content or ""
     else:
         command = (tooluse.kwargs or {}).get("command", "")
+        if not isinstance(command, str):
+            # A malformed call (e.g. {"command": null}) is skipped, not fatal.
+            return []
         subcommand, body = _split_command(command)
         if subcommand != "write":
             if subcommand not in _WRITE_OPS:
@@ -342,7 +345,10 @@ def execute_todo(
         # single ``command`` kwarg and leave ``args`` empty. Recover the
         # subcommand and the body from that string so both invocation styles
         # work (markdown blocks set ``args`` positionally).
-        command = (kwargs or {}).get("command", "").strip()
+        command = (kwargs or {}).get("command", "")
+        if not isinstance(command, str):
+            command = ""
+        command = command.strip()
         if command:
             subcommand, body = _split_command(command)
             if subcommand in _WRITE_OPS:

@@ -449,3 +449,41 @@ def test_replay_restores_native_bare_write_operation(native_tool_format):
     )
     assert out and "Restored todo state" in out[0].content
     assert _current_todos["1"]["text"] == "Bare task"
+
+
+def test_replay_skips_malformed_native_call(native_tool_format):
+    """A malformed native call is skipped, not fatal to the replay."""
+    from gptme.message import Message
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    bad = '@todo(call_1): {"command": null}'
+    good = '@todo(call_2): {"command": "write add \\"Survived\\""}'
+    out = list(
+        replay_todo_on_session_start(
+            None,
+            None,
+            [
+                Message("user", "hi"),
+                Message("assistant", bad),
+                Message("assistant", good),
+            ],
+        )
+    )
+    assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Survived"
+
+
+def test_replay_tool_does_not_raise_for_other_tools(tmp_path):
+    """Replaying a tool whose module differs from its name must not raise."""
+    from gptme.commands.export import _replay_tool
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        messages=[
+            Message("user", "hi"),
+            Message("assistant", '@append(call_1): {"path": "x.txt"}'),
+        ]
+    )
+    # append lives in save.py; the replay must not blow up on the import.
+    _replay_tool(log, "append")
