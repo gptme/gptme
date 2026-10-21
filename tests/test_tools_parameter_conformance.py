@@ -34,8 +34,9 @@ class ModuleConformance(NamedTuple):
     declared: set[str]
     read_keys: set[str]
     undeclared: set[str]
-    # Declared parameters per executable ToolSpec name
+    # Declared parameters and executor-scoped reads per executable ToolSpec name
     spec_params: dict[str, set[str]]
+    spec_read_keys: dict[str, set[str]]
 
 
 def _get_tool_module_names() -> list[str]:
@@ -106,6 +107,72 @@ def _extract_kwargs_keys_from_functions(source: str) -> set[str]:
     return keys
 
 
+def _extract_executor_kwargs_keys(source: str, executor_name: str) -> set[str]:
+    """Scan this executor and local helpers to which it forwards kwargs.
+
+    Aliases, dynamic keys and imported helpers still require an explicit
+    allowlist entry; this is not general dataflow analysis.
+    """
+    tree = ast.parse(source)
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    keys: set[str] = set()
+    visited: set[str] = set()
+    pending = [executor_name]
+    while pending:
+        name = pending.pop()
+        if name in visited or name not in functions:
+            continue
+        visited.add(name)
+        function = functions[name]
+        if not _has_explicit_kwargs_param(function):
+            continue
+        nodes: list[ast.AST] = list(function.body)
+        while nodes:
+            node = nodes.pop()
+            # An unused nested scope is not a read by its enclosing executor.
+            if isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+            ):
+                continue
+            nodes.extend(ast.iter_child_nodes(node))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and _is_kwargs_expr(node.func.value)
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                keys.add(node.args[0].value)
+            elif (
+                isinstance(node, ast.Subscript)
+                and _is_kwargs_expr(node.value)
+                and isinstance(node.slice, ast.Constant)
+                and isinstance(node.slice.value, str)
+            ):
+                keys.add(node.slice.value)
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            helper = functions.get(node.func.id)
+            if helper is None or not _has_explicit_kwargs_param(helper):
+                continue
+            position = next(
+                i for i, arg in enumerate(helper.args.args) if arg.arg == "kwargs"
+            )
+            if (
+                position < len(node.args) and _is_kwargs_expr(node.args[position])
+            ) or any(
+                kw.arg == "kwargs" and _is_kwargs_expr(kw.value) for kw in node.keywords
+            ):
+                pending.append(helper.name)
+    return keys
+
+
 # Keys intentionally read from explicit-kwargs functions without being
 # ToolSpec parameters. Values are per-module short names.
 _ALLOWLIST: dict[str, set[str]] = {}
@@ -171,13 +238,26 @@ def _build_conformance_cases() -> list[ModuleConformance]:
             source = Path(src_file).read_text()
         except (TypeError, OSError):
             continue
+        spec_read_keys = {
+            spec.name: _extract_executor_kwargs_keys(
+                source, getattr(spec.execute, "__name__", "")
+            )
+            for spec in specs
+            if spec.execute is not None
+        }
         read_keys = _extract_kwargs_keys_from_functions(source)
         short = mod_name.split(".")[-1]
         allowlisted = _ALLOWLIST.get(short, set())
         undeclared = read_keys - declared - allowlisted
         cases.append(
             ModuleConformance(
-                mod_name, short, declared, read_keys, undeclared, spec_params
+                mod_name,
+                short,
+                declared,
+                read_keys,
+                undeclared,
+                spec_params,
+                spec_read_keys,
             )
         )
     return cases
@@ -213,7 +293,11 @@ def test_declared_parameters_are_read(case: ModuleConformance, spec_name: str) -
             "kwargs, or add it to _INPUT_FREE_TOOLS if it takes no input."
         )
         return
-    unread = params - case.read_keys - _UNREAD_ALLOWLIST.get(spec_name, set())
+    unread = (
+        params
+        - case.spec_read_keys[spec_name]
+        - _UNREAD_ALLOWLIST.get(spec_name, set())
+    )
     assert not unread, (
         f"Tool '{spec_name}' declares parameters never read from kwargs: "
         f"{sorted(unread)}\n"
@@ -235,3 +319,64 @@ def test_optional_dependency_skips_are_reported() -> None:
             "tool modules not inspected (missing optional dependency): "
             + ", ".join(f"{name} ({reason})" for name, reason in _SKIPPED_MODULES)
         )
+
+
+def test_executor_reads_do_not_leak_between_tools() -> None:
+    """A sibling executor or unused helper must not mask an ignored input."""
+    source = """
+def execute_reader(code, args, kwargs):
+    return kwargs.get("shared")
+
+def execute_ignorer(code, args, kwargs):
+    return code
+
+def unused_helper(kwargs):
+    return kwargs.get("unused")
+"""
+    assert _extract_executor_kwargs_keys(source, "execute_reader") == {"shared"}
+    assert _extract_executor_kwargs_keys(source, "execute_ignorer") == set()
+    case = ModuleConformance(
+        "example",
+        "example",
+        {"shared"},
+        {"shared", "unused"},
+        set(),
+        {"reader": {"shared"}, "ignorer": {"shared"}},
+        {
+            "reader": _extract_executor_kwargs_keys(source, "execute_reader"),
+            "ignorer": _extract_executor_kwargs_keys(source, "execute_ignorer"),
+        },
+    )
+    test_declared_parameters_are_read(case, "reader")
+    with pytest.raises(AssertionError, match="shared"):
+        test_declared_parameters_are_read(case, "ignorer")
+
+
+def test_executor_reads_include_reachable_helpers() -> None:
+    """Follow local kwargs helpers transitively without looping on recursion."""
+    source = """
+def execute(code, args, kwargs):
+    return helper(kwargs)
+
+def helper(kwargs):
+    return other(kwargs=kwargs)
+
+def other(kwargs):
+    helper(kwargs)
+    return (kwargs or {}).get("message")
+"""
+    assert _extract_executor_kwargs_keys(source, "execute") == {"message"}
+
+
+def test_executor_ignores_unforwarded_and_nested_reads() -> None:
+    source = """
+def execute(code, args, kwargs):
+    def unused(kwargs):
+        return kwargs.get("nested")
+    helper({"unrelated": True})
+    return kwargs["actual"]
+
+def helper(kwargs):
+    return kwargs.get("unrelated")
+"""
+    assert _extract_executor_kwargs_keys(source, "execute") == {"actual"}
