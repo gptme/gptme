@@ -151,6 +151,7 @@ def _extract_executor_kwargs_keys(source: str, executor_name: str) -> set[str]:
                 keys.add(node.args[0].value)
             elif (
                 isinstance(node, ast.Subscript)
+                and isinstance(node.ctx, ast.Load)
                 and _is_kwargs_expr(node.value)
                 and isinstance(node.slice, ast.Constant)
                 and isinstance(node.slice.value, str)
@@ -380,3 +381,13 @@ def helper(kwargs):
     return kwargs.get("unrelated")
 """
     assert _extract_executor_kwargs_keys(source, "execute") == {"actual"}
+
+
+def test_executor_writes_are_not_input_reads() -> None:
+    source = """
+def execute(code, args, kwargs):
+    kwargs["message"] = "fixed"
+    del kwargs["discarded"]
+    return code
+"""
+    assert _extract_executor_kwargs_keys(source, "execute") == set()

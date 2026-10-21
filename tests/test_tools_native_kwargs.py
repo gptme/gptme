@@ -43,10 +43,15 @@ def test_vent_native_message_only(ledger_path):
     assert "resolution_owner" not in entry
 
 
-def test_progress_native_message():
+def test_progress_native_message(monkeypatch):
+    from gptme.tools.subagent import execution
+
+    monkeypatch.delenv("GPTME_SUBAGENT_AGENT_ID", raising=False)
+    monkeypatch.delenv("GPTME_PROGRESS_FILE", raising=False)
+    monkeypatch.setattr(execution._thread_local, "agent_id", None, raising=False)
     msgs = list(execute_progress(None, None, {"message": "halfway there"}))
-    # Not running as a subagent, so delivery fails -- but not as an empty block.
-    assert "empty" not in msgs[0].content.lower()
+    # Isolate both subagent channels: no test updates reach a real parent.
+    assert "NOT delivered" in msgs[0].content
 
 
 def test_mcp_native_command():
