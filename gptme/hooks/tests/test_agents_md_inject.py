@@ -823,3 +823,26 @@ class TestStartupLoadedSymlinkedWorkspace:
 
         assert _injected(msgs), "startup-loaded workspace should be injected"
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+
+class TestStartupLoadedUnrelatedWorkspace:
+    """A ".." in the configured path must not admit an unrelated workspace."""
+
+    def test_dotdot_path_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        agents = tmp_path / "agents"
+        alice = _make_agent_workspace(agents / "alice", "Alice", "# Being Alice")
+        shared = agents / "shared"
+        shared.mkdir(parents=True)
+        (shared / "AGENTS.md").write_text("# Shared")
+        # The configured path walks through Alice's directory, but the file
+        # itself lives in the shared directory.
+        entry = str(agents / "alice" / ".." / "shared" / "AGENTS.md")
+        _set_prompt_files(monkeypatch, [entry])
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1

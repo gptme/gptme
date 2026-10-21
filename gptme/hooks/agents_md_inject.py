@@ -206,7 +206,12 @@ def _prompt_file_roots() -> set[Path]:
     for configured, resolved in resolve_prompt_file_paths(files, config_dir):
         # A symlinked file is loaded from its configured location, so that
         # location decides which workspace the session carries it from.
-        for location in (configured.parent, resolved.parent):
+        # Normalize it lexically (no symlink resolution) so that a ".."
+        # segment cannot make the walk pick up an unrelated workspace.
+        for location in (
+            Path(os.path.normpath(str(configured.parent))),
+            resolved.parent,
+        ):
             found = _nearest_agent_root(location)
             if found is not None:
                 roots.add(found[0])
