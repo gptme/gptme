@@ -724,12 +724,14 @@ def _include_paths(
                 skipped_paths.append(url)
                 continue
             if contents := _resource_to_codeblock(url, confirmed_urls=confirmed_urls):
+                # Count the provenance label and any warning against the budget.
+                contents = _mark_external_content(url, contents)
                 content_size = len(contents)
                 if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
                     skipped_paths.append(url)
                     continue
                 total_content_size += content_size
-                append_msg += "\n\n" + _mark_external_content(url, contents)
+                append_msg += "\n\n" + contents
 
     if skipped_paths:
         logger.warning(
