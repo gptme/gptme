@@ -658,6 +658,16 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower()
         assert f.read_text() == "world\n"
 
+    def test_native_kwargs_edit(self, tmp_path: Path):
+        """A native tool call carries the edit block as a kwarg, with no code."""
+        f = tmp_path / "f.txt"
+        f.write_text("hello\n")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 1.=1:\n+world\n"
+        msgs = _msgs(execute_hashline_edit(None, None, {"path": str(f), "edit": block}))
+        assert "applied" in msgs[0].lower(), msgs
+        assert f.read_text() == "world\n"
+
     def test_insert_into_empty_file(self, tmp_path: Path):
         """PUT <1: should work on an empty file (P2 fix: empty-file insertion)."""
         f = tmp_path / "empty.txt"

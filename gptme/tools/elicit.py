@@ -209,6 +209,11 @@ def execute_elicit(
 
     For secret types, the value is returned to the agent with UI redaction.
     """
+    if code is None and kwargs:
+        # Native tool calls pass the spec as a kwarg; a model may send it as an
+        # object rather than a JSON string.
+        spec = kwargs.get("spec")
+        code = spec if isinstance(spec, str) or spec is None else json.dumps(spec)
     if not code:
         yield Message("system", "No elicitation spec provided")
         return

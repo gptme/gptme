@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING
 
 from ..hooks import HookType
 from ..message import Message
-from .base import ToolSpec
+from .base import Parameter, ToolSpec
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -118,6 +118,12 @@ def execute_vent(
     kwargs: dict[str, str] | None,
 ) -> Message:
     """Append a friction entry to the ledger."""
+    if code is None and kwargs:
+        # Native tool calls: rebuild the block form so the owner tag is parsed
+        # (and validated) by the same path as a Markdown vent block.
+        code = kwargs.get("message") or ""
+        if owner := kwargs.get("resolution_owner"):
+            code = f"{code}\nOwner: {owner}"
     if not code or not code.strip():
         return Message("system", "vent: no message — nothing recorded.", quiet=True)
 
@@ -196,6 +202,20 @@ Owner: self
 """.strip(),
     execute=execute_vent,
     block_types=["vent"],
+    parameters=[
+        Parameter(
+            name="message",
+            type="string",
+            description="What you are trying to do and what is blocking you",
+            required=True,
+        ),
+        Parameter(
+            name="resolution_owner",
+            type="string",
+            description="Optional: who/what would unblock it",
+            enum=list(VALID_OWNERS),
+        ),
+    ],
     available=True,
     hooks={
         "reset_vent_limit": (
