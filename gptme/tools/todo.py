@@ -147,6 +147,33 @@ def _format_todo_list() -> str:
     return "\n".join(output)
 
 
+def _write_operations(tooluse: ToolUse) -> list[str]:
+    """Return the write operations of a todo call, in any invocation format.
+
+    Handles the positional form (``@todo write`` plus a body) and the
+    single-string form that native tool calls use (``{"command": "write add
+    ..."}``), including a write operation sent without the ``write``
+    subcommand.
+    """
+    if tooluse.args:
+        if tooluse.args[0].lower() != "write":
+            return []
+        body = tooluse.content or ""
+    else:
+        command = (tooluse.kwargs or {}).get("command", "")
+        subcommand, body = _split_command(command)
+        if subcommand != "write":
+            if subcommand not in _WRITE_OPS:
+                return []
+            body = command
+    return [line.strip() for line in body.strip().split("\n") if line.strip()]
+
+
+def _replay_lines(tooluse: ToolUse) -> list[str]:
+    """Operation lines to replay for a todo call (any invocation format)."""
+    return _write_operations(tooluse)
+
+
 def replay_todo_on_session_start(
     logdir, workspace, initial_msgs, **kwargs
 ) -> Generator[Message, None, None]:
@@ -170,7 +197,7 @@ def replay_todo_on_session_start(
 
     # Check if there are any todo write operations in the log
     has_todo_write = any(
-        tooluse.tool == "todo" and tooluse.args and tooluse.args[0] == "write"
+        tooluse.tool == "todo" and _write_operations(tooluse)
         for msg in assistant_msgs
         for tooluse in ToolUse.iter_from_content(msg.content)
     )

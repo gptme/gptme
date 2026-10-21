@@ -408,3 +408,44 @@ def test_execute_todo_no_args_reads():
     result = _execute()
     assert "📝 Todo list is empty" in result[0]
     assert not _current_todos
+
+
+@pytest.fixture
+def native_tool_format():
+    """Use the native ("tool") format, where calls carry a JSON argument object."""
+    from gptme.tools.base import get_tool_format, set_tool_format
+
+    prev = get_tool_format()
+    set_tool_format("tool")
+    yield
+    set_tool_format(prev)
+
+
+def test_replay_restores_native_todo_writes(native_tool_format):
+    """Native tool calls carry the command in a kwarg; they must replay too."""
+    from gptme.message import Message
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    call = '@todo(call_1): {"command": "write add \\"Native task\\""}'
+    out = list(
+        replay_todo_on_session_start(
+            None, None, [Message("user", "hi"), Message("assistant", call)]
+        )
+    )
+    assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Native task"
+
+
+def test_replay_restores_native_bare_write_operation(native_tool_format):
+    """A native write operation without the 'write' subcommand replays too."""
+    from gptme.message import Message
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    call = '@todo(call_1): {"command": "add \\"Bare task\\""}'
+    out = list(
+        replay_todo_on_session_start(
+            None, None, [Message("user", "hi"), Message("assistant", call)]
+        )
+    )
+    assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Bare task"
