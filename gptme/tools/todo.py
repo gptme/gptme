@@ -24,7 +24,7 @@ from dateutil.parser import isoparse
 from ..hooks import HookType
 from ..logmanager import Log
 from ..message import Message
-from .base import ToolSpec, ToolUse
+from .base import Parameter, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +147,36 @@ def _format_todo_list() -> str:
     return "\n".join(output)
 
 
+def _write_operations(tooluse: ToolUse) -> list[str]:
+    """Return the write operations of a todo call, in any invocation format.
+
+    Handles the positional form (``@todo write`` plus a body) and the
+    single-string form that native tool calls use (``{"command": "write add
+    ..."}``), including a write operation sent without the ``write``
+    subcommand.
+    """
+    if tooluse.args:
+        if tooluse.args[0].lower() != "write":
+            return []
+        body = tooluse.content or ""
+    else:
+        command = (tooluse.kwargs or {}).get("command", "")
+        if not isinstance(command, str):
+            # A malformed call (e.g. {"command": null}) is skipped, not fatal.
+            return []
+        subcommand, body = _split_command(command)
+        if subcommand != "write":
+            if subcommand not in _WRITE_OPS:
+                return []
+            body = command
+    return [line.strip() for line in body.strip().split("\n") if line.strip()]
+
+
+def _replay_lines(tooluse: ToolUse) -> list[str]:
+    """Operation lines to replay for a todo call (any invocation format)."""
+    return _write_operations(tooluse)
+
+
 def replay_todo_on_session_start(
     logdir, workspace, initial_msgs, **kwargs
 ) -> Generator[Message, None, None]:
@@ -170,7 +200,7 @@ def replay_todo_on_session_start(
 
     # Check if there are any todo write operations in the log
     has_todo_write = any(
-        tooluse.tool == "todo" and tooluse.args and tooluse.args[0] == "write"
+        tooluse.tool == "todo" and _write_operations(tooluse)
         for msg in assistant_msgs
         for tooluse in ToolUse.iter_from_content(msg.content)
     )
@@ -286,12 +316,47 @@ def _todowrite(operation: str, *args: str) -> str:
     return f"Error: Unknown operation '{operation}'. Use: add, update, remove, clear"
 
 
+# Write operations accepted as a bare first token, e.g. a caller that sends
+# 'add "text"' without the 'write' subcommand.
+_WRITE_OPS = ("add", "update", "remove", "clear")
+
+
+def _split_command(command: str) -> tuple[str, str]:
+    """Split a single-command string into (subcommand, body).
+
+    Structured ("tool"-format) callers supply the whole command as one string,
+    e.g. ``write add "do the thing"``. The subcommand is the first token, the
+    rest is the operation body.
+    """
+    parts = command.strip().split(None, 1)
+    if not parts:
+        return "", ""
+    return parts[0].lower(), parts[1] if len(parts) > 1 else ""
+
+
 def execute_todo(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
     """Execute todo command with read/write subcommands."""
+    if not args:
+        # Structured ("tool"-format) callers supply the whole command as a
+        # single ``command`` kwarg and leave ``args`` empty. Recover the
+        # subcommand and the body from that string so both invocation styles
+        # work (markdown blocks set ``args`` positionally).
+        command = (kwargs or {}).get("command", "")
+        if not isinstance(command, str):
+            command = ""
+        command = command.strip()
+        if command:
+            subcommand, body = _split_command(command)
+            if subcommand in _WRITE_OPS:
+                # A write operation sent without the 'write' subcommand.
+                subcommand, body = "write", command.strip()
+            args = [subcommand]
+            code = body
+
     if not args:
         # Default to read if no subcommand
         yield Message("system", _todoread())
@@ -392,6 +457,17 @@ todo = ToolSpec(
     name="todo",
     desc="Manage an in-session todo list (ephemeral, not persisted across conversations)",
     block_types=["todo"],
+    parameters=[
+        Parameter(
+            name="command",
+            type="string",
+            required=False,
+            description=(
+                'Todo command, e.g. "read" or \'write add "todo text"\'. '
+                "Multiple write operations can be separated by newlines."
+            ),
+        )
+    ],
     instructions="""
 ### When to use the todo tool
 
@@ -403,6 +479,9 @@ Manage todos for the current conversation.
 Subcommands:
 - `todo read` - Show the current todo list
 - `todo write` - Edit todos
+
+The `command` parameter takes the whole command, e.g. `read` or
+`write add "todo text"` (multiple write operations separated by newlines).
 
 Write operations:
 - add "todo text" - Add an item

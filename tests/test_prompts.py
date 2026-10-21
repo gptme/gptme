@@ -36,7 +36,8 @@ def test_get_prompt_short():
 
     # TODO: make the short prompt shorter
     # Note: prompt size grows with new tools/features; bump ceiling as needed
-    assert 400 < len_tokens(combined_content, "gpt-4") < 4500 + user_config_size
+    # Ceiling bumped to 4550 for the todo tool's command parameter
+    assert 400 < len_tokens(combined_content, "gpt-4") < 4550 + user_config_size
 
 
 def test_get_prompt_custom():

@@ -360,3 +360,130 @@ def test_replay_restores_assistant_todos(xml_format):
     )
     assert out and "Restored todo state" in out[0].content
     assert _current_todos["1"]["text"] == "Real task"
+
+
+def _execute(code=None, args=None, kwargs=None):
+    """Run execute_todo and return the message contents."""
+    from gptme.tools.todo import execute_todo
+
+    return [msg.content for msg in execute_todo(code, args, kwargs)]
+
+
+def test_execute_todo_command_kwarg_add():
+    """Native tool calls pass the whole command as a single 'command' kwarg."""
+    result = _execute(kwargs={"command": 'write add "Implement core functionality"'})
+    assert result == ["Added todo 1: Implement core functionality"]
+    assert _current_todos["1"]["text"] == "Implement core functionality"
+
+
+def test_execute_todo_command_kwarg_read():
+    """A 'read' command lists the todos instead of silently doing nothing."""
+    _todowrite("add", "Existing", "task")
+    result = _execute(kwargs={"command": "read"})
+    assert "Existing" in result[0]
+
+
+def test_execute_todo_command_kwarg_multiple_operations():
+    """Multiple write operations can be separated by newlines."""
+    result = _execute(kwargs={"command": 'write\nadd "First"\nadd "Second"'})
+    assert result == ["Added todo 1: First\nAdded todo 2: Second"]
+    assert _current_todos["1"]["text"] == "First"
+    assert _current_todos["2"]["text"] == "Second"
+
+
+def test_execute_todo_command_kwarg_write_operation_without_subcommand():
+    """A write operation sent without the 'write' subcommand still works."""
+    result = _execute(kwargs={"command": 'add "Bare operation"'})
+    assert result == ["Added todo 1: Bare operation"]
+
+
+def test_execute_todo_positional_args_still_work():
+    """Markdown-style calls set args positionally and keep working."""
+    result = _execute(code='add "Legacy call"', args=["write"])
+    assert result == ["Added todo 1: Legacy call"]
+
+
+def test_execute_todo_no_args_reads():
+    """Without a subcommand the list is read (not silently written)."""
+    result = _execute()
+    assert "📝 Todo list is empty" in result[0]
+    assert not _current_todos
+
+
+@pytest.fixture
+def native_tool_format():
+    """Use the native ("tool") format, where calls carry a JSON argument object."""
+    from gptme.tools.base import get_tool_format, set_tool_format
+
+    prev = get_tool_format()
+    set_tool_format("tool")
+    yield
+    set_tool_format(prev)
+
+
+def test_replay_restores_native_todo_writes(native_tool_format):
+    """Native tool calls carry the command in a kwarg; they must replay too."""
+    from gptme.message import Message
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    call = '@todo(call_1): {"command": "write add \\"Native task\\""}'
+    out = list(
+        replay_todo_on_session_start(
+            None, None, [Message("user", "hi"), Message("assistant", call)]
+        )
+    )
+    assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Native task"
+
+
+def test_replay_restores_native_bare_write_operation(native_tool_format):
+    """A native write operation without the 'write' subcommand replays too."""
+    from gptme.message import Message
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    call = '@todo(call_1): {"command": "add \\"Bare task\\""}'
+    out = list(
+        replay_todo_on_session_start(
+            None, None, [Message("user", "hi"), Message("assistant", call)]
+        )
+    )
+    assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Bare task"
+
+
+def test_replay_skips_malformed_native_call(native_tool_format):
+    """A malformed native call is skipped, not fatal to the replay."""
+    from gptme.message import Message
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    bad = '@todo(call_1): {"command": null}'
+    good = '@todo(call_2): {"command": "write add \\"Survived\\""}'
+    out = list(
+        replay_todo_on_session_start(
+            None,
+            None,
+            [
+                Message("user", "hi"),
+                Message("assistant", bad),
+                Message("assistant", good),
+            ],
+        )
+    )
+    assert out and "Restored todo state" in out[0].content
+    assert _current_todos["1"]["text"] == "Survived"
+
+
+def test_replay_tool_does_not_raise_for_other_tools(tmp_path):
+    """Replaying a tool whose module differs from its name must not raise."""
+    from gptme.commands.export import _replay_tool
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    log = Log(
+        messages=[
+            Message("user", "hi"),
+            Message("assistant", '@append(call_1): {"path": "x.txt"}'),
+        ]
+    )
+    # append lives in save.py; the replay must not blow up on the import.
+    _replay_tool(log, "append")

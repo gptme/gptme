@@ -116,39 +116,56 @@ def _replay_tool(log, tool_name: str) -> None:
     print(f"Replaying all '{tool_name}' operations...")
     count = 0
 
+    helper_name = f"_{tool_name}"
+    # The tool's module may differ from its name (append lives in save.py,
+    # ipython in python.py), so ask the spec where it is defined.
+    module_name = f"gptme.tools.{tool_name}"
+    execute = getattr(tool, "execute", None)
+    if execute is not None and getattr(execute, "__module__", None):
+        module_name = execute.__module__
+    try:
+        tool_module = __import__(module_name, fromlist=[helper_name])
+    except ImportError as e:
+        logger.warning(f"Cannot import {module_name} for {tool_name} replay: {e}")
+        tool_module = None
+
     for msg in log:
         for tooluse in ToolUse.iter_from_content(msg.content):
-            if tooluse.tool == tool_name and tooluse.content:
-                count += 1
-                # Execute the tool operation
+            if tooluse.tool != tool_name:
+                continue
+            # A tool can provide its own way to read the operations of a call
+            # (e.g. todo, whose native calls carry a single "command" string).
+            if tool_module is not None and hasattr(tool_module, "_replay_lines"):
+                lines = tool_module._replay_lines(tooluse)
+            else:
+                body = tooluse.content or ""
                 lines = [
-                    line.strip()
-                    for line in tooluse.content.strip().split("\n")
-                    if line.strip()
+                    line.strip() for line in body.strip().split("\n") if line.strip()
                 ]
+            if not lines:
+                continue
 
-                for line in lines:
-                    # Use the tool's execute function directly
-                    # For tools like todo, this will update internal state
-                    try:
-                        parts = shlex.split(line)
-                        if parts:
-                            # Import the tool's helper function if it exists
-                            # For todo, this would be _todowrite
-                            helper_name = f"_{tool_name}"
-                            tool_module = __import__(
-                                f"gptme.tools.{tool_name}",
-                                fromlist=[helper_name],
-                            )
-                            if hasattr(tool_module, helper_name):
-                                helper_func = getattr(tool_module, helper_name)
-                                result = helper_func(*parts)
-                                if result:
-                                    print(f"  {result}")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to replay {tool_name} operation '{line}': {e}"
-                        )
+            count += 1
+            # Execute the tool operation
+            for line in lines:
+                # Use the tool's execute function directly
+                # For tools like todo, this will update internal state
+                try:
+                    parts = shlex.split(line)
+                    if parts:
+                        # Import the tool's helper function if it exists
+                        # For todo, this would be _todowrite
+                        if tool_module is not None and hasattr(
+                            tool_module, helper_name
+                        ):
+                            helper_func = getattr(tool_module, helper_name)
+                            result = helper_func(*parts)
+                            if result:
+                                print(f"  {result}")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to replay {tool_name} operation '{line}': {e}"
+                    )
 
     if count == 0:
         print(
