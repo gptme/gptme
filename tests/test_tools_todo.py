@@ -360,3 +360,51 @@ def test_replay_restores_assistant_todos(xml_format):
     )
     assert out and "Restored todo state" in out[0].content
     assert _current_todos["1"]["text"] == "Real task"
+
+
+def _execute(code=None, args=None, kwargs=None):
+    """Run execute_todo and return the message contents."""
+    from gptme.tools.todo import execute_todo
+
+    return [msg.content for msg in execute_todo(code, args, kwargs)]
+
+
+def test_execute_todo_command_kwarg_add():
+    """Native tool calls pass the whole command as a single 'command' kwarg."""
+    result = _execute(kwargs={"command": 'write add "Implement core functionality"'})
+    assert result == ["Added todo 1: Implement core functionality"]
+    assert _current_todos["1"]["text"] == "Implement core functionality"
+
+
+def test_execute_todo_command_kwarg_read():
+    """A 'read' command lists the todos instead of silently doing nothing."""
+    _todowrite("add", "Existing", "task")
+    result = _execute(kwargs={"command": "read"})
+    assert "Existing" in result[0]
+
+
+def test_execute_todo_command_kwarg_multiple_operations():
+    """Multiple write operations can be separated by newlines."""
+    result = _execute(kwargs={"command": 'write\nadd "First"\nadd "Second"'})
+    assert result == ["Added todo 1: First\nAdded todo 2: Second"]
+    assert _current_todos["1"]["text"] == "First"
+    assert _current_todos["2"]["text"] == "Second"
+
+
+def test_execute_todo_command_kwarg_write_operation_without_subcommand():
+    """A write operation sent without the 'write' subcommand still works."""
+    result = _execute(kwargs={"command": 'add "Bare operation"'})
+    assert result == ["Added todo 1: Bare operation"]
+
+
+def test_execute_todo_positional_args_still_work():
+    """Markdown-style calls set args positionally and keep working."""
+    result = _execute(code='add "Legacy call"', args=["write"])
+    assert result == ["Added todo 1: Legacy call"]
+
+
+def test_execute_todo_no_args_reads():
+    """Without a subcommand the list is read (not silently written)."""
+    result = _execute()
+    assert "📝 Todo list is empty" in result[0]
+    assert not _current_todos
