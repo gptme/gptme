@@ -243,18 +243,28 @@ source text or variable values.
 
 Benign forms include ``env NAME=value command``, ``env -i ... command``,
 ``set +x``, name-only ``compgen -e``, literal quoted documentation and heredoc
-data not used as shell code. ``printenv`` allows only explicitly non-secret
-names: PATH, HOME, LANG, SHELL, TERM, PWD, USER, LOGNAME and TZ. Variable length
+data not used as shell code. ``printenv NAME ...`` is allowed when every
+operand is a literal variable name that does not look secret (the same
+KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL name rule as ``echo "$NAME"``); bare
+``printenv`` and dynamic operands stay blocked. ``-0``/``--null`` and the
+``--`` option separator are supported; unknown options are denied rather than
+silently discarded. Prefer ``printenv SESSION_LABEL`` or ``echo "$SESSION_LABEL"``
+to dumping the environment and filtering it. Variable length
 and literal presence diagnostics (``${#API_KEY}``, ``${API_KEY:+configured}``)
 are allowed. Using a credential as a process argument is distinct from printing
-it; existing secret-path rules still apply independently.
+it; existing secret-path rules still apply independently. Variable-name matching
+is a heuristic, not a guarantee: names such as ``DATABASE_URL`` or ``GH_PAT``
+can carry credentials without matching this rule. Only print values you know
+are diagnostic; use ``compgen -e`` when you need names alone.
 
 This is a bounded accidental-disclosure policy, **not a shell sandbox**.
 It does not resolve dynamic command names, arbitrary interpreters, sourced
 files, script contents, ``eval``, all wrapper options or obfuscated expansions.
 Function definitions and unreachable branches are scanned conservatively.
-Name-only pipelines following a dump are still blocked: a downstream filter
-is not proof that tracing or intermediate output cannot expose a credential.
+Pipelines following a dump are still blocked, even with an anchored non-secret
+name filter: a multiline value from another variable can contain a continuation
+line matching that filter. A downstream filter also does not prevent tracing or
+intermediate output from exposing a credential.
 Do not infer new-pattern false-positive rates from older shadow logs; evaluate
 fresh exposure before enabling the entire hook in unattended sessions.
 
