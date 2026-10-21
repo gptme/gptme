@@ -1027,6 +1027,10 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
     one-off agent commands they were nearly always ignored and only cost
     context. Show them with GPTME_SHELLCHECK_WARNINGS=1.
 
+    SC2284 is never blocking: shellcheck 0.9.x reports it with error
+    severity and fires it on literal ``==``/``===`` arguments (e.g.
+    ``echo ===``), which would reject a valid command outright.
+
     Note:
         - Requires shellcheck (sudo apt install shellcheck)
         - Can be disabled with GPTME_SHELLCHECK=off
@@ -1050,6 +1054,13 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
     # Get custom excludes from environment variable
     custom_excludes = os.environ.get("GPTME_SHELLCHECK_EXCLUDE", "").split(",")
     custom_excludes = [code.strip() for code in custom_excludes if code.strip()]
+
+    # Codes that are reported but never block execution.
+    # SC2284 ("Use [ x = y ] to compare values") is a style hint, but
+    # shellcheck 0.9.x (e.g. Ubuntu 24.04) reports it with error severity
+    # and fires it on literal `==`/`===` arguments, e.g. `echo ===` used as
+    # a section separator. Blocking that rejects a valid command outright.
+    non_blocking_codes = {"SC2284"}
 
     # Combine default and custom excludes
     all_excludes = default_excludes + custom_excludes
@@ -1107,7 +1118,8 @@ def check_with_shellcheck(cmd: str) -> tuple[bool, bool, str]:
             blocking = [
                 (code, line)
                 for severity, code, line in findings
-                if code in error_codes or severity == "error"
+                if code not in non_blocking_codes
+                and (code in error_codes or severity == "error")
             ]
 
             if blocking:

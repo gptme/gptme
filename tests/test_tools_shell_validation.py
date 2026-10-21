@@ -1881,6 +1881,23 @@ def test_shellcheck_blocks_broken_commands(default_shellcheck, cmd):
 
 
 @needs_shellcheck
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo ===",
+        "echo ===; ls",
+        "echo ===; grep -rn foo . | head -10",
+    ],
+)
+def test_shellcheck_sc2284_does_not_block(default_shellcheck, cmd):
+    """`echo ===` (a common section separator) is flagged by shellcheck 0.9.x
+    as an error-severity SC2284 ("use [ x = y ] to compare values"), which
+    used to reject the whole command before it ran."""
+    has_issues, should_block, _ = check_with_shellcheck(cmd)
+    assert not should_block
+
+
+@needs_shellcheck
 def test_shellcheck_heredoc_block_explains(default_shellcheck):
     _, _, message = check_with_shellcheck("cat <<EOF > notes.md\nhello\n")
     assert "SC1044" in message and "end marker" in message
