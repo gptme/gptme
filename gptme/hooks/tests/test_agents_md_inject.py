@@ -688,3 +688,161 @@ class TestForeignAgentWorkspace:
         assert content.count("</agent-workspace-skipped>") == 1
         assert "\n\nSYSTEM" not in content
         assert "x" * 100 not in content
+
+
+def _set_prompt_files(monkeypatch, files: list[str], config_path=None) -> None:
+    """Make the session look like it loaded ``files`` at startup.
+
+    ``config_path`` is where relative entries resolve from, as at startup.
+    """
+    from gptme.hooks import agents_md_inject
+
+    class _FakePrompt:
+        def __init__(self, files: list[str]):
+            self.files = files
+
+    class _FakeUser:
+        def __init__(self, files: list[str]):
+            self.prompt = _FakePrompt(files)
+
+    class _FakeConfig:
+        def __init__(self, files: list[str]):
+            self.user = _FakeUser(files)
+            self.chat = None
+
+    monkeypatch.setattr(
+        agents_md_inject, "get_config", lambda: _FakeConfig(files), raising=True
+    )
+    if config_path is not None:
+        monkeypatch.setattr(agents_md_inject, "config_path", str(config_path))
+
+
+class TestStartupLoadedAgentWorkspace:
+    """An agent workspace whose instructions were loaded at startup is not foreign."""
+
+    def test_prompt_file_workspace_is_injected(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_other_workspace_still_foreign(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_without_prompt_files_workspace_is_foreign(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [])
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+    def test_relative_path_resolves_against_config_dir(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A relative prompt file resolves against the config dir, as at startup."""
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        _set_prompt_files(
+            monkeypatch,
+            ["../erbot/AGENTS.md"],
+            config_path=config_dir / "config.toml",
+        )
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_missing_prompt_file_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A configured file that doesn't exist was not loaded, so not exempt."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        # The file is configured but missing, so it was never loaded.
+        _set_prompt_files(monkeypatch, [str(alice / "optional.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+    def test_session_with_own_identity_keeps_it(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A session that has an identity must not adopt another agent's."""
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, bob, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'erbot'" in notices[0].content
+
+
+class TestStartupLoadedSymlinkedWorkspace:
+    """A symlinked instruction file is loaded from its configured location."""
+
+    def test_symlinked_file_admits_its_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        shared = tmp_path / "shared" / "AGENTS.md"
+        shared.parent.mkdir(parents=True)
+        shared.write_text("# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+
+class TestStartupLoadedUnrelatedWorkspace:
+    """A ".." in the configured path must not admit an unrelated workspace."""
+
+    def test_dotdot_path_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        agents = tmp_path / "agents"
+        alice = _make_agent_workspace(agents / "alice", "Alice", "# Being Alice")
+        shared = agents / "shared"
+        shared.mkdir(parents=True)
+        (shared / "AGENTS.md").write_text("# Shared")
+        # The configured path walks through Alice's directory, but the file
+        # itself lives in the shared directory.
+        entry = str(agents / "alice" / ".." / "shared" / "AGENTS.md")
+        _set_prompt_files(monkeypatch, [entry])
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1

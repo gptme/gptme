@@ -572,6 +572,8 @@ from .workspace import (
     find_agent_files_in_tree,
     prompt_workspace,
     prompt_workspace_runtime,
+    resolve_prompt_file_paths,
+    resolve_prompt_files,
 )
 
 
@@ -752,5 +754,7 @@ __all__ = [
     "prompt_user",
     "prompt_workspace",
     "prompt_workspace_runtime",
+    "resolve_prompt_file_paths",
+    "resolve_prompt_files",
     "use_chat_history_context",
 ]
