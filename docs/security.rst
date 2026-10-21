@@ -91,8 +91,10 @@ resists it reliably.
 
 - The dangerous combination is **untrusted input + powerful tools + valuable
   credentials**. Remove at least one of them.
-- gptme screens tool output for common injection patterns and warns the model (on
-  by default; see ``GPTME_INJECTION_HYGIENE``). This helps, but it isn't a guarantee.
+- gptme screens tool output, and pages fetched for URLs in your prompt, for common
+  injection patterns and warns the model (on by default; see
+  ``GPTME_INJECTION_HYGIENE``). Fetched pages are also labeled as untrusted external
+  content. This helps, but it isn't a guarantee.
 - Review ``gptme.toml`` before working in an unfamiliar repository; see
   `Project Configuration Trust`_.
 
