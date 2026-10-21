@@ -43,7 +43,8 @@ import {
   setLeftPanelRef,
   setRightPanelRef,
 } from '@/stores/sidebar';
-import { selectedTask$, useTasksQuery, useTaskQuery, useCreateTaskMutation } from '@/stores/tasks';
+import { useTasksQuery, useTaskQuery, useCreateTaskMutation } from '@/stores/tasks';
+import { getPrimaryClient } from '@/stores/serverClients';
 
 interface Props {
   conversationId?: string;
@@ -69,7 +70,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const isConnected = use$(isConnected$);
   const connectionStatus = useConnectionStatus();
   const conversation$ = useObservable<ConversationSummary | undefined>(undefined);
-  const selectedTaskId = use$(selectedTask$);
+  const selectedTaskId = taskId;
 
   // Determine current section from URL
   const currentSection = location.pathname.startsWith('/tasks')
@@ -126,15 +127,10 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     // Handle initial conversation/task selection
     if (conversationId && selectedConversation$.get() !== conversationId) {
       selectedConversation$.set(conversationId);
-    } else if (taskId && selectedTask$.get() !== taskId) {
-      selectedTask$.set(taskId);
     } else if (!conversationId && !taskId) {
       // Only clear if they're not already empty
       if (selectedConversation$.get() !== '') {
         selectedConversation$.set('');
-      }
-      if (selectedTask$.get() !== '') {
-        selectedTask$.set('');
       }
     }
   }, [conversationId, taskId]);
@@ -327,7 +323,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   const handleSelectTask = useCallback(
     (task: Task) => {
-      selectedTask$.set(task.id);
       navigate(`/tasks/${task.id}`);
     },
     [navigate]
@@ -336,16 +331,16 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const handleCreateTask = useCallback(
     async (taskRequest: CreateTaskRequest) => {
       try {
-        await createTaskMutation.mutateAsync(taskRequest);
+        const newTask = await createTaskMutation.mutateAsync(taskRequest);
+        // A completed request must not navigate the newly selected server.
+        if (getPrimaryClient() !== api) return;
         setShowCreateTaskDialog(false);
-        if (selectedTaskId) {
-          navigate(`/tasks/${selectedTaskId}`, { replace: true });
-        }
+        navigate(`/tasks/${newTask.id}`, { replace: true });
       } catch (err) {
         console.error('Error creating task:', err);
       }
     },
-    [createTaskMutation, selectedTaskId, navigate]
+    [createTaskMutation, api, navigate]
   );
 
   const getSelectedConversationSummary = useCallback(
@@ -385,7 +380,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   if (!conversationId && !taskId) {
     if (selectedConversation$.get() !== '' || conversation$.get() !== undefined) {
       selectedConversation$.set('');
-      selectedTask$.set('');
       conversation$.set(undefined);
     }
   }

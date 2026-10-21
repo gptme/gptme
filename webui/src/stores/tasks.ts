@@ -1,170 +1,100 @@
-import React from 'react';
-import { observable, mergeIntoObservable } from '@legendapp/state';
+import { useMemo } from 'react';
+import { observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { taskApi } from '@/utils/taskApi';
+import { getClientGeneration } from '@/utils/api';
 import { useApi } from '@/contexts/ApiContext';
 import { isDemoMode } from '@/utils/connectionConfig';
-import type { Task, CreateTaskRequest } from '@/types/task';
+import type { CreateTaskRequest } from '@/types/task';
 
-export interface TaskState {
-  // The task data
-  data: Task;
-  // Whether this task is currently being updated
-  isUpdating: boolean;
-}
-
-// Central store for all tasks
-export const tasks$ = observable(new Map<string, TaskState>());
-
-// Currently selected task
-export const selectedTask$ = observable<string | null>(null);
-
-// Whether to show archived tasks
+// Task data lives only in React Query; a second ID-only store can mix servers.
 export const showArchived$ = observable(false);
 
-// Helper functions
-export function updateTask(id: string, update: Partial<Task>) {
-  const existing = tasks$.get(id);
-  if (existing) {
-    mergeIntoObservable(existing.data, update);
-  }
+function useTaskOwner() {
+  const { api } = useApi();
+  return useMemo(
+    () => ({
+      // The pool replaces clients on endpoint or credential changes. This key
+      // scopes data without putting credentials into the query cache.
+      key: getClientGeneration(api),
+      connection: { baseUrl: api.baseUrl, authHeader: api.authHeader },
+    }),
+    [api]
+  );
 }
 
-export function setTaskUpdating(id: string, isUpdating: boolean) {
-  const existing = tasks$.get(id);
-  if (existing) {
-    existing.isUpdating.set(isUpdating);
-  }
-}
+type TaskOwner = ReturnType<typeof useTaskOwner>;
+const tasksKey = (owner: TaskOwner) => ['tasks', owner.key] as const;
+const taskKey = (owner: TaskOwner, taskId: string | null) => ['task', owner.key, taskId] as const;
 
-// Initialize a task in the store
-export function initTask(task: Task) {
-  const initial: TaskState = {
-    data: task,
-    isUpdating: false,
-  };
-  tasks$.set(task.id, initial);
-}
-
-// Update multiple tasks
-export function updateTasks(newTasks: Task[]) {
-  // Clear existing tasks that aren't in the new list
-  const newTaskIds = new Set(newTasks.map((t) => t.id));
-  const existingIds = Array.from(tasks$.get().keys());
-
-  existingIds.forEach((id) => {
-    if (!newTaskIds.has(id)) {
-      tasks$.delete(id);
-    }
-  });
-
-  // Update or add new tasks
-  newTasks.forEach((task) => {
-    const existing = tasks$.get(task.id);
-    if (existing) {
-      existing.data.set(task);
-    } else {
-      initTask(task);
-    }
-  });
-}
-
-// Query hooks
 export function useTasksQuery() {
   const { isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
-  const demo = isDemoMode();
-  const query = useQuery({
-    queryKey: ['tasks', { includeArchived: showArchived$.get() }],
-    queryFn: () => taskApi.listTasks(showArchived$.get()),
-    enabled: isConnected && !demo,
-    placeholderData: () => [] as Task[],
+  const includeArchived = use$(showArchived$);
+  const owner = useTaskOwner();
+  return useQuery({
+    queryKey: [...tasksKey(owner), { includeArchived }],
+    queryFn: () => taskApi.listTasks(includeArchived, owner.connection),
+    enabled: isConnected && !isDemoMode(),
   });
-
-  // Update store when data changes
-  React.useEffect(() => {
-    if (query.data) {
-      updateTasks(query.data);
-    }
-  }, [query.data]);
-
-  return query;
 }
 
 export function useTaskQuery(taskId: string | null) {
-  const demo = isDemoMode();
-  const query = useQuery({
-    queryKey: ['task', taskId],
-    queryFn: () => taskApi.getTask(taskId!),
-    enabled: !!taskId && !demo,
+  const { isConnected$ } = useApi();
+  const isConnected = use$(isConnected$);
+  const owner = useTaskOwner();
+  return useQuery({
+    queryKey: taskKey(owner, taskId),
+    queryFn: () => taskApi.getTask(taskId!, owner.connection),
+    enabled: !!taskId && isConnected && !isDemoMode(),
   });
+}
 
-  // Update store when data changes
-  React.useEffect(() => {
-    if (query.data) {
-      const existing = tasks$.get(query.data.id);
-      if (existing) {
-        existing.data.set(query.data);
-      } else {
-        initTask(query.data);
-      }
-    }
-  }, [query.data]);
-
-  return query;
+function useTaskArchiveMutation(archived: boolean) {
+  const queryClient = useQueryClient();
+  const owner = useTaskOwner();
+  const mutation = useMutation({
+    // Capture the owner in variables: React Query can replace callback options
+    // during a rerender while the mutation is pending.
+    mutationFn: ({ taskId, owner }: { taskId: string; owner: TaskOwner }) =>
+      archived
+        ? taskApi.archiveTask(taskId, owner.connection)
+        : taskApi.unarchiveTask(taskId, owner.connection),
+    onSettled: (_data, _error, { taskId, owner }) => {
+      void queryClient.invalidateQueries({ queryKey: tasksKey(owner) });
+      void queryClient.invalidateQueries({ queryKey: taskKey(owner, taskId) });
+    },
+  });
+  return {
+    ...mutation,
+    mutate: (taskId: string) => mutation.mutate({ taskId, owner }),
+    mutateAsync: (taskId: string) => mutation.mutateAsync({ taskId, owner }),
+  };
 }
 
 export function useArchiveTaskMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (taskId: string) => taskApi.archiveTask(taskId),
-    onMutate: async (taskId) => {
-      // Optimistic update
-      updateTask(taskId, { archived: true });
-      setTaskUpdating(taskId, true);
-    },
-    onSettled: (_data, _error, taskId) => {
-      setTaskUpdating(taskId, false);
-      // Invalidate queries to refetch
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
-    },
-  });
+  return useTaskArchiveMutation(true);
 }
 
 export function useUnarchiveTaskMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (taskId: string) => taskApi.unarchiveTask(taskId),
-    onMutate: async (taskId) => {
-      // Optimistic update
-      updateTask(taskId, { archived: false });
-      setTaskUpdating(taskId, true);
-    },
-    onSettled: (_data, _error, taskId) => {
-      setTaskUpdating(taskId, false);
-      // Invalidate queries to refetch
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['task', taskId] });
-    },
-  });
+  return useTaskArchiveMutation(false);
 }
 
 export function useCreateTaskMutation() {
   const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (request: CreateTaskRequest) => taskApi.createTask(request),
-    onSuccess: (newTask: Task) => {
-      // Add to store
-      initTask(newTask);
-      // Set as selected
-      selectedTask$.set(newTask.id);
-      // Invalidate queries
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  const owner = useTaskOwner();
+  const mutation = useMutation({
+    mutationFn: ({ request, owner }: { request: CreateTaskRequest; owner: TaskOwner }) =>
+      taskApi.createTask(request, owner.connection),
+    onSuccess: (newTask, { owner }) => {
+      queryClient.setQueryData(taskKey(owner, newTask.id), newTask);
+      void queryClient.invalidateQueries({ queryKey: tasksKey(owner) });
     },
   });
+  return {
+    ...mutation,
+    mutate: (request: CreateTaskRequest) => mutation.mutate({ request, owner }),
+    mutateAsync: (request: CreateTaskRequest) => mutation.mutateAsync({ request, owner }),
+  };
 }
