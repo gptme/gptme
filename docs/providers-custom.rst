@@ -187,6 +187,28 @@ A community plugin ``gptme-provider-demonroute`` (with per-model ``ModelMeta``
 including accurate context and pricing) can be installed once published — see
 :doc:`providers-integration` for the plugin path.
 
+**Example - Fikra API** (DeepSeek-led hosted inference, Nairobi, per-token):
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "fikra"
+    base_url = "https://api.fikraapi.co.ke/v1"
+    api_key_env = "FIKRA_API_KEY"
+    default_model = "deepseek-v4.1-flash"
+
+.. code-block:: sh
+
+    FIKRA_API_KEY="your-key" gptme "hello" -m fikra/deepseek-v4.1-flash
+
+Fikra supports ``POST /v1/chat/completions`` with streaming and ``GET /v1/models``
+for discovery. Models on the endpoint are DeepSeek-first: V4.1 Flash is $0.045 per
+1M input / $0.09 per 1M output over a 1M context (the 1017 build is $0.05/$0.11),
+then GLM 5.3, GLM 5.3 Flash, GLM 5.2, Kimi K3, StepFun Step 5 and Qwen 3.8 27B.
+Per-token USD billing across the catalog, $1 minimum top-up; M-Pesa and cards
+accepted. Pricing verified 2026-10-19 at `fikraapi.co.ke/pricing
+<https://fikraapi.co.ke/pricing>`_.
+
 vLLM and OpenAI-compatible servers
 -----------------------------------
 
