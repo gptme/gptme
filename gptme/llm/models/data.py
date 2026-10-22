@@ -392,6 +392,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "preferred_edit_format": "diff",
         },
+        # Returns HTTP 404 to new users (observed 2026-10-22); kept for explicit use.
         "gemini-2.5-flash-lite": {
             "context": 1_000_000,
             "max_output": 64_000,
@@ -399,6 +400,7 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.4,
             "supports_vision": True,
             "preferred_edit_format": "whole",
+            "deprecated": True,
         },
         "gemini-2.5-flash": {
             "context": 1_048_576,
