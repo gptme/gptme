@@ -28,7 +28,7 @@ jobs:
     - uses: actions/checkout@v7
     - uses: astral-sh/setup-uv@v7
       with:
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install pre-commit
       run: pipx install pre-commit
     - name: Cache pre-commit environments
@@ -51,7 +51,7 @@ jobs:
     - uses: actions/checkout@v7
     - uses: astral-sh/setup-uv@v7
       with:
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dependencies
       run: uv sync --extra server --extra browser --extra telemetry --extra dspy --extra tui --frozen
     # The OpenAPI check needs the same install (server extra), so it runs here,
