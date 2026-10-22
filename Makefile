@@ -63,7 +63,7 @@ PYTEST_WORKERS ?= auto
 test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
-		--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html --junitxml=junit.xml \
+		$(if $(NO_COVERAGE),,--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html) --junitxml=junit.xml \
 		-n $(PYTEST_WORKERS) \
 		$(if $(EVAL), , -m "not eval") \
 		$(if $(SLOW), , -m "not slow and not eval") \
