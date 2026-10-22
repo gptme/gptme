@@ -1,9 +1,9 @@
-"""Tests for clipboard paste functions (paste_image, paste_text)."""
+"""Tests for clipboard functions (copy, paste_image, paste_text)."""
 
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from gptme.util.clipboard import paste_image, paste_text
+from gptme.util.clipboard import copy, paste_image, paste_text, set_copytext
 
 
 class TestPasteImage:
@@ -156,3 +156,139 @@ class TestPasteText:
         ):
             result = paste_text()
             assert result is None
+
+
+class TestCopy:
+    def test_copy_linux_wl_copy(self):
+        """Copies via wl-copy on Linux."""
+        set_copytext("hello wayland")
+        mock_result = Mock()
+        mock_result.returncode = 0
+
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "gptme.util.clipboard.get_installed_programs",
+                return_value=["wl-copy"],
+            ),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+        ):
+            assert copy() is True
+            mock_run.assert_called_once()
+
+    def test_copy_linux_xclip(self):
+        """Copies via xclip on Linux."""
+        set_copytext("hello x11")
+        mock_result = Mock()
+        mock_result.returncode = 0
+
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "gptme.util.clipboard.get_installed_programs",
+                return_value=["xclip"],
+            ),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            assert copy() is True
+
+    def test_copy_linux_no_tool(self):
+        """Returns False on Linux when no clipboard utility is installed."""
+        set_copytext("nowhere to go")
+        with (
+            patch("platform.system", return_value="Linux"),
+            patch(
+                "gptme.util.clipboard.get_installed_programs",
+                return_value=[],
+            ),
+        ):
+            assert copy() is False
+
+    def test_copy_macos(self):
+        """Copies via pbcopy on macOS."""
+        set_copytext("hello mac")
+        mock_result = Mock()
+        mock_result.returncode = 0
+
+        with (
+            patch("platform.system", return_value="Darwin"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            assert copy() is True
+
+    def _windows_ctypes(self, *, open_ok=True, alloc_ok=True, set_ok=True):
+        """Build a fake ctypes module exposing a Windows clipboard API.
+
+        ``ctypes.windll`` only exists on Windows, so the whole surface the
+        Windows branch touches is faked here, letting the test run on any OS.
+        """
+        import ctypes as real_ctypes
+
+        user32 = Mock()
+        kernel32 = Mock()
+        user32.OpenClipboard.return_value = 1 if open_ok else 0
+        kernel32.GlobalAlloc.return_value = 0x1000 if alloc_ok else 0
+        kernel32.GlobalLock.return_value = 0x2000
+        user32.SetClipboardData.return_value = 0x1000 if set_ok else 0
+
+        fake = Mock()
+        fake.windll.user32 = user32
+        fake.windll.kernel32 = kernel32
+        fake.create_unicode_buffer = real_ctypes.create_unicode_buffer
+        fake.sizeof = real_ctypes.sizeof
+        fake.memmove = Mock()
+        fake.c_void_p = real_ctypes.c_void_p
+        fake.c_size_t = real_ctypes.c_size_t
+        fake.wintypes = real_ctypes.wintypes
+        return fake, user32, kernel32
+
+    def test_copy_windows_success(self):
+        """Copies via the Win32 clipboard API and reports success."""
+        set_copytext("hello 世界")
+        fake, user32, kernel32 = self._windows_ctypes()
+
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch.dict("sys.modules", {"ctypes": fake}),
+        ):
+            assert copy() is True
+
+        user32.SetClipboardData.assert_called_once()
+        # Success transfers ownership to the OS; the handle must not be freed.
+        kernel32.GlobalFree.assert_not_called()
+        user32.CloseClipboard.assert_called_once()
+
+    def test_copy_windows_open_failure(self):
+        """Returns False when the clipboard cannot be opened."""
+        set_copytext("blocked")
+        fake, user32, kernel32 = self._windows_ctypes(open_ok=False)
+
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch.dict("sys.modules", {"ctypes": fake}),
+        ):
+            assert copy() is False
+
+        kernel32.GlobalAlloc.assert_not_called()
+        user32.CloseClipboard.assert_not_called()
+
+    def test_copy_windows_set_failure_frees_handle(self):
+        """Frees the handle and closes the clipboard when SetClipboardData fails."""
+        set_copytext("will fail")
+        fake, user32, kernel32 = self._windows_ctypes(set_ok=False)
+
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch.dict("sys.modules", {"ctypes": fake}),
+        ):
+            assert copy() is False
+
+        # On failure ownership stays with us, so the handle must be freed.
+        kernel32.GlobalFree.assert_called_once()
+        user32.CloseClipboard.assert_called_once()
+
+    def test_copy_unsupported_platform(self):
+        """Returns False on an unrecognized platform."""
+        set_copytext("nope")
+        with patch("platform.system", return_value="Plan9"):
+            assert copy() is False
