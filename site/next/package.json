@@ -22,7 +22,7 @@
     "marked": "18.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "sanitize-html": "2.18.0"
+    "sanitize-html": "2.18.1"
   },
   "devDependencies": {
     "@csstools/css-tokenizer": "4.0.2",
