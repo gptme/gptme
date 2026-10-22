@@ -618,6 +618,12 @@ def init_telemetry(
         if enable_requests_instrumentation:
             RequestsInstrumentor().instrument()
 
+        # SDK instrumentation otherwise defaults to recording prompts and outputs.
+        # Preserve explicit settings and the SDK's per-context content opt-in.
+        if enable_openai_instrumentation or enable_anthropic_instrumentation:
+            if not os.getenv("TRACELOOP_TRACE_CONTENT"):
+                os.environ["TRACELOOP_TRACE_CONTENT"] = "false"
+
         if enable_openai_instrumentation:
             OpenAIInstrumentor().instrument()
 

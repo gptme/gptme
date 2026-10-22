@@ -249,6 +249,23 @@ The telemetry data helps identify:
 - Tool execution performance
 - Resource usage patterns
 
+Content capture
+~~~~~~~~~~~~~~~
+
+Enabling telemetry keeps model names, token counts and timing data, but defaults
+OpenAI and Anthropic SDK prompt and response capture to off. To explicitly include
+model inputs and outputs in traces sent to your configured collector, set
+``TRACELOOP_TRACE_CONTENT=true`` before starting gptme. Unset or empty values default
+to ``false``; explicit settings are preserved (only ``true``, case-insensitive,
+enables capture).
+
+The SDK instrumentors also honor the OpenTelemetry context value
+``override_enable_content_tracing``. Code that explicitly sets this value to true
+enables capture within that context, even with ``TRACELOOP_TRACE_CONTENT=false``.
+This is a default for SDK model content, not a general redaction filter: other
+telemetry, including tool and function error strings, may contain sensitive data.
+Send telemetry only to a collector you trust.
+
 Available Metrics
 ~~~~~~~~~~~~~~~~~
 
@@ -304,6 +321,8 @@ Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
 
 - ``GPTME_TELEMETRY_ENABLED``: Enable/disable telemetry (default: false)
+- ``TRACELOOP_TRACE_CONTENT``: Include SDK model inputs/outputs in traces (default: false;
+  explicit per-context overrides can also enable capture, see `Content capture`_)
 - ``OTLP_ENDPOINT``: OTLP endpoint for traces and metrics (default: http://localhost:4318)
 - ``OTEL_EXPORTER_OTLP_TIMEOUT``: OTLP exporter timeout in milliseconds (default: 10000)
 
