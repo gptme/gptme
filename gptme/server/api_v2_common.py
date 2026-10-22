@@ -207,6 +207,7 @@ class ToolUseDict(TypedDict):
     tool: str
     args: list[str] | None
     content: str | None
+    kwargs: NotRequired[dict[str, str] | None]
 
 
 # Event Type Definitions

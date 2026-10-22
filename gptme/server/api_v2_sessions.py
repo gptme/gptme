@@ -261,6 +261,7 @@ def api_conversation_events(conversation_id: str):
                             "tool": te.tooluse.tool,
                             "args": te.tooluse.args,
                             "content": te.tooluse.content,
+                            "kwargs": te.tooluse.kwargs,
                         },
                         "auto_confirm": te.auto_confirm,
                     }
@@ -1027,6 +1028,7 @@ def api_conversation_rerun(conversation_id: str):
                         "tool": tooluse.tool,
                         "args": tooluse.args,
                         "content": tooluse.content,
+                        "kwargs": tooluse.kwargs,
                     },
                     "auto_confirm": tool_exec.auto_confirm,
                 },

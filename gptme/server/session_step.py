@@ -1231,6 +1231,7 @@ def step(
                         "tool": tooluse.tool,
                         "args": tooluse.args,
                         "content": tooluse.content,
+                        "kwargs": tooluse.kwargs,
                     },
                     "auto_confirm": tool_exec.auto_confirm,
                 },

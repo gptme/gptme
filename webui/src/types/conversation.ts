@@ -50,7 +50,9 @@ export interface StreamingMessage extends Message {
 export interface ToolUse {
   tool: string;
   args: string[] | null;
-  content: string;
+  content: string | null;
+  // Native tool-call arguments; sent alongside args/content when present
+  kwargs?: Record<string, unknown> | null;
 }
 
 export interface ConversationSummary {

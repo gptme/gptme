@@ -32,3 +32,19 @@ describe('InlineToolExecution — nullable arguments', () => {
     expect(screen.getByText('regression-output')).toBeVisible();
   });
 });
+
+describe('InlineToolExecution — native kwargs preview', () => {
+  const kwargs = { command: 'sleep 8; printf packaged-null-args-ac2e' };
+
+  it('shows JSON kwargs when args and content are null', () => {
+    const executingTool$ = observable<ExecutingTool | null>({
+      id: 'tool-1',
+      tooluse: { tool: 'shell', args: null, content: null, kwargs },
+      startedAt: Date.now(),
+      partialOutput: '',
+    });
+    const { container } = render(<InlineToolExecution executingTool$={executingTool$} />);
+
+    expect(container.textContent).toContain('"command": "sleep 8; printf packaged-null-args-ac2e"');
+  });
+});

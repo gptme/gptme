@@ -3102,3 +3102,98 @@ def test_step_collects_all_native_tool_calls_not_just_first(
         f"expected 2 pending tools, got {len(session.pending_tools)}: "
         f"{list(session.pending_tools.keys())}"
     )
+
+
+def test_native_kwargs_tool_pending_sse_and_snapshot_keep_arguments(
+    conv, client: FlaskClient, tmp_path, monkeypatch
+):
+    """A native call's arguments reach both the live and reconnect payloads.
+
+    Regression: native calls carry their arguments in ``kwargs`` with
+    ``args=None`` and ``content=None``. The ``tool_pending`` SSE event and the
+    reconnect pending-tools snapshot only serialized tool/args/content, so the
+    webui confirmation and execution cards showed an empty preview.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    from gptme.llm.models import get_model
+    from gptme.message import Message
+    from gptme.server.session_step import step
+    from gptme.tools.base import set_tool_format
+
+    command = "sleep 8; printf packaged-null-args-ac2e"
+    set_tool_format("markdown")  # the server process default
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session.step_seq = 1
+    session.generating = True
+
+    with (
+        patch(
+            "gptme.server.session_step._stream",
+            return_value=iter(
+                [
+                    '@shell(call_1): {"command": "sleep 8; printf packaged-null-args-ac2e"}'
+                ]
+            ),
+        ),
+        patch("gptme.server.session_step.require_workspace_exists"),
+        patch("gptme.server.session_step.prepare_execution_environment"),
+        patch("gptme.server.session_step.trigger_hook", return_value=[]),
+        patch(
+            "gptme.server.session_step.prepare_messages",
+            return_value=[Message("user", "test")],
+        ),
+        patch("gptme.server.session_step._try_auto_name_and_notify"),
+        patch("gptme.server.session_step.set_workspace_cwd"),
+        patch(
+            "gptme.server.session_step.ChatConfig.load_or_create",
+            return_value=MagicMock(
+                tool_format="tool",
+                tools=None,
+                workspace=tmp_path,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+            ),
+        ),
+        patch("gptme.llm.models.get_model", return_value=get_model("gpt-4")),
+        patch("gptme.llm.models.set_default_model"),
+        patch("gptme.model_attestation.record_runtime_selection"),
+        patch("gptme.server.session_step._start_step_thread", return_value=True),
+    ):
+        step(
+            conversation_id=conv["conversation_id"],
+            session=session,
+            model="gpt-4",
+            workspace=tmp_path,
+            step_seq=1,
+        )
+
+    expected = {
+        "tool": "shell",
+        "args": None,
+        "content": None,
+        "kwargs": {"command": command},
+    }
+
+    # Live SSE payload
+    (pending_event,) = [
+        event for event in session.events if event.get("type") == "tool_pending"
+    ]
+    assert pending_event["type"] == "tool_pending"
+    assert pending_event.get("tooluse") == expected
+
+    # Reconnect snapshot
+    response = client.get(
+        f"/api/v2/conversations/{conv['conversation_id']}/events?session_id={session.id}",
+        buffered=False,
+    )
+    try:
+        first = next(response.iter_encoded()).decode("utf-8")
+    finally:
+        response.close()
+    connected = json.loads(first.removeprefix("data: ").strip())
+    assert connected["type"] == "connected"
+    (snapshot,) = connected["pending_tools"]
+    assert snapshot["tooluse"] == expected
