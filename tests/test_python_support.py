@@ -1,5 +1,6 @@
 """Installation entry points must use Python supported by project metadata."""
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -50,10 +51,17 @@ def test_minimum_python_runs_tests_without_coverage() -> None:
     assert "codecov/codecov-action" in minimal  # JUnit upload is retained.
     assert "flags: no-api,no-extras" not in minimal
 
+    # A parent `make test NO_COVERAGE=1 SRCDIRS=...` exports its overrides.
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "NO_COVERAGE", "SRCDIRS"}
+    }
     for no_coverage in (False, True):
         result = subprocess.run(
             ["make", "--dry-run", "test", *(["NO_COVERAGE=1"] if no_coverage else [])],
             cwd=ROOT,
+            env=env,
             capture_output=True,
             text=True,
             check=True,
