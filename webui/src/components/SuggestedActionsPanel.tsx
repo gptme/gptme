@@ -2,18 +2,13 @@ import { type FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Play,
-  Pause,
-  RotateCcw,
   MessageSquare,
   GitPullRequest,
-  GitMerge,
   Terminal,
-  Edit,
   Trash2,
   Archive,
   Plus,
   Eye,
-  AlertCircle,
   ExternalLink,
   CheckCircle,
   Copy,
@@ -42,6 +37,8 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
 
   const getSuggestedActions = (task: Task): TaskAction[] => {
     const actions: TaskAction[] = [];
+    // Workspace navigation is keyed by conversation, so it needs one to be enabled
+    const hasConversation = getLatestConversationId() !== null;
 
     switch (task.status) {
       case 'pending':
@@ -67,8 +64,7 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
           });
         }
 
-        // Add workspace action if workspace exists
-        if (task.workspace) {
+        if (hasConversation && task.workspace) {
           actions.push({
             id: 'open-workspace',
             label: 'Open Workspace',
@@ -78,59 +74,34 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
           });
         }
 
-        // Only show start task if no conversation exists yet
-        if (!task.conversation_ids || task.conversation_ids.length === 0) {
-          actions.push({
-            id: 'start-task',
-            label: 'Start Task',
-            description: 'Begin working on this task',
-            type: 'primary',
-            icon: 'Play',
-          });
-        }
-
-        actions.push(
-          {
-            id: 'edit-task',
-            label: 'Edit Task',
-            description: 'Modify task description or settings',
-            type: 'secondary',
-            icon: 'Edit',
-          },
-          {
-            id: task.archived ? 'unarchive' : 'archive',
-            label: task.archived ? 'Unarchive Task' : 'Archive Task',
-            description: task.archived ? 'Restore this task from archive' : 'Archive this task',
-            type: 'destructive',
-            icon: 'Archive',
-          }
-        );
+        actions.push({
+          id: task.archived ? 'unarchive' : 'archive',
+          label: task.archived ? 'Unarchive Task' : 'Archive Task',
+          description: task.archived ? 'Restore this task from archive' : 'Archive this task',
+          type: 'destructive',
+          icon: 'Archive',
+        });
         break;
 
       case 'active':
-        actions.push(
-          {
-            id: 'view-conversation',
-            label: 'View Conversation',
-            description: 'Open the chat interface for this task',
-            type: 'primary',
-            icon: 'MessageSquare',
-          },
-          {
-            id: 'open-workspace',
-            label: 'Open Workspace',
-            description: 'Access the task workspace in terminal',
-            type: 'secondary',
-            icon: 'Terminal',
-          },
-          {
-            id: 'pause-task',
-            label: 'Pause Task',
-            description: 'Temporarily stop task execution',
-            type: 'secondary',
-            icon: 'Pause',
-          }
-        );
+        if (hasConversation) {
+          actions.push(
+            {
+              id: 'view-conversation',
+              label: 'View Conversation',
+              description: 'Open the chat interface for this task',
+              type: 'primary',
+              icon: 'MessageSquare',
+            },
+            {
+              id: 'open-workspace',
+              label: 'Open Workspace',
+              description: 'Access the task workspace in terminal',
+              type: 'secondary',
+              icon: 'Terminal',
+            }
+          );
+        }
 
         // Add View PR action if PR exists for active tasks
         if (task.git?.pr_url) {
@@ -146,25 +117,16 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
 
       case 'completed':
         if (task.target_type === 'pr') {
-          // Always show view PR action for completed PR tasks
-          actions.push({
-            id: 'view-pr',
-            label: 'View Pull Request',
-            description: task.git?.pr_merged
-              ? 'View the merged pull request'
-              : 'Review the completed pull request',
-            type: 'primary',
-            icon: 'GitPullRequest',
-          });
-
-          // Only show merge action if PR is not yet merged
-          if (!task.git?.pr_merged && task.git?.pr_status === 'OPEN') {
+          // View PR for completed PR tasks; falls back to the repo's PR list without a PR URL
+          if (task.git?.pr_url || task.target_repo) {
             actions.push({
-              id: 'merge-pr',
-              label: 'Merge PR',
-              description: 'Merge the pull request if ready',
+              id: 'view-pr',
+              label: 'View Pull Request',
+              description: task.git?.pr_merged
+                ? 'View the merged pull request'
+                : 'Review the completed pull request',
               type: 'primary',
-              icon: 'GitMerge',
+              icon: 'GitPullRequest',
             });
           }
 
@@ -182,36 +144,15 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
         break;
 
       case 'failed':
-        actions.push(
-          {
-            id: 'retry-task',
-            label: 'Retry Task',
-            description: 'Restart the task from the beginning',
-            type: 'primary',
-            icon: 'RotateCcw',
-          },
-          {
+        if (hasConversation) {
+          actions.push({
             id: 'debug-workspace',
             label: 'Debug in Workspace',
             description: 'Open workspace to investigate the issue',
             type: 'secondary',
             icon: 'Terminal',
-          },
-          {
-            id: 'view-logs',
-            label: 'View Error Logs',
-            description: 'Examine detailed error information',
-            type: 'secondary',
-            icon: 'AlertCircle',
-          },
-          {
-            id: 'edit-and-retry',
-            label: 'Edit & Retry',
-            description: 'Modify task and try again',
-            type: 'secondary',
-            icon: 'Edit',
-          }
-        );
+          });
+        }
         break;
     }
 
@@ -221,18 +162,13 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
   const getActionIcon = (iconName: string) => {
     const icons = {
       Play: <Play className="h-4 w-4" />,
-      Pause: <Pause className="h-4 w-4" />,
-      RotateCcw: <RotateCcw className="h-4 w-4" />,
       MessageSquare: <MessageSquare className="h-4 w-4" />,
       GitPullRequest: <GitPullRequest className="h-4 w-4" />,
-      GitMerge: <GitMerge className="h-4 w-4" />,
       Terminal: <Terminal className="h-4 w-4" />,
-      Edit: <Edit className="h-4 w-4" />,
       Trash2: <Trash2 className="h-4 w-4" />,
       Archive: <Archive className="h-4 w-4" />,
       Plus: <Plus className="h-4 w-4" />,
       Eye: <Eye className="h-4 w-4" />,
-      AlertCircle: <AlertCircle className="h-4 w-4" />,
       ExternalLink: <ExternalLink className="h-4 w-4" />,
       CheckCircle: <CheckCircle className="h-4 w-4" />,
       Copy: <Copy className="h-4 w-4" />,
@@ -244,9 +180,6 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
     console.log(`Executing action: ${actionId} for task: ${task.id}`);
 
     switch (actionId) {
-      case 'start-task':
-        // Start the task
-        break;
       case 'view-conversation': {
         // Navigate to conversation view using the latest conversation ID
         const conversationId = getLatestConversationId();
@@ -272,9 +205,6 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
           window.open(`https://github.com/${task.target_repo}/pulls`, '_blank');
         }
         break;
-      case 'retry-task':
-        // Restart the task
-        break;
       case 'debug-workspace': {
         // Open workspace for debugging
         const debugConversationId = getLatestConversationId();
@@ -283,9 +213,6 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
         }
         break;
       }
-      case 'edit-task':
-        // Open edit dialog
-        break;
       case 'archive':
         // Archive task - could add confirmation dialog here if needed
         try {
@@ -317,7 +244,11 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm">Suggested Next Actions</CardTitle>
-        <CardDescription>Actions based on the current task state</CardDescription>
+        <CardDescription>
+          {suggestedActions.length > 0
+            ? 'Actions based on the current task state'
+            : 'No actions available for this task.'}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Primary Actions */}
