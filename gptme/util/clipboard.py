@@ -78,6 +78,8 @@ def copy() -> bool:
 
         # Declare return/argument types so handles and pointers are not
         # truncated to 32 bits on 64-bit Python.
+        user32.OpenClipboard.argtypes = [wintypes.HWND]
+        user32.GetActiveWindow.restype = wintypes.HWND
         kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
         kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
         kernel32.GlobalLock.restype = ctypes.c_void_p
@@ -88,7 +90,10 @@ def copy() -> bool:
         user32.SetClipboardData.restype = wintypes.HANDLE
         user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
 
-        if not user32.OpenClipboard(0):
+        # Open with an owner window when the thread has one so that
+        # EmptyClipboard() leaves a valid owner; fall back to NULL otherwise.
+        owner = user32.GetActiveWindow()
+        if not user32.OpenClipboard(owner):
             print("Failed to open Windows clipboard.")
             return False
         try:

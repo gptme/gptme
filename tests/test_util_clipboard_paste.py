@@ -216,19 +216,23 @@ class TestCopy:
         ):
             assert copy() is True
 
-    def _windows_ctypes(self, *, open_ok=True, alloc_ok=True, set_ok=True):
+    def _windows_ctypes(
+        self, *, open_ok=True, alloc_ok=True, lock_ok=True, set_ok=True
+    ):
         """Build a fake ctypes module exposing a Windows clipboard API.
 
         ``ctypes.windll`` only exists on Windows, so the whole surface the
         Windows branch touches is faked here, letting the test run on any OS.
         """
         import ctypes as real_ctypes
+        from ctypes import wintypes
 
         user32 = Mock()
         kernel32 = Mock()
+        user32.GetActiveWindow.return_value = 0
         user32.OpenClipboard.return_value = 1 if open_ok else 0
         kernel32.GlobalAlloc.return_value = 0x1000 if alloc_ok else 0
-        kernel32.GlobalLock.return_value = 0x2000
+        kernel32.GlobalLock.return_value = 0x2000 if lock_ok else 0
         user32.SetClipboardData.return_value = 0x1000 if set_ok else 0
 
         fake = Mock()
@@ -239,7 +243,7 @@ class TestCopy:
         fake.memmove = Mock()
         fake.c_void_p = real_ctypes.c_void_p
         fake.c_size_t = real_ctypes.c_size_t
-        fake.wintypes = real_ctypes.wintypes
+        fake.wintypes = wintypes
         return fake, user32, kernel32
 
     def test_copy_windows_success(self):
@@ -285,6 +289,36 @@ class TestCopy:
 
         # On failure ownership stays with us, so the handle must be freed.
         kernel32.GlobalFree.assert_called_once()
+        user32.CloseClipboard.assert_called_once()
+
+    def test_copy_windows_alloc_failure(self):
+        """Returns False without reaching SetClipboardData when allocation fails."""
+        set_copytext("no memory")
+        fake, user32, kernel32 = self._windows_ctypes(alloc_ok=False)
+
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch.dict("sys.modules", {"ctypes": fake}),
+        ):
+            assert copy() is False
+
+        kernel32.GlobalLock.assert_not_called()
+        user32.SetClipboardData.assert_not_called()
+        user32.CloseClipboard.assert_called_once()
+
+    def test_copy_windows_lock_failure_frees_handle(self):
+        """Frees the handle and never sets data when GlobalLock fails."""
+        set_copytext("cannot lock")
+        fake, user32, kernel32 = self._windows_ctypes(lock_ok=False)
+
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch.dict("sys.modules", {"ctypes": fake}),
+        ):
+            assert copy() is False
+
+        kernel32.GlobalFree.assert_called_once()
+        user32.SetClipboardData.assert_not_called()
         user32.CloseClipboard.assert_called_once()
 
     def test_copy_unsupported_platform(self):
