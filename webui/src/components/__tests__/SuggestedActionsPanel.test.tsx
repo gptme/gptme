@@ -171,6 +171,11 @@ describe('SuggestedActionsPanel', () => {
       expect(offeredLabels()).toEqual(['Archive Task']);
     });
 
+    it('pending with workspace but no conversation: only archive', () => {
+      renderPanel(makeTask({ workspace: '/ws', conversation_ids: [] }));
+      expect(offeredLabels()).toEqual(['Archive Task']);
+    });
+
     it('archived pending: only unarchive', () => {
       renderPanel(makeTask({ archived: true, conversation_ids: ['conv-1'] }));
       expect(offeredLabels()).toEqual(['View Conversation', 'Unarchive Task']);
