@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Utilities",
     "Programming Language :: Python :: 3",
 ]
-requires-python = ">=3.10,<3.16"
+requires-python = ">=3.11,<3.16"
 dependencies = [
     "click>=8.4,<9",
     "click-default-group>=1.2.4,<2",
@@ -72,7 +72,7 @@ browser = [
 ]
 docs = [  # enhanced HTML/XML parsing + PDF extraction; not required for basic use
     "lxml",  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
-    "pypdf>=6.19.0",  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
+    "pypdf>=6.21.1",  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop; >=6.21.1 for GHSA-5hx5-vpf9-5wcv)
 ]
 minimal = []  # no native extensions beyond pydantic-core; works on ARM/musl/Termux/Lambda
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
@@ -127,7 +127,7 @@ all = [
     "textual>=8,<9",
     "playwright==1.61.0",
     "lxml",
-    "pypdf>=6.19.0",
+    "pypdf>=6.21.1",
     "matplotlib",
     "pandas",
     "numpy",
