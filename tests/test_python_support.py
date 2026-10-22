@@ -55,7 +55,17 @@ def test_minimum_python_runs_tests_without_coverage() -> None:
     env = {
         k: v
         for k, v in os.environ.items()
-        if k not in {"MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "NO_COVERAGE", "SRCDIRS"}
+        if k
+        not in {
+            "MAKEFLAGS",
+            "MFLAGS",
+            "MAKEOVERRIDES",
+            "NO_COVERAGE",
+            "SRCDIRS",
+            "SLOW",
+            "EVAL",
+            "PROFILE",
+        }
     }
     for no_coverage in (False, True):
         result = subprocess.run(
