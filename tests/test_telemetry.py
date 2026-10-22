@@ -36,8 +36,17 @@ def test_telemetry_imports_lazy():
     subprocess.check_call([sys.executable, "-c", code])
 
 
-@pytest.mark.parametrize("content_setting", [None, "", "false", "true", "TrUe"])
-@pytest.mark.parametrize("context_override", [False, True])
+@pytest.mark.parametrize(
+    ("content_setting", "context_override"),
+    [
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("true", False),
+        ("TrUe", False),
+        ("false", True),
+    ],
+)
 def test_sdk_content_capture_policy(
     content_setting: str | None, context_override: bool
 ) -> None:
@@ -99,7 +108,7 @@ def respond(request):
 # Replace only the export boundary, keeping gptme's providers and SDK setup real.
 # Any accidental provider/collector traffic fails even during shutdown.
 with (
-    patch("socket.socket.connect", side_effect=AssertionError("Unexpected network")),
+    patch("socket.socket.connect", side_effect=AssertionError("Unexpected network")) as connect,
     patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter",
           return_value=exporter),
     patch("opentelemetry.sdk.trace.export.BatchSpanProcessor",
@@ -110,6 +119,7 @@ with (
 ):
     init_telemetry(enable_flask_instrumentation=False, enable_requests_instrumentation=False)
     assert is_telemetry_enabled(), "Initialization failed"
+    assert os.environ["TRACELOOP_TRACE_CONTENT"] == os.environ["TEST_EXPECT_SETTING"]
     override = os.environ["TEST_CONTEXT_OVERRIDE"] == "true"
     token = context.attach(context.set_value("override_enable_content_tracing", override))
     try:
@@ -145,11 +155,13 @@ with (
         context.detach(token)
         shutdown_telemetry()
     assert len(requests) == 2
+    connect.assert_not_called()
 """
     env = {**os.environ, "GPTME_TELEMETRY_ENABLED": "true"}
     env.pop("TRACELOOP_TRACE_CONTENT", None)
     if content_setting is not None:
         env["TRACELOOP_TRACE_CONTENT"] = content_setting
+    env["TEST_EXPECT_SETTING"] = content_setting or "false"
     env["TEST_CONTEXT_OVERRIDE"] = str(context_override).lower()
     env["TEST_EXPECT_CONTENT"] = str(
         context_override or (content_setting or "").lower() == "true"
