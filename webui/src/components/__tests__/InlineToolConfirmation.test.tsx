@@ -268,3 +268,28 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
     }
   });
 });
+
+describe('InlineToolConfirmation — native kwargs preview', () => {
+  const kwargs = { command: 'sleep 8; printf packaged-null-args-ac2e' };
+
+  it('shows JSON kwargs when args and content are null', () => {
+    renderConfirmation({
+      pendingTool: makePendingTool({ args: null, content: null, kwargs }),
+    });
+
+    expect(document.body.textContent).toContain(
+      '"command": "sleep 8; printf packaged-null-args-ac2e"'
+    );
+    expect(screen.getByRole('button', { name: /execute/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+  });
+
+  it('prefers markdown content over kwargs when both are present', () => {
+    renderConfirmation({
+      pendingTool: makePendingTool({ args: null, content: 'regression-content', kwargs }),
+    });
+
+    expect(screen.getByText('regression-content')).toBeVisible();
+    expect(document.body.textContent).not.toContain('"command"');
+  });
+});

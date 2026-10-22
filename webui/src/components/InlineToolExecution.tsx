@@ -84,6 +84,11 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
 
   if (!executingTool) return null;
 
+  // Native tool calls have no content, only kwargs: preview those as JSON
+  const previewCode =
+    executingTool.tooluse.content ||
+    (executingTool.tooluse.kwargs ? JSON.stringify(executingTool.tooluse.kwargs, null, 2) : '');
+
   return (
     <div className="role-system mb-2 mt-2">
       <div className="mx-auto max-w-3xl px-4">
@@ -124,14 +129,18 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                 {/* Code */}
                 <div className="space-y-1">
                   <CodeDisplay
-                    code={executingTool.tooluse.content}
+                    code={previewCode}
                     maxHeight="200px"
                     showLineNumbers={true}
-                    language={detectToolLanguage(
-                      executingTool.tooluse.tool,
-                      executingTool.tooluse.args ?? undefined,
+                    language={
                       executingTool.tooluse.content
-                    )}
+                        ? detectToolLanguage(
+                            executingTool.tooluse.tool,
+                            executingTool.tooluse.args ?? undefined,
+                            executingTool.tooluse.content
+                          )
+                        : 'json'
+                    }
                   />
                 </div>
 
