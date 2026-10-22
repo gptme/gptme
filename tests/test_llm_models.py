@@ -11,6 +11,7 @@ from gptme.llm.models import (
     RECOMMENDED_MODELS,
     SUMMARY_MODELS,
     ModelMeta,
+    _apply_model_filters,
     _find_closest_model_properties,
     _get_models_for_provider,
     get_model,
@@ -826,3 +827,24 @@ def test_list_models_detailed_uses_parallel_fetch(mock_fetch, capsys):
     assert dynamic_arg is False
     out = capsys.readouterr().out
     assert "parallel-sentinel" in out
+
+
+def test_gemini_flash_lite_hidden_from_setup_but_still_resolvable() -> None:
+    """Hide the retired model from setup without breaking explicit configurations."""
+    static_gemini = _get_models_for_provider("gemini", dynamic_fetch=False)
+    static_names = {m.model for m in static_gemini}
+    assert "gemini-2.5-flash-lite" in static_names
+
+    setup_names = {m.model for m in _apply_model_filters(static_gemini)}
+    assert "gemini-2.5-flash-lite" not in setup_names
+    # Only the retired model is affected; its active siblings stay in setup
+    assert "gemini-2.5-flash" in setup_names
+
+    all_names = {
+        m.model for m in _apply_model_filters(static_gemini, include_deprecated=True)
+    }
+    assert "gemini-2.5-flash-lite" in all_names
+
+    meta = get_model("gemini/gemini-2.5-flash-lite")
+    assert meta.model == "gemini-2.5-flash-lite"
+    assert meta.deprecated
