@@ -167,18 +167,14 @@ jobs:
     - name: Install dependencies (no extras)
       run: uv sync --frozen
 
+    # Python 3.11 spins under coverage after SetAsyncExc(..., NULL), even
+    # when clearing an empty slot. Keep every behavior test; collect coverage
+    # in the Python 3.12 full-install job instead.
     - name: Run tests (no extras, fast only)
       env:
         TERM: xterm
         MODEL: local/test
-      run: make test
-
-    - name: Upload coverage reports to Codecov
-      if: ${{ !cancelled() }}
-      uses: codecov/codecov-action@v7
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        flags: no-api,no-extras
+      run: make test NO_COVERAGE=1
 
     - name: Upload test results to Codecov
       if: ${{ !cancelled() }}

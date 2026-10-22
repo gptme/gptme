@@ -1,6 +1,7 @@
 """Installation entry points must use Python supported by project metadata."""
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,28 @@ def test_computer_docker_uses_supported_ubuntu_python_in_venv() -> None:
     assert "python3 -m venv /opt/venv" in text
     assert 'ENV PATH="/opt/venv/bin:' in text
     assert "python3.10" not in text
+
+
+def test_minimum_python_runs_tests_without_coverage() -> None:
+    """Keep 3.11 behavior tests, without its SetAsyncExc/tracer hang."""
+    workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text()
+    minimal = workflow.split("  test-minimal:", 1)[1].split("  test-py315:", 1)[0]
+    assert "make test NO_COVERAGE=1" in minimal
+    assert "codecov/codecov-action" in minimal  # JUnit upload is retained.
+    assert "flags: no-api,no-extras" not in minimal
+
+    for no_coverage in (False, True):
+        result = subprocess.run(
+            ["make", "--dry-run", "test", *(["NO_COVERAGE=1"] if no_coverage else [])],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert ("--cov=gptme" in result.stdout) is not no_coverage
+        assert "--junitxml=junit.xml" in result.stdout
+        assert "--timeout 60" in result.stdout
+        assert "not slow and not eval" in result.stdout
 
 
 def test_readme_python_prerequisites_are_supported() -> None:
