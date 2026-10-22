@@ -36,6 +36,153 @@ def test_telemetry_imports_lazy():
     subprocess.check_call([sys.executable, "-c", code])
 
 
+@pytest.mark.parametrize("content_setting", [None, "", "false", "true", "TrUe"])
+@pytest.mark.parametrize("context_override", [False, True])
+def test_sdk_content_capture_policy(
+    content_setting: str | None, context_override: bool
+) -> None:
+    """Actual initialization preserves SDK metadata and requires content opt-in."""
+    for dependency in (
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        "opentelemetry.instrumentation.flask",
+        "opentelemetry.instrumentation.requests",
+        "opentelemetry.instrumentation.openai",
+        "opentelemetry.instrumentation.anthropic",
+        "opentelemetry.instrumentation.threading",
+    ):
+        pytest.importorskip(dependency)
+    code = """
+import json
+import os
+from unittest.mock import patch
+
+import httpx
+import httpx2
+from anthropic import Anthropic
+from openai import OpenAI
+from opentelemetry import context
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+from gptme.util._telemetry import init_telemetry, is_telemetry_enabled, shutdown_telemetry
+
+prompt = "SYNTHETIC_PRIVATE_PROMPT"
+completion = "SYNTHETIC_PRIVATE_COMPLETION"
+exporter = InMemorySpanExporter()
+reader = InMemoryMetricReader()
+requests = []
+
+def respond(request):
+    assert request.url.host == "synthetic.invalid"
+    assert prompt in request.content.decode()
+    requests.append(request.url.path)
+    if request.url.path.endswith("/chat/completions"):
+        body = {
+            "id": "chatcmpl-synthetic", "object": "chat.completion", "created": 1,
+            "model": "synthetic-model",
+            "choices": [{"index": 0, "message": {
+                "role": "assistant", "content": completion}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+        }
+    else:
+        assert request.url.path.endswith("/messages")
+        body = {
+            "id": "msg-synthetic", "type": "message", "role": "assistant",
+            "model": "synthetic-model", "stop_reason": "end_turn", "stop_sequence": None,
+            "content": [{"type": "text", "text": completion}],
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+        }
+    transport = httpx2 if isinstance(request, httpx2.Request) else httpx
+    return transport.Response(200, json=body)
+
+# Replace only the export boundary, keeping gptme's providers and SDK setup real.
+# Any accidental provider/collector traffic fails even during shutdown.
+with (
+    patch("socket.socket.connect", side_effect=AssertionError("Unexpected network")),
+    patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter",
+          return_value=exporter),
+    patch("opentelemetry.sdk.trace.export.BatchSpanProcessor",
+          side_effect=lambda exporter, **kwargs: SimpleSpanProcessor(exporter)),
+    patch("opentelemetry.exporter.otlp.proto.http.metric_exporter.OTLPMetricExporter"),
+    patch("opentelemetry.sdk.metrics.export.PeriodicExportingMetricReader",
+          return_value=reader),
+):
+    init_telemetry(enable_flask_instrumentation=False, enable_requests_instrumentation=False)
+    assert is_telemetry_enabled(), "Initialization failed"
+    override = os.environ["TEST_CONTEXT_OVERRIDE"] == "true"
+    token = context.attach(context.set_value("override_enable_content_tracing", override))
+    try:
+        for sdk in (OpenAI, Anthropic):
+            exporter.clear()
+            transport = httpx if sdk is OpenAI else httpx2
+            with sdk(api_key="synthetic-not-a-key", base_url="https://synthetic.invalid/v1",
+                     max_retries=0,
+                     http_client=transport.Client(transport=transport.MockTransport(respond))) as client:
+                if sdk is OpenAI:
+                    response = client.chat.completions.create(
+                        model="synthetic-model", messages=[{"role": "user", "content": prompt}])
+                    assert response.choices[0].message.content == completion
+                else:
+                    response = client.messages.create(model="synthetic-model", max_tokens=20,
+                        messages=[{"role": "user", "content": prompt}])
+                    assert response.content[0].text == completion
+            spans = exporter.get_finished_spans()
+            assert len(spans) == 1, (sdk, [span.name for span in spans])
+            span = spans[0]
+            attrs = dict(span.attributes)
+            assert span.name == ("openai.chat" if sdk is OpenAI else "anthropic.chat")
+            assert attrs["gen_ai.request.model"] == "synthetic-model"
+            assert attrs["gen_ai.response.model"] == "synthetic-model"
+            assert attrs["gen_ai.usage.input_tokens"] == 10
+            assert attrs["gen_ai.usage.output_tokens"] == 2
+            captured = json.dumps({"attributes": attrs, "events": [
+                dict(event.attributes or {}) for event in span.events]})
+            expected = os.environ["TEST_EXPECT_CONTENT"] == "true"
+            assert (prompt in captured) == expected, (sdk, "prompt", captured)
+            assert (completion in captured) == expected, (sdk, "completion", captured)
+    finally:
+        context.detach(token)
+        shutdown_telemetry()
+    assert len(requests) == 2
+"""
+    env = {**os.environ, "GPTME_TELEMETRY_ENABLED": "true"}
+    env.pop("TRACELOOP_TRACE_CONTENT", None)
+    if content_setting is not None:
+        env["TRACELOOP_TRACE_CONTENT"] = content_setting
+    env["TEST_CONTEXT_OVERRIDE"] = str(context_override).lower()
+    env["TEST_EXPECT_CONTENT"] = str(
+        context_override or (content_setting or "").lower() == "true"
+    ).lower()
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_disabled_telemetry_preserves_content_setting() -> None:
+    """Disabled initialization leaves SDK imports and content policy untouched."""
+    code = """
+import os
+import sys
+from gptme.util._telemetry import init_telemetry
+
+init_telemetry()
+assert "TRACELOOP_TRACE_CONTENT" not in os.environ
+assert not any(name == "opentelemetry" or name.startswith("opentelemetry.")
+               for name in sys.modules)
+"""
+    env = {**os.environ, "GPTME_TELEMETRY_ENABLED": "false"}
+    env.pop("TRACELOOP_TRACE_CONTENT", None)
+    subprocess.run([sys.executable, "-c", code], env=env, check=True, timeout=30)
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(
     not _has_telemetry_deps(),
