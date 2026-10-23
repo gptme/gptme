@@ -624,3 +624,72 @@ it('hands a new-chat rejected POST to existing message Retry without uploading a
     undefined
   );
 });
+
+it('clears the unsent placeholder log after new-chat upload rejection', async () => {
+  const create = jest.spyOn(mockClient, 'createConversation');
+  jest.spyOn(mockClient, 'uploadFiles').mockRejectedValue(new ApiClientError('Too large', 413));
+  await expect(
+    mockClient.createConversationWithPlaceholder('never saved', {
+      pendingFiles: [new File(['one'], 'one.txt')],
+    })
+  ).rejects.toThrow();
+  const id = create.mock.calls[0][0];
+  expect(conversations$.get(id)!.data.log.get()).toEqual([]);
+  expect(conversations$.get(id)!.isGenerating.get()).toBe(false);
+});
+
+it('releases an old upload lock on conversation change without unlocking a newer upload', async () => {
+  let firstOptions: any;
+  let secondOptions: any;
+  let finishFirst!: () => void;
+  let finishSecond!: () => void;
+  const first = new Promise<void>((resolve) => {
+    finishFirst = resolve;
+  });
+  const second = new Promise<void>((resolve) => {
+    finishSecond = resolve;
+  });
+  const onSend = jest
+    .fn()
+    .mockImplementationOnce((_message, options) => {
+      firstOptions = options;
+      return first;
+    })
+    .mockImplementationOnce((_message, options) => {
+      secondOptions = options;
+      return second;
+    });
+  const { container, rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={onSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'first draft' } });
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['one'], 'one.txt')] },
+  });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(input).toBeDisabled();
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={onSend} />
+  );
+  await waitFor(() => expect(input).toBeEnabled());
+  fireEvent.change(input, { target: { value: 'second draft' } });
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['two'], 'two.txt')] },
+  });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(input).toBeDisabled();
+  await act(async () => {
+    firstOptions.onFilesUploaded();
+    finishFirst();
+  });
+  expect(input).toBeDisabled();
+  expect(input).toHaveValue('second draft');
+  expect(screen.getByText('two.txt')).toBeInTheDocument();
+  await act(async () => {
+    secondOptions.onFilesUploaded();
+    finishSecond();
+  });
+  expect(input).toBeEnabled();
+  expect(input).toHaveValue('');
+});

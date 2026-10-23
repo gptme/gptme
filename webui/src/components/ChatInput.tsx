@@ -908,6 +908,14 @@ export const ChatInput: FC<Props> = ({
   // Async upload completion must not clear a different conversation's draft.
   const currentDraftKey = useRef(storageKey);
   currentDraftKey.current = storageKey;
+  const submissionEpoch = useRef(0);
+  useEffect(() => {
+    // A mounted composer can change conversations while an old request is pending.
+    // Invalidate its callbacks as well as releasing this conversation's lock.
+    submissionEpoch.current++;
+    uploadInFlight.current = false;
+    setIsUploading(false);
+  }, [storageKey]);
 
   const autoFocus = use$(autoFocus$);
   const conversation = conversationId ? use$(conversations$.get(conversationId)) : undefined;
@@ -1108,9 +1116,15 @@ export const ChatInput: FC<Props> = ({
         topP,
       };
       const draftKey = storageKey;
+      const epoch = ++submissionEpoch.current;
       let draftCleared = false;
       const clearSubmittedDraft = () => {
-        if (draftCleared || currentDraftKey.current !== draftKey) return;
+        if (
+          draftCleared ||
+          submissionEpoch.current !== epoch ||
+          currentDraftKey.current !== draftKey
+        )
+          return;
         draftCleared = true;
         uploadInFlight.current = false;
         setIsUploading(false);
@@ -1137,6 +1151,7 @@ export const ChatInput: FC<Props> = ({
           error && typeof error === 'object' && 'status' in error
             ? (error as { status: number }).status
             : undefined;
+        if (submissionEpoch.current !== epoch || currentDraftKey.current !== draftKey) return;
         if (status === 409 && !(error instanceof AttachmentUploadError)) {
           // Preserve the existing server-busy queue behavior.
           clearSubmittedDraft();
@@ -1155,7 +1170,7 @@ export const ChatInput: FC<Props> = ({
       } finally {
         // The upload callback may already have released the composer and a
         // newer send may be uploading. Do not unlock that newer submission.
-        if (!draftCleared) {
+        if (!draftCleared && submissionEpoch.current === epoch) {
           uploadInFlight.current = false;
           setIsUploading(false);
         }
