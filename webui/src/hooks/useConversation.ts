@@ -760,7 +760,8 @@ export function useConversation(conversationId: string, serverId?: string) {
     userMessage: Message,
     options: ChatOptions | undefined,
     epoch: number,
-    messageSent: boolean
+    messageSent: boolean,
+    requeueOnBusy = true
   ) => {
     const resumingSavedMessage = messageSent;
     const checkRetryTurn = () => {
@@ -863,7 +864,12 @@ export function useConversation(conversationId: string, serverId?: string) {
       // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
       // Once persisted, a 409 falls through to the failed-status path below —
       // a requeue would re-send and duplicate the message.
-      if (!messageSent && ApiClientError.isApiError(error) && error.status === 409) {
+      if (
+        !messageSent &&
+        requeueOnBusy &&
+        ApiClientError.isApiError(error) &&
+        error.status === 409
+      ) {
         removeMessage(conversationId, userMessage.timestamp!);
         throw error;
       }
@@ -872,7 +878,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         // errors and 5xx responses are ambiguous and must never blindly repost.
         const rejected =
           ApiClientError.isApiError(error) &&
-          [400, 401, 403, 404, 413, 422].includes(error.status ?? 0);
+          [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
         setRetryState(rejected ? 'rejected' : 'unknown');
       }
       const { title, description } = getApiErrorPresentation(error, {
@@ -1001,7 +1007,8 @@ export function useConversation(conversationId: string, serverId?: string) {
         current,
         current._retry.options,
         epoch,
-        current._retry.persistence === 'saved'
+        current._retry.persistence === 'saved',
+        false
       );
     });
   };

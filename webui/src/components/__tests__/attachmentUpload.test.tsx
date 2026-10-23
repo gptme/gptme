@@ -752,3 +752,78 @@ it('does not requeue a rejected upload into a different conversation', async () 
   expect(screen.queryByRole('button', { name: 'Retry upload' })).not.toBeInTheDocument();
   expect(screen.queryByText('private queued draft')).not.toBeInTheDocument();
 });
+
+it('does not flush the previous conversation queue on a busy-to-idle conversation switch', async () => {
+  conversations$.get('upload-existing')!.isGenerating.set(true);
+  const oldSend = jest.fn();
+  const newSend = jest.fn();
+  const { rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'private queued text' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={newSend} />
+  );
+  expect(newSend).not.toHaveBeenCalled();
+});
+
+it('does not clear a controlled replacement draft after the original composer unmounts', async () => {
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  function Parent({ server }: { server: string }) {
+    const [value, setValue] = useState('original draft');
+    return (
+      <ChatInput
+        key={server}
+        value={value}
+        onChange={setValue}
+        autoFocus$={observable(false)}
+        onSend={() => pending}
+      />
+    );
+  }
+  const { container, rerender } = render(<Parent server="a" />);
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['one'], 'one.txt')] },
+  });
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Chat message' }), { key: 'Enter' });
+  rerender(<Parent server="b" />);
+  fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+    target: { value: 'new server draft' },
+  });
+  await act(async () => {
+    finish();
+  });
+  expect(screen.getByRole('textbox', { name: 'Chat message' })).toHaveValue('new server draft');
+});
+
+it('keeps a new-chat failed message available when deliberate Retry also returns 409', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  jest
+    .spyOn(mockClient, 'uploadFiles')
+    .mockResolvedValue({ files: [{ path: 'attachments/retry.txt' }] } as any);
+  const post = jest
+    .spyOn(mockClient, 'sendMessage')
+    .mockRejectedValue(new ApiClientError('busy', 409));
+  const id = await mockClient.createConversationWithPlaceholder('retry while busy', {
+    pendingFiles: [new File(['retry'], 'retry.txt')],
+  });
+  const failed = conversations$.get(id)!.data.log.get().at(-1)!;
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.retryMessage(failed);
+  });
+  expect(conversations$.get(id)!.data.log.get()).toEqual([
+    expect.objectContaining({
+      content: 'retry while busy',
+      files: ['attachments/retry.txt'],
+      _status: 'failed',
+      _retry: { persistence: 'rejected', options: expect.any(Object) },
+    }),
+  ]);
+  expect(post).toHaveBeenCalledTimes(2);
+});
