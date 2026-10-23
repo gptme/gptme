@@ -264,3 +264,26 @@ def test_relative_discovery_does_not_protect_nonhome_docker(
     (tmp_path / ".docker" / "config.json").write_text('{"auth": "synthetic"}\n')
     assert _find_secret_path_in_cmd("grep -r auth .") is None
     assert _find_secret_path_in_cmd("cat .d*/*") is None
+
+
+@pytest.mark.parametrize("option", ["-L", "-Li", "--follow"])
+def test_ripgrep_follow_flag_still_detects_value_output(
+    secret_tree: Path, option: str
+) -> None:
+    assert _find_secret_path_in_cmd(f"rg {option} synthetic config/*") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -L synthetic config/*",
+        "rg --files-without-match synthetic config/*",
+        "rg -l synthetic config/*",
+        "rg -q synthetic config/*",
+        "rg -c synthetic config/*",
+    ],
+)
+def test_filename_only_and_quiet_searches_stay_allowed(
+    secret_tree: Path, command: str
+) -> None:
+    assert _find_secret_path_in_cmd(command) is None

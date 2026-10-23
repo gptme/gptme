@@ -59,7 +59,7 @@ class _Grep:
     pattern_file: bool = False
 
 
-def _parse_grep(args: list[str]) -> _Grep:
+def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
     result = _Grep()
     operands: list[str] = []
     args_iter = iter(args)
@@ -74,7 +74,7 @@ def _parse_grep(args: list[str]) -> _Grep:
         "--quiet": "q",
         "--silent": "q",
         "--files-with-matches": "l",
-        "--files-without-match": "L",
+        "--files-without-match": "l",
         "--count": "c",
     }
     value_flags = {
@@ -115,7 +115,8 @@ def _parse_grep(args: list[str]) -> _Grep:
             continue
         if arg.startswith("-") and len(arg) > 1:
             for index, flag in enumerate(arg[1:], 1):
-                if flag not in "ABC":
+                # rg -L follows symlinks; GNU grep -L prints filenames only.
+                if flag not in "ABC" and not (ripgrep and flag == "L"):
                     result.flags += flag
                 if flag in "123456789":
                     result.flags += "C"
@@ -268,7 +269,9 @@ def find_secret_reach(
             continue
         name = Path(words[0]).name
         grep = (
-            _parse_grep(words[1:]) if name in {"grep", "egrep", "fgrep", "rg"} else None
+            _parse_grep(words[1:], ripgrep=name == "rg")
+            if name in {"grep", "egrep", "fgrep", "rg"}
+            else None
         )
         if grep and name == "fgrep":
             grep.flags += "F"
