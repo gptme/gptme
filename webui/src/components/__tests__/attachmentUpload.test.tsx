@@ -638,6 +638,46 @@ it('clears the unsent placeholder log after new-chat upload rejection', async ()
   expect(conversations$.get(id)!.isGenerating.get()).toBe(false);
 });
 
+it('keeps newer saved messages when an earlier new-chat upload fails', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let rejectUpload!: (error: unknown) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectUpload = reject;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  const post = jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('never saved', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  // Observe the rejection now, before settling the deferred upload below.
+  const rejection = expect(creation).rejects.toThrow(AttachmentUploadError);
+  await waitFor(() => expect(rejectUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  expect(post).toHaveBeenCalledTimes(1);
+  const saved = post.mock.calls[0][1];
+  expect(saved.content).toBe('newer saved message');
+  await act(async () => {
+    rejectUpload(new ApiClientError('Too large', 413));
+    await rejection;
+  });
+  expect(conversations$.get(id)!.data.log.get()).toEqual([
+    expect.objectContaining({
+      content: saved.content,
+      timestamp: saved.timestamp,
+      _status: 'sent',
+    }),
+  ]);
+});
+
 it('releases an old upload lock on conversation change without unlocking a newer upload', async () => {
   let firstOptions: any;
   let secondOptions: any;
