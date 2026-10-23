@@ -224,6 +224,23 @@ def _read_tail_lines(f: BinaryIO, file_size: int) -> Generator[bytes, None, None
             yield b"".join(reversed(fragments))
 
 
+def _row_metadata(line: bytes) -> dict[str, Any] | None:
+    """Return a row's ``metadata`` object, or None when the row is unusable.
+
+    Readers must skip a corrupt row instead of failing the whole scan, so a
+    line that is not a JSON object — or whose ``metadata`` is not one — yields
+    None rather than raising on the first ``.get``.
+    """
+    try:
+        row = json.loads(line)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(row, dict):
+        return None
+    metadata = row.get("metadata")
+    return metadata if isinstance(metadata, dict) else None
+
+
 def _fast_scan_tail(
     conv_fn: Path, file_size: int
 ) -> tuple[int, str | None, bytes | None]:
@@ -258,13 +275,9 @@ def _fast_scan_tail(
             if last_msg_line is None and _is_candidate_line(line):
                 last_msg_line = line
             if conv_model is None and b'"metadata"' in line:
-                try:
-                    msg = json.loads(line)
-                    meta = msg.get("metadata")
-                    if meta and meta.get("model"):
-                        conv_model = meta["model"]
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                meta = _row_metadata(line)
+                if meta and meta.get("model"):
+                    conv_model = meta["model"]
             if last_msg_line is not None and conv_model is not None:
                 break
 
@@ -309,16 +322,17 @@ def _full_scan(
                 last_msg_line = line
             if b'"metadata"' in line:
                 try:
-                    msg = json.loads(line)
-                    meta = msg.get("metadata")
+                    meta = _row_metadata(line)
                     if meta:
                         msg_model = meta.get("model")
                         if msg_model:
                             conv_model = msg_model
                         cost = meta.get("cost", 0) or 0
                         conv_cost += cost
-                        usage = meta.get("usage", {})
-                        src = usage or meta
+                        # A malformed ``usage`` falls back to the metadata
+                        # fields themselves, like an absent one.
+                        usage = meta.get("usage")
+                        src = usage if isinstance(usage, dict) and usage else meta
                         cache_read = src.get("cache_read_tokens", 0) or 0
                         in_tok = (
                             (src.get("input_tokens", 0) or 0)
@@ -344,7 +358,9 @@ def _full_scan(
                         mu["input_tokens"] += in_tok
                         mu["output_tokens"] += out_tok
                         mu["cache_read_tokens"] += cache_read
-                except (json.JSONDecodeError, TypeError):
+                except TypeError:
+                    # Wrong-typed numbers in an otherwise valid row: skip its
+                    # accounting rather than failing the scan.
                     pass
     return (
         len_msgs,
