@@ -592,6 +592,7 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
     from datetime import datetime, timezone  # fmt: skip
 
     from ..logmanager import conversation_name_error  # fmt: skip
+    from ..logmanager.fork import copy_messages_for_fork  # fmt: skip
     from ..logmanager.manager import Log  # fmt: skip
 
     if not _is_valid_id(id):
@@ -636,12 +637,14 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         ) from None
 
     try:
-        Log(sliced).write_jsonl(new_logdir / "conversation.jsonl")
-
         for subdir in ("files", "attachments"):
             src = source_logdir / subdir
             if src.exists():
                 shutil.copytree(src, new_logdir / subdir, symlinks=True)
+        copied = copy_messages_for_fork(
+            sliced, source_logdir, new_logdir, files_already_copied=True
+        )
+        Log(copied).write_jsonl(new_logdir / "conversation.jsonl")
     except Exception:
         shutil.rmtree(new_logdir, ignore_errors=True)
         raise
