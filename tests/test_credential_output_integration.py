@@ -169,7 +169,14 @@ def test_review_regressions_through_confirmation_chain(
 @pytest.mark.parametrize("shape", ["native", "markdown"])
 @pytest.mark.parametrize("mode", ["enforce", "shadow", "off"])
 @pytest.mark.parametrize(
-    "command", ["cat config/*", "grep -rn TOKEN .", "grep -rn 'def foo' ."]
+    "command",
+    [
+        "cat config/*",
+        "grep -rn TOKEN .",
+        "grep -r --binary-files text TOKEN .",
+        "rg -S synthetic config/*",
+        "grep -rn 'def foo' .",
+    ],
 )
 def test_secret_reach_through_confirmation_chain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, mode: str, command: str
@@ -177,7 +184,7 @@ def test_secret_reach_through_confirmation_chain(
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("TOKEN=synthetic-only\n")
     (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "client.pem").write_text("synthetic-only\n")
+    (tmp_path / "config" / "client.pem").write_text("SYNTHETIC-ONLY\n")
     _register_chain(monkeypatch, mode)
 
     messages, received = _execute_synthetic(command, shape)

@@ -95,6 +95,24 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         # Selection is conservative: rg globs have different semantics to grep.
         value_flags["--glob"] = "g"
         value_flags["--iglob"] = "g"
+        long_flags.update({"--smart-case": "S", "--case-sensitive": "s"})
+    else:
+        value_flags.update(
+            {
+                "--binary-files": "binary_files",
+                "--directories": "d",
+                "--devices": "D",
+                "--label": "label",
+                "--group-separator": "group_separator",
+                "--exclude-from": "exclude_from",
+            }
+        )
+
+    def add_flag(flag: str) -> None:
+        # Ripgrep's last case-mode option wins (GNU grep -s is unrelated).
+        if ripgrep and flag in {"i", "s", "S"}:
+            result.flags = result.flags.translate(str.maketrans("", "", "isS"))
+        result.flags += flag
 
     def value_option(flag: str, value: str) -> None:
         if flag == "e":
@@ -106,7 +124,9 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             result.filters.append((flag == "include", value))
         elif flag == "exclude_dir":
             result.exclude_dirs.append(value)
-        elif flag in "ABC" and value.strip("0"):
+        elif flag == "d" and value == "recurse":
+            result.flags += "r"
+        elif flag in {"A", "B", "C"} and value.strip("0"):
             result.flags += "C"
 
     for arg in args_iter:
@@ -118,14 +138,14 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             if name in value_flags:
                 value_option(value_flags[name], value if eq else next(args_iter, ""))
             else:
-                result.flags += long_flags.get(name, "")
+                add_flag(long_flags.get(name, ""))
             continue
         if arg.startswith("-") and len(arg) > 1:
             for index, flag in enumerate(arg[1:], 1):
                 # rg -L follows symlinks and -z searches compressed files;
                 # neither has GNU grep's filename-only/NUL-record meaning.
                 if flag not in "ABC" and not (ripgrep and flag in "Lz"):
-                    result.flags += flag
+                    add_flag(flag)
                 if flag in "123456789":
                     result.flags += "C"
                 if flag in "efmABCdD" or (ripgrep and flag == "g"):
@@ -216,6 +236,11 @@ def _matches_values(grep: _Grep, path: str) -> bool:
         lines = [
             line for line in lines if "=" in line and not line.lstrip().startswith("#")
         ]
+    # Smart case is selected for the entire pattern set, not each alternative.
+    ignore_case = "i" in grep.flags or (
+        "S" in grep.flags
+        and not any(char.isupper() for pattern in grep.patterns for char in pattern)
+    )
     for pattern in (part for operand in grep.patterns for part in operand.split("\n")):
         if "F" in grep.flags:
             source = re.escape(pattern)
@@ -237,7 +262,7 @@ def _matches_values(grep: _Grep, path: str) -> bool:
         if "x" in grep.flags:
             source = rf"^(?:{source})$"
         try:
-            regex = re.compile(source, re.IGNORECASE if "i" in grep.flags else 0)
+            regex = re.compile(source, re.IGNORECASE if ignore_case else 0)
         except re.error:
             return True
         if any(regex.search(line) for line in lines):

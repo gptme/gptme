@@ -335,3 +335,57 @@ def test_glob_preserves_quoted_directory_whitespace(
     (tmp_path / " config").mkdir()
     (tmp_path / " config" / "client.pem").write_text("synthetic certificate\n")
     assert _find_secret_path_in_cmd("cat ' config'/*") is not None
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "--binary-files text",
+        "--binary-files=text",
+        "--directories recurse",
+        "--devices read",
+        "--label fixture",
+        "--group-separator separator",
+        "--exclude-from excludes.txt",
+    ],
+)
+def test_grep_value_options_preserve_search_pattern(
+    secret_tree: Path, option: str
+) -> None:
+    (secret_tree / "excludes.txt").write_text("*.py\n")
+    assert _find_secret_path_in_cmd(f"grep -r {option} TOKEN .") is not None
+    assert _find_secret_path_in_cmd(f"grep -r {option} ABSENT .") is None
+
+
+@pytest.mark.parametrize("option", ["-d recurse", "-drecurse", "--directories=recurse"])
+def test_grep_directory_option_enables_shallow_recursion(
+    secret_tree: Path, option: str
+) -> None:
+    assert _find_secret_path_in_cmd(f"grep {option} TOKEN .") is not None
+
+
+@pytest.mark.parametrize(
+    ("options", "pattern", "detected"),
+    [
+        ("-S", "synthetic", True),
+        ("--smart-case", "synthetic", True),
+        ("-SF", "synthetic", True),
+        ("-S", "Synthetic", False),
+        ("-S", "ABSENT", False),
+        ("-i -S", "Synthetic", False),
+        ("-S -i", "Synthetic", True),
+        ("-S -s", "synthetic", False),
+        ("--smart-case --case-sensitive", "synthetic", False),
+        ("-s -S", "synthetic", True),
+        ("--ignore-case --smart-case", "Synthetic", False),
+        ("--case-sensitive --smart-case", "synthetic", True),
+        ("-S -e ABSENT -e", "synthetic", False),
+        ("-S -e absent -e", "synthetic", True),
+    ],
+)
+def test_ripgrep_case_modes(
+    secret_tree: Path, options: str, pattern: str, detected: bool
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("SYNTHETIC\n")
+    result = _find_secret_path_in_cmd(f"rg {options} {pattern} config/*")
+    assert (result is not None) is detected
