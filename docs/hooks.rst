@@ -258,13 +258,16 @@ For example, ``cat config/*`` is flagged if it expands to a protected ``.pem``
 file. Quoted and escaped wildcard characters remain literal. GNU grep's
 ``-r``/``-R`` and ``--recursive`` searches inspect protected files in the search
 root and its immediate child directories, including wildcard directory operands.
-Ordinary ``rg`` recursion is not added: hidden/ignore rules differ from grep.
+``--directories=recurse`` has the same effect; a later ``skip`` or ``read``
+disables it. Ordinary ``rg`` recursion is not added: hidden/ignore rules differ
+from grep.
 
 A simple grep pattern must match a non-comment assignment line in dotenv files
 (or any line in other protected file formats). This leaves searches such as
 ``grep -rn 'def foo' .`` alone while detecting ``grep -rn API_KEY .`` when a
-matching assignment is in reach. Include/exclude filters, fixed strings,
-case-insensitive, word and whole-line matching are recognized. Context searches
+matching assignment is in reach. Include/exclude filters, including
+``--exclude-from``, fixed strings, case-insensitive, word and whole-line matching
+are recognized. Context searches
 are conservative; quiet/count/filename-only searches do not add reach refusals.
 Complex regular expressions are conservatively flagged when a protected file
 is reached, rather than evaluated with an unbounded backtracking engine.

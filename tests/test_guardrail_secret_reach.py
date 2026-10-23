@@ -389,3 +389,51 @@ def test_ripgrep_case_modes(
     (secret_tree / "config" / "client.pem").write_text("SYNTHETIC\n")
     result = _find_secret_path_in_cmd(f"rg {options} {pattern} config/*")
     assert (result is not None) is detected
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["--exclude-from excludes.txt", "--exclude-from=excludes.txt"],
+)
+def test_exclude_from_applies_listed_globs(secret_tree: Path, option: str) -> None:
+    (secret_tree / "excludes.txt").write_text(".env\n")
+    assert _find_secret_path_in_cmd(f"grep -r {option} OPENROUTER .") is None
+    assert _find_secret_path_in_cmd(f"grep -r {option} TOKEN nested") is not None
+
+
+def test_exclude_from_blank_lines_are_ignored(secret_tree: Path) -> None:
+    (secret_tree / "excludes.txt").write_text("\n.env\n\n")
+    assert (
+        _find_secret_path_in_cmd("grep -r --exclude-from excludes.txt OPENROUTER .")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "--directories=recurse --directories=skip",
+        "--directories recurse --directories skip",
+        "-d recurse -d skip",
+        "--directories=recurse -dskip",
+        "-r --directories=skip",
+        "--directories=skip --directories=recurse --directories=read",
+    ],
+)
+def test_directory_mode_last_option_wins(secret_tree: Path, options: str) -> None:
+    assert _find_secret_path_in_cmd(f"grep {options} TOKEN .") is None
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "--directories=skip --directories=recurse",
+        "-d skip -d recurse",
+        "--directories=skip -r",
+        "--directories=read --recursive",
+    ],
+)
+def test_later_directory_recurse_restores_discovery(
+    secret_tree: Path, options: str
+) -> None:
+    assert _find_secret_path_in_cmd(f"grep {options} TOKEN .") is not None

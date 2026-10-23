@@ -112,6 +112,9 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         # Ripgrep's last case-mode option wins (GNU grep -s is unrelated).
         if ripgrep and flag in {"i", "s", "S"}:
             result.flags = result.flags.translate(str.maketrans("", "", "isS"))
+        # GNU grep's last directory mode wins: -r/--directories=recurse vs skip/read.
+        if flag in {"r", "R"}:
+            result.flags = result.flags.translate(str.maketrans("", "", "rR"))
         result.flags += flag
 
     def value_option(flag: str, value: str) -> None:
@@ -124,8 +127,21 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             result.filters.append((flag == "include", value))
         elif flag == "exclude_dir":
             result.exclude_dirs.append(value)
-        elif flag == "d" and value == "recurse":
-            result.flags += "r"
+        elif flag == "exclude_from":
+            try:
+                fd = os.open(value, os.O_RDONLY | os.O_NONBLOCK)
+                with os.fdopen(fd, errors="replace") as stream:
+                    text = stream.read(65536)
+            except OSError:
+                return
+            for pattern in text.splitlines():
+                if pattern:
+                    result.filters.append((False, pattern))
+        elif flag == "d":
+            if value == "recurse":
+                add_flag("r")
+            elif value in {"skip", "read"}:
+                result.flags = result.flags.translate(str.maketrans("", "", "rR"))
         elif flag in {"A", "B", "C"} and value.strip("0"):
             result.flags += "C"
 
