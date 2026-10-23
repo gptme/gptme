@@ -224,3 +224,43 @@ def test_zero_context_does_not_include_comments(secret_tree: Path, option: str) 
 
 def test_fixed_posix_class_is_literal(secret_tree: Path) -> None:
     assert _find_secret_path_in_cmd("grep -rF '[[:upper:]]' .") is None
+
+
+@pytest.mark.parametrize("pattern", ["prefix$suffix", "prefix^suffix"])
+def test_bre_internal_anchors_do_not_hide_values(
+    secret_tree: Path, pattern: str
+) -> None:
+    (secret_tree / ".env").write_text(f"TOKEN={pattern}\n")
+    assert _find_secret_path_in_cmd(f"grep -r '{pattern}' .") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["grep -r '^ABSENT$' .", "grep -rF 'prefix$suffix' ."],
+)
+def test_unmatched_anchor_and_fixed_patterns_stay_allowed(
+    secret_tree: Path, command: str
+) -> None:
+    assert _find_secret_path_in_cmd(command) is None
+
+
+@pytest.mark.parametrize("command", ["grep -r auth .", "cat .d*/*", "grep -r auth .d*"])
+def test_relative_discovery_protects_home_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".docker").mkdir()
+    (tmp_path / ".docker" / "config.json").write_text('{"auth": "synthetic"}\n')
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+def test_relative_discovery_does_not_protect_nonhome_docker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".docker").mkdir()
+    (tmp_path / ".docker" / "config.json").write_text('{"auth": "synthetic"}\n')
+    assert _find_secret_path_in_cmd("grep -r auth .") is None
+    assert _find_secret_path_in_cmd("cat .d*/*") is None

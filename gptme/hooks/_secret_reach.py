@@ -213,8 +213,13 @@ def _matches_values(grep: _Grep, path: str) -> bool:
         else:
             # Only non-repeating regex syntax is evaluated. This intentionally
             # over-approximates complex BRE/ERE/PCRE rather than risk ReDoS.
-            if any(char in pattern for char in "*+?{(|\\") or any(
-                marker in pattern for marker in ("[:", "[.", "[=")
+            # BRE treats internal ^/$ as literals, unlike Python re. Keep
+            # edge anchors precise; conservatively handle ambiguous positions.
+            if (
+                any(char in pattern for char in "*+?{(|\\")
+                or any(marker in pattern for marker in ("[:", "[.", "[="))
+                or "^" in pattern[1:]
+                or "$" in pattern[:-1]
             ):
                 return True
             source = pattern
@@ -297,7 +302,11 @@ def find_secret_reach(
                 else [normalize(operand)]
             )
             for path in expanded:
-                if operand in patterns and is_secret(path) and os.path.isfile(path):
+                if (
+                    operand in patterns
+                    and is_secret(os.path.abspath(path))
+                    and os.path.isfile(path)
+                ):
                     if grep is None or (
                         _selected(grep, path, os.path.dirname(path))
                         and _matches_values(grep, path)
@@ -311,7 +320,7 @@ def find_secret_reach(
                         continue
                     for reached in _shallow_files(path, budget):
                         if (
-                            is_secret(reached)
+                            is_secret(os.path.abspath(reached))
                             and grep
                             and _selected(grep, reached, path)
                             and _matches_values(grep, reached)
