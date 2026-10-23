@@ -401,6 +401,38 @@ def test_exclude_from_applies_listed_globs(secret_tree: Path, option: str) -> No
     assert _find_secret_path_in_cmd(f"grep -r {option} TOKEN nested") is not None
 
 
+@pytest.mark.parametrize(
+    "separator", ["\v", "\f", "\r", "\x1c", "\x85", "\u2028", "\u2029"]
+)
+def test_exclude_from_preserves_non_newline_characters(
+    secret_tree: Path, separator: str
+) -> None:
+    (secret_tree / "excludes.txt").write_bytes(f".env{separator}other\n".encode())
+    assert (
+        _find_secret_path_in_cmd("grep -r --exclude-from excludes.txt OPENROUTER .")
+        is not None
+    )
+
+
+@pytest.mark.parametrize("suffix", [b"", b"\n", b"\r\n", b" \t\v\f\n"])
+def test_exclude_from_final_record_and_trailing_whitespace(
+    secret_tree: Path, suffix: bytes
+) -> None:
+    (secret_tree / "excludes.txt").write_bytes(b".env" + suffix)
+    assert (
+        _find_secret_path_in_cmd("grep -r --exclude-from excludes.txt OPENROUTER .")
+        is None
+    )
+
+
+def test_exclude_from_does_not_apply_truncated_record(secret_tree: Path) -> None:
+    (secret_tree / "excludes.txt").write_text("\n" * (65536 - 4) + ".env.other\n")
+    assert (
+        _find_secret_path_in_cmd("grep -r --exclude-from excludes.txt OPENROUTER .")
+        is not None
+    )
+
+
 def test_exclude_from_blank_lines_are_ignored(secret_tree: Path) -> None:
     (secret_tree / "excludes.txt").write_text("\n.env\n\n")
     assert (

@@ -130,13 +130,18 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         elif flag == "exclude_from":
             try:
                 fd = os.open(value, os.O_RDONLY | os.O_NONBLOCK)
-                with os.fdopen(fd, errors="replace") as stream:
-                    text = stream.read(65536)
+                with os.fdopen(fd, "rb") as stream:
+                    data = stream.read(65537)
             except OSError:
                 return
-            for pattern in text.splitlines():
-                if pattern:
-                    result.filters.append((False, pattern))
+            if len(data) > 65536:
+                # A partial record must not become an exclusion of its own.
+                data = data[:65536].rpartition(b"\n")[0]
+            # GNU grep splits only at LF and strips trailing ASCII whitespace.
+            for record in data.split(b"\n"):
+                record = record.rstrip(b" \t\r\v\f")
+                if record:
+                    result.filters.append((False, os.fsdecode(record)))
         elif flag == "d":
             if value == "recurse":
                 add_flag("r")
