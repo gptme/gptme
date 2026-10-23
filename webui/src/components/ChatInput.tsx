@@ -923,6 +923,11 @@ export const ChatInput: FC<Props> = ({
     uploadInFlight.current = false;
     setIsUploading(false);
     setMessageQueue([]);
+    wasBusy.current = false;
+    return () => {
+      submissionEpoch.current++;
+      conversationEpoch.current++;
+    };
   }, [storageKey]);
 
   const autoFocus = use$(autoFocus$);
