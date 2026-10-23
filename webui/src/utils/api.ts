@@ -28,6 +28,8 @@ import {
   clearInitialStepState,
   replaceLog,
   removeMessage,
+  addMessage,
+  conversations$,
 } from '@/stores/conversations';
 
 // Add DOM types
@@ -89,6 +91,35 @@ function requestWorkspace(workspace?: string): string | undefined {
     return undefined;
   }
   return workspace;
+}
+
+function conversationHasOtherMessages(conversationId: string, timestamp: string): boolean {
+  const log = conversations$.get(conversationId)?.data.log.get() ?? [];
+  return log.some((entry) => entry.timestamp !== timestamp);
+}
+
+function stopPlaceholderGeneration(conversationId: string, placeholderTimestamp: string): void {
+  const laterActivity = conversationHasOtherMessages(conversationId, placeholderTimestamp);
+  clearInitialStepState(conversationId);
+  if (!laterActivity) {
+    setGenerating(conversationId, false);
+  }
+}
+
+function replaceMessageByTimestamp(conversationId: string, timestamp: string, next: Message): void {
+  const log = conversations$.get(conversationId)?.data.log.get();
+  if (!log) {
+    addMessage(conversationId, next);
+    return;
+  }
+  const idx = log.findIndex((entry) => entry.timestamp === timestamp);
+  if (idx === -1) {
+    addMessage(conversationId, next);
+    return;
+  }
+  const updated = [...log];
+  updated[idx] = next;
+  replaceLog(conversationId, updated);
 }
 
 export function getApiErrorPresentation(
@@ -1762,35 +1793,33 @@ export class ApiClient {
         }
         const filePaths = uploadResult.files.map((f) => f.path);
         const attachedMessage = { ...message, files: filePaths };
-        replaceLog(conversationId, [attachedMessage]);
+        replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
         try {
           await this.sendMessage(conversationId, attachedMessage);
         } catch (error) {
           // Upload succeeded: transfer ownership to the visible failed message,
           // not back to a composer that might blindly duplicate an ambiguous POST.
-          clearInitialStepState(conversationId);
-          setGenerating(conversationId, false);
+          // Patch in place so a newer send during the pending upload is kept.
+          stopPlaceholderGeneration(conversationId, message.timestamp!);
           const rejected =
             ApiClientError.isApiError(error) &&
             [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
-          replaceLog(conversationId, [
-            {
-              ...attachedMessage,
-              _status: 'failed',
-              _error:
-                'Message could not be saved. Use Retry; uncertain saves require refreshing history first.',
-              _retry: {
-                persistence: rejected ? 'rejected' : 'unknown',
-                options: {
-                  model: options?.model,
-                  stream: options?.stream,
-                  maxTokens: options?.maxTokens,
-                  temperature: options?.temperature,
-                  topP: options?.topP,
-                },
+          replaceMessageByTimestamp(conversationId, message.timestamp!, {
+            ...attachedMessage,
+            _status: 'failed',
+            _error:
+              'Message could not be saved. Use Retry; uncertain saves require refreshing history first.',
+            _retry: {
+              persistence: rejected ? 'rejected' : 'unknown',
+              options: {
+                model: options?.model,
+                stream: options?.stream,
+                maxTokens: options?.maxTokens,
+                temperature: options?.temperature,
+                topP: options?.topP,
               },
             },
-          ]);
+          });
         }
         // Keep the new-chat draft locked through persistence. The caller
         // navigates as soon as creation resolves, discarding any new files
@@ -1830,9 +1859,9 @@ export class ApiClient {
       } catch (error) {
         // Only this placeholder is unsent: another composer may have saved
         // newer messages while the upload was pending. Keep those intact.
+        // A later send may already own generation; do not idle it.
+        stopPlaceholderGeneration(conversationId, message.timestamp!);
         removeMessage(conversationId, message.timestamp!);
-        clearInitialStepState(conversationId);
-        setGenerating(conversationId, false);
         throw error;
       }
     }

@@ -11,6 +11,9 @@ jest.mock('@/stores/conversations', () => ({
   setTopP: jest.fn(),
   clearInitialStepState: jest.fn(),
   replaceLog: jest.fn(),
+  removeMessage: jest.fn(),
+  addMessage: jest.fn(),
+  conversations$: { get: jest.fn() },
 }));
 jest.mock('@/stores/servers', () => ({
   serverRegistry$: { get: jest.fn(() => ({ servers: [], activeServerId: null })) },
