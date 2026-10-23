@@ -219,6 +219,27 @@ describe('WelcomeView', () => {
     expect(mockNavigate).toHaveBeenCalledWith(expect.stringContaining('upload-success'));
   });
 
+  it('does not navigate after an attachment submission outlives the welcome view', async () => {
+    let finish!: (id: string) => void;
+    mockCreateConversation.mockReturnValue(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      })
+    );
+    const { unmount } = render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send attachment fixture' }));
+    unmount();
+    await act(async () => {
+      finish('abandoned-upload');
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockInvalidateQueries).toHaveBeenCalled();
+  });
+
   it('does not show first-run setup CTA or probe localhost in demo mode', () => {
     setLocation('https://chat.gptme.org/?demo=1');
     isConnected$.set(false);

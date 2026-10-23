@@ -42,6 +42,13 @@ export const WelcomeView = () => {
   );
   const [hostedLoopbackReachable, setHostedLoopbackReachable] = useState(false);
   const seedConsumedRef = useRef(false);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Pick up a seed prompt from the host (e.g. gptme-cloud forwarding a prompt
   // typed on the landing page before login). consumeSeedPrompt is stable-ref
@@ -141,7 +148,7 @@ export const WelcomeView = () => {
       });
 
       // The placeholder's initial step starts after the chat view subscribes.
-      navigate(chatRoute(conversationId));
+      if (mountedRef.current) navigate(chatRoute(conversationId));
 
       // Invalidate conversations query to refresh the list (async, don't block)
       queryClient.invalidateQueries({
@@ -153,7 +160,7 @@ export const WelcomeView = () => {
       toast.error('Failed to start conversation. Please try again.');
       throw error;
     } finally {
-      setIsSubmitting(false);
+      if (mountedRef.current) setIsSubmitting(false);
     }
   };
 
