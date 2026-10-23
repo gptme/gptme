@@ -27,6 +27,7 @@ import {
   setTopP,
   clearInitialStepState,
   replaceLog,
+  removeMessage,
 } from '@/stores/conversations';
 
 // Add DOM types
@@ -1827,9 +1828,9 @@ export class ApiClient {
       try {
         await serverCreation;
       } catch (error) {
-        // No user message was persisted. Keep the draft in the composer, not
-        // as a hydrated phantom message when the empty chat opens from history.
-        replaceLog(conversationId, []);
+        // Only this placeholder is unsent: another composer may have saved
+        // newer messages while the upload was pending. Keep those intact.
+        removeMessage(conversationId, message.timestamp!);
         clearInitialStepState(conversationId);
         setGenerating(conversationId, false);
         throw error;
