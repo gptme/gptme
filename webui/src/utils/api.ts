@@ -25,6 +25,11 @@ import {
   setMaxTokens,
   setTemperature,
   setTopP,
+  clearInitialStepState,
+  replaceLog,
+  removeMessage,
+  addMessage,
+  conversations$,
 } from '@/stores/conversations';
 
 // Add DOM types
@@ -67,6 +72,17 @@ export class ApiClientError extends Error {
   }
 }
 
+/** Upload failed before message persistence; keep the draft for deliberate retry. */
+export class AttachmentUploadError extends Error {
+  cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Attached files could not be uploaded. Check the files and try Send again.');
+    this.cause = cause;
+    this.name = 'AttachmentUploadError';
+  }
+}
+
 // Returns undefined for unset / default '.' workspace so the server can apply
 // its own @log (isolated per-conversation) default. Explicit non-default paths
 // (e.g. '/workspace/project') are passed through unchanged.
@@ -75,6 +91,35 @@ function requestWorkspace(workspace?: string): string | undefined {
     return undefined;
   }
   return workspace;
+}
+
+function conversationHasOtherMessages(conversationId: string, timestamp: string): boolean {
+  const log = conversations$.get(conversationId)?.data.log.get() ?? [];
+  return log.some((entry) => entry.timestamp !== timestamp);
+}
+
+function stopPlaceholderGeneration(conversationId: string, placeholderTimestamp: string): void {
+  const laterActivity = conversationHasOtherMessages(conversationId, placeholderTimestamp);
+  clearInitialStepState(conversationId);
+  if (!laterActivity) {
+    setGenerating(conversationId, false);
+  }
+}
+
+function replaceMessageByTimestamp(conversationId: string, timestamp: string, next: Message): void {
+  const log = conversations$.get(conversationId)?.data.log.get();
+  if (!log) {
+    addMessage(conversationId, next);
+    return;
+  }
+  const idx = log.findIndex((entry) => entry.timestamp === timestamp);
+  if (idx === -1) {
+    addMessage(conversationId, next);
+    return;
+  }
+  const updated = [...log];
+  updated[idx] = next;
+  replaceLog(conversationId, updated);
 }
 
 export function getApiErrorPresentation(
@@ -1669,6 +1714,7 @@ export class ApiClient {
       stream?: boolean;
       workspace?: string;
       pendingFiles?: File[];
+      onFilesUploaded?: () => void;
       maxTokens?: number;
       temperature?: number;
       topP?: number;
@@ -1739,15 +1785,46 @@ export class ApiClient {
             workspace: requestWorkspace(options?.workspace),
           },
         });
+        let uploadResult;
         try {
-          const uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
-          const filePaths = uploadResult.files.map((f) => f.path);
-          await this.sendMessage(conversationId, { ...message, files: filePaths });
+          uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
         } catch (error) {
-          console.error('[API] Failed to upload pending files:', error);
-          // Fall back: send original message without files
-          await this.sendMessage(conversationId, message);
+          throw new AttachmentUploadError(error);
         }
+        const filePaths = uploadResult.files.map((f) => f.path);
+        const attachedMessage = { ...message, files: filePaths };
+        replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
+        try {
+          await this.sendMessage(conversationId, attachedMessage);
+        } catch (error) {
+          // Upload succeeded: transfer ownership to the visible failed message,
+          // not back to a composer that might blindly duplicate an ambiguous POST.
+          // Patch in place so a newer send during the pending upload is kept.
+          stopPlaceholderGeneration(conversationId, message.timestamp!);
+          const rejected =
+            ApiClientError.isApiError(error) &&
+            [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
+          replaceMessageByTimestamp(conversationId, message.timestamp!, {
+            ...attachedMessage,
+            _status: 'failed',
+            _error:
+              'Message could not be saved. Use Retry; uncertain saves require refreshing history first.',
+            _retry: {
+              persistence: rejected ? 'rejected' : 'unknown',
+              options: {
+                model: options?.model,
+                stream: options?.stream,
+                maxTokens: options?.maxTokens,
+                temperature: options?.temperature,
+                topP: options?.topP,
+              },
+            },
+          });
+        }
+        // Keep the new-chat draft locked through persistence. The caller
+        // navigates as soon as creation resolves, discarding any new files
+        // attached if we release the composer while the POST is still pending.
+        options.onFilesUploaded?.();
       } else {
         // No files: create conversation with the initial message.
         // useConversation will call step() after subscribing (needsInitialStep: true above).
@@ -1773,7 +1850,21 @@ export class ApiClient {
 
     // NOTE: step() is NOT called here — useConversation calls it after subscribing to SSE.
 
-    // Return the ID immediately; server creation runs concurrently.
+    // Retain the new-chat composer until attachment upload succeeds. Text-only
+    // chats still navigate immediately; a failed attachment attempt may leave
+    // an empty server conversation, but must never generate from a stripped one.
+    if (options?.pendingFiles?.length) {
+      try {
+        await serverCreation;
+      } catch (error) {
+        // Only this placeholder is unsent: another composer may have saved
+        // newer messages while the upload was pending. Keep those intact.
+        // A later send may already own generation; do not idle it.
+        stopPlaceholderGeneration(conversationId, message.timestamp!);
+        removeMessage(conversationId, message.timestamp!);
+        throw error;
+      }
+    }
     return conversationId;
   }
 
