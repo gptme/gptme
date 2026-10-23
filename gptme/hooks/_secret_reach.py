@@ -76,6 +76,7 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         "--files-with-matches": "l",
         "--files-without-match": "l",
         "--count": "c",
+        "--null-data": "z",
     }
     value_flags = {
         "--regexp": "e",
@@ -88,6 +89,12 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         "--after-context": "A",
         "--before-context": "B",
     }
+
+    if ripgrep:
+        # Consume selection operands without treating them as search patterns.
+        # Selection is conservative: rg globs have different semantics to grep.
+        value_flags["--glob"] = "g"
+        value_flags["--iglob"] = "g"
 
     def value_option(flag: str, value: str) -> None:
         if flag == "e":
@@ -120,7 +127,7 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
                     result.flags += flag
                 if flag in "123456789":
                     result.flags += "C"
-                if flag in "efmABCdD":
+                if flag in "efmABCdD" or (ripgrep and flag == "g"):
                     value_option(flag, arg[index + 1 :] or next(args_iter, ""))
                     break
             continue
@@ -203,8 +210,8 @@ def _matches_values(grep: _Grep, path: str) -> bool:
             text = stream.read(65536)
     except OSError:
         return False
-    lines = text.splitlines()
-    if Path(path).name.startswith(".env") and "C" not in grep.flags:
+    lines = text.split("\0") if "z" in grep.flags else text.splitlines()
+    if Path(path).name.startswith(".env") and not set(grep.flags) & {"C", "z"}:
         lines = [
             line for line in lines if "=" in line and not line.lstrip().startswith("#")
         ]
@@ -290,7 +297,7 @@ def find_secret_reach(
             if pattern:
                 try:
                     patterns.setdefault(shlex.split(raw)[0], []).append(
-                        normalize(pattern)
+                        os.path.expanduser(os.path.expandvars(pattern))
                     )
                 except (ValueError, IndexError):
                     pass

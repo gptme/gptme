@@ -287,3 +287,29 @@ def test_filename_only_and_quiet_searches_stay_allowed(
     secret_tree: Path, command: str
 ) -> None:
     assert _find_secret_path_in_cmd(command) is None
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["-g client.pem", "-gclient.pem", "--glob client.pem", "--glob=client.pem"],
+)
+def test_ripgrep_glob_option_does_not_replace_search_pattern(
+    secret_tree: Path, option: str
+) -> None:
+    assert _find_secret_path_in_cmd(f"rg {option} synthetic config/*") is not None
+
+
+@pytest.mark.parametrize("option", ["-z", "--null-data"])
+def test_null_delimited_grep_keeps_whole_record(secret_tree: Path, option: str) -> None:
+    (secret_tree / ".env").write_text("HEADER\nTOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"grep -r {option} HEADER .") is not None
+    assert _find_secret_path_in_cmd(f"grep -r {option} ABSENT .") is None
+
+
+def test_glob_preserves_quoted_directory_whitespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / " config").mkdir()
+    (tmp_path / " config" / "client.pem").write_text("synthetic certificate\n")
+    assert _find_secret_path_in_cmd("cat ' config'/*") is not None
