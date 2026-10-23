@@ -209,7 +209,7 @@ describe('WelcomeView', () => {
     expect(mockCreateConversation).toHaveBeenCalledWith(
       'attachment draft',
       expect.objectContaining({
-        onFilesUploaded: mockFilesUploaded,
+        onFilesUploaded: expect.any(Function),
         pendingFiles: [expect.any(File)],
       })
     );
@@ -238,6 +238,34 @@ describe('WelcomeView', () => {
     });
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockInvalidateQueries).toHaveBeenCalled();
+  });
+
+  it('ignores a completed attachment submission after the active server changes', async () => {
+    let finish!: (id: string) => void;
+    mockCreateConversation.mockReturnValue(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      })
+    );
+    const { rerender } = render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send attachment fixture' }));
+    const options = mockCreateConversation.mock.calls[0][1];
+    mockBaseUrl = 'http://other-server:5700';
+    rerender(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+    await act(async () => {
+      options.onFilesUploaded();
+      finish('server-a-upload');
+    });
+    expect(mockFilesUploaded).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('does not show first-run setup CTA or probe localhost in demo mode', () => {

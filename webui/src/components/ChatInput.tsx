@@ -909,12 +909,15 @@ export const ChatInput: FC<Props> = ({
   const currentDraftKey = useRef(storageKey);
   currentDraftKey.current = storageKey;
   const submissionEpoch = useRef(0);
+  const conversationEpoch = useRef(0);
   useEffect(() => {
     // A mounted composer can change conversations while an old request is pending.
     // Invalidate its callbacks as well as releasing this conversation's lock.
     submissionEpoch.current++;
+    conversationEpoch.current++;
     uploadInFlight.current = false;
     setIsUploading(false);
+    setMessageQueue([]);
   }, [storageKey]);
 
   const autoFocus = use$(autoFocus$);
@@ -955,7 +958,9 @@ export const ChatInput: FC<Props> = ({
   // 100ms fallback timer can beat the server's release), so a transition-driven
   // retry would never fire. Re-arm the flush effect on a timer instead.
   const scheduleQueueRetry = () => {
+    const owner = conversationEpoch.current;
     setTimeout(() => {
+      if (conversationEpoch.current !== owner) return;
       wasBusy.current = true;
       setMessageQueue((prev) => [...prev]);
     }, 1000);
@@ -975,9 +980,11 @@ export const ChatInput: FC<Props> = ({
       // generating), put it back at the front of the queue — the message is not
       // lost and will be retried when isBusy next transitions to false.
       setMessageQueue((prev) => prev.slice(1));
+      const owner = conversationEpoch.current;
       const result = onSend(nextMessage.text, nextMessage.options);
       if (result instanceof Promise) {
         result.catch((error: unknown) => {
+          if (conversationEpoch.current !== owner) return;
           const status =
             error && typeof error === 'object' && 'status' in error
               ? (error as { status: number }).status
@@ -1117,6 +1124,7 @@ export const ChatInput: FC<Props> = ({
       };
       const draftKey = storageKey;
       const epoch = ++submissionEpoch.current;
+      const owner = conversationEpoch.current;
       let draftCleared = false;
       const clearSubmittedDraft = () => {
         if (
@@ -1151,7 +1159,7 @@ export const ChatInput: FC<Props> = ({
           error && typeof error === 'object' && 'status' in error
             ? (error as { status: number }).status
             : undefined;
-        if (submissionEpoch.current !== epoch || currentDraftKey.current !== draftKey) return;
+        if (conversationEpoch.current !== owner || currentDraftKey.current !== draftKey) return;
         if (status === 409 && !(error instanceof AttachmentUploadError)) {
           // Preserve the existing server-busy queue behavior.
           clearSubmittedDraft();

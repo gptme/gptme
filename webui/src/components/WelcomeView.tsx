@@ -74,6 +74,15 @@ export const WelcomeView = () => {
   const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
   const navigate = useNavigate();
+  const serverEpoch = useRef(0);
+  const currentServerUrl = useRef(connectionConfig.baseUrl);
+  if (currentServerUrl.current !== connectionConfig.baseUrl) {
+    currentServerUrl.current = connectionConfig.baseUrl;
+    serverEpoch.current++;
+  }
+  useEffect(() => {
+    setIsSubmitting(false);
+  }, [connectionConfig.baseUrl]);
   const demoMode = isDemoMode();
   const isTauri = isTauriEnvironment();
   const { managesLocalServer } = useTauriServerStatus();
@@ -123,6 +132,8 @@ export const WelcomeView = () => {
     if ((!message.trim() && !options?.pendingFiles?.length) || !isConnected) return;
 
     setIsSubmitting(true);
+    const owner = serverEpoch.current;
+    const isCurrent = () => mountedRef.current && serverEpoch.current === owner;
 
     try {
       // Text-only chats navigate immediately. Attached files keep this composer
@@ -132,14 +143,16 @@ export const WelcomeView = () => {
         stream: options?.stream,
         workspace: options?.workspace || '.',
         pendingFiles: options?.pendingFiles,
-        onFilesUploaded: options?.onFilesUploaded,
+        onFilesUploaded: () => {
+          if (isCurrent()) options?.onFilesUploaded?.();
+        },
         maxTokens: options?.maxTokens,
         temperature: options?.temperature,
         topP: options?.topP,
       });
 
       // The placeholder's initial step starts after the chat view subscribes.
-      if (mountedRef.current) navigate(chatRoute(conversationId));
+      if (isCurrent()) navigate(chatRoute(conversationId));
 
       // Invalidate conversations query to refresh the list (async, don't block)
       queryClient.invalidateQueries({
@@ -148,10 +161,10 @@ export const WelcomeView = () => {
     } catch (error) {
       // Propagate attachment failures so ChatInput retains the unsent draft.
       console.error('Failed to create conversation:', error);
-      toast.error('Failed to start conversation. Please try again.');
+      if (isCurrent()) toast.error('Failed to start conversation. Please try again.');
       throw error;
     } finally {
-      if (mountedRef.current) setIsSubmitting(false);
+      if (isCurrent()) setIsSubmitting(false);
     }
   };
 
@@ -610,6 +623,7 @@ export const WelcomeView = () => {
 
             <div className="mx-auto w-full max-w-2xl [&_textarea]:min-h-[80px] [&_textarea]:text-base">
               <ChatInput
+                key={connectionConfig.baseUrl}
                 onSend={handleSend}
                 autoFocus$={autoFocus$}
                 value={inputValue}
