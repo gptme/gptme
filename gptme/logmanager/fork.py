@@ -81,7 +81,12 @@ def copy_messages_for_fork(
                 # If the live file is also gone, drop the dangling file
                 # reference so the fork's LogManager never sees a reference it
                 # cannot snapshot or resolve for the provider.
-                if not Path(path).is_file():
+                live_path = Path(path)
+                if path in path_map:
+                    live_path = source_attachments / Path(new_path).relative_to(
+                        dest_attachments
+                    )
+                if not live_path.is_file():
                     dead_refs.add(new_path)
         filtered_files = [f for f in new_files if str(f) not in dead_refs]
         copied_messages.append(

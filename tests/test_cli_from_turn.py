@@ -396,3 +396,24 @@ def test_chats_fork_attachment_references_survive_source_move(
     rendered = _process_file({"content": "Describe", "files": [str(user.files[0])]})
     assert sum(block["type"] == "image" for block in rendered["content"]) == 1
     assert (fork / "attachments/note.txt").read_text() == "original note"
+
+
+def test_fork_relative_attachment_with_missing_snapshot(tmp_path: Path) -> None:
+    """A stale hash must not drop a live conversation-relative attachment."""
+    from gptme.logmanager.fork import copy_messages_for_fork
+
+    source = tmp_path / "source"
+    attachment = source / "attachments" / "note.txt"
+    attachment.parent.mkdir(parents=True)
+    attachment.write_text("live attachment")
+    message = Message(
+        "user",
+        "Read note",
+        files=[Path("attachments/note.txt")],
+        file_hashes={"attachments/note.txt": "missing-snapshot"},
+    )
+    dest = tmp_path / "fork"
+    copied = copy_messages_for_fork([message], source, dest)
+    assert copied[0].files == [dest / "attachments/note.txt"]
+    assert copied[0].file_hashes == {}
+    assert (dest / "attachments/note.txt").read_text() == "live attachment"
