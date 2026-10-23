@@ -306,6 +306,28 @@ def test_null_delimited_grep_keeps_whole_record(secret_tree: Path, option: str) 
     assert _find_secret_path_in_cmd(f"grep -r {option} ABSENT .") is None
 
 
+@pytest.mark.parametrize("option", ["-zx", "-z -x", "--search-zip -x"])
+def test_ripgrep_zip_search_keeps_newline_records(
+    secret_tree: Path, option: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("HEADER\nTOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"rg {option} TOKEN=synthetic config/*") is not None
+    assert _find_secret_path_in_cmd(f"rg {option} ABSENT config/*") is None
+
+
+@pytest.mark.parametrize("option", ["-z", "--search-zip"])
+def test_ripgrep_zip_search_does_not_print_neighboring_env_lines(
+    secret_tree: Path, option: str
+) -> None:
+    assert _find_secret_path_in_cmd(f"rg {option} 'synthetic fixture' .[e]nv") is None
+
+
+def test_ripgrep_null_data_keeps_whole_record(secret_tree: Path) -> None:
+    (secret_tree / "config" / "client.pem").write_text("HEADER\nTOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd("rg --null-data HEADER config/*") is not None
+    assert _find_secret_path_in_cmd("rg --null-data ABSENT config/*") is None
+
+
 def test_glob_preserves_quoted_directory_whitespace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

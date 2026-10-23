@@ -122,8 +122,9 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             continue
         if arg.startswith("-") and len(arg) > 1:
             for index, flag in enumerate(arg[1:], 1):
-                # rg -L follows symlinks; GNU grep -L prints filenames only.
-                if flag not in "ABC" and not (ripgrep and flag == "L"):
+                # rg -L follows symlinks and -z searches compressed files;
+                # neither has GNU grep's filename-only/NUL-record meaning.
+                if flag not in "ABC" and not (ripgrep and flag in "Lz"):
                     result.flags += flag
                 if flag in "123456789":
                     result.flags += "C"
