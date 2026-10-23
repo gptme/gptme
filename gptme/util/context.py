@@ -724,8 +724,7 @@ def _include_paths(
                 skipped_paths.append(url)
                 continue
             if contents := _resource_to_codeblock(url, confirmed_urls=confirmed_urls):
-                # Count the provenance label and any warning against the budget.
-                contents = _mark_external_content(url, contents)
+                # The resource reader includes provenance and screening warnings.
                 content_size = len(contents)
                 if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
                     skipped_paths.append(url)
@@ -1212,7 +1211,8 @@ def _resource_to_codeblock(
         if content:
             # Check content size and potentially truncate
             content = _check_content_size(content, url)
-            result += md_codeblock(url, content)
+            # Label at the fetch boundary: prose/path fallback can reach URLs too.
+            result += _mark_external_content(url, md_codeblock(url, content))
 
     return result
 
