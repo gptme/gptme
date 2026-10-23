@@ -4,7 +4,7 @@ import { observable } from '@legendapp/state';
 import { useState } from 'react';
 import { ChatInput } from '../ChatInput';
 import { useConversation } from '@/hooks/useConversation';
-import { ApiClient, ApiClientError } from '@/utils/api';
+import { ApiClient, ApiClientError, AttachmentUploadError } from '@/utils/api';
 import { conversations$, initConversation } from '@/stores/conversations';
 
 let mockClient: ApiClient;
@@ -692,4 +692,63 @@ it('releases an old upload lock on conversation change without unlocking a newer
   });
   expect(input).toBeEnabled();
   expect(input).toHaveValue('');
+});
+
+it('retains an earlier direct 409 when a newer send has already started', async () => {
+  let rejectFirst!: (error: unknown) => void;
+  const first = new Promise<void>((_resolve, reject) => {
+    rejectFirst = reject;
+  });
+  const onSend = jest.fn().mockReturnValueOnce(first).mockResolvedValue(undefined);
+  render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={onSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'first pending' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.change(input, { target: { value: 'second send' } });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+  await act(async () => {
+    rejectFirst(new ApiClientError('Busy', 409));
+  });
+  expect(screen.getByTitle('first pending')).toBeInTheDocument();
+});
+
+it('does not requeue a rejected upload into a different conversation', async () => {
+  let rejectUpload!: (error: unknown) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockReturnValue(
+    new Promise((_resolve, reject) => {
+      rejectUpload = reject;
+    })
+  );
+  const onSend = jest.fn(async (_message, options) => {
+    await mockClient.uploadFiles('upload-existing', options.pendingFiles);
+  });
+  const state = conversations$.get('upload-existing')!;
+  state.isGenerating.set(true);
+  const { container, rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={onSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'private queued draft' } });
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['one'], 'one.txt')] },
+  });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+  await act(async () => {
+    state.isGenerating.set(false);
+  });
+  await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={onSend} />
+  );
+  await act(async () => {
+    rejectUpload(new AttachmentUploadError(new Error('Rejected')));
+  });
+  expect(screen.queryByRole('button', { name: 'Retry upload' })).not.toBeInTheDocument();
+  expect(screen.queryByText('private queued draft')).not.toBeInTheDocument();
 });
