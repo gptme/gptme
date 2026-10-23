@@ -469,3 +469,40 @@ def test_later_directory_recurse_restores_discovery(
     secret_tree: Path, options: str
 ) -> None:
     assert _find_secret_path_in_cmd(f"grep {options} TOKEN .") is not None
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["-f patterns.txt", "-fpatterns.txt", "--file patterns.txt", "--file=patterns.txt"],
+)
+def test_pattern_file_does_not_suppress_implicit_recursive_root(
+    secret_tree: Path, option: str
+) -> None:
+    (secret_tree / "patterns.txt").write_text("OPENROUTER\n")
+    assert _find_secret_path_in_cmd(f"grep -r {option}") is not None
+    assert _find_secret_path_in_cmd(f"grep -r {option} config") is not None
+    (secret_tree / "safe").mkdir()
+    assert _find_secret_path_in_cmd(f"grep -r {option} safe") is None
+    assert _find_secret_path_in_cmd(f"grep -rq {option}") is None
+    assert _find_secret_path_in_cmd(f"grep {option}") is None
+
+
+@pytest.mark.parametrize(
+    "separator", ["\v", "\f", "\r", "\x1c", "\x85", "\u2028", "\u2029"]
+)
+def test_grep_value_records_split_only_at_lf(secret_tree: Path, separator: str) -> None:
+    (secret_tree / ".env").write_bytes(f"TOKEN=synthetic{separator}MARKER\n".encode())
+    assert _find_secret_path_in_cmd("grep -r MARKER .") is not None
+    assert _find_secret_path_in_cmd("grep -r '^MARKER$' .") is None
+    assert _find_secret_path_in_cmd("grep -r ABSENT .") is None
+
+
+@pytest.mark.parametrize("separator", ["\r", "\r\n", "\v", "\u2028"])
+def test_whole_line_glob_search_preserves_record_characters(
+    secret_tree: Path, separator: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_bytes(
+        f"HEADER{separator}MARKER\n".encode()
+    )
+    result = _find_secret_path_in_cmd("grep -x MARKER config/*")
+    assert (result is not None) is (separator == "\r\n")

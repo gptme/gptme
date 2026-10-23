@@ -57,6 +57,7 @@ class _Grep:
     filters: list[tuple[bool, str]] = field(default_factory=list)
     exclude_dirs: list[str] = field(default_factory=list)
     pattern_file: bool = False
+    pattern_files: list[str] = field(default_factory=list)
 
 
 def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
@@ -122,7 +123,7 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             result.patterns.append(value)
         elif flag == "f":
             result.pattern_file = True
-            result.files.append(value)
+            result.pattern_files.append(value)
         elif flag in {"include", "exclude"}:
             result.filters.append((flag == "include", value))
         elif flag == "exclude_dir":
@@ -248,11 +249,11 @@ def _matches_values(grep: _Grep, path: str) -> bool:
     try:
         # O_NONBLOCK avoids blocking if a file is replaced with a FIFO.
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-        with os.fdopen(fd, errors="replace") as stream:
+        with os.fdopen(fd, errors="replace", newline="") as stream:
             text = stream.read(65536)
     except OSError:
         return False
-    lines = text.split("\0") if "z" in grep.flags else text.splitlines()
+    lines = text.split("\0") if "z" in grep.flags else text.split("\n")
     if Path(path).name.startswith(".env") and not set(grep.flags) & {"C", "z"}:
         lines = [
             line for line in lines if "=" in line and not line.lstrip().startswith("#")
@@ -337,6 +338,9 @@ def find_secret_reach(
         recursive = bool(grep and name != "rg" and set(grep.flags) & {"r", "R"})
         if recursive and not files:
             files = ["."]
+        if grep:
+            # Pattern files are read too, but do not replace an implicit search root.
+            files = [*files, *grep.pattern_files]
         patterns: dict[str, list[str]] = {}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()

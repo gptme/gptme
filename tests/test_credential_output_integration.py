@@ -174,6 +174,8 @@ def test_review_regressions_through_confirmation_chain(
         "cat config/*",
         "grep -rn TOKEN .",
         "grep -r --binary-files text TOKEN .",
+        "grep -r -f patterns.txt",
+        "grep -r MARKER .",
         "rg -S synthetic config/*",
         "grep -rn 'def foo' .",
     ],
@@ -182,7 +184,8 @@ def test_secret_reach_through_confirmation_chain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, mode: str, command: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env").write_text("TOKEN=synthetic-only\n")
+    (tmp_path / ".env").write_bytes(b"TOKEN=synthetic-only\vMARKER\n")
+    (tmp_path / "patterns.txt").write_text("TOKEN\n")
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "client.pem").write_text("SYNTHETIC-ONLY\n")
     _register_chain(monkeypatch, mode)
