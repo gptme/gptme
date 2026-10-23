@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { ChatInput } from '../ChatInput';
 import { useConversation } from '@/hooks/useConversation';
 import { ApiClient, ApiClientError, AttachmentUploadError } from '@/utils/api';
-import { conversations$, initConversation } from '@/stores/conversations';
+import { conversations$, initConversation, setGenerating } from '@/stores/conversations';
 
 let mockClient: ApiClient;
 const mockToast = jest.fn();
@@ -675,6 +675,145 @@ it('keeps newer saved messages when an earlier new-chat upload fails', async () 
       timestamp: saved.timestamp,
       _status: 'sent',
     }),
+  ]);
+});
+
+it('keeps newer saved messages when an earlier new-chat upload succeeds', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  const post = jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const original = conversations$.get(id)!.data.log.get()[0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  expect(post).toHaveBeenCalledTimes(1);
+  const saved = post.mock.calls[0][1];
+  expect(saved.content).toBe('newer saved message');
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+    await creation;
+  });
+  const log = conversations$.get(id)!.data.log.get();
+  expect(log).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        content: original.content,
+        timestamp: original.timestamp,
+        files: ['attachments/one.txt'],
+      }),
+      expect.objectContaining({
+        content: saved.content,
+        timestamp: saved.timestamp,
+        _status: 'sent',
+      }),
+    ])
+  );
+  expect(log).toHaveLength(2);
+  expect(post).toHaveBeenCalledTimes(2);
+  expect(post.mock.calls[1][1]).toMatchObject({
+    content: original.content,
+    timestamp: original.timestamp,
+    files: ['attachments/one.txt'],
+  });
+});
+
+it('keeps newer saved messages when an earlier new-chat POST fails after upload', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  const post = jest
+    .spyOn(mockClient, 'sendMessage')
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new ApiClientError('rejected', 422));
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const original = conversations$.get(id)!.data.log.get()[0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+    await creation;
+  });
+  const log = conversations$.get(id)!.data.log.get();
+  expect(log).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        content: original.content,
+        timestamp: original.timestamp,
+        files: ['attachments/one.txt'],
+        _status: 'failed',
+        _retry: expect.objectContaining({ persistence: 'rejected' }),
+      }),
+      expect.objectContaining({
+        content: 'newer saved message',
+        _status: 'sent',
+      }),
+    ])
+  );
+  expect(log).toHaveLength(2);
+  expect(post).toHaveBeenCalledTimes(2);
+  expect(conversations$.get(id)!.isGenerating.get()).toBe(false);
+});
+
+it('does not clear a newer generation when an earlier new-chat upload fails', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let rejectUpload!: (error: unknown) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectUpload = reject;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('never saved', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  const rejection = expect(creation).rejects.toThrow(AttachmentUploadError);
+  await waitFor(() => expect(rejectUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  setGenerating(id, true);
+  await act(async () => {
+    rejectUpload(new ApiClientError('Too large', 413));
+    await rejection;
+  });
+  expect(conversations$.get(id)!.isGenerating.get()).toBe(true);
+  expect(conversations$.get(id)!.data.log.get()).toEqual([
+    expect.objectContaining({ content: 'newer saved message', _status: 'sent' }),
   ]);
 });
 
