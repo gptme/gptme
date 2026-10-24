@@ -59,6 +59,7 @@ class _Grep:
     pattern_file: bool = False
     pattern_files: list[str] = field(default_factory=list)
     crlf: bool = False
+    dereference: bool = False
 
 
 def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
@@ -118,6 +119,9 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         # GNU grep's last directory mode wins: -r/--directories=recurse vs skip/read.
         if flag in {"r", "R"}:
             result.flags = result.flags.translate(str.maketrans("", "", "rR"))
+        if flag == "R":
+            # GNU grep retains dereferencing even after a later -r/-d option.
+            result.dereference = True
         result.flags += flag
 
     def value_option(flag: str, value: str) -> None:
@@ -217,7 +221,7 @@ def _tilde_expand(raw: str, index: int) -> tuple[str, int]:
     return os.path.expanduser(raw[index:end]), end
 
 
-def _glob_patterns(raw: str) -> list[str]:
+def _glob_patterns(raw: str, *, include_literal: bool = False) -> list[str]:
     """Preserve quoting and split unquoted expansions on default IFS whitespace."""
     quote = ""
     escaped = False
@@ -279,8 +283,9 @@ def _glob_patterns(raw: str) -> list[str]:
     finish_field()
     # Discovery needs every field once an operand splits or contains a glob;
     # literal roots must not disappear beside a wildcard field. Leave ordinary
-    # single literal operands to the existing normalized-path policy.
-    return fields if active or len(fields) > 1 else []
+    # single literal operands to the existing normalized-path policy, except
+    # recursive roots: their quote-aware expansion must not run a second time.
+    return fields if include_literal or active or len(fields) > 1 else []
 
 
 def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
@@ -305,16 +310,18 @@ def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
     yield from paths
 
 
-def _shallow_files(directory: str, budget: _Budget) -> Iterator[str]:
+def _shallow_files(
+    directory: str, budget: _Budget, *, follow_file_symlinks: bool = False
+) -> Iterator[str]:
     # Prioritize the root before spending the shared budget on child entries.
     children = list(budget.entries(directory))
     for entry in children:
-        if entry.is_file(follow_symlinks=False):
+        if entry.is_file(follow_symlinks=follow_file_symlinks):
             yield entry.path
     for entry in children:
         if entry.is_dir(follow_symlinks=False):
             for child in budget.entries(entry.path):
-                if child.is_file(follow_symlinks=False):
+                if child.is_file(follow_symlinks=follow_file_symlinks):
                     yield child.path
 
 
@@ -423,7 +430,7 @@ def find_secret_reach(
         patterns: dict[str, list[str]] = {}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()
-            expanded_patterns = _glob_patterns(raw)
+            expanded_patterns = _glob_patterns(raw, include_literal=recursive)
             if expanded_patterns:
                 try:
                     patterns.setdefault(shlex.split(raw)[0], []).extend(
@@ -458,7 +465,9 @@ def find_secret_reach(
                         for p in grep.exclude_dirs
                     ):
                         continue
-                    for reached in _shallow_files(path, budget):
+                    for reached in _shallow_files(
+                        path, budget, follow_file_symlinks=grep.dereference
+                    ):
                         if (
                             is_secret(os.path.abspath(reached))
                             and grep

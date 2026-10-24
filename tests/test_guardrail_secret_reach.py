@@ -599,3 +599,58 @@ def test_expansion_field_boundaries_preserve_prefix_suffix_and_quotes(
     monkeypatch.setenv("DIR", "with space")
     assert _find_secret_path_in_cmd('cat "$DIR"/*') is not None
     assert _find_secret_path_in_cmd("cat $DIR/*") is None
+
+
+@pytest.mark.parametrize("root", ["'$ROOT'", r"\$ROOT", "'~'", "'with space'"])
+def test_literal_recursive_roots_keep_shell_quoting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, root: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ROOT", "safe")
+    (tmp_path / "safe").mkdir()
+    literal = (
+        tmp_path
+        / {
+            "'$ROOT'": "$ROOT",
+            r"\$ROOT": "$ROOT",
+            "'~'": "~",
+            "'with space'": "with space",
+        }[root]
+    )
+    literal.mkdir()
+    (literal / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"grep -r TOKEN {root}") is not None
+    assert _find_secret_path_in_cmd(f"grep -r ABSENT {root}") is None
+    assert _find_secret_path_in_cmd("grep -r TOKEN $ROOT") is None
+    assert _find_secret_path_in_cmd('grep -r TOKEN "$ROOT"') is None
+
+
+@pytest.mark.parametrize("option", ["-R", "--dereference-recursive", "-rR", "-Rr"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_recursive_dereference_reads_protected_file_symlinks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, option: str, nested: bool
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "payload.txt").write_text("TOKEN=synthetic\n")
+    directory = tmp_path / "nested" if nested else tmp_path
+    directory.mkdir(exist_ok=True)
+    (directory / ".env").symlink_to(tmp_path / "payload.txt")
+    assert _find_secret_path_in_cmd(f"grep {option} TOKEN .") is not None
+    assert _find_secret_path_in_cmd(f"grep {option} ABSENT .") is None
+    assert _find_secret_path_in_cmd("grep -r TOKEN .") is None
+    assert _find_secret_path_in_cmd("grep -R --directories=skip TOKEN .") is None
+    assert _find_secret_path_in_cmd("grep -Rq TOKEN .") is None
+    assert _find_secret_path_in_cmd("grep -R --exclude='[.]env' TOKEN .") is None
+
+
+def test_recursive_dereference_does_not_follow_directory_symlinks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / ".env").write_text("TOKEN=synthetic\n")
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+    assert _find_secret_path_in_cmd("grep -R TOKEN root") is None

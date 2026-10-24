@@ -263,6 +263,10 @@ stays within the pathname. Custom ``IFS`` and shell-local assignments are not
 modeled. GNU grep's
 ``-r``/``-R`` and ``--recursive`` searches inspect protected files in the search
 root and its immediate child directories, including wildcard directory operands.
+Literal recursive roots retain shell quoting instead of expanding quoted ``$``
+or ``~`` a second time. ``-R``/``--dereference-recursive`` follows file symlinks
+with protected names; ``-r`` skips discovered symlinks. Directory symlinks
+remain outside the bounded traversal for both modes.
 ``--directories=recurse`` has the same effect; a later ``skip`` or ``read``
 disables it. Ordinary ``rg`` recursion is not added: hidden/ignore rules differ
 from grep.
