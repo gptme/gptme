@@ -539,60 +539,67 @@ def _extract_codeblocks(
     # appears in the prefix at all).  We must NOT strip when <think> appears only
     # concatenated with a fence closer (e.g. "```<think>") — that is handled later
     # by the inner-loop fence-recovery logic.
-    _concatenated_end_found = False
-    _concatenated_end_pos = -1
-    _stripped = False
-    _literal_closers = (
-        _literal_thinking_closers(markdown) if "</think" in markdown else set()
-    )
-    for _think_end_tag in ["</thinking>", "</think>"]:
-        _search_from = 0
-        while True:
-            _think_end = markdown.find(_think_end_tag, _search_from)
-            if _think_end == -1:
+    while True:
+        _concatenated_end_found = False
+        _concatenated_end_pos = -1
+        _stripped = False
+        _literal_closers = (
+            _literal_thinking_closers(markdown) if "</think" in markdown else set()
+        )
+        for _think_end_tag in ["</thinking>", "</think>"]:
+            _search_from = 0
+            while True:
+                _think_end = markdown.find(_think_end_tag, _search_from)
+                if _think_end == -1:
+                    break
+                # Literal closer inside save/patch/shell/etc. is file content, not a
+                # thinking-section end. Skip it and keep looking (Gemini `thinking>`
+                # fences are still actionable — they are thinking langs).
+                if _think_end in _literal_closers:
+                    _search_from = _think_end + 1
+                    continue
+                _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
+                _prefix = markdown[:_think_end]
+                _has_standalone = _is_standalone_outside_fences(
+                    _prefix, _think_start_tag
+                )
+                _has_any = _think_start_tag in _prefix
+                # Strip if standalone opening exists, or if there is no opening tag at
+                # all in the prefix (covers the Gemini "```thinking>" malformed case).
+                if _has_standalone or not _has_any:
+                    # remove anything before and including the closing thinking tag
+                    markdown = markdown[_think_end + len(_think_end_tag) :]
+                    _stripped = True
+                    break
+                # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
+                # Inner-loop fence-recovery handles this; track position of the closing tag.
+                # NOTE: if both </thinking> and </think> appear concatenated in the same message,
+                # _concatenated_end_pos is overwritten by the second iteration (the later position).
+                # This means the _after_concat scan misses standalone think blocks between the two
+                # concatenated end-tags. Emitting both concatenated closers in one message is
+                # extremely unlikely in practice so this edge case is acceptable.
+                _concatenated_end_found = True
+                _concatenated_end_pos = _think_end + len(_think_end_tag)
+                break  # first actionable closer of this tag type
+            if _stripped:
                 break
-            # Literal closer inside save/patch/shell/etc. is file content, not a
-            # thinking-section end. Skip it and keep looking (Gemini `thinking>`
-            # fences are still actionable — they are thinking langs).
-            if _think_end in _literal_closers:
-                _search_from = _think_end + 1
-                continue
-            _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
-            _prefix = markdown[:_think_end]
-            _has_standalone = _is_standalone_outside_fences(_prefix, _think_start_tag)
-            _has_any = _think_start_tag in _prefix
-            # Strip if standalone opening exists, or if there is no opening tag at
-            # all in the prefix (covers the Gemini "```thinking>" malformed case).
-            if _has_standalone or not _has_any:
-                # remove anything before and including the closing thinking tag
-                markdown = markdown[_think_end + len(_think_end_tag) :]
-                _stripped = True
-                break
-            # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
-            # Inner-loop fence-recovery handles this; track position of the closing tag.
-            # NOTE: if both </thinking> and </think> appear concatenated in the same message,
-            # _concatenated_end_pos is overwritten by the second iteration (the later position).
-            # This means the _after_concat scan misses standalone think blocks between the two
-            # concatenated end-tags. Emitting both concatenated closers in one message is
-            # extremely unlikely in practice so this edge case is acceptable.
-            _concatenated_end_found = True
-            _concatenated_end_pos = _think_end + len(_think_end_tag)
-            break  # first actionable closer of this tag type
-        if _stripped:
+        if not _stripped:
             break
-    else:
-        # if start thinking tag but no end, early exit (only for standalone tags;
-        # concatenated occurrences like "```<think>" are handled by inner-loop logic).
-        if not _concatenated_end_found:
-            for _think_start_tag in ["<thinking>", "<think>"]:
-                if _is_standalone_outside_fences(markdown, _think_start_tag):
-                    return
-        else:
-            # A concatenated </think> was found (not stripped). Check if any standalone
-            # <think> appearing AFTER that closing tag is genuinely unclosed. If so,
-            # early-exit to avoid extracting blocks from inside an unclosed thinking section.
-            if _unclosed_standalone_after(markdown, _concatenated_end_pos):
+        # Recheck both variants after stripping; offsets and fence state belong
+        # to the remaining suffix, and it may contain another thinking section.
+
+    # if start thinking tag but no end, early exit (only for standalone tags;
+    # concatenated occurrences like "```<think>" are handled by inner-loop logic).
+    if not _concatenated_end_found:
+        for _think_start_tag in ["<thinking>", "<think>"]:
+            if _is_standalone_outside_fences(markdown, _think_start_tag):
                 return
+    else:
+        # A concatenated </think> was found (not stripped). Check if any standalone
+        # <think> appearing AFTER that closing tag is genuinely unclosed. If so,
+        # early-exit to avoid extracting blocks from inside an unclosed thinking section.
+        if _unclosed_standalone_after(markdown, _concatenated_end_pos):
+            return
 
     # speed check (early exit): check if message contains a code block
     # Check for at least 2 fence markers (3+ backticks each)

@@ -2215,6 +2215,23 @@ def test_unclosed_shell_inside_think_still_yields_later_tool_block():
     assert blocks[0].content == "echo final"
 
 
+def test_mixed_thinking_tags_do_not_extract_reasoning_commands():
+    """Stripping one thinking-tag variant must not bypass the other variant."""
+    for first, second in (("thinking", "think"), ("think", "thinking")):
+        for close_second in (False, True):
+            markdown = (
+                f"<{first}>plan</{first}>\n<{second}>\n```shell\necho draft\n```\n"
+            )
+            expected = []
+            if close_second:
+                markdown += f"</{second}>\n```shell\necho final\n```\n\n"
+                expected = [Codeblock("shell", "echo final")]
+            for streaming in (False, True):
+                assert (
+                    list(_extract_codeblocks(markdown, streaming=streaming)) == expected
+                )
+
+
 def test_ipython_quoted_fence_does_not_hide_later_unfinished_thinking():
     """A bare fence inside an IPython triple-quoted string is not a block closer.
 
