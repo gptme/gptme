@@ -129,6 +129,34 @@ def test_context_files_excludes_symlink_by_configured_path(
     assert "private/notes.md" not in result.output
 
 
+@pytest.mark.parametrize("external", [False, True])
+@pytest.mark.parametrize("excluded", ["secret.rst", "secret.*"])
+def test_context_files_excludes_symlink_by_target_basename(
+    tmp_path: Path, external: bool, excluded: str
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target_root = tmp_path if external else workspace
+    secret = target_root / "private" / "secret.rst"
+    secret.parent.mkdir()
+    secret.write_text("excluded secret content\n")
+    alias = workspace / "public" / "notes.rst"
+    alias.parent.mkdir()
+    try:
+        alias.symlink_to(secret)
+    except OSError:
+        pytest.skip("symlinks unavailable on this platform")
+    result = _invoke(
+        workspace,
+        f'[prompt]\nfiles = ["public/notes.rst", "guide.rst"]\nexclude = ["{excluded}"]\n',
+        {"guide.rst": "public guide\n"},
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "excluded secret content" not in result.output
+    assert "public/notes.rst" not in result.output
+    assert "public guide" in result.output
+
+
 def test_context_files_excludes_absolute_path_with_parent_components(
     tmp_path: Path,
 ) -> None:

@@ -1079,6 +1079,7 @@ def context_files(config: str | None):
             # parent components cannot bypass workspace-relative exclusions.
             if any(
                 fnmatch.fnmatch(fpath.name, pat)
+                or fnmatch.fnmatch(resolved.name, pat)
                 or any(
                     relpath is not None and fnmatch.fnmatch(str(relpath), pat)
                     for relpath in (relative, resolved_relative)
