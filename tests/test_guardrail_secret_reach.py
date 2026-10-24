@@ -908,3 +908,46 @@ def test_grep_filter_parameter_expansion(
     assert (
         find_secret_reach(command, _is_secret_path, _normalize_path_token) is not None
     ) is detected
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "'-eTOKEN'",
+        '"-eTOKEN"',
+        "'-rFeTOKEN'",
+        "-r'FeTOKEN'",
+        r"\-eTOKEN",
+        "'--regexp=TOKEN'",
+        '"--regexp=TOKEN"',
+    ],
+)
+def test_quoted_attached_grep_option_value(secret_tree: Path, option: str) -> None:
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"grep -rF {option} .") is not None
+    assert (
+        _find_secret_path_in_cmd(f"grep -rF {option.replace('TOKEN', 'ABSENT')} .")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("option", "contents"),
+    [
+        ("'-e$NEEDLE'", "TOKEN=$NEEDLE\n"),
+        ('"-e$NEEDLE"', "TOKEN=synthetic\n"),
+        ("'-rFe$NEEDLE'", "TOKEN=$NEEDLE\n"),
+        ('"-rFe$NEEDLE"', "TOKEN=synthetic\n"),
+        ("'--regexp=$NEEDLE'", "TOKEN=$NEEDLE\n"),
+        ('"--regexp=$NEEDLE"', "TOKEN=synthetic\n"),
+    ],
+)
+def test_quoted_attached_grep_option_keeps_value_quoting(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, option: str, contents: str
+) -> None:
+    monkeypatch.setenv("NEEDLE", "TOKEN")
+    (secret_tree / "nested" / ".env.local").write_text("ABSENT=synthetic\n")
+    (secret_tree / ".env").write_text(contents)
+    assert _find_secret_path_in_cmd(f"grep -rF {option} .") is not None
+    (secret_tree / ".env").write_text("ABSENT=synthetic\n")
+    assert _find_secret_path_in_cmd(f"grep -rF {option} .") is None

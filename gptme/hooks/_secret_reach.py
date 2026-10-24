@@ -200,7 +200,7 @@ def _parse_grep(
                 continue
             if name in value_flags:
                 if eq:
-                    raw_value = raw.partition("=")[2]
+                    raw_value = _raw_option_value(raw, len(name) + 1)
                 else:
                     value, raw_value = next(args_iter, ("", ""))
                 if value_flags[name] in {
@@ -225,7 +225,8 @@ def _parse_grep(
                     result.flags += "C"
                 if flag in "efmABCdD" or (ripgrep and flag in "gEr"):
                     if arg[index + 1 :]:
-                        value, raw_value = arg[index + 1 :], raw[index + 1 :]
+                        value = arg[index + 1 :]
+                        raw_value = _raw_option_value(raw, index + 1)
                     else:
                         value, raw_value = next(args_iter, ("", ""))
                     value_option(flag, value, raw_value)
@@ -238,6 +239,31 @@ def _parse_grep(
         result.raw_patterns.append(raw_pattern)
     result.files.extend(word for word, _ in operands)
     return result
+
+
+def _raw_option_value(raw: str, prefix_length: int) -> str:
+    """Remove a decoded option prefix while retaining the value's shell quoting."""
+    quote = ""
+    index = 0
+    consumed = 0
+    while index < len(raw) and consumed < prefix_length:
+        char = raw[index]
+        if char == quote:
+            quote = ""
+        elif char in "\"'" and not quote:
+            quote = char
+        else:
+            if char == "\\" and quote != "'":
+                following = raw[index + 1 : index + 2]
+                if following == "\n":
+                    index += 2
+                    continue
+                if not quote or following in {"$", "`", '"', "\\"}:
+                    index += 1
+            consumed += 1
+        index += 1
+    # If the option prefix ended inside quotes, reopen them for the suffix.
+    return quote + raw[index:]
 
 
 def _dollar_expand(raw: str, index: int) -> tuple[str, int]:
