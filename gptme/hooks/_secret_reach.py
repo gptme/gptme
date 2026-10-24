@@ -200,22 +200,20 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
 
 
 def _dollar_expand(raw: str, index: int) -> tuple[str, int]:
-    """Expand $VAR/${VAR} like os.path.expandvars: unknown names stay literal."""
+    """Expand $VAR/${VAR}; unset names become empty, matching Bash."""
     if index + 1 < len(raw) and raw[index + 1] == "{":
         end = raw.find("}", index + 2)
         if end < 0:
             return "$", index + 1
         name = raw[index + 2 : end]
-        value = os.environ.get(name)
-        return (value if value is not None else raw[index : end + 1], end + 1)
+        return os.environ.get(name, ""), end + 1
     start = index + 1
     if start < len(raw) and (raw[start].isalpha() or raw[start] == "_"):
         end = start + 1
         while end < len(raw) and (raw[end].isalnum() or raw[end] == "_"):
             end += 1
         name = raw[start:end]
-        value = os.environ.get(name)
-        return (value if value is not None else raw[index:end], end)
+        return os.environ.get(name, ""), end
     return "$", index + 1
 
 
@@ -284,6 +282,7 @@ def _expand_grep_patterns(grep: _Grep, node: object) -> None:
                 unquoted.add(word)
     patterns: list[str] = []
     extra_files: list[str] = []
+    dropped_empty_unquoted = False
     for pattern in grep.patterns:
         if pattern in literal:
             patterns.append(pattern)
@@ -292,6 +291,7 @@ def _expand_grep_patterns(grep: _Grep, node: object) -> None:
         if pattern in unquoted:
             fields = [part for part in re.split(r"[ \t\n]+", expanded) if part]
             if not fields:
+                dropped_empty_unquoted = True
                 continue
             patterns.append(fields[0])
             extra_files.extend(fields[1:])
@@ -299,6 +299,10 @@ def _expand_grep_patterns(grep: _Grep, node: object) -> None:
             patterns.append(expanded)
     grep.patterns = patterns
     grep.files.extend(extra_files)
+    # Unquoted empty expansions are removed as words. A leftover file operand
+    # then becomes the pattern, matching grep's argv rewrite.
+    if dropped_empty_unquoted and not grep.patterns and grep.files:
+        grep.patterns.append(grep.files.pop(0))
 
 
 def _stdin_redirect_raws(node: object) -> list[str]:

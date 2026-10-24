@@ -264,7 +264,9 @@ are split on default shell whitespace (space, tab and LF); quoted whitespace
 stays within the pathname. Custom ``IFS`` and shell-local assignments are not
 modeled. The same unquoted/double-quoted parameter expansion applies to grep
 search patterns (``grep -rF "$NEEDLE"``); single-quoted patterns stay literal.
-Unquoted pattern expansions also field-split, so ``NEEDLE='TOKEN .'`` makes
+Unset or empty names expand to empty, so ``grep -rF "$UNSET" .`` is an empty
+fixed-string search. Unquoted empty names are removed as words. Unquoted
+pattern expansions also field-split, so ``NEEDLE='TOKEN .'`` makes
 ``grep -rF $NEEDLE`` search for ``TOKEN`` in ``.``. GNU grep's
 ``-r``/``-R`` and ``--recursive`` searches inspect protected files in the search
 root and its immediate child directories, including wildcard directory operands.

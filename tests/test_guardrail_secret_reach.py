@@ -700,6 +700,19 @@ def test_grep_pattern_parameter_expansion(
     assert _find_secret_path_in_cmd("grep -rF ABSENT .") is None
 
 
+def test_unset_grep_pattern_expands_to_empty(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("UNSET_NEEDLE", raising=False)
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd('grep -rF "$UNSET_NEEDLE" .') is not None
+    assert _find_secret_path_in_cmd('grep -rF "${UNSET_NEEDLE}" .') is not None
+    assert _find_secret_path_in_cmd('grep -e "$UNSET_NEEDLE" -r .') is not None
+    assert _find_secret_path_in_cmd("grep -rF $UNSET_NEEDLE .") is None
+    assert _find_secret_path_in_cmd("grep -rF '$UNSET_NEEDLE' .") is None
+    assert _find_secret_path_in_cmd(r"grep -rF \$UNSET_NEEDLE .") is None
+
+
 @pytest.mark.parametrize(
     ("command", "detected"),
     [
