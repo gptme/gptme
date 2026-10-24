@@ -716,3 +716,24 @@ def test_ripgrep_no_fixed_strings_last_wins(
 ) -> None:
     (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
     assert (_find_secret_path_in_cmd(command) is not None) is detected
+
+
+def test_unquoted_grep_pattern_field_split(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NEEDLE", "TOKEN .")
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd("grep -rF $NEEDLE") is not None
+    assert _find_secret_path_in_cmd("grep -rF $NEEDLE .") is not None
+    assert _find_secret_path_in_cmd("grep -e $NEEDLE -r .") is not None
+    assert _find_secret_path_in_cmd('grep -rF "$NEEDLE"') is None
+    assert _find_secret_path_in_cmd("grep -rF '$NEEDLE'") is None
+
+
+def test_gnu_grep_null_data_dot_matches_embedded_lf(secret_tree: Path) -> None:
+    (secret_tree / ".env").write_text("HEADER\nTOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd("grep -rz 'HEADER.TOKEN' .") is not None
+    assert _find_secret_path_in_cmd("grep -r --null-data 'HEADER.TOKEN' .") is not None
+    assert _find_secret_path_in_cmd("grep -r 'HEADER.TOKEN' .") is None
+    assert _find_secret_path_in_cmd("grep -rzF 'HEADER.TOKEN' .") is None
+    assert _find_secret_path_in_cmd("rg --null-data 'HEADER.TOKEN' .[e]nv") is None

@@ -60,10 +60,11 @@ class _Grep:
     pattern_files: list[str] = field(default_factory=list)
     crlf: bool = False
     dereference: bool = False
+    ripgrep: bool = False
 
 
 def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
-    result = _Grep()
+    result = _Grep(ripgrep=ripgrep)
     operands: list[str] = []
     args_iter = iter(args)
     long_flags = {
@@ -261,8 +262,13 @@ def _expand_parameters(raw: str) -> str:
 
 
 def _expand_grep_patterns(grep: _Grep, node: object) -> None:
-    """Expand $VAR in grep patterns unless the operand was single-quoted."""
+    """Expand $VAR in grep patterns unless the operand was single-quoted.
+
+    Unquoted expansions field-split on default IFS whitespace; extra fields
+    become file operands, matching the shell's argv rewrite before grep.
+    """
     literal: set[str] = set()
+    unquoted: set[str] = set()
     raw_by_word: dict[str, str] = {}
     for child in node.children_by_field_name("argument"):  # type: ignore[attr-defined]
         raw = (child.text or b"").decode()
@@ -274,12 +280,25 @@ def _expand_grep_patterns(grep: _Grep, node: object) -> None:
             literal.add(word)
         else:
             raw_by_word.setdefault(word, raw)
-    grep.patterns = [
-        pattern
-        if pattern in literal
-        else _expand_parameters(raw_by_word.get(pattern, pattern))
-        for pattern in grep.patterns
-    ]
+            if child.type != "string":
+                unquoted.add(word)
+    patterns: list[str] = []
+    extra_files: list[str] = []
+    for pattern in grep.patterns:
+        if pattern in literal:
+            patterns.append(pattern)
+            continue
+        expanded = _expand_parameters(raw_by_word.get(pattern, pattern))
+        if pattern in unquoted:
+            fields = [part for part in re.split(r"[ \t\n]+", expanded) if part]
+            if not fields:
+                continue
+            patterns.append(fields[0])
+            extra_files.extend(fields[1:])
+        else:
+            patterns.append(expanded)
+    grep.patterns = patterns
+    grep.files.extend(extra_files)
 
 
 def _stdin_redirect_raws(node: object) -> list[str]:
@@ -463,8 +482,13 @@ def _matches_values(grep: _Grep, path: str) -> bool:
             source = rf"(?<!\w)(?:{source})(?!\w)"
         if "x" in grep.flags:
             source = rf"^(?:{source})$"
+        flags = re.IGNORECASE if ignore_case else 0
+        # GNU grep -z lets `.` match an embedded LF inside the NUL record.
+        # Ripgrep --null-data does not; its -z is --search-zip, not this flag.
+        if "z" in grep.flags and not grep.ripgrep:
+            flags |= re.DOTALL
         try:
-            regex = re.compile(source, re.IGNORECASE if ignore_case else 0)
+            regex = re.compile(source, flags)
         except re.error:
             return True
         if any(regex.search(line) for line in lines):
