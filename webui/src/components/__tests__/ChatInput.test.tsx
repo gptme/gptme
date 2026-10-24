@@ -2,6 +2,7 @@ import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { ChatInput } from '../ChatInput';
+import { AttachmentUploadError } from '@/utils/api';
 
 const mockUploadFiles = jest.fn();
 
@@ -177,6 +178,54 @@ describe('ChatInput', () => {
 
     await waitFor(() => expect(screen.queryByText('test.txt')).not.toBeInTheDocument());
   });
+
+  it.each([false, true])(
+    'retains a failed queued upload when switching before failure=%s',
+    async (switchBeforeFailure) => {
+      const autoFocus$ = observable(false);
+      let rejectUpload!: (error: unknown) => void;
+      const onSendA = jest
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((_resolve, reject) => {
+              rejectUpload = reject;
+            })
+        )
+        .mockResolvedValue(undefined);
+      const onSendB = jest.fn();
+      mockConversation$.isGenerating.set(true);
+      const { container, rerender } = render(
+        <ChatInput conversationId="conv-a" onSend={onSendA} autoFocus$={autoFocus$} />
+      );
+      const file = new File(['retained bytes'], 'retained.txt', { type: 'text/plain' });
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: { files: [file] },
+      });
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'retained prompt' } });
+      fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+      act(() => mockConversation$.isGenerating.set(false));
+      await waitFor(() => expect(onSendA).toHaveBeenCalledTimes(1));
+      if (switchBeforeFailure) {
+        rerender(<ChatInput conversationId="conv-b" onSend={onSendB} autoFocus$={autoFocus$} />);
+      }
+      await act(async () => rejectUpload(new AttachmentUploadError(new Error('413'))));
+      if (!switchBeforeFailure) {
+        expect(screen.getByRole('button', { name: 'Retry upload' })).toBeInTheDocument();
+        rerender(<ChatInput conversationId="conv-b" onSend={onSendB} autoFocus$={autoFocus$} />);
+      }
+      expect(screen.queryByText('retained prompt')).not.toBeInTheDocument();
+      expect(onSendB).not.toHaveBeenCalled();
+      rerender(<ChatInput conversationId="conv-a" onSend={onSendA} autoFocus$={autoFocus$} />);
+      expect(screen.getByRole('button', { name: 'Retry upload' })).toBeInTheDocument();
+      expect(onSendA).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole('button', { name: 'Retry upload' }));
+      await waitFor(() => expect(onSendA).toHaveBeenCalledTimes(2));
+      expect(onSendA.mock.calls[1][0]).toBe('retained prompt');
+      expect(onSendA.mock.calls[1][1].pendingFiles[0]).toBe(file);
+      expect(onSendB).not.toHaveBeenCalled();
+    }
+  );
 
   it('labels the composer and disables empty sends', async () => {
     const autoFocus$ = observable(false);

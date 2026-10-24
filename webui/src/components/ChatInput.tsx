@@ -902,7 +902,19 @@ export const ChatInput: FC<Props> = ({
     options: ChatOptions;
     uploadFailed?: boolean;
   }
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  // Keep raw File objects in memory under their owning draft, never in another
+  // conversation's queue. Switching away must not discard a failed upload.
+  const [messageQueues, setMessageQueues] = useState<Record<string, QueuedMessage[]>>({});
+  const messageQueue = messageQueues[storageKey] ?? [];
+  const setMessageQueue = useCallback(
+    (update: SetStateAction<QueuedMessage[]>) => {
+      setMessageQueues((queues) => ({
+        ...queues,
+        [storageKey]: typeof update === 'function' ? update(queues[storageKey] ?? []) : update,
+      }));
+    },
+    [storageKey]
+  );
   const [isUploading, setIsUploading] = useState(false);
   const uploadInFlight = useRef(false);
   // Async upload completion must not clear a different conversation's draft.
@@ -917,7 +929,6 @@ export const ChatInput: FC<Props> = ({
     conversationEpoch.current++;
     uploadInFlight.current = false;
     setIsUploading(false);
-    setMessageQueue([]);
     wasBusy.current = false;
     return () => {
       submissionEpoch.current++;
@@ -989,22 +1000,25 @@ export const ChatInput: FC<Props> = ({
       const result = onSend(nextMessage.text, nextMessage.options);
       if (result instanceof Promise) {
         result.catch((error: unknown) => {
-          if (conversationEpoch.current !== owner) return;
+          // The scoped setter restores failed work to its original draft even
+          // when the user switched away while the request was pending.
           const status =
             error && typeof error === 'object' && 'status' in error
               ? (error as { status: number }).status
               : undefined;
           if (error instanceof AttachmentUploadError) {
             setMessageQueue((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev]);
-            toast({
-              variant: 'destructive',
-              title: 'Upload failed',
-              description: 'Your queued message was not sent. Use Retry upload to try again.',
-            });
+            if (conversationEpoch.current === owner) {
+              toast({
+                variant: 'destructive',
+                title: 'Upload failed',
+                description: 'Your queued message was not sent. Use Retry upload to try again.',
+              });
+            }
           } else if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
             setMessageQueue((prev) => [nextMessage, ...prev]);
-            scheduleQueueRetry();
+            if (conversationEpoch.current === owner) scheduleQueueRetry();
           } else {
             console.error('[ChatInput] Failed to send queued message:', error);
           }
@@ -1012,7 +1026,7 @@ export const ChatInput: FC<Props> = ({
       }
     }
     wasBusy.current = isBusy;
-  }, [isBusy, messageQueue, onSend, toast]);
+  }, [isBusy, messageQueue, onSend, toast, setMessageQueue]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
   // Sidebar workspace selections sync both ways. Agent default applies only when

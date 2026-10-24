@@ -1794,8 +1794,10 @@ export class ApiClient {
         const filePaths = uploadResult.files.map((f) => f.path);
         const attachedMessage = { ...message, files: filePaths };
         replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
+        let saved = false;
         try {
           await this.sendMessage(conversationId, attachedMessage);
+          saved = true;
         } catch (error) {
           // Upload succeeded: transfer ownership to the visible failed message,
           // not back to a composer that might blindly duplicate an ambiguous POST.
@@ -1820,6 +1822,40 @@ export class ApiClient {
               },
             },
           });
+        }
+        if (saved && conversationHasOtherMessages(conversationId, message.timestamp!)) {
+          // POST appends at save time, not at the placeholder's original position.
+          // Timestamp sorting is wrong too: this message still has its old timestamp.
+          // Move it to the end as a fallback, then obtain authoritative server order
+          // (including any intervening assistant/tool messages) for positional edits.
+          const log = conversations$.get(conversationId)!.data.log.get();
+          replaceLog(conversationId, [
+            ...log.filter((entry) => entry.timestamp !== message.timestamp),
+            attachedMessage,
+          ]);
+          try {
+            const data = await this.getConversation(conversationId);
+            // Read local state AFTER the GET: another send may have started while
+            // it was in flight. Keep Retry metadata and append entries absent from
+            // this snapshot in their local order (including newer SSE messages).
+            // Only the snapshot prefix has authoritative server indices.
+            const local = conversations$.get(conversationId)!.data.log.get();
+            const sameMessage = (a: Message, b: Message) =>
+              a.timestamp !== undefined &&
+              b.timestamp !== undefined &&
+              Date.parse(a.timestamp) === Date.parse(b.timestamp);
+            replaceLog(conversationId, [
+              ...data.log.map((entry) => {
+                const previous = local.find((candidate) => sameMessage(candidate, entry));
+                return previous ? { ...previous, ...entry } : entry;
+              }),
+              ...local.filter((entry) => !data.log.some((saved) => sameMessage(entry, saved))),
+            ]);
+          } catch (error) {
+            // The POST succeeded. A refresh failure must not turn it into a
+            // rejected message whose Retry could duplicate the saved prompt.
+            console.warn('[ApiClient] Failed to reconcile uploaded message order:', error);
+          }
         }
         // Keep the new-chat draft locked through persistence. The caller
         // navigates as soon as creation resolves, discarding any new files

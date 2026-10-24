@@ -678,7 +678,7 @@ it('keeps newer saved messages when an earlier new-chat upload fails', async () 
   ]);
 });
 
-it('keeps newer saved messages when an earlier new-chat upload succeeds', async () => {
+it('uses server order for positional edits/deletes after a late new-chat upload saves', async () => {
   const { renderHook } = await import('@testing-library/react');
   const create = jest.spyOn(mockClient, 'createConversation');
   let resolveUpload!: (value: any) => void;
@@ -704,32 +704,146 @@ it('keeps newer saved messages when an earlier new-chat upload succeeds', async 
   expect(post).toHaveBeenCalledTimes(1);
   const saved = post.mock.calls[0][1];
   expect(saved.content).toBe('newer saved message');
+  // The server appends on POST, not by client timestamp. Include an assistant
+  // turn to ensure moving the placeholder or sorting timestamps is insufficient.
+  const serverLog = [
+    saved,
+    { role: 'assistant' as const, content: 'newer response', timestamp: '2099-01-01T00:00:00Z' },
+    { ...original, files: ['attachments/one.txt'] },
+  ];
+  const get = jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: serverLog,
+  });
+  setGenerating(id, true);
   await act(async () => {
     resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
     await creation;
   });
   const log = conversations$.get(id)!.data.log.get();
-  expect(log).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        content: original.content,
-        timestamp: original.timestamp,
-        files: ['attachments/one.txt'],
-      }),
-      expect.objectContaining({
-        content: saved.content,
-        timestamp: saved.timestamp,
-        _status: 'sent',
-      }),
-    ])
-  );
-  expect(log).toHaveLength(2);
+  expect(log.map((entry) => entry.content)).toEqual(serverLog.map((entry) => entry.content));
+  expect(get).toHaveBeenCalledWith(id);
+  expect(conversations$.get(id)!.isGenerating.get()).toBe(true);
+  const edit = jest.spyOn(mockClient, 'editMessage').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: serverLog,
+  });
+  const remove = jest.spyOn(mockClient, 'deleteMessage').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: serverLog.slice(0, 2),
+  });
+  const index = log.findIndex((entry) => entry.timestamp === original.timestamp);
+  await act(async () => {
+    await result.current.editMessage(index, 'edited attached');
+    await result.current.deleteMessage(index);
+  });
+  expect(edit).toHaveBeenCalledWith(id, 2, 'edited attached', false, undefined);
+  expect(remove).toHaveBeenCalledWith(id, 2);
   expect(post).toHaveBeenCalledTimes(2);
   expect(post.mock.calls[1][1]).toMatchObject({
     content: original.content,
     timestamp: original.timestamp,
     files: ['attachments/one.txt'],
   });
+});
+
+it('preserves Retry metadata and sends started during upload-order reconciliation', async () => {
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  let resolveGet!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const get = jest.spyOn(mockClient, 'getConversation').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveGet = resolve;
+      })
+  );
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const state = conversations$.get(id)!;
+  const original = state.data.log.get()[0];
+  const saved = {
+    role: 'user' as const,
+    content: 'saved but step failed',
+    timestamp: '2026-10-24T20:01:00.000Z',
+    _status: 'failed' as const,
+    _retry: { persistence: 'saved' as const, options: { model: 'retry-model' } },
+  };
+  state.data.log.set([original, saved]);
+  resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+  await waitFor(() => expect(get).toHaveBeenCalledWith(id));
+  const pending = {
+    role: 'user' as const,
+    content: 'send started during GET',
+    timestamp: '2026-10-24T20:02:00Z',
+    _status: 'pending' as const,
+  };
+  const persistedDuringGet = {
+    role: 'user' as const,
+    content: 'saved after GET snapshot',
+    timestamp: '2026-10-24T20:01:30Z',
+    _status: 'sent' as const,
+  };
+  const responseDuringGet = {
+    role: 'assistant' as const,
+    content: 'response after GET snapshot',
+    timestamp: '2026-10-24T20:01:40Z',
+  };
+  state.data.log.set([...state.data.log.get(), persistedDuringGet, responseDuringGet, pending]);
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  resolveGet({
+    ...state.data.get(),
+    log: [
+      // Server timestamps need not have identical string formatting.
+      { role: saved.role, content: saved.content, timestamp: '2026-10-24T20:01:00+00:00' },
+      attached,
+    ],
+  });
+  await creation;
+  expect(state.data.log.get()).toEqual([
+    { ...saved, timestamp: '2026-10-24T20:01:00+00:00' },
+    attached,
+    persistedDuringGet,
+    responseDuringGet,
+    pending,
+  ]);
+  expect(state.isGenerating.get()).toBe(true);
+});
+
+it('does not mark a saved upload failed or idle newer generation when order refresh fails', async () => {
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  const post = jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  jest.spyOn(mockClient, 'getConversation').mockRejectedValue(new Error('offline'));
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const state = conversations$.get(id)!;
+  const original = state.data.log.get()[0];
+  const newer = { role: 'user' as const, content: 'newer', timestamp: '2099-01-01T00:00:00Z' };
+  state.data.log.set([original, newer]);
+  resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+  await creation;
+  expect(state.data.log.get()).toEqual([newer, { ...original, files: ['attachments/one.txt'] }]);
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(state.isGenerating.get()).toBe(true);
 });
 
 it('keeps newer saved messages when an earlier new-chat POST fails after upload', async () => {
