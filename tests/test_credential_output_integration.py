@@ -192,6 +192,8 @@ def test_review_regressions_through_confirmation_chain(
         'grep -rF ""$SPLIT_NEEDLE',
         "rg --replace MASKED TOKEN config/*",
         "rg -r MASKED TOKEN config/*",
+        "rg --passthru ABSENT config/*",
+        "rg --passthrough ABSENT config/*",
         "grep -r TOKEN '$ROOT'",
         "grep -R TOKEN linked",
         "grep -rn 'def foo' .",

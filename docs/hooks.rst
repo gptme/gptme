@@ -291,7 +291,10 @@ Ripgrep ``--crlf``
 trailing carriage return as part of the line ending for whole-line matches;
 GNU grep stays LF-only. Ripgrep ``-E``/``--encoding`` and ``-r``/``--replace``
 operands are consumed without replacing the search pattern; candidate decoding
-remains the default text decoding, not a simulation of every ripgrep encoding. Context searches
+remains the default text decoding, not a simulation of every ripgrep encoding.
+Ripgrep ``--passthru``/``--passthrough`` prints matching and non-matching
+lines, so a reached protected file is flagged even when the pattern does not
+match. Context searches
 are conservative; quiet/count/filename-only searches do not add reach refusals.
 Complex regular expressions are conservatively flagged when a protected file
 is reached, rather than evaluated with an unbounded backtracking engine.

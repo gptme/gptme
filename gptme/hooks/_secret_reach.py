@@ -60,6 +60,7 @@ class _Grep:
     pattern_file: bool = False
     pattern_files: list[str] = field(default_factory=list)
     crlf: bool = False
+    passthru: bool = False
     dereference: bool = False
     ripgrep: bool = False
 
@@ -192,6 +193,10 @@ def _parse_grep(
             # Last-wins against -F/--fixed-strings; GNU grep has no equivalent.
             if ripgrep and name == "--no-fixed-strings":
                 result.flags = result.flags.translate(str.maketrans("", "", "F"))
+                continue
+            # Prints matching and non-matching lines; --passthrough is an alias.
+            if ripgrep and name in {"--passthru", "--passthrough"}:
+                result.passthru = True
                 continue
             if name in value_flags:
                 if eq:
@@ -565,6 +570,9 @@ def _shallow_files(
 def _matches_values(grep: _Grep, path: str) -> bool:
     if set(grep.flags) & set("qlLc"):
         return False
+    # --passthru prints every searched line, including non-matches.
+    if grep.passthru:
+        return True
     if grep.pattern_file or "v" in grep.flags or not grep.patterns:
         return True
     try:

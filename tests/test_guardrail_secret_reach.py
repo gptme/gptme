@@ -570,6 +570,17 @@ def test_ripgrep_replace_preserves_search_pattern(
     assert _find_secret_path_in_cmd(f"rg {option} ABSENT config/*") is None
 
 
+@pytest.mark.parametrize("flag", ["--passthru", "--passthrough"])
+def test_ripgrep_passthru_prints_nonmatching_protected_lines(
+    secret_tree: Path, flag: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"rg {flag} ABSENT config/*") is not None
+    assert _find_secret_path_in_cmd(f"rg {flag} TOKEN config/*") is not None
+    assert _find_secret_path_in_cmd("rg ABSENT config/*") is None
+    assert _find_secret_path_in_cmd(f"rg {flag} -l ABSENT config/*") is None
+
+
 @pytest.mark.parametrize(
     "value", ["safe.txt config/*", "safe.txt\tconfig/*", " safe.txt\nconfig/* "]
 )
