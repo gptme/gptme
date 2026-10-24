@@ -1067,9 +1067,8 @@ def context_files(config: str | None):
             resolved = fpath.resolve()
             if resolved in seen:
                 continue
-            seen.add(resolved)
             try:
-                relative = resolved.relative_to(workspace)
+                relative = fpath.relative_to(workspace)
             except ValueError:
                 relative = None
             # Match prompt_workspace's basename and workspace-relative exclusions.
@@ -1079,6 +1078,7 @@ def context_files(config: str | None):
                 for pat in project.exclude
             ):
                 continue
+            seen.add(resolved)
             rel = relative.as_posix() if relative is not None else str(fpath)
             print(f"## FILE: {rel}\n")
             print(fpath.read_text())

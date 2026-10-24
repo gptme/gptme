@@ -96,3 +96,34 @@ def test_context_files_honors_exclusions(tmp_path: Path, excluded: str) -> None:
     assert "private.rst" not in result.output
     assert "excluded content" not in result.output
     assert "(not found)" not in result.output + result.stderr
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_context_files_excludes_symlink_by_configured_path(
+    tmp_path: Path, absolute: bool
+) -> None:
+    shared = tmp_path / "shared" / "notes.md"
+    shared.parent.mkdir()
+    shared.write_text("shared notes\n")
+    private = tmp_path / "private" / "notes.md"
+    private.parent.mkdir()
+    try:
+        private.symlink_to(shared)
+    except OSError:
+        pytest.skip("symlinks unavailable on this platform")
+    entry = private.as_posix() if absolute else "private/notes.md"
+    result = _invoke(
+        tmp_path,
+        f'[prompt]\nfiles = ["{entry}"]\nexclude = ["private/*"]\n',
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "shared notes" not in result.output
+    result = _invoke(
+        tmp_path,
+        f'[prompt]\nfiles = ["{entry}", "shared/notes.md"]\nexclude = ["private/*"]\n',
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    # The excluded alias must not suppress its allowed entry.
+    assert result.output.count("shared notes") == 1
+    assert "## FILE: shared/notes.md" in result.output
+    assert "private/notes.md" not in result.output
