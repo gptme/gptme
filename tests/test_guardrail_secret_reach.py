@@ -547,3 +547,42 @@ def test_single_quoted_home_glob_does_not_expand(
     (home / "id.pem").write_text("synthetic certificate\n")
     assert _find_secret_path_in_cmd("cat $HOME/*") is not None
     assert _find_secret_path_in_cmd('cat "$HOME"/*') is not None
+
+
+@pytest.mark.parametrize(
+    "option", ["--encoding utf-8", "--encoding=utf-8", "-E utf-8", "-Eutf-8"]
+)
+def test_ripgrep_encoding_preserves_pattern(secret_tree: Path, option: str) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"rg {option} TOKEN config/*") is not None
+    assert _find_secret_path_in_cmd(f"rg {option} ABSENT config/*") is None
+
+
+@pytest.mark.parametrize(
+    "value", ["safe.txt config/*", "safe.txt\tconfig/*", " safe.txt\nconfig/* "]
+)
+def test_unquoted_expansion_splits_glob_fields(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("FILES", value)
+    assert _find_secret_path_in_cmd("cat $FILES") is not None
+    assert _find_secret_path_in_cmd("cat ${FILES}") is not None
+    assert _find_secret_path_in_cmd('cat "$FILES"') is None
+    assert _find_secret_path_in_cmd("cat '$FILES'") is None
+
+
+def test_expansion_field_boundaries_preserve_prefix_suffix_and_quotes(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FILES", "afe.txt config/")
+    assert _find_secret_path_in_cmd("cat s${FILES}*") is not None
+    monkeypatch.setenv("FILES", "safe.txt ")
+    assert _find_secret_path_in_cmd("cat ${FILES}config/*") is not None
+    monkeypatch.setenv("FILES", "safe.txt missing/*")
+    assert _find_secret_path_in_cmd("cat $FILES") is None
+    spaced = secret_tree / "with space"
+    spaced.mkdir()
+    (spaced / "client.pem").write_text("synthetic certificate\n")
+    monkeypatch.setenv("DIR", "with space")
+    assert _find_secret_path_in_cmd('cat "$DIR"/*') is not None
+    assert _find_secret_path_in_cmd("cat $DIR/*") is None

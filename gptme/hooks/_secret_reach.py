@@ -97,6 +97,7 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         # Selection is conservative: rg globs have different semantics to grep.
         value_flags["--glob"] = "g"
         value_flags["--iglob"] = "g"
+        value_flags["--encoding"] = "encoding"
         long_flags.update({"--smart-case": "S", "--case-sensitive": "s"})
     else:
         value_flags.update(
@@ -174,11 +175,11 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             for index, flag in enumerate(arg[1:], 1):
                 # rg -L follows symlinks and -z searches compressed files;
                 # neither has GNU grep's filename-only/NUL-record meaning.
-                if flag not in "ABC" and not (ripgrep and flag in "Lz"):
+                if flag not in "ABC" and not (ripgrep and flag in "LzE"):
                     add_flag(flag)
                 if flag in "123456789":
                     result.flags += "C"
-                if flag in "efmABCdD" or (ripgrep and flag == "g"):
+                if flag in "efmABCdD" or (ripgrep and flag in "gE"):
                     value_option(flag, arg[index + 1 :] or next(args_iter, ""))
                     break
             continue
@@ -216,12 +217,21 @@ def _tilde_expand(raw: str, index: int) -> tuple[str, int]:
     return os.path.expanduser(raw[index:end]), end
 
 
-def _glob_pattern(raw: str) -> str | None:
-    """Preserve quoted wildcard characters as literal fnmatch components."""
+def _glob_patterns(raw: str) -> list[str]:
+    """Preserve quoting and split unquoted expansions on default IFS whitespace."""
     quote = ""
     escaped = False
     active = False
     pattern: list[str] = []
+    fields: list[str] = []
+
+    def finish_field() -> None:
+        nonlocal active
+        if active:
+            fields.append("".join(pattern))
+        pattern.clear()
+        active = False
+
     index = 0
     while index < len(raw):
         char = raw[index]
@@ -252,8 +262,14 @@ def _glob_pattern(raw: str) -> str | None:
             continue
         if char == "$":
             replacement, index = _dollar_expand(raw, index)
-            active |= any(marker in replacement for marker in "*?[")
-            pattern.append(replacement)
+            # Only expansion results undergo field splitting, not literal or
+            # quoted whitespace. Prefix/suffix text joins the first/last field.
+            for part in re.split(r"([ \t\n]+)", replacement):
+                if part and part[0] in " \t\n":
+                    finish_field()
+                else:
+                    active |= any(marker in part for marker in "*?[")
+                    pattern.append(part)
             continue
         if char == "~" and not pattern:
             replacement, index = _tilde_expand(raw, index)
@@ -262,7 +278,8 @@ def _glob_pattern(raw: str) -> str | None:
         active |= char in "*?["
         pattern.append(char)
         index += 1
-    return "".join(pattern) if active else None
+    finish_field()
+    return fields
 
 
 def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
@@ -405,10 +422,12 @@ def find_secret_reach(
         patterns: dict[str, list[str]] = {}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()
-            pattern = _glob_pattern(raw)
-            if pattern:
+            expanded_patterns = _glob_patterns(raw)
+            if expanded_patterns:
                 try:
-                    patterns.setdefault(shlex.split(raw)[0], []).append(pattern)
+                    patterns.setdefault(shlex.split(raw)[0], []).extend(
+                        expanded_patterns
+                    )
                 except (ValueError, IndexError):
                     pass
         for operand in files:
