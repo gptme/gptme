@@ -255,12 +255,15 @@ Secret paths reached indirectly
 The secret-path rule also inspects pathname globs in literal reader commands
 (``cat``, ``head``, ``tail``, ``less``, ``more``, ``sed``, ``awk`` and grep variants).
 For example, ``cat config/*`` is flagged if it expands to a protected ``.pem``
-file. Quoted and escaped wildcard characters remain literal, including ``$`` and
+file. Stdin file redirections on those readers are included
+(``cat < config/*``); output redirections and non-stdin descriptors are not.
+Quoted and escaped wildcard characters remain literal, including ``$`` and
 ``~`` inside single quotes. Unquoted and double-quoted parameter and unquoted
 tilde expansion still apply before glob matching. Unquoted parameter values
 are split on default shell whitespace (space, tab and LF); quoted whitespace
 stays within the pathname. Custom ``IFS`` and shell-local assignments are not
-modeled. GNU grep's
+modeled. The same unquoted/double-quoted parameter expansion applies to grep
+search patterns (``grep -rF "$NEEDLE"``); single-quoted patterns stay literal. GNU grep's
 ``-r``/``-R`` and ``--recursive`` searches inspect protected files in the search
 root and its immediate child directories, including wildcard directory operands.
 Literal recursive roots retain shell quoting instead of expanding quoted ``$``
@@ -276,7 +279,9 @@ A simple grep pattern must match a non-comment assignment line in dotenv files
 ``grep -rn 'def foo' .`` alone while detecting ``grep -rn API_KEY .`` when a
 matching assignment is in reach. Include/exclude filters, including
 ``--exclude-from``, fixed strings, case-insensitive, word and whole-line matching
-are recognized. Ripgrep ``--crlf`` (last-wins against ``--no-crlf``) treats a
+are recognized. Ripgrep ``--no-fixed-strings`` last-wins against
+``-F``/``--fixed-strings`` and restores regex matching. Ripgrep ``--crlf``
+(last-wins against ``--no-crlf``) treats a
 trailing carriage return as part of the line ending for whole-line matches;
 GNU grep stays LF-only. Ripgrep ``-E``/``--encoding`` operands are consumed
 without replacing the search pattern; candidate decoding remains the default

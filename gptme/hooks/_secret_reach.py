@@ -170,6 +170,10 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             if ripgrep and name == "--no-crlf":
                 result.crlf = False
                 continue
+            # Last-wins against -F/--fixed-strings; GNU grep has no equivalent.
+            if ripgrep and name == "--no-fixed-strings":
+                result.flags = result.flags.translate(str.maketrans("", "", "F"))
+                continue
             if name in value_flags:
                 value_option(value_flags[name], value if eq else next(args_iter, ""))
             else:
@@ -212,6 +216,96 @@ def _dollar_expand(raw: str, index: int) -> tuple[str, int]:
         value = os.environ.get(name)
         return (value if value is not None else raw[index:end], end)
     return "$", index + 1
+
+
+def _expand_parameters(raw: str) -> str:
+    """Quote-aware $VAR expansion without globbing or field splitting."""
+    quote = ""
+    escaped = False
+    out: list[str] = []
+    index = 0
+    while index < len(raw):
+        char = raw[index]
+        if escaped:
+            out.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            index += 1
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+                index += 1
+                continue
+            if quote == '"' and char == "$":
+                replacement, index = _dollar_expand(raw, index)
+                out.append(replacement)
+                continue
+            out.append(char)
+            index += 1
+            continue
+        if char in "\"'":
+            quote = char
+            index += 1
+            continue
+        if char == "$":
+            replacement, index = _dollar_expand(raw, index)
+            out.append(replacement)
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _expand_grep_patterns(grep: _Grep, node: object) -> None:
+    """Expand $VAR in grep patterns unless the operand was single-quoted."""
+    literal: set[str] = set()
+    raw_by_word: dict[str, str] = {}
+    for child in node.children_by_field_name("argument"):  # type: ignore[attr-defined]
+        raw = (child.text or b"").decode()
+        try:
+            word = shlex.split(raw)[0]
+        except (ValueError, IndexError):
+            continue
+        if child.type == "raw_string":
+            literal.add(word)
+        else:
+            raw_by_word.setdefault(word, raw)
+    grep.patterns = [
+        pattern
+        if pattern in literal
+        else _expand_parameters(raw_by_word.get(pattern, pattern))
+        for pattern in grep.patterns
+    ]
+
+
+def _stdin_redirect_raws(node: object) -> list[str]:
+    """Return raw stdin file-redirect destinations for a command node."""
+    parent = getattr(node, "parent", None)
+    if parent is None or parent.type != "redirected_statement":
+        return []
+    raws: list[str] = []
+    for child in parent.named_children:
+        if child.type != "file_redirect":
+            continue
+        descriptor = None
+        operator = ""
+        dest = child.child_by_field_name("destination")
+        for part in child.children:
+            text = (part.text or b"").decode()
+            if part.type == "file_descriptor":
+                descriptor = text
+            elif not operator and text in {"<", ">", ">>", "<&", ">&", "<<", "<<<"}:
+                operator = text
+        if operator != "<" or descriptor not in {None, "0"}:
+            continue
+        if dest is None or dest.type == "number" or dest.text is None:
+            continue
+        raws.append(dest.text.decode())
+    return raws
 
 
 def _tilde_expand(raw: str, index: int) -> tuple[str, int]:
@@ -416,8 +510,10 @@ def find_secret_reach(
         )
         if grep and name == "fgrep":
             grep.flags += "F"
+        if grep:
+            _expand_grep_patterns(grep, node)
         files = (
-            grep.files
+            list(grep.files)
             if grep
             else [word for word in words[1:] if not word.startswith("-")]
         )
@@ -438,6 +534,15 @@ def find_secret_reach(
                     )
                 except (ValueError, IndexError):
                     pass
+        for raw in _stdin_redirect_raws(node):
+            try:
+                word = shlex.split(raw)[0]
+            except (ValueError, IndexError):
+                continue
+            files.append(word)
+            expanded_patterns = _glob_patterns(raw, include_literal=recursive)
+            if expanded_patterns:
+                patterns.setdefault(word, []).extend(expanded_patterns)
         for operand in files:
             expanded = (
                 (

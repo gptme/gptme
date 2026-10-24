@@ -654,3 +654,65 @@ def test_recursive_dereference_does_not_follow_directory_symlinks(
     root.mkdir()
     (root / "linked").symlink_to(outside, target_is_directory=True)
     assert _find_secret_path_in_cmd("grep -R TOKEN root") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat < config/*",
+        "cat <config/*",
+        "head < config/*",
+        "grep TOKEN < config/*",
+    ],
+)
+def test_stdin_redirect_globs_reach_protected_files(
+    secret_tree: Path, command: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat < 'config/*'",
+        "cat 2< config/*",
+        "cat > config/*",
+        "grep ABSENT < config/*",
+    ],
+)
+def test_non_stdin_or_quoted_redirects_stay_allowed(
+    secret_tree: Path, command: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(command) is None
+
+
+def test_grep_pattern_parameter_expansion(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NEEDLE", "TOKEN")
+    assert _find_secret_path_in_cmd('grep -rF "$NEEDLE" .') is not None
+    assert _find_secret_path_in_cmd("grep -rF $NEEDLE .") is not None
+    assert _find_secret_path_in_cmd('grep -e "$NEEDLE" -r .') is not None
+    assert _find_secret_path_in_cmd("grep -rF '$NEEDLE' .") is None
+    assert _find_secret_path_in_cmd(r"grep -rF \$NEEDLE .") is None
+    assert _find_secret_path_in_cmd("grep -rF ABSENT .") is None
+
+
+@pytest.mark.parametrize(
+    ("command", "detected"),
+    [
+        ("rg -F --no-fixed-strings '^TOKEN=' config/*", True),
+        ("rg --fixed-strings --no-fixed-strings '^TOKEN=' config/*", True),
+        ("rg --no-fixed-strings -F '^TOKEN=' config/*", False),
+        ("rg -F '^TOKEN=' config/*", False),
+        ("rg '^TOKEN=' config/*", True),
+        ("rg -F --no-fixed-strings '^ABSENT=' config/*", False),
+    ],
+)
+def test_ripgrep_no_fixed_strings_last_wins(
+    secret_tree: Path, command: str, detected: bool
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert (_find_secret_path_in_cmd(command) is not None) is detected
