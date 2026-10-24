@@ -255,7 +255,9 @@ Secret paths reached indirectly
 The secret-path rule also inspects pathname globs in literal reader commands
 (``cat``, ``head``, ``tail``, ``less``, ``more``, ``sed``, ``awk`` and grep variants).
 For example, ``cat config/*`` is flagged if it expands to a protected ``.pem``
-file. Quoted and escaped wildcard characters remain literal. GNU grep's
+file. Quoted and escaped wildcard characters remain literal, including ``$`` and
+``~`` inside single quotes. Unquoted and double-quoted parameter and unquoted
+tilde expansion still apply before glob matching. GNU grep's
 ``-r``/``-R`` and ``--recursive`` searches inspect protected files in the search
 root and its immediate child directories, including wildcard directory operands.
 ``--directories=recurse`` has the same effect; a later ``skip`` or ``read``
@@ -267,7 +269,9 @@ A simple grep pattern must match a non-comment assignment line in dotenv files
 ``grep -rn 'def foo' .`` alone while detecting ``grep -rn API_KEY .`` when a
 matching assignment is in reach. Include/exclude filters, including
 ``--exclude-from``, fixed strings, case-insensitive, word and whole-line matching
-are recognized. Context searches
+are recognized. Ripgrep ``--crlf`` (last-wins against ``--no-crlf``) treats a
+trailing carriage return as part of the line ending for whole-line matches;
+GNU grep stays LF-only. Context searches
 are conservative; quiet/count/filename-only searches do not add reach refusals.
 Complex regular expressions are conservatively flagged when a protected file
 is reached, rather than evaluated with an unbounded backtracking engine.

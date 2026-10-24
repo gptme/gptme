@@ -506,3 +506,44 @@ def test_whole_line_glob_search_preserves_record_characters(
     )
     result = _find_secret_path_in_cmd("grep -x MARKER config/*")
     assert (result is not None) is (separator == "\r\n")
+
+
+def test_ripgrep_crlf_whole_line_matches_protected_assignment(
+    secret_tree: Path,
+) -> None:
+    (secret_tree / "config" / "client.pem").write_bytes(b"TOKEN=synthetic\r\n")
+    assert _find_secret_path_in_cmd("rg --crlf -x TOKEN=synthetic config/*") is not None
+    assert (
+        _find_secret_path_in_cmd("rg --crlf --line-regexp TOKEN=synthetic config/*")
+        is not None
+    )
+    assert _find_secret_path_in_cmd("rg -x TOKEN=synthetic config/*") is None
+    assert _find_secret_path_in_cmd("rg -N -x TOKEN=synthetic config/*") is None
+    assert _find_secret_path_in_cmd("grep -x TOKEN=synthetic config/*") is None
+    assert (
+        _find_secret_path_in_cmd("rg --crlf --no-crlf -x TOKEN=synthetic config/*")
+        is None
+    )
+    assert (
+        _find_secret_path_in_cmd("rg --no-crlf --crlf -x TOKEN=synthetic config/*")
+        is not None
+    )
+    assert _find_secret_path_in_cmd("rg --crlf TOKEN=synthetic config/*") is not None
+    assert _find_secret_path_in_cmd("rg --crlf -x ABSENT config/*") is None
+
+
+def test_single_quoted_home_glob_does_not_expand(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    literal = tmp_path / "$HOME"
+    literal.mkdir()
+    (literal / "client.pem").write_text("synthetic certificate\n")
+    assert _find_secret_path_in_cmd("cat '$HOME'/*") is not None
+    assert _find_secret_path_in_cmd(r"cat \$HOME/*") is not None
+    (home / "id.pem").write_text("synthetic certificate\n")
+    assert _find_secret_path_in_cmd("cat $HOME/*") is not None
+    assert _find_secret_path_in_cmd('cat "$HOME"/*') is not None

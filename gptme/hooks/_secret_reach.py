@@ -58,6 +58,7 @@ class _Grep:
     exclude_dirs: list[str] = field(default_factory=list)
     pattern_file: bool = False
     pattern_files: list[str] = field(default_factory=list)
+    crlf: bool = False
 
 
 def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
@@ -157,6 +158,13 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
             break
         if arg.startswith("--"):
             name, eq, value = arg.partition("=")
+            # --crlf has no short option; -N is ripgrep --no-line-number.
+            if ripgrep and name == "--crlf":
+                result.crlf = True
+                continue
+            if ripgrep and name == "--no-crlf":
+                result.crlf = False
+                continue
             if name in value_flags:
                 value_option(value_flags[name], value if eq else next(args_iter, ""))
             else:
@@ -181,28 +189,79 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
     return result
 
 
+def _dollar_expand(raw: str, index: int) -> tuple[str, int]:
+    """Expand $VAR/${VAR} like os.path.expandvars: unknown names stay literal."""
+    if index + 1 < len(raw) and raw[index + 1] == "{":
+        end = raw.find("}", index + 2)
+        if end < 0:
+            return "$", index + 1
+        name = raw[index + 2 : end]
+        value = os.environ.get(name)
+        return (value if value is not None else raw[index : end + 1], end + 1)
+    start = index + 1
+    if start < len(raw) and (raw[start].isalpha() or raw[start] == "_"):
+        end = start + 1
+        while end < len(raw) and (raw[end].isalnum() or raw[end] == "_"):
+            end += 1
+        name = raw[start:end]
+        value = os.environ.get(name)
+        return (value if value is not None else raw[index:end], end)
+    return "$", index + 1
+
+
+def _tilde_expand(raw: str, index: int) -> tuple[str, int]:
+    end = index + 1
+    while end < len(raw) and (raw[end].isalnum() or raw[end] in "_-"):
+        end += 1
+    return os.path.expanduser(raw[index:end]), end
+
+
 def _glob_pattern(raw: str) -> str | None:
     """Preserve quoted wildcard characters as literal fnmatch components."""
     quote = ""
     escaped = False
     active = False
-    pattern = []
-    for char in raw:
+    pattern: list[str] = []
+    index = 0
+    while index < len(raw):
+        char = raw[index]
         if escaped:
             pattern.append(glob.escape(char))
             escaped = False
-        elif char == "\\" and quote != "'":
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
             escaped = True
-        elif quote:
+            index += 1
+            continue
+        if quote:
             if char == quote:
                 quote = ""
-            else:
-                pattern.append(glob.escape(char))
-        elif char in "\"'":
+                index += 1
+                continue
+            if quote == '"' and char == "$":
+                replacement, index = _dollar_expand(raw, index)
+                pattern.append(glob.escape(replacement))
+                continue
+            pattern.append(glob.escape(char))
+            index += 1
+            continue
+        if char in "\"'":
             quote = char
-        else:
-            active |= char in "*?["
-            pattern.append(char)
+            index += 1
+            continue
+        if char == "$":
+            replacement, index = _dollar_expand(raw, index)
+            active |= any(marker in replacement for marker in "*?[")
+            pattern.append(replacement)
+            continue
+        if char == "~" and not pattern:
+            replacement, index = _tilde_expand(raw, index)
+            pattern.append(replacement)
+            continue
+        active |= char in "*?["
+        pattern.append(char)
+        index += 1
     return "".join(pattern) if active else None
 
 
@@ -254,6 +313,8 @@ def _matches_values(grep: _Grep, path: str) -> bool:
     except OSError:
         return False
     lines = text.split("\0") if "z" in grep.flags else text.split("\n")
+    if grep.crlf and "z" not in grep.flags:
+        lines = [line.removesuffix("\r") for line in lines]
     if Path(path).name.startswith(".env") and not set(grep.flags) & {"C", "z"}:
         lines = [
             line for line in lines if "=" in line and not line.lstrip().startswith("#")
@@ -347,9 +408,7 @@ def find_secret_reach(
             pattern = _glob_pattern(raw)
             if pattern:
                 try:
-                    patterns.setdefault(shlex.split(raw)[0], []).append(
-                        os.path.expanduser(os.path.expandvars(pattern))
-                    )
+                    patterns.setdefault(shlex.split(raw)[0], []).append(pattern)
                 except (ValueError, IndexError):
                     pass
         for operand in files:
