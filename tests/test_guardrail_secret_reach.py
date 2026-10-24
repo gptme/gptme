@@ -711,6 +711,33 @@ def test_non_stdin_or_quoted_redirects_stay_allowed(
     assert _find_secret_path_in_cmd(command) is None
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep --include='*.txt' TOKEN < config/*",
+        "grep --include='*.txt' TOKEN <config/*",
+        "grep --exclude='*.pem' TOKEN < config/*",
+        "grep --include='*.txt' --exclude='*.pem' TOKEN < config/*",
+    ],
+)
+def test_stdin_redirect_ignores_grep_filename_filters(
+    secret_tree: Path, command: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+def test_filename_filters_still_apply_to_named_and_recursive_stdin(
+    secret_tree: Path,
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd("grep --include='*.txt' ABSENT < config/*") is None
+    assert _find_secret_path_in_cmd("grep --include='*.txt' TOKEN config/*") is None
+    assert (
+        _find_secret_path_in_cmd("grep -r --include='*.txt' TOKEN < config/*") is None
+    )
+
+
 def test_grep_pattern_parameter_expansion(
     secret_tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

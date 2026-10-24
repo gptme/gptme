@@ -776,12 +776,14 @@ def find_secret_reach(
                     )
                 except (ValueError, IndexError):
                     pass
+        stdin_operands: set[str] = set()
         for raw in _stdin_redirect_raws(node):
             try:
                 word = shlex.split(raw)[0]
             except (ValueError, IndexError):
                 continue
             files.append(word)
+            stdin_operands.add(word)
             expanded_patterns = _glob_patterns(raw, include_literal=recursive)
             if expanded_patterns:
                 patterns.setdefault(word, []).extend(expanded_patterns)
@@ -801,8 +803,14 @@ def find_secret_reach(
                     and is_secret(os.path.abspath(path))
                     and os.path.isfile(path)
                 ):
+                    # GNU grep reads stdin when recursion is off and no FILE
+                    # operand is given; --include/--exclude then do not apply.
+                    skip_name_filters = operand in stdin_operands and not recursive
                     if grep is None or (
-                        _selected(grep, path, os.path.dirname(path))
+                        (
+                            skip_name_filters
+                            or _selected(grep, path, os.path.dirname(path))
+                        )
                         and _matches_values(grep, path)
                     ):
                         return path
