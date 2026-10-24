@@ -356,6 +356,36 @@ describe('ChatInput draft ownership', () => {
     );
   });
 
+  it.each([
+    { conversationId: 'c1', serverId: 'gone-b' },
+    { conversationId: 'c2', serverId: 'gone-a' },
+  ])('does not share memory-only text with another unknown composer: %o', (incoming) => {
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'gone-a' });
+    type('private text for unknown A/c1');
+    rerenderWith({ conversationId: 'c1', serverId: 'gone-a' });
+    expect(textbox().value).toBe('private text for unknown A/c1');
+
+    rerenderWith(incoming);
+    expect(textbox().value).toBe('');
+    type('text for the incoming composer');
+    expect(draftEntries()).toEqual({});
+  });
+
+  it('does not carry a known draft into a different unavailable server', () => {
+    serverRegistry$.servers.set([
+      { id: 'srv-a', name: 'A', ...SERVER_A, createdAt: 0, lastUsedAt: 0 },
+    ]);
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-a' });
+    type('private text for known A');
+    serverRegistry$.servers.set([]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-a' });
+    expect(textbox().value).toBe('private text for known A');
+
+    rerenderWith({ conversationId: 'c1', serverId: 'gone-b' });
+    expect(textbox().value).toBe('');
+    expect(Object.values(draftEntries())).toEqual(['private text for known A']);
+  });
+
   it("does not hand one owner's text to another owner that resolves later", () => {
     const serverA: ServerConfig = {
       id: 'srv-a',

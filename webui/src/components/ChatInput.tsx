@@ -683,7 +683,10 @@ export const ChatInput: FC<Props> = ({
   const draftOwner = serverId ? servers.find((s) => s.id === serverId) : connectionConfig;
   const storageKey = draftOwner ? composerDraftKey(draftOwner, conversationId) : null;
   // Edit mode skips localStorage — its content comes from the message being edited.
-  const [internalMessage, setInternalMessage] = useComposerDraft(editMode ? null : storageKey);
+  const [internalMessage, setInternalMessage] = useComposerDraft(
+    editMode ? null : storageKey,
+    JSON.stringify([serverId ?? null, conversationId ?? null])
+  );
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const [temperature, setTemperature] = useState<number | undefined>(undefined);
