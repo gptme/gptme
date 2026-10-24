@@ -305,7 +305,7 @@ def _expand_parameters(raw: str) -> str:
     return "".join(out)
 
 
-def _expand_grep_patterns(grep: _Grep) -> None:
+def _expand_grep_patterns(grep: _Grep) -> list[str]:
     """Expand $VAR in grep patterns unless the operand was single-quoted.
 
     Unquoted expansions field-split on default IFS whitespace; extra fields
@@ -333,6 +333,7 @@ def _expand_grep_patterns(grep: _Grep) -> None:
     # then becomes the pattern, matching grep's argv rewrite.
     if dropped_empty_unquoted and not grep.patterns and grep.files:
         grep.patterns.append(grep.files.pop(0))
+    return extra_files
 
 
 def _stdin_redirect_raws(node: object) -> list[str]:
@@ -568,8 +569,7 @@ def find_secret_reach(
         )
         if grep and name == "fgrep":
             grep.flags += "F"
-        if grep:
-            _expand_grep_patterns(grep)
+        extra_files = _expand_grep_patterns(grep) if grep else []
         files = (
             list(grep.files)
             if grep
@@ -581,7 +581,10 @@ def find_secret_reach(
         if grep:
             # Pattern files are read too, but do not replace an implicit search root.
             files = [*files, *grep.pattern_files]
-        patterns: dict[str, list[str]] = {}
+        # Split-off file fields have already undergone quote removal and parameter
+        # expansion. Glob them directly: reparsing would expand literal $/quotes
+        # from variable values a second time, unlike the shell.
+        patterns: dict[str, list[str]] = {word: [word] for word in extra_files}
         for child in node.children_by_field_name("argument"):
             raw = (child.text or b"").decode()
             expanded_patterns = _glob_patterns(raw, include_literal=recursive)

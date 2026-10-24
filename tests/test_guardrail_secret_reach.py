@@ -776,6 +776,20 @@ def test_unquoted_grep_pattern_field_split(
     assert _find_secret_path_in_cmd("grep -rF '$NEEDLE'") is None
 
 
+@pytest.mark.parametrize("pattern", ["$NEEDLE", "${NEEDLE}", "-e $NEEDLE"])
+@pytest.mark.parametrize("root", ["config/*", "config/*.p?m", "config"])
+def test_grep_pattern_split_file_operands_keep_glob_expansion(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, pattern: str, root: str
+) -> None:
+    monkeypatch.setenv("NEEDLE", f"TOKEN {root}")
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"grep -rF {pattern}") is not None
+    monkeypatch.setenv("NEEDLE", f"ABSENT {root}")
+    assert _find_secret_path_in_cmd(f"grep -rF {pattern}") is None
+    monkeypatch.setenv("NEEDLE", f"TOKEN {root}")
+    assert _find_secret_path_in_cmd('grep -rF "$NEEDLE"') is None
+
+
 def test_gnu_grep_null_data_dot_matches_embedded_lf(secret_tree: Path) -> None:
     (secret_tree / ".env").write_text("HEADER\nTOKEN=synthetic\n")
     assert _find_secret_path_in_cmd("grep -rz 'HEADER.TOKEN' .") is not None
