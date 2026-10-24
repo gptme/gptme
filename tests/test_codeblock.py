@@ -2232,6 +2232,28 @@ def test_mixed_thinking_tags_do_not_extract_reasoning_commands():
                 )
 
 
+def test_unlabelled_nested_thinking_example_preserves_save():
+    """Bare nested fences must use the extractor's lookahead, not close the save."""
+    content = "```\n<think>\nx\n</think>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+            Codeblock("save a.md", content)
+        ]
+
+
+def test_shell_quoted_fence_does_not_hide_later_unfinished_thinking():
+    """A quoted fence must not hide the genuine unfinished reasoning after shell."""
+    for lang in ("shell", "bash", "sh"):
+        for assignment in ("s='\n```\n'", 's="\n```\n"', "s=$'\n```\n'"):
+            markdown = (
+                f"```{lang}\n{assignment}\necho done\n```\n\n"
+                "<think>\n```shell\necho draft\n```"
+            )
+            for streaming in (False, True):
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
 def test_ipython_quoted_fence_does_not_hide_later_unfinished_thinking():
     """A bare fence inside an IPython triple-quoted string is not a block closer.
 

@@ -355,7 +355,22 @@ def _is_thinking_lang(lang: str) -> bool:
     return first in ("thinking", "think")
 
 
-def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
+# Languages where a bare fence at depth 1 is never a nested opener.
+# Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
+# only produces false positives (swallowing prose + output blocks into
+# the command). See gptme/gptme#3697.
+_EXEC_LANGS = frozenset(
+    {"shell", "sh", "bash", "zsh", "fish", "ksh", "nu", "ps1", "powershell", "ipython"}
+)
+# Shell languages that support heredoc syntax (``<<``). IPython/Python's
+# ``<<`` is always the bitwise left-shift operator — there is no heredoc
+# syntax in Python — so ipython is excluded from heredoc state tracking.
+_SHELL_LANGS = _EXEC_LANGS - {"ipython"}
+
+
+def _line_fence_states(
+    text: str, streaming: bool = False
+) -> list[tuple[int, bool, str]]:
     """Per-line fence state matching `_extract_codeblocks` recovery rules.
 
     Each entry is `(content_depth, is_fence_delimiter, outer_lang)`:
@@ -372,7 +387,9 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
     fence_len = 0
     outer_lang = ""
     ipy_td = ipy_ts = ipy_s = ipy_d = False
-    for line in lines:
+    qs_single = qs_double = qs_ansi = False
+    heredoc_terminator: str | None = None
+    for i, line in enumerate(lines):
         if depth == 0:
             scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
             fence_match = re.match(r"^(`{3,})", scan)
@@ -382,18 +399,11 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
                 states.append((0, True, ""))
                 depth = 1
                 ipy_td = ipy_ts = ipy_s = ipy_d = False
+                qs_single = qs_double = qs_ansi = False
+                heredoc_terminator = None
                 continue
             states.append((0, False, ""))
             continue
-
-        if outer_lang == "ipython":
-            ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
-                line, ipy_td, ipy_ts, ipy_s, ipy_d
-            )
-            if ipy_td or ipy_ts or ipy_s or ipy_d:
-                # Fence inside an open Python string is literal source.
-                states.append((depth, False, outer_lang))
-                continue
 
         if depth == 1 and line.startswith("`" * fence_len):
             rest = line[fence_len:]
@@ -406,6 +416,9 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
                 fence_len = len(rest_match.group(1))
                 outer_lang = rest[fence_len:].strip()
                 depth = 1
+                ipy_td = ipy_ts = ipy_s = ipy_d = False
+                qs_single = qs_double = qs_ansi = False
+                heredoc_terminator = None
                 continue
             if rest.startswith(("<think>", "<thinking>")):
                 states.append((1, True, outer_lang))
@@ -414,12 +427,74 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
                 outer_lang = ""
                 continue
 
+        # Carry exactly the same shell/Python string state as extraction. In
+        # particular, heredoc body quotes do not change the outer shell state.
+        if outer_lang in _SHELL_LANGS:
+            if heredoc_terminator is None:
+                candidate, qs_single, qs_double, qs_ansi = _find_heredoc_terminator(
+                    line, qs_single, qs_double, qs_ansi
+                )
+                if candidate is not None and any(
+                    later.strip() == candidate for later in lines[i + 1 : i + 201]
+                ):
+                    heredoc_terminator = candidate
+            elif line.strip() == heredoc_terminator:
+                heredoc_terminator = None
+                qs_single = qs_double = qs_ansi = False
+        elif outer_lang == "ipython":
+            ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
+                line, ipy_td, ipy_ts, ipy_s, ipy_d
+            )
+
         line_fence_match = re.match(r"^(`{3,})", line)
         if line_fence_match:
             line_fence_len = len(line_fence_match.group(1))
             is_bare_fence = line.strip() == "`" * line_fence_len
             is_outer_close = is_bare_fence and line_fence_len == fence_len
             if is_outer_close or (is_bare_fence and depth > 1):
+                if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
+                    states.append((depth, False, outer_lang))
+                    continue
+                next_has_content = i + 1 < len(lines) and bool(lines[i + 1].strip())
+                next_is_fence = i + 1 < len(lines) and bool(
+                    re.match(r"^`{3,}", lines[i + 1])
+                )
+                if (
+                    depth == 1
+                    and next_has_content
+                    and not next_is_fence
+                    and (
+                        outer_lang not in _EXEC_LANGS or heredoc_terminator is not None
+                    )
+                ):
+                    # Match extraction's bounded nested-fence lookahead. Without
+                    # a confirmed inner closer, non-streaming keeps this fence
+                    # literal; streaming conservatively opens another level.
+                    has_closing_fence = False
+                    for j in range(i + 1, min(i + 20, len(lines))):
+                        if re.match(r"^(`{3,})$", lines[j].strip()):
+                            has_closing_fence = any(
+                                lines[k].strip()
+                                for k in range(j + 1, min(j + 5, len(lines)))
+                            )
+                            break
+                        if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
+                            break
+                    states.append((depth, True, outer_lang))
+                    if has_closing_fence or streaming:
+                        depth += 1
+                    continue
+                if (
+                    depth == 1
+                    and streaming
+                    and (
+                        outer_lang not in _EXEC_LANGS or heredoc_terminator is not None
+                    )
+                    and not (i + 1 < len(lines) - 1 and not lines[i + 1].strip())
+                ):
+                    states.append((depth, True, outer_lang))
+                    depth += 1
+                    continue
                 states.append((depth, True, outer_lang))
                 depth -= 1
                 if depth == 0:
@@ -427,7 +502,7 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
                     outer_lang = ""
                 continue
             potential_lang = line[line_fence_len:].strip()
-            if _is_valid_lang_tag(potential_lang):
+            if _is_valid_lang_tag(potential_lang) and not (ipy_td or ipy_ts):
                 states.append((depth, True, outer_lang))
                 depth += 1
                 continue
@@ -438,7 +513,7 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
     return states
 
 
-def _is_standalone_outside_fences(text: str, tag: str) -> bool:
+def _is_standalone_outside_fences(text: str, tag: str, streaming: bool = False) -> bool:
     """
     Return True if `tag` appears at the start of a line in `text` that is NOT inside a code fence.
 
@@ -447,7 +522,9 @@ def _is_standalone_outside_fences(text: str, tag: str) -> bool:
     `_extract_codeblocks` (adjacent-fence recovery and nested language tags).
     """
     lines = text.split("\n")
-    for line, (depth, is_delim, _) in zip(lines, _line_fence_states(text), strict=True):
+    for line, (depth, is_delim, _) in zip(
+        lines, _line_fence_states(text, streaming=streaming), strict=True
+    ):
         if is_delim:
             continue
         if depth == 0 and line.startswith(tag):
@@ -455,7 +532,7 @@ def _is_standalone_outside_fences(text: str, tag: str) -> bool:
     return False
 
 
-def _literal_thinking_closers(text: str) -> set[int]:
+def _literal_thinking_closers(text: str, streaming: bool = False) -> set[int]:
     """Offsets of closing thinking tags inside non-thinking code fences.
 
     Compute all offsets in one pass so repeated literal tags in templates do
@@ -467,7 +544,7 @@ def _literal_thinking_closers(text: str) -> set[int]:
     it would hide later tool blocks.
     """
     lines = text.split("\n")
-    states = _line_fence_states(text)
+    states = _line_fence_states(text, streaming=streaming)
     literal_closers: set[int] = set()
     offset = 0
     in_thinking = False
@@ -486,10 +563,12 @@ def _literal_thinking_closers(text: str) -> set[int]:
     return literal_closers
 
 
-def _unclosed_standalone_after(text: str, after_pos: int) -> bool:
+def _unclosed_standalone_after(
+    text: str, after_pos: int, streaming: bool = False
+) -> bool:
     """True if a fence-outside thinking opener after `after_pos` has no closer."""
     lines = text.split("\n")
-    states = _line_fence_states(text)
+    states = _line_fence_states(text, streaming=streaming)
     offset = 0
     for line, (depth, is_delim, _) in zip(lines, states, strict=True):
         line_start = offset
@@ -544,7 +623,9 @@ def _extract_codeblocks(
         _concatenated_end_pos = -1
         _stripped = False
         _literal_closers = (
-            _literal_thinking_closers(markdown) if "</think" in markdown else set()
+            _literal_thinking_closers(markdown, streaming=streaming)
+            if "</think" in markdown
+            else set()
         )
         for _think_end_tag in ["</thinking>", "</think>"]:
             _search_from = 0
@@ -561,7 +642,7 @@ def _extract_codeblocks(
                 _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
                 _prefix = markdown[:_think_end]
                 _has_standalone = _is_standalone_outside_fences(
-                    _prefix, _think_start_tag
+                    _prefix, _think_start_tag, streaming=streaming
                 )
                 _has_any = _think_start_tag in _prefix
                 # Strip if standalone opening exists, or if there is no opening tag at
@@ -592,13 +673,17 @@ def _extract_codeblocks(
     # concatenated occurrences like "```<think>" are handled by inner-loop logic).
     if not _concatenated_end_found:
         for _think_start_tag in ["<thinking>", "<think>"]:
-            if _is_standalone_outside_fences(markdown, _think_start_tag):
+            if _is_standalone_outside_fences(
+                markdown, _think_start_tag, streaming=streaming
+            ):
                 return
     else:
         # A concatenated </think> was found (not stripped). Check if any standalone
         # <think> appearing AFTER that closing tag is genuinely unclosed. If so,
         # early-exit to avoid extracting blocks from inside an unclosed thinking section.
-        if _unclosed_standalone_after(markdown, _concatenated_end_pos):
+        if _unclosed_standalone_after(
+            markdown, _concatenated_end_pos, streaming=streaming
+        ):
             return
 
     # speed check (early exit): check if message contains a code block
@@ -606,29 +691,6 @@ def _extract_codeblocks(
     fence_pattern = re.compile(r"`{3,}")
     if len(fence_pattern.findall(markdown)) < 2:
         return
-
-    # Languages where a bare fence at depth 1 is never a nested opener.
-    # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
-    # only produces false positives (swallowing prose + output blocks into
-    # the command). See gptme/gptme#3697.
-    _EXEC_LANGS = frozenset(
-        {
-            "shell",
-            "sh",
-            "bash",
-            "zsh",
-            "fish",
-            "ksh",
-            "nu",
-            "ps1",
-            "powershell",
-            "ipython",
-        }
-    )
-    # Shell languages that support heredoc syntax (``<<``).  IPython/Python's
-    # ``<<`` is always the bitwise left-shift operator — there is no heredoc
-    # syntax in Python — so ipython is excluded from heredoc state tracking.
-    _SHELL_LANGS = _EXEC_LANGS - {"ipython"}
 
     lines = markdown.split("\n")
     i = 0
