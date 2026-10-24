@@ -164,3 +164,61 @@ def test_review_regressions_through_confirmation_chain(
     else:
         assert received == [command]
         assert [message.content for message in messages] == [SYNTHETIC_MARKER]
+
+
+@pytest.mark.parametrize("shape", ["native", "markdown"])
+@pytest.mark.parametrize("mode", ["enforce", "shadow", "off"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat config/*",
+        "cat < config/*",
+        "grep -rn TOKEN .",
+        'grep -rF "$NEEDLE" .',
+        r'grep -r "\bTOKEN" .',
+        'grep -r --include="$FILTER" TOKEN .',
+        "rg -F --no-fixed-strings '^TOKEN=' config/*",
+        "grep -r --binary-files text TOKEN .",
+        "grep -r -f patterns.txt",
+        "grep -r MARKER .",
+        "rg -S synthetic config/*",
+        "rg --encoding utf-8 SYNTHETIC config/*",
+        "cat $FILES",
+        "grep -r TOKEN $DIRS",
+        "grep -r TOKEN '$ROOT'",
+        "grep -R TOKEN linked",
+        "grep -rn 'def foo' .",
+    ],
+)
+def test_secret_reach_through_confirmation_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, mode: str, command: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_bytes(b"TOKEN=synthetic-only\vMARKER\n")
+    (tmp_path / "patterns.txt").write_text("TOKEN\n")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "client.pem").write_text(
+        "TOKEN=synthetic-only\nSYNTHETIC-ONLY\n"
+    )
+    monkeypatch.setenv("NEEDLE", "TOKEN")
+    monkeypatch.setenv("FILTER", "*")
+    monkeypatch.setenv("FILES", "safe.txt config/*")
+    monkeypatch.setenv("DIRS", ". missing*")
+    monkeypatch.setenv("ROOT", "safe")
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "$ROOT").mkdir()
+    (tmp_path / "$ROOT" / ".env").write_text("TOKEN=synthetic-only\n")
+    (tmp_path / "linked").mkdir()
+    (tmp_path / "linked" / "payload.txt").write_text("TOKEN=synthetic-only\n")
+    (tmp_path / "linked" / ".env").symlink_to("payload.txt")
+    _register_chain(monkeypatch, mode)
+
+    messages, received = _execute_synthetic(command, shape)
+    blocked = mode == "enforce" and "def foo" not in command
+    assert received == ([] if blocked else [command])
+    if blocked:
+        assert any(
+            "Secret path access blocked" in message.content for message in messages
+        )
+    else:
+        assert [message.content for message in messages] == [SYNTHETIC_MARKER]
