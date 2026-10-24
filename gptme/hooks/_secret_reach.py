@@ -53,6 +53,7 @@ class _Budget:
 class _Grep:
     flags: str = ""
     patterns: list[str] = field(default_factory=list)
+    raw_patterns: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     filters: list[tuple[bool, str]] = field(default_factory=list)
     exclude_dirs: list[str] = field(default_factory=list)
@@ -67,7 +68,7 @@ def _parse_grep(
     args: list[str], *, ripgrep: bool = False, node: object | None = None
 ) -> _Grep:
     result = _Grep(ripgrep=ripgrep)
-    operands: list[str] = []
+    operands: list[tuple[str, str]] = []
     raw_by_word: dict[str, list[str]] = {}
     if node is not None:
         for child in node.children_by_field_name("argument"):  # type: ignore[attr-defined]
@@ -139,9 +140,10 @@ def _parse_grep(
             result.dereference = True
         result.flags += flag
 
-    def value_option(flag: str, value: str) -> None:
+    def value_option(flag: str, value: str, raw_value: str = "") -> None:
         if flag == "e":
             result.patterns.append(value)
+            result.raw_patterns.append(raw_value)
         elif flag == "f":
             result.pattern_file = True
             result.pattern_files.append(value)
@@ -174,7 +176,7 @@ def _parse_grep(
 
     for arg, raw in args_iter:
         if arg == "--":
-            operands.extend(word for word, _ in args_iter)
+            operands.extend(args_iter)
             break
         if arg.startswith("--"):
             name, eq, value = arg.partition("=")
@@ -201,7 +203,7 @@ def _parse_grep(
                     "exclude_from",
                 }:
                     value = _expand_parameters(raw_value)
-                value_option(value_flags[name], value)
+                value_option(value_flags[name], value, raw_value)
             else:
                 add_flag(long_flags.get(name, ""))
             continue
@@ -214,13 +216,19 @@ def _parse_grep(
                 if flag in "123456789":
                     result.flags += "C"
                 if flag in "efmABCdD" or (ripgrep and flag in "gE"):
-                    value_option(flag, arg[index + 1 :] or next(args_iter, ("", ""))[0])
+                    if arg[index + 1 :]:
+                        value, raw_value = arg[index + 1 :], raw[index + 1 :]
+                    else:
+                        value, raw_value = next(args_iter, ("", ""))
+                    value_option(flag, value, raw_value)
                     break
             continue
-        operands.append(arg)
+        operands.append((arg, raw))
     if not result.patterns and not result.pattern_file and operands:
-        result.patterns.append(operands.pop(0))
-    result.files.extend(operands)
+        pattern, raw_pattern = operands.pop(0)
+        result.patterns.append(pattern)
+        result.raw_patterns.append(raw_pattern)
+    result.files.extend(word for word, _ in operands)
     return result
 
 
@@ -297,36 +305,20 @@ def _expand_parameters(raw: str) -> str:
     return "".join(out)
 
 
-def _expand_grep_patterns(grep: _Grep, node: object) -> None:
+def _expand_grep_patterns(grep: _Grep) -> None:
     """Expand $VAR in grep patterns unless the operand was single-quoted.
 
     Unquoted expansions field-split on default IFS whitespace; extra fields
     become file operands, matching the shell's argv rewrite before grep.
     """
-    literal: set[str] = set()
-    unquoted: set[str] = set()
-    raw_by_word: dict[str, str] = {}
-    for child in node.children_by_field_name("argument"):  # type: ignore[attr-defined]
-        raw = (child.text or b"").decode()
-        try:
-            word = shlex.split(raw)[0]
-        except (ValueError, IndexError):
-            continue
-        if child.type == "raw_string":
-            literal.add(word)
-        else:
-            raw_by_word.setdefault(word, raw)
-            if child.type != "string":
-                unquoted.add(word)
     patterns: list[str] = []
     extra_files: list[str] = []
     dropped_empty_unquoted = False
-    for pattern in grep.patterns:
-        if pattern in literal:
-            patterns.append(pattern)
-            continue
-        expanded = _expand_parameters(raw_by_word.get(pattern, pattern))
-        if pattern in unquoted:
+    # Raw values are captured when parsing each option, not recovered by the
+    # decoded pattern: attached options and repeated values can differ in quoting.
+    for raw in grep.raw_patterns:
+        expanded = _expand_parameters(raw)
+        if not raw.startswith(("'", '"')):
             fields = [part for part in re.split(r"[ \t\n]+", expanded) if part]
             if not fields:
                 dropped_empty_unquoted = True
@@ -577,7 +569,7 @@ def find_secret_reach(
         if grep and name == "fgrep":
             grep.flags += "F"
         if grep:
-            _expand_grep_patterns(grep, node)
+            _expand_grep_patterns(grep)
         files = (
             list(grep.files)
             if grep

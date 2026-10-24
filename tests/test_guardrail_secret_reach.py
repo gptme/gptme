@@ -700,6 +700,39 @@ def test_grep_pattern_parameter_expansion(
     assert _find_secret_path_in_cmd("grep -rF ABSENT .") is None
 
 
+@pytest.mark.parametrize("option", ["--regexp=", "-e", "-rFe", "--regexp ", "-e ", ""])
+@pytest.mark.parametrize("pattern", ["'$NEEDLE'", r"\$NEEDLE", '"$NEEDLE"', "$NEEDLE"])
+def test_grep_pattern_option_preserves_quoting(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, option: str, pattern: str
+) -> None:
+    monkeypatch.setenv("NEEDLE", "ABSENT")
+    (secret_tree / ".env").write_text("TOKEN=$NEEDLE\n")
+    command = f"grep -rF {option}{pattern} ."
+    literal = pattern in {"'$NEEDLE'", r"\$NEEDLE"}
+    assert (_find_secret_path_in_cmd(command) is not None) is literal
+    (secret_tree / ".env").write_text("TOKEN=ABSENT\n")
+    assert (_find_secret_path_in_cmd(command) is not None) is not literal
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "-e '$NEEDLE' -e \"$NEEDLE\"",
+        "-e \"$NEEDLE\" -e '$NEEDLE'",
+        "--regexp='$NEEDLE' --regexp=\"$NEEDLE\"",
+        "--regexp=\"$NEEDLE\" --regexp='$NEEDLE'",
+        "-e'$NEEDLE' -e\"$NEEDLE\"",
+        "-e\"$NEEDLE\" -e'$NEEDLE'",
+    ],
+)
+def test_grep_repeated_patterns_keep_each_occurrences_quoting(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, options: str
+) -> None:
+    monkeypatch.setenv("NEEDLE", "ABSENT")
+    (secret_tree / ".env").write_text("TOKEN=$NEEDLE\n")
+    assert _find_secret_path_in_cmd(f"grep -rF {options} .") is not None
+
+
 def test_unset_grep_pattern_expands_to_empty(
     secret_tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
