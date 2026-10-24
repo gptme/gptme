@@ -391,7 +391,21 @@ def _glob_patterns(raw: str, *, include_literal: bool = False) -> list[str]:
             index += 1
             continue
         if char == "\\" and quote != "'":
-            escaped = True
+            # Inside double quotes Bash preserves backslashes before ordinary
+            # characters, including pathname components such as config\\keys.
+            if quote == '"' and raw[index + 1 : index + 2] not in {
+                "$",
+                "`",
+                '"',
+                "\\",
+                "\n",
+            }:
+                pattern.append(char)
+            elif raw[index + 1 : index + 2] == "\n":
+                index += 2
+                continue
+            else:
+                escaped = True
             index += 1
             continue
         if quote:

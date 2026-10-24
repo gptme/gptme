@@ -799,6 +799,21 @@ def test_gnu_grep_null_data_dot_matches_embedded_lf(secret_tree: Path) -> None:
     assert _find_secret_path_in_cmd("rg --null-data 'HEADER.TOKEN' .[e]nv") is None
 
 
+@pytest.mark.parametrize(
+    "command",
+    [r'cat "config\keys"/*', r'head "config\keys"/*', r'grep -r TOKEN "config\keys"'],
+)
+def test_double_quoted_path_preserves_ordinary_backslash(
+    secret_tree: Path, command: str
+) -> None:
+    directory = secret_tree / "config\\keys"
+    directory.mkdir()
+    (directory / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(command) is not None
+    (directory / "client.pem").unlink()
+    assert _find_secret_path_in_cmd(command) is None
+
+
 @pytest.mark.parametrize("command", [r'grep -r "\bTOKEN" .', r'grep -r "\<TOKEN" .'])
 def test_double_quoted_grep_backslash_preserved(
     secret_tree: Path, command: str
