@@ -342,6 +342,32 @@ def _scan_ipython_triple_quote(
     return in_triple_double, in_triple_single, in_single, in_double
 
 
+def _is_standalone_outside_fences(text: str, tag: str) -> bool:
+    """
+    Return True if `tag` appears at the start of a line in `text` that is NOT inside a code fence.
+
+    Used to distinguish genuine thinking-section markers from the same tags appearing
+    as literal file content inside a save/patch code block.
+    """
+    lines = text.split("\n")
+    in_fence = False
+    fence_len = 0
+    for line in lines:
+        fence_match = re.match(r"^(`{3,})", line)
+        if fence_match:
+            cur_fence_len = len(fence_match.group(1))
+            if not in_fence:
+                in_fence = True
+                fence_len = cur_fence_len
+            elif cur_fence_len >= fence_len:
+                in_fence = False
+                fence_len = 0
+            continue
+        if not in_fence and line.startswith(tag):
+            return True
+    return False
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -384,9 +410,7 @@ def _extract_codeblocks(
         if _think_end != -1:
             _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
             _prefix = markdown[:_think_end]
-            _has_standalone = bool(
-                re.search(r"(?:^|\n)" + re.escape(_think_start_tag), _prefix)
-            )
+            _has_standalone = _is_standalone_outside_fences(_prefix, _think_start_tag)
             _has_any = _think_start_tag in _prefix
             # Strip if standalone opening exists, or if there is no opening tag at
             # all in the prefix (covers the Gemini "```thinking>" malformed case).
@@ -408,7 +432,7 @@ def _extract_codeblocks(
         # concatenated occurrences like "```<think>" are handled by inner-loop logic).
         if not _concatenated_end_found:
             for _think_start_tag in ["<thinking>", "<think>"]:
-                if re.search(r"(?:^|\n)" + re.escape(_think_start_tag), markdown):
+                if _is_standalone_outside_fences(markdown, _think_start_tag):
                     return
         else:
             # A concatenated </think> was found (not stripped). Check if any standalone

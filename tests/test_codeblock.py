@@ -2063,6 +2063,60 @@ def test_thinking_tag_concatenated_then_unclosed_standalone():
     assert len(blocks) == 0
 
 
+def test_thinking_tags_inside_save_block_executed():
+    """
+    Regression test for gptme#4490: <thinking>...</thinking> tags appearing as literal
+    file content inside a save block must NOT be mistaken for a model thinking section.
+
+    The fence-aware _has_standalone check must skip occurrences inside code fences so the
+    save block is extracted and executed normally.
+    """
+    # Reproduces the exact template from the issue report
+    markdown = (
+        "```save /workspace/prompt_template.xml\n"
+        "<system>\nAssume you are a careful math tutor.\n</system>\n"
+        "<thinking>\nWork through the problem step by step here.\n</thinking>\n"
+        "<answer>\nFinal numeric answer here.\n</answer>\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}"
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>" in blocks[0].content
+    assert "</thinking>" in blocks[0].content
+    assert "<answer>" in blocks[0].content
+
+
+def test_thinking_tags_inside_save_block_with_real_thinking_before():
+    """
+    Real thinking section BEFORE a save block that contains <thinking> tags:
+    the genuine thinking section should be stripped, and the save block executed.
+    """
+    markdown = (
+        "<thinking>\nLet me plan this out...\n</thinking>\n"
+        "```save /workspace/prompt_template.xml\n"
+        "<thinking>\nWork through the problem step by step here.\n</thinking>\n"
+        "<answer>\nFinal numeric answer here.\n</answer>\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}"
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>" in blocks[0].content
+
+
+def test_thinking_tag_only_inside_fence_no_close_tag_does_not_early_exit():
+    """
+    If <thinking> appears only inside a code fence and there is no </thinking> anywhere,
+    the parser must NOT early-exit — the save block should still be extracted.
+    """
+    markdown = "```save /workspace/template.xml\n<thinking>\nno closing tag here\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>" in blocks[0].content
+
+
 def test_adjacent_fences_bare_multifence_content_line():
     """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
     # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.
