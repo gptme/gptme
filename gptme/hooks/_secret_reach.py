@@ -556,12 +556,36 @@ def _glob_patterns(raw: str, *, include_literal: bool = False) -> list[str]:
     return fields if include_literal or active or len(fields) > 1 else []
 
 
+def _bash_glob_pattern(pattern: str) -> str:
+    """Translate Bash's leading ^ class negation without changing class members."""
+    index = 0
+    while index < len(pattern):
+        if pattern[index] != "[":
+            index += 1
+            continue
+        start = index + 1
+        end = start
+        if end < len(pattern) and pattern[end] in "!^":
+            end += 1
+        if end < len(pattern) and pattern[end] == "]":
+            end += 1
+        end = pattern.find("]", end)
+        if end == -1:
+            index += 1
+            continue
+        if pattern[start] == "^":
+            pattern = pattern[:start] + "!" + pattern[start + 1 :]
+        index = end + 1
+    return pattern
+
+
 def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
     """Expand pathname components with a shared directory-entry budget."""
     paths = [os.sep if os.path.isabs(pattern) else "."]
     for component in Path(pattern).parts:
         if component == os.sep:
             continue
+        component = _bash_glob_pattern(component)
         next_paths = []
         for parent in paths:
             if glob.has_magic(component):

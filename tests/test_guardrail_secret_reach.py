@@ -951,3 +951,24 @@ def test_quoted_attached_grep_option_keeps_value_quoting(
     assert _find_secret_path_in_cmd(f"grep -rF {option} .") is not None
     (secret_tree / ".env").write_text("ABSENT=synthetic\n")
     assert _find_secret_path_in_cmd(f"grep -rF {option} .") is None
+
+
+@pytest.mark.parametrize(
+    ("command", "blocked"),
+    [
+        ("cat config/[^x]*", True),
+        ("cat config/[!x]*", True),
+        ("cat config/[^c]*", False),
+        ("cat config/[!c]*", False),
+        ("cat config/[^cx]*", False),
+        ("cat config/[^^]*", True),
+        ("cat config/'[^x]'*", False),
+        (r"cat config/\[^x\]*", False),
+        ("grep synthetic config/[^x]*", True),
+        ("grep ABSENT config/[^x]*", False),
+    ],
+)
+def test_bash_glob_caret_negation(
+    secret_tree: Path, command: str, blocked: bool
+) -> None:
+    assert (_find_secret_path_in_cmd(command) is not None) is blocked
