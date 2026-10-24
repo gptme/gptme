@@ -186,6 +186,8 @@ def test_review_regressions_through_confirmation_chain(
         "rg -S synthetic config/*",
         "rg --encoding utf-8 SYNTHETIC config/*",
         "cat $FILES",
+        "grep -rF $SPLIT_NEEDLE",
+        r'cat "config\keys"/*',
         "grep -r TOKEN $DIRS",
         "grep -r TOKEN '$ROOT'",
         "grep -R TOKEN linked",
@@ -205,6 +207,9 @@ def test_secret_reach_through_confirmation_chain(
     monkeypatch.setenv("NEEDLE", "TOKEN")
     monkeypatch.setenv("FILTER", "*")
     monkeypatch.setenv("FILES", "safe.txt config/*")
+    monkeypatch.setenv("SPLIT_NEEDLE", "TOKEN config/*")
+    (tmp_path / "config\\keys").mkdir()
+    (tmp_path / "config\\keys" / "client.pem").write_text("TOKEN=synthetic-only\n")
     monkeypatch.setenv("DIRS", ". missing*")
     monkeypatch.setenv("ROOT", "safe")
     (tmp_path / "safe").mkdir()
