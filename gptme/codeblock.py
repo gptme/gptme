@@ -342,29 +342,137 @@ def _scan_ipython_triple_quote(
     return in_triple_double, in_triple_single, in_single, in_double
 
 
+def _is_valid_lang_tag(potential_lang: str) -> bool:
+    return bool(potential_lang) and (
+        potential_lang[0].isalnum() or potential_lang[0] in "_/.~"
+    )
+
+
+def _is_thinking_lang(lang: str) -> bool:
+    """True for thinking-section language tags, including Gemini's `thinking>`."""
+    token = lang.strip().rstrip(">")
+    first = token.split()[0] if token else ""
+    return first in ("thinking", "think")
+
+
+def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
+    """Per-line fence state matching `_extract_codeblocks` recovery rules.
+
+    Each entry is `(content_depth, is_fence_delimiter, outer_lang)`:
+    - `content_depth` is nesting depth of the line's payload (0 = outside any fence)
+    - `is_fence_delimiter` is True for open/close/recovery lines (skip tag checks)
+    - `outer_lang` is the current top-level fence language, or "" at depth 0
+
+    Replicates adjacent-fence recovery (` ``` ```lang` / ` ``````lang`) and
+    language-tagged nested openers so thinking-tag checks agree with extraction.
+    """
+    lines = text.split("\n")
+    states: list[tuple[int, bool, str]] = []
+    depth = 0
+    fence_len = 0
+    outer_lang = ""
+    for line in lines:
+        if depth == 0:
+            scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
+            fence_match = re.match(r"^(`{3,})", scan)
+            if fence_match:
+                fence_len = len(fence_match.group(1))
+                outer_lang = scan[fence_len:].strip()
+                states.append((0, True, ""))
+                depth = 1
+                continue
+            states.append((0, False, ""))
+            continue
+
+        if depth == 1 and line.startswith("`" * fence_len):
+            rest = line[fence_len:]
+            if re.match(r"^`{3,}\S", rest):
+                rest_match = re.match(r"^(`{3,})", rest)
+                if not rest_match:
+                    states.append((1, False, outer_lang))
+                    continue
+                states.append((1, True, outer_lang))
+                fence_len = len(rest_match.group(1))
+                outer_lang = rest[fence_len:].strip()
+                depth = 1
+                continue
+            if rest.startswith(("<think>", "<thinking>")):
+                states.append((1, True, outer_lang))
+                depth = 0
+                fence_len = 0
+                outer_lang = ""
+                continue
+
+        line_fence_match = re.match(r"^(`{3,})", line)
+        if line_fence_match:
+            line_fence_len = len(line_fence_match.group(1))
+            is_bare_fence = line.strip() == "`" * line_fence_len
+            is_outer_close = is_bare_fence and line_fence_len == fence_len
+            if is_outer_close or (is_bare_fence and depth > 1):
+                states.append((depth, True, outer_lang))
+                depth -= 1
+                if depth == 0:
+                    fence_len = 0
+                    outer_lang = ""
+                continue
+            potential_lang = line[line_fence_len:].strip()
+            if _is_valid_lang_tag(potential_lang):
+                states.append((depth, True, outer_lang))
+                depth += 1
+                continue
+            states.append((depth, False, outer_lang))
+            continue
+
+        states.append((depth, False, outer_lang))
+    return states
+
+
 def _is_standalone_outside_fences(text: str, tag: str) -> bool:
     """
     Return True if `tag` appears at the start of a line in `text` that is NOT inside a code fence.
 
     Used to distinguish genuine thinking-section markers from the same tags appearing
-    as literal file content inside a save/patch code block.
+    as literal file content inside a save/patch code block. Fence tracking follows
+    `_extract_codeblocks` (adjacent-fence recovery and nested language tags).
     """
     lines = text.split("\n")
-    in_fence = False
-    fence_len = 0
-    for line in lines:
-        fence_match = re.match(r"^(`{3,})", line)
-        if fence_match:
-            cur_fence_len = len(fence_match.group(1))
-            if not in_fence:
-                in_fence = True
-                fence_len = cur_fence_len
-            elif cur_fence_len >= fence_len:
-                in_fence = False
-                fence_len = 0
+    for line, (depth, is_delim, _) in zip(lines, _line_fence_states(text), strict=True):
+        if is_delim:
             continue
-        if not in_fence and line.startswith(tag):
+        if depth == 0 and line.startswith(tag):
             return True
+    return False
+
+
+def _closer_inside_nonthinking_fence(text: str, index: int) -> bool:
+    """True if `index` sits inside a non-thinking code fence (save/patch/shell/...)."""
+    lines = text.split("\n")
+    states = _line_fence_states(text)
+    offset = 0
+    for i, line in enumerate(lines):
+        next_offset = offset + len(line) + 1
+        if offset <= index < next_offset or (i == len(lines) - 1 and index >= offset):
+            depth, _is_delim, outer_lang = states[i]
+            return depth > 0 and not _is_thinking_lang(outer_lang)
+        offset = next_offset
+    return False
+
+
+def _unclosed_standalone_after(text: str, after_pos: int) -> bool:
+    """True if a fence-outside thinking opener after `after_pos` has no closer."""
+    lines = text.split("\n")
+    states = _line_fence_states(text)
+    offset = 0
+    for line, (depth, is_delim, _) in zip(lines, states, strict=True):
+        line_start = offset
+        offset += len(line) + 1
+        if line_start < after_pos or is_delim or depth != 0:
+            continue
+        for start_tag in ("<thinking>", "<think>"):
+            if line.startswith(start_tag):
+                close_tag = start_tag.replace("<", "</")
+                if close_tag not in text[line_start:]:
+                    return True
     return False
 
 
@@ -405,9 +513,19 @@ def _extract_codeblocks(
     # by the inner-loop fence-recovery logic.
     _concatenated_end_found = False
     _concatenated_end_pos = -1
+    _stripped = False
     for _think_end_tag in ["</thinking>", "</think>"]:
-        _think_end = markdown.find(_think_end_tag)
-        if _think_end != -1:
+        _search_from = 0
+        while True:
+            _think_end = markdown.find(_think_end_tag, _search_from)
+            if _think_end == -1:
+                break
+            # Literal closer inside save/patch/shell/etc. is file content, not a
+            # thinking-section end. Skip it and keep looking (Gemini `thinking>`
+            # fences are still actionable — they are thinking langs).
+            if _closer_inside_nonthinking_fence(markdown, _think_end):
+                _search_from = _think_end + 1
+                continue
             _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
             _prefix = markdown[:_think_end]
             _has_standalone = _is_standalone_outside_fences(_prefix, _think_start_tag)
@@ -417,6 +535,7 @@ def _extract_codeblocks(
             if _has_standalone or not _has_any:
                 # remove anything before and including the closing thinking tag
                 markdown = markdown[_think_end + len(_think_end_tag) :]
+                _stripped = True
                 break
             # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
             # Inner-loop fence-recovery handles this; track position of the closing tag.
@@ -427,6 +546,9 @@ def _extract_codeblocks(
             # extremely unlikely in practice so this edge case is acceptable.
             _concatenated_end_found = True
             _concatenated_end_pos = _think_end + len(_think_end_tag)
+            break  # first actionable closer of this tag type
+        if _stripped:
+            break
     else:
         # if start thinking tag but no end, early exit (only for standalone tags;
         # concatenated occurrences like "```<think>" are handled by inner-loop logic).
@@ -438,16 +560,8 @@ def _extract_codeblocks(
             # A concatenated </think> was found (not stripped). Check if any standalone
             # <think> appearing AFTER that closing tag is genuinely unclosed. If so,
             # early-exit to avoid extracting blocks from inside an unclosed thinking section.
-            _after_concat = markdown[_concatenated_end_pos:]
-            for _think_start_tag in ["<thinking>", "<think>"]:
-                _standalone_match = re.search(
-                    r"(?:^|\n)" + re.escape(_think_start_tag), _after_concat
-                )
-                if _standalone_match:
-                    _close_tag = _think_start_tag.replace("<", "</")
-                    _rest = _after_concat[_standalone_match.start() :]
-                    if _close_tag not in _rest:
-                        return  # genuinely unclosed standalone think block
+            if _unclosed_standalone_after(markdown, _concatenated_end_pos):
+                return
 
     # speed check (early exit): check if message contains a code block
     # Check for at least 2 fence markers (3+ backticks each)

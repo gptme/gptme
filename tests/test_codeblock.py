@@ -2117,6 +2117,65 @@ def test_thinking_tag_only_inside_fence_no_close_tag_does_not_early_exit():
     assert "<thinking>" in blocks[0].content
 
 
+def test_adjacent_fences_then_unfinished_thinking_does_not_extract_inner_shell():
+    """Adjacent-fence recovery must not hide a later genuine unfinished thinking tag.
+
+    Regression for gptme/gptme#4491 Greptile P1: the naive fence helper treated
+    ` ``````shell` as a closer, so `<thinking>` looked in-fence and the shell
+    command inside unfinished thinking was extracted.
+    """
+    markdown = (
+        "```shell\necho first\n"
+        "``````shell\necho second\n```\n\n"
+        "<thinking>\nConsidering:\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert blocks == []
+
+
+def test_literal_closing_thinking_tag_only_inside_save_is_extracted():
+    """A save/patch whose content is only a literal closing tag must still extract.
+
+    Regression for gptme/gptme#4491 Greptile P1: `not _has_any` stripped the
+    block header because the prefix contained no opening tag.
+    """
+    markdown = "```save template.xml\n</thinking>\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert blocks[0].content == "</thinking>"
+
+
+def test_repeated_literal_thinking_tags_inside_save_are_extracted():
+    """Repeated literal thinking tags inside a save must not trip the concat path.
+
+    Regression for gptme/gptme#4491 Greptile P1: the first pair was skipped, but
+    `_after_concat` treated the second opening tag as unfinished thinking.
+    """
+    markdown = "```save template.xml\n<thinking>one</thinking>\n<thinking>two\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>one</thinking>" in blocks[0].content
+    assert "<thinking>two" in blocks[0].content
+
+
+def test_nested_language_fence_with_think_tags_inside_save_is_extracted():
+    """A language-tagged nested fence must not close the outer save for thinking checks.
+
+    Regression for gptme/gptme#4491 AI-review P1: ` ```xml` was treated as closing
+    the save, so literal `<think>` looked standalone and the save was stripped.
+    """
+    markdown = "```save a.md\n```xml\n<think>\nx\n</think>\n```\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "<think>" in blocks[0].content
+    assert "</think>" in blocks[0].content
+    assert "```xml" in blocks[0].content
+
+
 def test_adjacent_fences_bare_multifence_content_line():
     """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
     # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.
