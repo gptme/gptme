@@ -44,6 +44,10 @@ def client(tmp_path, monkeypatch):
     app = create_app(host="127.0.0.1")
     app.config["TESTING"] = True
 
+    # Keep real TOML persistence, but never initialize a real provider: startup
+    # can refresh and rewrite saved OAuth tokens outside the TOML redirect.
+    monkeypatch.setattr("gptme.llm.init_llm", lambda provider: None)
+
     # A worker imports its provider inside the thread. A test's short-lived
     # mock may already be gone then; the fallback must never start real OAuth.
     monkeypatch.setattr(
@@ -277,10 +281,17 @@ def test_subscription_connect_openrouter(client: FlaskClient, monkeypatch):
 
 
 def test_subscription_connect_persists_default_model(
-    client: FlaskClient, isolate_user_config: Path
+    client: FlaskClient, isolate_user_config: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Successful OAuth really writes models.default, safely outside HOME."""
+    """Successful OAuth really writes models.default, without accessing tokens."""
+    import gptme.llm as llm
 
+    # Start cold: a previous test's initialized provider must not hide token I/O.
+    monkeypatch.setattr(llm, "_subscription_initialized", False)
+    load_tokens = unittest.mock.Mock(
+        side_effect=AssertionError("must not load developer OAuth tokens")
+    )
+    monkeypatch.setattr("gptme.llm.llm_openai_subscription._load_tokens", load_tokens)
     with unittest.mock.patch(
         "gptme.llm.llm_openai_subscription.oauth_authenticate",
     ):
@@ -308,6 +319,7 @@ def test_subscription_connect_persists_default_model(
     assert data["model"] == "openai-subscription/gpt-5.2"
     saved = tomlkit.parse(isolate_user_config.read_text(encoding="utf-8"))
     assert saved["models"]["default"] == data["model"]
+    load_tokens.assert_not_called()
 
 
 def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
