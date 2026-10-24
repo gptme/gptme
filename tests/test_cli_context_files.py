@@ -99,8 +99,9 @@ def test_context_files_honors_exclusions(tmp_path: Path, excluded: str) -> None:
 
 
 @pytest.mark.parametrize("absolute", [False, True])
+@pytest.mark.parametrize("parent_components", [False, True])
 def test_context_files_excludes_symlink_by_configured_path(
-    tmp_path: Path, absolute: bool
+    tmp_path: Path, absolute: bool, parent_components: bool
 ) -> None:
     shared = tmp_path / "shared" / "notes.md"
     shared.parent.mkdir()
@@ -111,7 +112,11 @@ def test_context_files_excludes_symlink_by_configured_path(
         private.symlink_to(shared)
     except OSError:
         pytest.skip("symlinks unavailable on this platform")
-    entry = private.as_posix() if absolute else "private/notes.md"
+    entry_path = Path("private/notes.md")
+    if parent_components:
+        (tmp_path / "docs").mkdir()
+        entry_path = Path("docs/..") / entry_path
+    entry = (tmp_path / entry_path).as_posix() if absolute else entry_path.as_posix()
     result = _invoke(
         tmp_path,
         f'[prompt]\nfiles = ["{entry}"]\nexclude = ["private/*"]\n',

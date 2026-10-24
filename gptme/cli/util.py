@@ -1072,17 +1072,23 @@ def context_files(config: str | None):
             except ValueError:
                 relative = None
             try:
+                normalized_relative = Path(os.path.abspath(fpath)).relative_to(
+                    workspace
+                )
+            except ValueError:
+                normalized_relative = None
+            try:
                 resolved_relative = resolved.relative_to(workspace)
             except ValueError:
                 resolved_relative = None
-            # Check both the configured alias and resolved path so symlinks and
-            # parent components cannot bypass workspace-relative exclusions.
+            # Check the raw alias, its lexical normalization (without following
+            # symlinks), and the resolved target for workspace-relative exclusions.
             if any(
                 fnmatch.fnmatch(fpath.name, pat)
                 or fnmatch.fnmatch(resolved.name, pat)
                 or any(
                     relpath is not None and fnmatch.fnmatch(str(relpath), pat)
-                    for relpath in (relative, resolved_relative)
+                    for relpath in (relative, normalized_relative, resolved_relative)
                 )
                 for pat in project.exclude
             ):
