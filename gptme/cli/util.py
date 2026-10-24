@@ -1043,7 +1043,7 @@ def context_files(config: str | None):
     with open(toml_path, "rb") as f:
         cfg = tomllib.load(f)
 
-    workspace = toml_path.parent
+    workspace = toml_path.parent.resolve()
     project = ProjectConfig.from_dict(copy.deepcopy(cfg), workspace=workspace)
     files = project.files or []
     if not files:
@@ -1052,13 +1052,14 @@ def context_files(config: str | None):
 
     seen: set[Path] = set()
     for pattern in files:
-        matches = [
-            path
-            for path in _sorted_workspace_matches(
-                workspace, str(Path(pattern).expanduser())
-            )
-            if path.is_file()
-        ]
+        expanded = Path(pattern).expanduser()
+        # Absolute entries were supported before glob expansion was added.
+        candidates = (
+            [expanded]
+            if expanded.is_absolute()
+            else _sorted_workspace_matches(workspace, str(expanded))
+        )
+        matches = [path for path in candidates if path.is_file()]
         if not matches:
             click.echo(f"# FILE: {pattern} (not found)\n", err=True)
             continue
@@ -1068,9 +1069,17 @@ def context_files(config: str | None):
                 continue
             seen.add(resolved)
             try:
-                rel = fpath.resolve().relative_to(workspace.resolve()).as_posix()
+                relative = resolved.relative_to(workspace)
             except ValueError:
-                rel = str(fpath)
+                relative = None
+            # Match prompt_workspace's basename and workspace-relative exclusions.
+            if any(
+                fnmatch.fnmatch(fpath.name, pat)
+                or (relative is not None and fnmatch.fnmatch(str(relative), pat))
+                for pat in project.exclude
+            ):
+                continue
+            rel = relative.as_posix() if relative is not None else str(fpath)
             print(f"## FILE: {rel}\n")
             print(fpath.read_text())
             print("---\n")

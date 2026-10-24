@@ -2,12 +2,15 @@
 
 from pathlib import Path
 
-from click.testing import CliRunner
+import pytest
+from click.testing import CliRunner, Result
 
 from gptme.cli.util import main
 
 
-def _invoke(tmp_path: Path, toml: str, extra_files: dict[str, str] | None = None):
+def _invoke(
+    tmp_path: Path, toml: str, extra_files: dict[str, str] | None = None
+) -> Result:
     (tmp_path / "gptme.toml").write_text(toml)
     for rel, content in (extra_files or {}).items():
         path = tmp_path / rel
@@ -58,4 +61,38 @@ def test_context_files_expands_workspace_globs(tmp_path: Path):
     assert "export type A = 1" in result.output
     assert "export type B = 2" in result.output
     assert "skip.md" not in result.output
+    assert "(not found)" not in result.output + result.stderr
+
+
+@pytest.mark.parametrize("home_relative", [False, True])
+def test_context_files_reads_external_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_relative: bool
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    notes = tmp_path / "notes.md"
+    notes.write_text("shared notes\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    entry = "~/notes.md" if home_relative else notes.as_posix()
+    result = _invoke(workspace, f'[prompt]\nfiles = ["{entry}"]\n')
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert f"## FILE: {notes}" in result.output
+    assert "shared notes" in result.output
+
+
+@pytest.mark.parametrize("excluded", ["docs/releases/*", "private.rst"])
+def test_context_files_honors_exclusions(tmp_path: Path, excluded: str) -> None:
+    result = _invoke(
+        tmp_path,
+        f'[prompt]\nfiles = ["docs/**/*.rst"]\nexclude = ["{excluded}"]\n',
+        {
+            "docs/guide.rst": "public guide\n",
+            "docs/releases/private.rst": "excluded content\n",
+        },
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "public guide" in result.output
+    assert "private.rst" not in result.output
+    assert "excluded content" not in result.output
     assert "(not found)" not in result.output + result.stderr
