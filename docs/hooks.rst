@@ -289,9 +289,9 @@ inside the NUL-delimited record; ripgrep ``--null-data`` does not.
 Ripgrep ``--crlf``
 (last-wins against ``--no-crlf``) treats a
 trailing carriage return as part of the line ending for whole-line matches;
-GNU grep stays LF-only. Ripgrep ``-E``/``--encoding`` operands are consumed
-without replacing the search pattern; candidate decoding remains the default
-text decoding, not a simulation of every ripgrep encoding. Context searches
+GNU grep stays LF-only. Ripgrep ``-E``/``--encoding`` and ``-r``/``--replace``
+operands are consumed without replacing the search pattern; candidate decoding
+remains the default text decoding, not a simulation of every ripgrep encoding. Context searches
 are conservative; quiet/count/filename-only searches do not add reach refusals.
 Complex regular expressions are conservatively flagged when a protected file
 is reached, rather than evaluated with an unbounded backtracking engine.

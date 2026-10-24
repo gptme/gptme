@@ -112,9 +112,11 @@ def _parse_grep(
     if ripgrep:
         # Consume selection operands without treating them as search patterns.
         # Selection is conservative: rg globs have different semantics to grep.
+        # --replace/-r takes a value; GNU grep -r is recursive and is not here.
         value_flags["--glob"] = "g"
         value_flags["--iglob"] = "g"
         value_flags["--encoding"] = "encoding"
+        value_flags["--replace"] = "replace"
         long_flags.update({"--smart-case": "S", "--case-sensitive": "s"})
     else:
         value_flags.update(
@@ -211,11 +213,12 @@ def _parse_grep(
             for index, flag in enumerate(arg[1:], 1):
                 # rg -L follows symlinks and -z searches compressed files;
                 # neither has GNU grep's filename-only/NUL-record meaning.
-                if flag not in "ABC" and not (ripgrep and flag in "LzE"):
+                # rg -r/--replace consumes a replacement operand.
+                if flag not in "ABC" and not (ripgrep and flag in "LzEr"):
                     add_flag(flag)
                 if flag in "123456789":
                     result.flags += "C"
-                if flag in "efmABCdD" or (ripgrep and flag in "gE"):
+                if flag in "efmABCdD" or (ripgrep and flag in "gEr"):
                     if arg[index + 1 :]:
                         value, raw_value = arg[index + 1 :], raw[index + 1 :]
                     else:
@@ -305,11 +308,87 @@ def _expand_parameters(raw: str) -> str:
     return "".join(out)
 
 
+def _expand_fields(raw: str) -> list[str]:
+    """Expand $VAR and split unquoted expansions on default IFS whitespace.
+
+    Quote state can change inside a word: ``""$NEEDLE`` still field-splits the
+    unquoted expansion. Empty unquoted expansions contribute no field; empty
+    quoted strings remain as an empty field.
+    """
+    quote = ""
+    escaped = False
+    field: list[str] = []
+    quoted = False
+    fields: list[str] = []
+
+    def finish_field() -> None:
+        nonlocal quoted
+        if quoted or "".join(field):
+            fields.append("".join(field))
+        field.clear()
+        quoted = False
+
+    index = 0
+    while index < len(raw):
+        char = raw[index]
+        if escaped:
+            field.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            if quote == '"' and raw[index + 1 : index + 2] not in {
+                "$",
+                "`",
+                '"',
+                "\\",
+                "\n",
+            }:
+                field.append(char)
+            elif raw[index + 1 : index + 2] == "\n":
+                index += 2
+                continue
+            else:
+                escaped = True
+            index += 1
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+                index += 1
+                continue
+            if quote == '"' and char == "$":
+                replacement, index = _dollar_expand(raw, index)
+                field.append(replacement)
+                continue
+            field.append(char)
+            index += 1
+            continue
+        if char in "\"'":
+            quote = char
+            quoted = True
+            index += 1
+            continue
+        if char == "$":
+            replacement, index = _dollar_expand(raw, index)
+            for part in re.split(r"([ \t\n]+)", replacement):
+                if part and part[0] in " \t\n":
+                    finish_field()
+                else:
+                    field.append(part)
+            continue
+        field.append(char)
+        index += 1
+    finish_field()
+    return fields
+
+
 def _expand_grep_patterns(grep: _Grep) -> list[str]:
     """Expand $VAR in grep patterns unless the operand was single-quoted.
 
     Unquoted expansions field-split on default IFS whitespace; extra fields
     become file operands, matching the shell's argv rewrite before grep.
+    Mixed quotes are tracked inside the word rather than by the first character.
     """
     patterns: list[str] = []
     extra_files: list[str] = []
@@ -317,16 +396,12 @@ def _expand_grep_patterns(grep: _Grep) -> list[str]:
     # Raw values are captured when parsing each option, not recovered by the
     # decoded pattern: attached options and repeated values can differ in quoting.
     for raw in grep.raw_patterns:
-        expanded = _expand_parameters(raw)
-        if not raw.startswith(("'", '"')):
-            fields = [part for part in re.split(r"[ \t\n]+", expanded) if part]
-            if not fields:
-                dropped_empty_unquoted = True
-                continue
-            patterns.append(fields[0])
-            extra_files.extend(fields[1:])
-        else:
-            patterns.append(expanded)
+        fields = _expand_fields(raw)
+        if not fields:
+            dropped_empty_unquoted = True
+            continue
+        patterns.append(fields[0])
+        extra_files.extend(fields[1:])
     grep.patterns = patterns
     grep.files.extend(extra_files)
     # Unquoted empty expansions are removed as words. A leftover file operand

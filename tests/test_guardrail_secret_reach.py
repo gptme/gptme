@@ -559,6 +559,18 @@ def test_ripgrep_encoding_preserves_pattern(secret_tree: Path, option: str) -> N
 
 
 @pytest.mark.parametrize(
+    "option",
+    ["--replace MASKED", "--replace=MASKED", "-r MASKED", "-rMASKED"],
+)
+def test_ripgrep_replace_preserves_search_pattern(
+    secret_tree: Path, option: str
+) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"rg {option} TOKEN config/*") is not None
+    assert _find_secret_path_in_cmd(f"rg {option} ABSENT config/*") is None
+
+
+@pytest.mark.parametrize(
     "value", ["safe.txt config/*", "safe.txt\tconfig/*", " safe.txt\nconfig/* "]
 )
 def test_unquoted_expansion_splits_glob_fields(
@@ -774,6 +786,35 @@ def test_unquoted_grep_pattern_field_split(
     assert _find_secret_path_in_cmd("grep -e $NEEDLE -r .") is not None
     assert _find_secret_path_in_cmd('grep -rF "$NEEDLE"') is None
     assert _find_secret_path_in_cmd("grep -rF '$NEEDLE'") is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'grep -rF ""$NEEDLE .',
+        "grep -rF ''$NEEDLE .",
+        'grep -rF $NEEDLE"" .',
+        'grep -e ""$NEEDLE -r .',
+    ],
+)
+def test_mixed_quote_grep_pattern_field_split(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setenv("NEEDLE", "TOKEN .")
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(command) is not None
+    monkeypatch.setenv("NEEDLE", "ABSENT .")
+    assert _find_secret_path_in_cmd(command) is None
+
+
+def test_empty_unquoted_search_root_uses_implicit_cwd(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DIRS", "")
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd("grep -r TOKEN $DIRS") is not None
+    assert _find_secret_path_in_cmd("grep -r TOKEN ${DIRS}") is not None
+    assert _find_secret_path_in_cmd("grep -r ABSENT $DIRS") is None
 
 
 @pytest.mark.parametrize("pattern", ["$NEEDLE", "${NEEDLE}", "-e $NEEDLE"])
