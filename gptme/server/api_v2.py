@@ -3633,10 +3633,12 @@ SUBSCRIPTION_PROVIDERS = frozenset(
     {"openai-subscription", "grok-subscription", "openrouter"}
 )
 
-# Recommended default model string for each subscription provider.
+# Default model string persisted after connecting each subscription provider.
+# Derived from RECOMMENDED_MODELS so it cannot drift to a model the
+# subscription no longer serves (the hardcoded gpt-5.2 did).
 _SUBSCRIPTION_DEFAULT_MODELS: dict[str, str] = {
-    "openai-subscription": "openai-subscription/gpt-5.2",
-    "grok-subscription": "grok-subscription/grok-4.6",
+    "openai-subscription": f"openai-subscription/{get_recommended_model('openai-subscription')}",
+    "grok-subscription": f"grok-subscription/{get_recommended_model('grok-subscription')}",
     "openrouter": "openrouter/openrouter/auto",
 }
 
