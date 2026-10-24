@@ -2232,6 +2232,48 @@ def test_mixed_thinking_tags_do_not_extract_reasoning_commands():
                 )
 
 
+def test_tool_blocks_between_thinking_sections_are_preserved():
+    """Removing a later reasoning section must not discard earlier tool calls."""
+    for first_tag in ("think", "thinking"):
+        for second_tag in ("think", "thinking"):
+            markdown = (
+                f"<{first_tag}>a</{first_tag}>\n"
+                "```shell\necho first\n```\n"
+                f"<{second_tag}>b</{second_tag}>\n"
+                "```shell\necho second\n```\n\n"
+            )
+            for streaming in (False, True):
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                    Codeblock("shell", "echo first"),
+                    Codeblock("shell", "echo second"),
+                ]
+
+
+def test_inline_thinking_before_literal_other_variant_closer_preserves_save():
+    """An inline opener and closer must leave the next save outside reasoning."""
+    for tag, literal_tag in (("think", "thinking"), ("thinking", "think")):
+        markdown = f"<{tag}>plan</{tag}>\n```save a.xml\n</{literal_tag}>\n```\n\n"
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.xml", f"</{literal_tag}>")
+            ]
+
+
+def test_thinking_directly_after_save_preserves_following_command():
+    """A save closer followed by reasoning must not swallow a later shell call."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```save a.txt\nhello\n```\n"
+            f"<{tag}>\nplan\n</{tag}>\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.txt", "hello"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
 def test_unlabelled_nested_thinking_example_preserves_save():
     """Bare nested fences must use the extractor's lookahead, not close the save."""
     content = "```\n<think>\nx\n</think>\n```\nDone"
