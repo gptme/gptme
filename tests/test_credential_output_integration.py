@@ -172,6 +172,9 @@ def test_review_regressions_through_confirmation_chain(
     "command",
     [
         "cat config/*",
+        "cat config/[^x]*",
+        "rg --color never TOKEN config/*",
+        "rg --threads 1 TOKEN config/*",
         "cat < config/*",
         "grep -rn TOKEN .",
         'grep -rF "$NEEDLE" .',

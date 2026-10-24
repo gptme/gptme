@@ -118,6 +118,40 @@ def _parse_grep(
         value_flags["--iglob"] = "g"
         value_flags["--encoding"] = "encoding"
         value_flags["--replace"] = "replace"
+        # These operands must not displace the positional search pattern.
+        # Consumption does not simulate preprocessing, filters or output layout.
+        value_flags.update(
+            dict.fromkeys(
+                (
+                    "--color",
+                    "--colors",
+                    "--threads",
+                    "--context-separator",
+                    "--field-context-separator",
+                    "--field-match-separator",
+                    "--path-separator",
+                    "--sort",
+                    "--sortr",
+                    "--engine",
+                    "--dfa-size-limit",
+                    "--regex-size-limit",
+                    "--max-depth",
+                    "--max-filesize",
+                    "--max-columns",
+                    "--type",
+                    "--type-not",
+                    "--type-add",
+                    "--type-clear",
+                    "--ignore-file",
+                    "--pre",
+                    "--pre-glob",
+                    "--hostname-bin",
+                    "--hyperlink-format",
+                    "--generate",
+                ),
+                "operand",
+            )
+        )
         long_flags.update({"--smart-case": "S", "--case-sensitive": "s"})
     else:
         value_flags.update(
@@ -219,11 +253,11 @@ def _parse_grep(
                 # rg -L follows symlinks and -z searches compressed files;
                 # neither has GNU grep's filename-only/NUL-record meaning.
                 # rg -r/--replace consumes a replacement operand.
-                if flag not in "ABC" and not (ripgrep and flag in "LzEr"):
+                if flag not in "ABC" and not (ripgrep and flag in "LzErjtTM"):
                     add_flag(flag)
                 if flag in "123456789":
                     result.flags += "C"
-                if flag in "efmABCdD" or (ripgrep and flag in "gEr"):
+                if flag in "efmABCdD" or (ripgrep and flag in "gErjtTM"):
                     if arg[index + 1 :]:
                         value = arg[index + 1 :]
                         raw_value = _raw_option_value(raw, index + 1)

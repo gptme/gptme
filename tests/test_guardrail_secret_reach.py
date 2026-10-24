@@ -972,3 +972,37 @@ def test_bash_glob_caret_negation(
     secret_tree: Path, command: str, blocked: bool
 ) -> None:
     assert (_find_secret_path_in_cmd(command) is not None) is blocked
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "--color never",
+        "--color=never",
+        "--threads 1",
+        "--threads=1",
+        "-j 1",
+        "-j1",
+        "--colors match:none",
+        "--context-separator SEPARATOR",
+        "--field-context-separator :",
+        "--field-match-separator :",
+        "--path-separator /",
+        "--sort path",
+        "--sortr path",
+        "--engine default",
+        "--dfa-size-limit 10M",
+        "--regex-size-limit 10M",
+        "--max-depth 2",
+        "--max-filesize 1M",
+        "--max-columns 100",
+        "-M 100",
+        "-M100",
+        "--type pem",
+        "--type-add pem:*.pem",
+    ],
+)
+def test_ripgrep_value_options_preserve_pattern(secret_tree: Path, option: str) -> None:
+    (secret_tree / "config" / "client.pem").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(f"rg {option} TOKEN config/*") is not None
+    assert _find_secret_path_in_cmd(f"rg {option} ABSENT config/*") is None
