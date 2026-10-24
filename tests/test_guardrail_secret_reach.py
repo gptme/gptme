@@ -571,6 +571,19 @@ def test_unquoted_expansion_splits_glob_fields(
     assert _find_secret_path_in_cmd("cat '$FILES'") is None
 
 
+@pytest.mark.parametrize(
+    "value", ["nested missing*", "missing* nested", "nested missing"]
+)
+def test_unquoted_expansion_preserves_literal_search_roots(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("DIRS", value)
+    assert _find_secret_path_in_cmd("grep -r TOKEN $DIRS") is not None
+    assert _find_secret_path_in_cmd("grep -r TOKEN ${DIRS}") is not None
+    assert _find_secret_path_in_cmd('grep -r TOKEN "$DIRS"') is None
+    assert _find_secret_path_in_cmd("grep -r ABSENT $DIRS") is None
+
+
 def test_expansion_field_boundaries_preserve_prefix_suffix_and_quotes(
     secret_tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

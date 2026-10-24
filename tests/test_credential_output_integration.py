@@ -179,6 +179,7 @@ def test_review_regressions_through_confirmation_chain(
         "rg -S synthetic config/*",
         "rg --encoding utf-8 SYNTHETIC config/*",
         "cat $FILES",
+        "grep -r TOKEN $DIRS",
         "grep -rn 'def foo' .",
     ],
 )
@@ -191,6 +192,7 @@ def test_secret_reach_through_confirmation_chain(
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "client.pem").write_text("SYNTHETIC-ONLY\n")
     monkeypatch.setenv("FILES", "safe.txt config/*")
+    monkeypatch.setenv("DIRS", ". missing*")
     _register_chain(monkeypatch, mode)
 
     messages, received = _execute_synthetic(command, shape)

@@ -226,11 +226,9 @@ def _glob_patterns(raw: str) -> list[str]:
     fields: list[str] = []
 
     def finish_field() -> None:
-        nonlocal active
-        if active:
+        if pattern:
             fields.append("".join(pattern))
         pattern.clear()
-        active = False
 
     index = 0
     while index < len(raw):
@@ -279,7 +277,10 @@ def _glob_patterns(raw: str) -> list[str]:
         pattern.append(char)
         index += 1
     finish_field()
-    return fields
+    # Discovery needs every field once an operand splits or contains a glob;
+    # literal roots must not disappear beside a wildcard field. Leave ordinary
+    # single literal operands to the existing normalized-path policy.
+    return fields if active or len(fields) > 1 else []
 
 
 def _expand(pattern: str, budget: _Budget) -> Iterator[str]:
