@@ -92,14 +92,15 @@ def requires_symlinks():
 
 
 def has_api_key() -> bool:
-    """Check if any API key is configured."""
-    config = get_config()
-    # Check for any configured API keys
-    return bool(
-        config.get_env("OPENAI_API_KEY", "")
-        or config.get_env("ANTHROPIC_API_KEY", "")
-        or config.get_env("OPENROUTER_API_KEY", "")
-        or config.get_env("DEEPSEEK_API_KEY", "")
+    """Check process credentials, not the user config isolated by test fixtures."""
+    return any(
+        os.environ.get(key) or os.environ.get(f"GPTME_{key}")
+        for key in (
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENROUTER_API_KEY",
+            "DEEPSEEK_API_KEY",
+        )
     )
 
 
@@ -110,8 +111,9 @@ def _check_anthropic_quota_exhausted() -> bool:
     False if the API is available or ANTHROPIC_API_KEY is not configured.
     Runs whenever ANTHROPIC_API_KEY is configured, regardless of MODEL env var.
     """
-    config = get_config()
-    api_key = config.get_env("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("GPTME_ANTHROPIC_API_KEY") or os.environ.get(
+        "ANTHROPIC_API_KEY", ""
+    )
     if not api_key:
         return False
     try:
@@ -443,7 +445,30 @@ def reduce_anthropic_retries(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def clear_tools_before():
+def isolate_user_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[Path]:
+    """Keep default config reads/writes (including OAuth threads) off real HOME."""
+    import gptme.config as config_module
+    import gptme.config.user as user_module
+    from gptme.config.core import _config_var
+
+    # Keep fixture-owned files outside tmp_path: some tests audit every entry
+    # there to prove config loading did not create or mutate files.
+    config_file = tmp_path_factory.mktemp("user-config") / "config.toml"
+    monkeypatch.setattr(user_module, "config_path", str(config_file))
+    monkeypatch.setattr(config_module, "config_path", str(config_file))
+    # Config is context-local and can have been loaded during collection or by
+    # the preceding test. Do not reuse it after changing the on-disk location.
+    token = _config_var.set(None)
+    try:
+        yield config_file
+    finally:
+        _config_var.reset(token)
+
+
+@pytest.fixture(autouse=True)
+def clear_tools_before(isolate_user_config):
     # Clear all tools and cache to prevent test conflicts
     clear_tools()
     # Reset init state so tools are fully re-registered on next init() call.
@@ -646,7 +671,7 @@ def cleanup_logged_warnings():
 
 
 @pytest.fixture(autouse=True)
-def init_(monkeypatch):
+def init_(monkeypatch, isolate_user_config):
     # Pass MODEL from env explicitly to avoid picking up stale config.chat.model
     # values left by server tests. When _init_done is reset per-test, init_model()
     # re-runs and would otherwise read the contaminated config instead of the test

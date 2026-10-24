@@ -4,8 +4,11 @@ import os
 import threading
 import time
 import unittest.mock
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import tomlkit
 
 pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
@@ -41,7 +44,40 @@ def client(tmp_path, monkeypatch):
     app = create_app(host="127.0.0.1")
     app.config["TESTING"] = True
 
-    return app.test_client()
+    # A worker imports its provider inside the thread. A test's short-lived
+    # mock may already be gone then; the fallback must never start real OAuth.
+    monkeypatch.setattr(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "gptme.llm.llm_grok_subscription.oauth_authenticate", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "gptme.llm.llm_openrouter_subscription.oauth_get_api_key",
+        lambda **kwargs: "sk-or-v1-testkey",
+    )
+
+    # The config-path redirect is function-scoped. Drain OAuth workers before
+    # it is restored, including tests that leave their mock waiting on a timer.
+    workers: list[threading.Thread] = []
+    thread_class = threading.Thread
+
+    def tracked_thread(*args, **kwargs):
+        worker = thread_class(*args, **kwargs)
+        if kwargs.get("target") is api_mod._run_subscription_oauth:
+            workers.append(worker)
+        return worker
+
+    # Replace only this module's thread constructor, not the stdlib globally.
+    monkeypatch.setattr(api_mod, "threading", SimpleNamespace(Thread=tracked_thread))
+    try:
+        yield app.test_client()
+    finally:
+        for worker in workers:
+            worker.join(timeout=10)
+            assert not worker.is_alive(), (
+                "subscription OAuth worker leaked past teardown"
+            )
 
 
 def auth_headers():
@@ -240,17 +276,13 @@ def test_subscription_connect_openrouter(client: FlaskClient, monkeypatch):
     assert os.environ.get("OPENROUTER_API_KEY") == "sk-or-v1-testkey"
 
 
-def test_subscription_connect_persists_default_model(client: FlaskClient):
-    """Successful OAuth persists models.default so a fresh install can start."""
+def test_subscription_connect_persists_default_model(
+    client: FlaskClient, isolate_user_config: Path
+) -> None:
+    """Successful OAuth really writes models.default, safely outside HOME."""
 
-    with (
-        unittest.mock.patch(
-            "gptme.llm.llm_openai_subscription.oauth_authenticate",
-        ),
-        unittest.mock.patch(
-            "gptme.server.api_v2._persist_default_model",
-            return_value=False,
-        ) as mock_persist,
+    with unittest.mock.patch(
+        "gptme.llm.llm_openai_subscription.oauth_authenticate",
     ):
         resp = client.post(
             "/api/v2/user/subscription-connect",
@@ -274,8 +306,8 @@ def test_subscription_connect_persists_default_model(client: FlaskClient):
     assert data is not None
     assert data["status"] == "connected"
     assert data["model"] == "openai-subscription/gpt-5.2"
-    mock_persist.assert_called()
-    assert mock_persist.call_args.args[0] == "openai-subscription/gpt-5.2"
+    saved = tomlkit.parse(isolate_user_config.read_text(encoding="utf-8"))
+    assert saved["models"]["default"] == data["model"]
 
 
 def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
