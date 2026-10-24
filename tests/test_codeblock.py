@@ -2176,6 +2176,21 @@ def test_nested_language_fence_with_think_tags_inside_save_is_extracted():
     assert "```xml" in blocks[0].content
 
 
+def test_unclosed_shell_inside_think_still_yields_later_tool_block():
+    """An unclosed fence inside reasoning must not swallow the thinking closer.
+
+    Regression for gptme/gptme#4491 in-band P1: `_closer_inside_nonthinking_fence`
+    treated `</think>` as shell content because the model left a ```shell fence
+    open inside `<think>`, then the standalone-opener check dropped the later
+    tool block.
+    """
+    markdown = "<think>\n```shell\necho draft\n</think>\n```shell\necho final\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == "echo final"
+
+
 def test_adjacent_fences_bare_multifence_content_line():
     """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
     # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.

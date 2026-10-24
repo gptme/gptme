@@ -445,14 +445,28 @@ def _is_standalone_outside_fences(text: str, tag: str) -> bool:
 
 
 def _closer_inside_nonthinking_fence(text: str, index: int) -> bool:
-    """True if `index` sits inside a non-thinking code fence (save/patch/shell/...)."""
+    """True if `index` sits inside a non-thinking code fence (save/patch/shell/...).
+
+    A closer that appears after a genuine standalone thinking opener is still
+    a thinking-section end even if a code fence opened *inside* that reasoning
+    and was never closed (Claude sometimes forgets to close those). Skipping
+    it would hide later tool blocks.
+    """
     lines = text.split("\n")
     states = _line_fence_states(text)
     offset = 0
+    in_thinking = False
     for i, line in enumerate(lines):
+        depth, is_delim, outer_lang = states[i]
+        if not is_delim and depth == 0:
+            if line.startswith(("<thinking>", "<think>")):
+                in_thinking = True
+            elif line.startswith(("</thinking>", "</think>")):
+                in_thinking = False
         next_offset = offset + len(line) + 1
         if offset <= index < next_offset or (i == len(lines) - 1 and index >= offset):
-            depth, _is_delim, outer_lang = states[i]
+            if in_thinking:
+                return False
             return depth > 0 and not _is_thinking_lang(outer_lang)
         offset = next_offset
     return False
