@@ -38,6 +38,10 @@ def client(tmp_path, monkeypatch):
     with api_mod._subscription_tasks_lock:
         api_mod._subscription_tasks.clear()
 
+    # A completed OAuth flow persists models.default; without this stub the
+    # background thread writes the developer's real ~/.config/gptme/config.toml.
+    monkeypatch.setattr(api_mod, "_persist_default_model", lambda model: False)
+
     from gptme.server.app import create_app
 
     app = create_app(host="127.0.0.1")
@@ -368,6 +372,21 @@ def test_start_requires_auth(client: FlaskClient):
     assert resp.status_code == 401
 
 
+def _drain_task(client: FlaskClient, task_id: str) -> None:
+    """Wait for the OAuth thread to leave `pending` so it finishes before teardown."""
+    if not task_id:
+        return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        data = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
+            headers=auth_headers(),
+        ).get_json()
+        if data["status"] != "pending":
+            return
+        time.sleep(0.05)
+
+
 def test_status_requires_auth(client: FlaskClient):
     resp = client.get("/api/v2/user/subscription-connect/some-task")
     assert resp.status_code == 401
@@ -391,6 +410,7 @@ def test_headless_server_keeps_oauth_flow_alive(client: FlaskClient, monkeypatch
                 skip_browser.set()
         barrier.wait(timeout=5)
 
+    task_id = ""
     try:
         with unittest.mock.patch(
             "gptme.llm.llm_openai_subscription.oauth_authenticate",
@@ -421,6 +441,7 @@ def test_headless_server_keeps_oauth_flow_alive(client: FlaskClient, monkeypatch
         assert skip_browser.is_set()
     finally:
         barrier.set()
+        _drain_task(client, task_id)
 
 
 def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
@@ -464,6 +485,7 @@ def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
     assert data["oauth_url"] == fake_url
 
     barrier.set()
+    _drain_task(client, task_id)
 
 
 def _clear_headless_env(monkeypatch) -> None:
