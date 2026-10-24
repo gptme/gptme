@@ -98,6 +98,29 @@ function conversationHasOtherMessages(conversationId: string, timestamp: string)
   return log.some((entry) => entry.timestamp !== timestamp);
 }
 
+function currentLogRevision(conversationId: string): number {
+  return conversations$.get(conversationId)?.logRevision.get() ?? 0;
+}
+
+function sameLogMessage(a: Message, b: Message): boolean {
+  return (
+    a.timestamp !== undefined &&
+    b.timestamp !== undefined &&
+    Date.parse(a.timestamp) === Date.parse(b.timestamp)
+  );
+}
+
+function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]): Message[] {
+  const local = conversations$.get(conversationId)!.data.log.get();
+  return [
+    ...snapshot.map((entry) => {
+      const previous = local.find((candidate) => sameLogMessage(candidate, entry));
+      return previous ? { ...previous, ...entry } : entry;
+    }),
+    ...local.filter((entry) => !snapshot.some((saved) => sameLogMessage(entry, saved))),
+  ];
+}
+
 function stopPlaceholderGeneration(conversationId: string, placeholderTimestamp: string): void {
   const laterActivity = conversationHasOtherMessages(conversationId, placeholderTimestamp);
   clearInitialStepState(conversationId);
@@ -1704,6 +1727,33 @@ export class ApiClient {
   }
 
   /**
+   * Reconcile local log order with the server after a late attachment POST.
+   * Edit/delete bump logRevision; a snapshot fetched across that change is
+   * stale and can restore deleted messages or overwrite edits. Retry once,
+   * then keep local if the log is still mutating.
+   */
+  private async reconcileLateUploadOrder(conversationId: string): Promise<void> {
+    const applyIfUnchanged = async (revision: number): Promise<boolean> => {
+      const data = await this.getConversation(conversationId);
+      if (currentLogRevision(conversationId) !== revision) {
+        return false;
+      }
+      // Keep Retry metadata and append entries absent from this snapshot in
+      // their local order (including newer SSE messages). Only the snapshot
+      // prefix has authoritative server indices.
+      replaceLog(conversationId, mergeAuthoritativeLogPrefix(conversationId, data.log));
+      return true;
+    };
+
+    const firstRevision = currentLogRevision(conversationId);
+    if (await applyIfUnchanged(firstRevision)) {
+      return;
+    }
+    const retryRevision = currentLogRevision(conversationId);
+    await applyIfUnchanged(retryRevision);
+  }
+
+  /**
    * Create a conversation with immediate placeholder and background sync.
    * This ensures instant navigation while handling server sync transparently.
    */
@@ -1834,23 +1884,7 @@ export class ApiClient {
             attachedMessage,
           ]);
           try {
-            const data = await this.getConversation(conversationId);
-            // Read local state AFTER the GET: another send may have started while
-            // it was in flight. Keep Retry metadata and append entries absent from
-            // this snapshot in their local order (including newer SSE messages).
-            // Only the snapshot prefix has authoritative server indices.
-            const local = conversations$.get(conversationId)!.data.log.get();
-            const sameMessage = (a: Message, b: Message) =>
-              a.timestamp !== undefined &&
-              b.timestamp !== undefined &&
-              Date.parse(a.timestamp) === Date.parse(b.timestamp);
-            replaceLog(conversationId, [
-              ...data.log.map((entry) => {
-                const previous = local.find((candidate) => sameMessage(candidate, entry));
-                return previous ? { ...previous, ...entry } : entry;
-              }),
-              ...local.filter((entry) => !data.log.some((saved) => sameMessage(entry, saved))),
-            ]);
+            await this.reconcileLateUploadOrder(conversationId);
           } catch (error) {
             // The POST succeeded. A refresh failure must not turn it into a
             // rejected message whose Retry could duplicate the saved prompt.

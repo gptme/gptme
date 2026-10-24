@@ -5,7 +5,12 @@ import { useState } from 'react';
 import { ChatInput } from '../ChatInput';
 import { useConversation } from '@/hooks/useConversation';
 import { ApiClient, ApiClientError, AttachmentUploadError } from '@/utils/api';
-import { conversations$, initConversation, setGenerating } from '@/stores/conversations';
+import {
+  conversations$,
+  initConversation,
+  replaceLog,
+  setGenerating,
+} from '@/stores/conversations';
 
 let mockClient: ApiClient;
 const mockToast = jest.fn();
@@ -745,6 +750,145 @@ it('uses server order for positional edits/deletes after a late new-chat upload 
     timestamp: original.timestamp,
     files: ['attachments/one.txt'],
   });
+});
+
+it('does not restore a message deleted during upload-order reconciliation GET', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  let resolveFirstGet!: (value: any) => void;
+  let resolveSecondGet!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const get = jest.spyOn(mockClient, 'getConversation').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        if (get.mock.calls.length <= 1) {
+          resolveFirstGet = resolve;
+        } else {
+          resolveSecondGet = resolve;
+        }
+      })
+  );
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const original = conversations$.get(id)!.data.log.get()[0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  const saved = conversations$
+    .get(id)!
+    .data.log.get()
+    .find((entry) => entry.content === 'newer saved message')!;
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  const assistant = {
+    role: 'assistant' as const,
+    content: 'newer response',
+    timestamp: '2099-01-01T00:00:00Z',
+  };
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+  });
+  await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+  // deleteMessage applies the server log through replaceLog, bumping logRevision.
+  replaceLog(id, [attached]);
+  const staleSnapshot = {
+    ...conversations$.get(id)!.data.get(),
+    log: [saved, assistant, attached],
+  };
+  resolveFirstGet(staleSnapshot);
+  await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  resolveSecondGet({
+    ...conversations$.get(id)!.data.get(),
+    log: [assistant, attached],
+  });
+  await creation;
+  const log = conversations$.get(id)!.data.log.get();
+  expect(log.map((entry) => entry.content)).toEqual(['newer response', 'original attached']);
+  expect(log.some((entry) => entry.content === 'newer saved message')).toBe(false);
+  const remove = jest.spyOn(mockClient, 'deleteMessage').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: [attached],
+  });
+  await act(async () => {
+    await result.current.deleteMessage(0);
+  });
+  expect(remove).toHaveBeenCalledWith(id, 0);
+});
+
+it('does not overwrite an edit made during upload-order reconciliation GET', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  let resolveFirstGet!: (value: any) => void;
+  let resolveSecondGet!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const get = jest.spyOn(mockClient, 'getConversation').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        if (get.mock.calls.length <= 1) {
+          resolveFirstGet = resolve;
+        } else {
+          resolveSecondGet = resolve;
+        }
+      })
+  );
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const original = conversations$.get(id)!.data.log.get()[0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  const saved = conversations$
+    .get(id)!
+    .data.log.get()
+    .find((entry) => entry.content === 'newer saved message')!;
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  const edited = { ...saved, content: 'edited newer message' };
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+  });
+  await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+  replaceLog(id, [edited, attached]);
+  resolveFirstGet({
+    ...conversations$.get(id)!.data.get(),
+    log: [saved, attached],
+  });
+  await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  resolveSecondGet({
+    ...conversations$.get(id)!.data.get(),
+    log: [edited, attached],
+  });
+  await creation;
+  expect(
+    conversations$
+      .get(id)!
+      .data.log.get()
+      .map((entry) => entry.content)
+  ).toEqual(['edited newer message', 'original attached']);
 });
 
 it('preserves Retry metadata and sends started during upload-order reconciliation', async () => {
