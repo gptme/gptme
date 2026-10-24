@@ -175,6 +175,8 @@ def test_review_regressions_through_confirmation_chain(
         "cat < config/*",
         "grep -rn TOKEN .",
         'grep -rF "$NEEDLE" .',
+        r'grep -r "\bTOKEN" .',
+        'grep -r --include="$FILTER" TOKEN .',
         "rg -F --no-fixed-strings '^TOKEN=' config/*",
         "grep -r --binary-files text TOKEN .",
         "grep -r -f patterns.txt",
@@ -199,6 +201,7 @@ def test_secret_reach_through_confirmation_chain(
         "TOKEN=synthetic-only\nSYNTHETIC-ONLY\n"
     )
     monkeypatch.setenv("NEEDLE", "TOKEN")
+    monkeypatch.setenv("FILTER", "*")
     monkeypatch.setenv("FILES", "safe.txt config/*")
     monkeypatch.setenv("DIRS", ". missing*")
     monkeypatch.setenv("ROOT", "safe")

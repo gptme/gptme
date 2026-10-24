@@ -750,3 +750,47 @@ def test_gnu_grep_null_data_dot_matches_embedded_lf(secret_tree: Path) -> None:
     assert _find_secret_path_in_cmd("grep -r 'HEADER.TOKEN' .") is None
     assert _find_secret_path_in_cmd("grep -rzF 'HEADER.TOKEN' .") is None
     assert _find_secret_path_in_cmd("rg --null-data 'HEADER.TOKEN' .[e]nv") is None
+
+
+@pytest.mark.parametrize("command", [r'grep -r "\bTOKEN" .', r'grep -r "\<TOKEN" .'])
+def test_double_quoted_grep_backslash_preserved(
+    secret_tree: Path, command: str
+) -> None:
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    assert _find_secret_path_in_cmd(command) is not None
+
+
+@pytest.mark.parametrize(
+    ("command", "detected"),
+    [
+        ('grep -r --include="$FILTER" TOKEN .', True),
+        ('grep -r --include "${FILTER}" TOKEN .', True),
+        ("grep -r --include=$FILTER TOKEN .", True),
+        ("grep -r --include='$FILTER' TOKEN .", False),
+        (r"grep -r --include=\$FILTER TOKEN .", False),
+        ('grep -r --exclude="$FILTER" TOKEN .', False),
+        ("grep -r --exclude='$FILTER' TOKEN .", True),
+        ('grep -r --exclude-dir="$DIR_FILTER" TOKEN .', False),
+        ('grep -r --exclude-from="$FILTER_FILE" TOKEN .', False),
+    ],
+)
+def test_grep_filter_parameter_expansion(
+    secret_tree: Path, monkeypatch: pytest.MonkeyPatch, command: str, detected: bool
+) -> None:
+    monkeypatch.setenv("FILTER", ".env")
+    monkeypatch.setenv("DIR_FILTER", "nested")
+    monkeypatch.setenv("FILTER_FILE", "excludes.txt")
+    (secret_tree / ".env").write_text("TOKEN=synthetic\n")
+    (secret_tree / "nested" / ".env.local").write_text("ABSENT=synthetic\n")
+    if "exclude-dir" in command:
+        (secret_tree / ".env").write_text("ABSENT=synthetic\n")
+        (secret_tree / "nested" / ".env.local").write_text("TOKEN=synthetic\n")
+    (secret_tree / "excludes.txt").write_text(".env\n")
+    # Isolate reach matching: the older literal-token policy conservatively
+    # flags a $FILTER token whose value is .env even in an option or quotes.
+    from gptme.hooks._secret_reach import find_secret_reach
+    from gptme.hooks.guardrails import _is_secret_path, _normalize_path_token
+
+    assert (
+        find_secret_reach(command, _is_secret_path, _normalize_path_token) is not None
+    ) is detected

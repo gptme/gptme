@@ -63,10 +63,24 @@ class _Grep:
     ripgrep: bool = False
 
 
-def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
+def _parse_grep(
+    args: list[str], *, ripgrep: bool = False, node: object | None = None
+) -> _Grep:
     result = _Grep(ripgrep=ripgrep)
     operands: list[str] = []
-    args_iter = iter(args)
+    raw_by_word: dict[str, list[str]] = {}
+    if node is not None:
+        for child in node.children_by_field_name("argument"):  # type: ignore[attr-defined]
+            raw = (child.text or b"").decode()
+            try:
+                raw_by_word.setdefault(shlex.split(raw)[0], []).append(raw)
+            except (ValueError, IndexError):
+                continue
+    # Keep each occurrence's quoting, including identical decoded arguments.
+    raw_args = [
+        (arg, raw_by_word[arg].pop(0) if raw_by_word.get(arg) else arg) for arg in args
+    ]
+    args_iter = iter(raw_args)
     long_flags = {
         "--recursive": "r",
         "--dereference-recursive": "R",
@@ -158,9 +172,9 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
         elif flag in {"A", "B", "C"} and value.strip("0"):
             result.flags += "C"
 
-    for arg in args_iter:
+    for arg, raw in args_iter:
         if arg == "--":
-            operands.extend(args_iter)
+            operands.extend(word for word, _ in args_iter)
             break
         if arg.startswith("--"):
             name, eq, value = arg.partition("=")
@@ -176,7 +190,18 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
                 result.flags = result.flags.translate(str.maketrans("", "", "F"))
                 continue
             if name in value_flags:
-                value_option(value_flags[name], value if eq else next(args_iter, ""))
+                if eq:
+                    raw_value = raw.partition("=")[2]
+                else:
+                    value, raw_value = next(args_iter, ("", ""))
+                if value_flags[name] in {
+                    "include",
+                    "exclude",
+                    "exclude_dir",
+                    "exclude_from",
+                }:
+                    value = _expand_parameters(raw_value)
+                value_option(value_flags[name], value)
             else:
                 add_flag(long_flags.get(name, ""))
             continue
@@ -189,7 +214,7 @@ def _parse_grep(args: list[str], *, ripgrep: bool = False) -> _Grep:
                 if flag in "123456789":
                     result.flags += "C"
                 if flag in "efmABCdD" or (ripgrep and flag in "gE"):
-                    value_option(flag, arg[index + 1 :] or next(args_iter, ""))
+                    value_option(flag, arg[index + 1 :] or next(args_iter, ("", ""))[0])
                     break
             continue
         operands.append(arg)
@@ -231,7 +256,20 @@ def _expand_parameters(raw: str) -> str:
             index += 1
             continue
         if char == "\\" and quote != "'":
-            escaped = True
+            # Bash double quotes only remove backslashes before these characters.
+            if quote == '"' and raw[index + 1 : index + 2] not in {
+                "$",
+                "`",
+                '"',
+                "\\",
+                "\n",
+            }:
+                out.append(char)
+            elif raw[index + 1 : index + 2] == "\n":
+                index += 2
+                continue
+            else:
+                escaped = True
             index += 1
             continue
         if quote:
@@ -532,7 +570,7 @@ def find_secret_reach(
             continue
         name = Path(words[0]).name
         grep = (
-            _parse_grep(words[1:], ripgrep=name == "rg")
+            _parse_grep(words[1:], ripgrep=name == "rg", node=node)
             if name in {"grep", "egrep", "fgrep", "rg"}
             else None
         )
