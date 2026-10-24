@@ -2191,6 +2191,20 @@ def test_unclosed_shell_inside_think_still_yields_later_tool_block():
     assert blocks[0].content == "echo final"
 
 
+def test_ipython_quoted_fence_does_not_hide_later_unfinished_thinking():
+    """A bare fence inside an IPython triple-quoted string is not a block closer.
+
+    Regression for gptme/gptme#4491 in-band P1: the fence walker closed the
+    ipython block at the string's ```, so a later unfinished <think> looked
+    in-fence and a shell command inside reasoning was extracted.
+    """
+    markdown = (
+        '```ipython\ns = """\n```\n"""\n```\n\n<think>\n```shell\necho draft\n```'
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert blocks == []
+
+
 def test_adjacent_fences_bare_multifence_content_line():
     """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
     # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.

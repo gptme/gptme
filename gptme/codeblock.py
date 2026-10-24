@@ -371,6 +371,7 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
     depth = 0
     fence_len = 0
     outer_lang = ""
+    ipy_td = ipy_ts = ipy_s = ipy_d = False
     for line in lines:
         if depth == 0:
             scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
@@ -380,9 +381,19 @@ def _line_fence_states(text: str) -> list[tuple[int, bool, str]]:
                 outer_lang = scan[fence_len:].strip()
                 states.append((0, True, ""))
                 depth = 1
+                ipy_td = ipy_ts = ipy_s = ipy_d = False
                 continue
             states.append((0, False, ""))
             continue
+
+        if outer_lang == "ipython":
+            ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
+                line, ipy_td, ipy_ts, ipy_s, ipy_d
+            )
+            if ipy_td or ipy_ts or ipy_s or ipy_d:
+                # Fence inside an open Python string is literal source.
+                states.append((depth, False, outer_lang))
+                continue
 
         if depth == 1 and line.startswith("`" * fence_len):
             rest = line[fence_len:]
