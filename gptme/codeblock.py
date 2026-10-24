@@ -455,8 +455,11 @@ def _is_standalone_outside_fences(text: str, tag: str) -> bool:
     return False
 
 
-def _closer_inside_nonthinking_fence(text: str, index: int) -> bool:
-    """True if `index` sits inside a non-thinking code fence (save/patch/shell/...).
+def _literal_thinking_closers(text: str) -> set[int]:
+    """Offsets of closing thinking tags inside non-thinking code fences.
+
+    Compute all offsets in one pass so repeated literal tags in templates do
+    not each rescan the whole message during streaming extraction.
 
     A closer that appears after a genuine standalone thinking opener is still
     a thinking-section end even if a code fence opened *inside* that reasoning
@@ -465,22 +468,22 @@ def _closer_inside_nonthinking_fence(text: str, index: int) -> bool:
     """
     lines = text.split("\n")
     states = _line_fence_states(text)
+    literal_closers: set[int] = set()
     offset = 0
     in_thinking = False
-    for i, line in enumerate(lines):
-        depth, is_delim, outer_lang = states[i]
+    for line, (depth, is_delim, outer_lang) in zip(lines, states, strict=True):
         if not is_delim and depth == 0:
             if line.startswith(("<thinking>", "<think>")):
                 in_thinking = True
             elif line.startswith(("</thinking>", "</think>")):
                 in_thinking = False
-        next_offset = offset + len(line) + 1
-        if offset <= index < next_offset or (i == len(lines) - 1 and index >= offset):
-            if in_thinking:
-                return False
-            return depth > 0 and not _is_thinking_lang(outer_lang)
-        offset = next_offset
-    return False
+        if not in_thinking and depth > 0 and not _is_thinking_lang(outer_lang):
+            literal_closers.update(
+                offset + match.start()
+                for match in re.finditer(r"</(?:thinking|think)>", line)
+            )
+        offset += len(line) + 1
+    return literal_closers
 
 
 def _unclosed_standalone_after(text: str, after_pos: int) -> bool:
@@ -539,6 +542,9 @@ def _extract_codeblocks(
     _concatenated_end_found = False
     _concatenated_end_pos = -1
     _stripped = False
+    _literal_closers = (
+        _literal_thinking_closers(markdown) if "</think" in markdown else set()
+    )
     for _think_end_tag in ["</thinking>", "</think>"]:
         _search_from = 0
         while True:
@@ -548,7 +554,7 @@ def _extract_codeblocks(
             # Literal closer inside save/patch/shell/etc. is file content, not a
             # thinking-section end. Skip it and keep looking (Gemini `thinking>`
             # fences are still actionable — they are thinking langs).
-            if _closer_inside_nonthinking_fence(markdown, _think_end):
+            if _think_end in _literal_closers:
                 _search_from = _think_end + 1
                 continue
             _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"

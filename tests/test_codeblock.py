@@ -2161,6 +2161,30 @@ def test_repeated_literal_thinking_tags_inside_save_are_extracted():
     assert "<thinking>two" in blocks[0].content
 
 
+def test_literal_thinking_tags_reuse_fence_scan():
+    """Literal closers must not trigger a full fence scan for every tag.
+
+    Streaming reparses growing messages, so per-tag scans make a template's
+    cumulative parsing cost cubic. Count scans rather than timing the machine.
+    """
+    from unittest.mock import patch
+
+    from gptme.codeblock import _line_fence_states
+
+    for count in (10, 100):
+        content = "<thinking>literal</thinking>\n<think>literal</think>\n" * count
+        markdown = f"```save template.xml\n{content}```\n\n"
+        for streaming in (False, True):
+            with patch(
+                "gptme.codeblock._line_fence_states", wraps=_line_fence_states
+            ) as scan:
+                blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+            assert blocks == [Codeblock("save template.xml", content.rstrip("\n"))]
+            # One shared closer scan plus at most one standalone-opener scan
+            # for each supported tag variant, independent of the tag count.
+            assert scan.call_count <= 3
+
+
 def test_nested_language_fence_with_think_tags_inside_save_is_extracted():
     """A language-tagged nested fence must not close the outer save for thinking checks.
 
