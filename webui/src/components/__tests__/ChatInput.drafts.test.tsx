@@ -1,0 +1,430 @@
+import '@testing-library/jest-dom';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { observable } from '@legendapp/state';
+import { ChatInput } from '../ChatInput';
+import { serverRegistry$ } from '@/stores/servers';
+import type { ServerConfig } from '@/types/servers';
+
+const mockUploadFiles = jest.fn();
+
+// Three-value sentinel for chatConfig:
+//   undefined = fetch not yet attempted (show loading skeleton)
+//   null      = fetch completed but failed (show fallback model, no skeleton)
+//   ChatConfig = successfully fetched
+type MockChatConfig = { chat: { model?: string } } | null | undefined;
+const mockConversation$ = observable<{
+  isGenerating: boolean;
+  executingTool: null;
+  chatConfig: MockChatConfig;
+  pendingModel?: string;
+}>({
+  isGenerating: false,
+  executingTool: null,
+  chatConfig: { chat: {} },
+});
+
+jest.mock('@/contexts/SettingsContext', () => ({
+  useSettings: () => ({
+    settings: {
+      chimeEnabled: true,
+      blocksDefaultOpen: true,
+      showHiddenMessages: false,
+      showInitialSystem: false,
+      hasCompletedSetup: true,
+      welcomeBackground: '',
+      voiceServerUrl: '',
+    },
+    updateSettings: jest.fn(),
+    resetSettings: jest.fn(),
+  }),
+}));
+
+let mockConnectionConfig: { baseUrl: string; authToken: string | null; useAuthToken: boolean } = {
+  baseUrl: 'http://server-a:5700',
+  authToken: null,
+  useAuthToken: false,
+};
+
+jest.mock('@/contexts/ApiContext', () => {
+  const { observable } = jest.requireActual('@legendapp/state');
+  return {
+    useApi: () => ({
+      api: {
+        uploadFiles: mockUploadFiles,
+      },
+      isConnected$: observable(true),
+      connectionConfig: mockConnectionConfig,
+    }),
+  };
+});
+
+jest.mock('@/stores/sidebar', () => {
+  const { observable } = jest.requireActual('@legendapp/state');
+  return {
+    selectedAgent$: observable(null),
+    selectedWorkspace$: observable(null),
+    rightSidebarVisible$: observable(false),
+    rightSidebarActiveTab$: observable(null),
+  };
+});
+
+jest.mock('@/stores/conversations', () => {
+  return {
+    conversations$: {
+      get: jest.fn(() => mockConversation$),
+    },
+    setMaxTokens: jest.fn(),
+    setTemperature: jest.fn(),
+    setTopP: jest.fn(),
+  };
+});
+
+const mockSaveDefaultModel = jest.fn();
+let mockDefaultModel = '';
+let mockModelsLoading = false;
+
+beforeEach(() => {
+  mockDefaultModel = '';
+  mockModelsLoading = false;
+});
+
+jest.mock('@/hooks/useModels', () => ({
+  useModels: () => ({
+    models: [],
+    defaultModel: mockDefaultModel,
+    availableModels: [],
+    recommendedModels: [],
+    isLoading: mockModelsLoading,
+    error: null,
+    saveDefaultModel: mockSaveDefaultModel,
+  }),
+}));
+
+jest.mock('@/hooks/useWorkspaces', () => ({
+  useWorkspaces: () => ({ workspaces: [], addCustomWorkspace: jest.fn() }),
+}));
+
+jest.mock('@/hooks/useFileAutocomplete', () => ({
+  useFileAutocomplete: () => ({
+    state: {
+      files: [],
+      selectedIndex: -1,
+      isOpen: false,
+      query: '',
+    },
+    handleInputChange: jest.fn(),
+    handleKeyDown: jest.fn(() => false),
+    selectFile: jest.fn(() => ''),
+    setSelectedIndex: jest.fn(),
+  }),
+}));
+
+jest.mock('@/components/ModelPicker', () => ({
+  ModelPicker: () => null,
+  ModelPickerField: () => null,
+}));
+
+jest.mock('@/hooks/useAgents', () => ({
+  useAgents: () => ({ agents: [], isLoading: false, error: null }),
+}));
+
+jest.mock('@/components/WorkspaceSelector', () => ({
+  WorkspaceSelector: () => null,
+}));
+
+jest.mock('@/components/FileAutocomplete', () => ({
+  FileAutocomplete: () => null,
+}));
+
+jest.mock('sonner', () => ({
+  toast: {
+    error: jest.fn(),
+  },
+}));
+
+const SERVER_A = { baseUrl: 'http://server-a:5700', authToken: null, useAuthToken: false };
+const SERVER_B = { baseUrl: 'http://server-b:5700', authToken: null, useAuthToken: false };
+
+function jwt(sub: string, nonce: string): string {
+  const enc = (o: object) =>
+    btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return `${enc({ alg: 'none' })}.${enc({ sub, nonce })}.sig`;
+}
+
+function draftEntries(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)!;
+    if (k.startsWith('gptme-draft')) out[k] = localStorage.getItem(k)!;
+  }
+  return out;
+}
+
+const textbox = () => screen.getByRole('textbox', { name: 'Chat message' }) as HTMLTextAreaElement;
+const type = (value: string) => fireEvent.change(textbox(), { target: { value } });
+
+function renderInput(props: { conversationId?: string; serverId?: string } = {}) {
+  const autoFocus$ = observable(false);
+  const ui = (p: typeof props) => <ChatInput {...p} onSend={jest.fn()} autoFocus$={autoFocus$} />;
+  const result = render(ui(props));
+  return { ...result, rerenderWith: (p: typeof props) => result.rerender(ui(p)) };
+}
+
+describe('ChatInput draft ownership', () => {
+  let setItemSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    mockConnectionConfig = SERVER_A;
+    setItemSpy = jest.spyOn(Storage.prototype, 'setItem');
+  });
+
+  afterEach(() => {
+    setItemSpy.mockRestore();
+    serverRegistry$.servers.set([]);
+  });
+
+  /** Every (key, value) pair ever written under a key containing `marker`. */
+  const writesTo = (marker: string) =>
+    setItemSpy.mock.calls.filter(([k]) => String(k).includes(marker)).map(([, v]) => v);
+
+  it.each([
+    ['an existing conversation id', 'same-id'],
+    ['the new-chat composer', undefined],
+  ])('keeps drafts for %s separate per server', (_label, conversationId) => {
+    const { rerenderWith, unmount } = renderInput({ conversationId });
+    type('secret plan for A');
+
+    mockConnectionConfig = SERVER_B;
+    rerenderWith({ conversationId });
+    expect(textbox().value).toBe('');
+    // The outgoing text is never written under any server-b key, even transiently.
+    expect(writesTo(encodeURIComponent('http://server-b:5700'))).not.toContain('secret plan for A');
+    type('B draft');
+
+    mockConnectionConfig = SERVER_A;
+    rerenderWith({ conversationId });
+    expect(textbox().value).toBe('secret plan for A');
+
+    // Reload: each owner gets back only its own draft.
+    unmount();
+    mockConnectionConfig = SERVER_B;
+    const reloaded = renderInput({ conversationId });
+    expect(textbox().value).toBe('B draft');
+    reloaded.unmount();
+    mockConnectionConfig = SERVER_A;
+    renderInput({ conversationId });
+    expect(textbox().value).toBe('secret plan for A');
+  });
+
+  it('isolates different opaque credentials on the same server URL', () => {
+    mockConnectionConfig = { ...SERVER_A, authToken: 'token-one', useAuthToken: true };
+    const { rerenderWith } = renderInput({ conversationId: 'c1' });
+    type('account one text');
+
+    mockConnectionConfig = { ...SERVER_A, authToken: 'token-two', useAuthToken: true };
+    rerenderWith({ conversationId: 'c1' });
+    expect(textbox().value).toBe('');
+
+    // Anonymous access to the same URL is a different owner too.
+    mockConnectionConfig = SERVER_A;
+    rerenderWith({ conversationId: 'c1' });
+    expect(textbox().value).toBe('');
+
+    const keys = Object.keys(draftEntries()).join('\n');
+    expect(keys).not.toContain('token-one');
+    expect(keys).not.toContain('token-two');
+  });
+
+  it('keeps the draft across a same-subject JWT refresh', () => {
+    mockConnectionConfig = { ...SERVER_A, authToken: jwt('user-1', 'a'), useAuthToken: true };
+    const { rerenderWith } = renderInput({ conversationId: 'c1' });
+    type('survives refresh');
+
+    mockConnectionConfig = { ...SERVER_A, authToken: jwt('user-1', 'b'), useAuthToken: true };
+    rerenderWith({ conversationId: 'c1' });
+    expect(textbox().value).toBe('survives refresh');
+
+    mockConnectionConfig = { ...SERVER_A, authToken: jwt('user-2', 'c'), useAuthToken: true };
+    rerenderWith({ conversationId: 'c1' });
+    expect(textbox().value).toBe('');
+  });
+
+  it('still switches drafts between conversations and clears an emptied draft', () => {
+    const { rerenderWith } = renderInput({ conversationId: 'c1' });
+    type('first');
+    rerenderWith({ conversationId: 'c2' });
+    expect(textbox().value).toBe('');
+    type('second');
+    rerenderWith({ conversationId: 'c1' });
+    expect(textbox().value).toBe('first');
+
+    type('');
+    expect(Object.values(draftEntries())).toEqual(['second']);
+  });
+
+  it('neither adopts nor deletes legacy unscoped drafts', () => {
+    localStorage.setItem('gptme-draft-c1', 'legacy conversation text');
+    localStorage.setItem('gptme-draft-new', 'legacy new-chat text');
+
+    // The conversation composer and the new-chat composer are separate mounts
+    // in the app (ConversationContent vs WelcomeView).
+    const conversation = renderInput({ conversationId: 'c1' });
+    expect(textbox().value).toBe('');
+    conversation.unmount();
+    expect(localStorage.getItem('gptme-draft-c1')).toBe('legacy conversation text');
+    renderInput({});
+    expect(textbox().value).toBe('');
+
+    expect(localStorage.getItem('gptme-draft-c1')).toBe('legacy conversation text');
+    expect(localStorage.getItem('gptme-draft-new')).toBe('legacy new-chat text');
+  });
+
+  it("scopes a secondary server's conversation to that server, not the primary", () => {
+    const secondary: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    serverRegistry$.servers.set([secondary]);
+
+    const { rerenderWith } = renderInput({ conversationId: 'same-id', serverId: 'srv-b' });
+    type('belongs to B');
+    expect(Object.keys(draftEntries())).toEqual([
+      expect.stringContaining(encodeURIComponent('http://server-b:5700')),
+    ]);
+
+    // The primary server's conversation with the same id is a different owner.
+    rerenderWith({ conversationId: 'same-id' });
+    expect(textbox().value).toBe('');
+  });
+
+  it('does not persist a draft for a conversation whose server is unregistered', () => {
+    renderInput({ conversationId: 'c1', serverId: 'gone' });
+    type('nowhere to go');
+    expect(draftEntries()).toEqual({});
+  });
+
+  it('keeps unknown-owner text memory-only and loads the resolved owner draft', () => {
+    const secondary: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    // Unregistered owner: the draft is memory-only, but the typed text stays
+    // in the composer (it must not be reset to '' by the null key).
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-b' });
+    type('typed before the server hydrated');
+    expect(textbox().value).toBe('typed before the server hydrated');
+    expect(draftEntries()).toEqual({});
+
+    // Even the same server id cannot prove which account owned unknown text.
+    // Load only the resolved owner's saved draft, never adopt unknown text.
+    serverRegistry$.servers.set([secondary]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('');
+    expect(draftEntries()).toEqual({});
+
+    type('typed for the known owner');
+    serverRegistry$.servers.set([]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('typed for the known owner');
+  });
+
+  it('does not adopt unknown-owner text when a different server resolves', () => {
+    const serverB: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-a' });
+    type('private text for unregistered A');
+    expect(draftEntries()).toEqual({});
+
+    // The composer stays mounted because the conversation id is unchanged.
+    serverRegistry$.servers.set([serverB]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('');
+    expect(writesTo(encodeURIComponent(SERVER_B.baseUrl))).not.toContain(
+      'private text for unregistered A'
+    );
+  });
+
+  it.each([
+    { conversationId: 'c1', serverId: 'gone-b' },
+    { conversationId: 'c2', serverId: 'gone-a' },
+  ])('does not share memory-only text with another unknown composer: %o', (incoming) => {
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'gone-a' });
+    type('private text for unknown A/c1');
+    rerenderWith({ conversationId: 'c1', serverId: 'gone-a' });
+    expect(textbox().value).toBe('private text for unknown A/c1');
+
+    rerenderWith(incoming);
+    expect(textbox().value).toBe('');
+    type('text for the incoming composer');
+    expect(draftEntries()).toEqual({});
+  });
+
+  it('does not carry a known draft into a different unavailable server', () => {
+    serverRegistry$.servers.set([
+      { id: 'srv-a', name: 'A', ...SERVER_A, createdAt: 0, lastUsedAt: 0 },
+    ]);
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-a' });
+    type('private text for known A');
+    serverRegistry$.servers.set([]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-a' });
+    expect(textbox().value).toBe('private text for known A');
+
+    rerenderWith({ conversationId: 'c1', serverId: 'gone-b' });
+    expect(textbox().value).toBe('');
+    expect(Object.values(draftEntries())).toEqual(['private text for known A']);
+  });
+
+  it("does not hand one owner's text to another owner that resolves later", () => {
+    const serverA: ServerConfig = {
+      id: 'srv-a',
+      name: 'A',
+      ...SERVER_A,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    const serverB: ServerConfig = {
+      id: 'srv-b',
+      name: 'B',
+      ...SERVER_B,
+      createdAt: 0,
+      lastUsedAt: 0,
+    };
+    serverRegistry$.servers.set([serverA]);
+    const { rerenderWith } = renderInput({ conversationId: 'c1', serverId: 'srv-a' });
+    type('only for account A');
+    expect(Object.values(draftEntries())).toEqual(['only for account A']);
+
+    // The owner disappears (e.g. its server is removed in another tab) while
+    // the composer stays mounted for the same conversation id.
+    serverRegistry$.servers.set([]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-a' });
+    expect(textbox().value).toBe('only for account A');
+
+    // A different owner then becomes known for that same conversation id. Its
+    // composer must not adopt A's text, and A's text must never be written
+    // under B's key.
+    serverRegistry$.servers.set([serverB]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-b' });
+    expect(textbox().value).toBe('');
+    expect(writesTo(encodeURIComponent('http://server-b:5700'))).not.toContain(
+      'only for account A'
+    );
+
+    // A's text is still there when its own owner returns.
+    serverRegistry$.servers.set([serverA]);
+    rerenderWith({ conversationId: 'c1', serverId: 'srv-a' });
+    expect(textbox().value).toBe('only for account A');
+  });
+});
