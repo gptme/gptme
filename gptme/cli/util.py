@@ -1071,10 +1071,18 @@ def context_files(config: str | None):
                 relative = fpath.relative_to(workspace)
             except ValueError:
                 relative = None
-            # Match prompt_workspace's basename and workspace-relative exclusions.
+            try:
+                resolved_relative = resolved.relative_to(workspace)
+            except ValueError:
+                resolved_relative = None
+            # Check both the configured alias and resolved path so symlinks and
+            # parent components cannot bypass workspace-relative exclusions.
             if any(
                 fnmatch.fnmatch(fpath.name, pat)
-                or (relative is not None and fnmatch.fnmatch(str(relative), pat))
+                or any(
+                    relpath is not None and fnmatch.fnmatch(str(relpath), pat)
+                    for relpath in (relative, resolved_relative)
+                )
                 for pat in project.exclude
             ):
                 continue

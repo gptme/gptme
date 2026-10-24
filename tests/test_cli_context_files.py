@@ -127,3 +127,17 @@ def test_context_files_excludes_symlink_by_configured_path(
     assert result.output.count("shared notes") == 1
     assert "## FILE: shared/notes.md" in result.output
     assert "private/notes.md" not in result.output
+
+
+def test_context_files_excludes_absolute_path_with_parent_components(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    entry = (tmp_path / "docs" / ".." / "private" / "notes.md").as_posix()
+    result = _invoke(
+        tmp_path,
+        f'[prompt]\nfiles = ["{entry}"]\nexclude = ["private/*"]\n',
+        {"private/notes.md": "excluded content\n"},
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "excluded content" not in result.output
