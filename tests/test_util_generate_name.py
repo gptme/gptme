@@ -65,6 +65,14 @@ def test_is_generated_name_negative():
     assert not is_generated_name("running-happy")  # only 2 parts
 
 
+def test_is_generated_name_requires_correct_word_roles() -> None:
+    """Known words only match in action-adjective-noun order."""
+    assert is_generated_name("running-happy-cat")
+    assert not is_generated_name("cat-dog-mouse")
+    assert not is_generated_name("happy-running-cat")
+    assert not is_generated_name("running-cat-happy")
+
+
 def test_word_lists_nonempty():
     """All word lists should have entries."""
     assert len(actions) >= 10
