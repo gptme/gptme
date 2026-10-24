@@ -969,6 +969,18 @@ export const ChatInput: FC<Props> = ({
   // Track previous busy state to detect when the whole step (generation +
   // tool execution/confirmation) completes.
   const wasBusy = useRef(false);
+  const previousStorageKey = useRef(storageKey);
+
+  // Conversation change disarms wasBusy so A's queue cannot flush through B.
+  // Returning to idle A with a surviving sendable queue must re-arm, or the
+  // messages sit forever with no Retry control.
+  useEffect(() => {
+    const switched = previousStorageKey.current !== storageKey;
+    previousStorageKey.current = storageKey;
+    if (!switched || isBusy) return;
+    if (!messageQueue.some((queued) => !queued.uploadFailed)) return;
+    wasBusy.current = true;
+  }, [storageKey, isBusy, messageQueue]);
 
   // After a 409 requeue the busy→idle transition may already have happened (the
   // 100ms fallback timer can beat the server's release), so a transition-driven

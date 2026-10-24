@@ -1190,6 +1190,42 @@ it('does not requeue a rejected upload into a different conversation', async () 
   expect(screen.queryByText('private queued draft')).not.toBeInTheDocument();
 });
 
+it('sends a restored queue after returning to an idle conversation', async () => {
+  conversations$.get('upload-existing')!.isGenerating.set(true);
+  initConversation(
+    'other-upload',
+    {
+      id: 'other-upload',
+      name: 'Other',
+      log: [],
+      logfile: 'other-upload',
+      branches: {},
+      workspace: '.',
+    },
+    {}
+  );
+  const oldSend = jest.fn();
+  const newSend = jest.fn();
+  const { rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'queued while busy' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(oldSend).not.toHaveBeenCalled();
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={newSend} />
+  );
+  expect(newSend).not.toHaveBeenCalled();
+  conversations$.get('upload-existing')!.isGenerating.set(false);
+  rerender(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  await waitFor(() => expect(oldSend).toHaveBeenCalledTimes(1));
+  expect(oldSend).toHaveBeenCalledWith('queued while busy', expect.any(Object));
+  expect(newSend).not.toHaveBeenCalled();
+});
+
 it('does not flush the previous conversation queue on a busy-to-idle conversation switch', async () => {
   conversations$.get('upload-existing')!.isGenerating.set(true);
   const oldSend = jest.fn();
