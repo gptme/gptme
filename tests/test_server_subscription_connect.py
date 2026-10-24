@@ -46,8 +46,20 @@ def client(tmp_path, monkeypatch):
 
     app = create_app(host="127.0.0.1")
     app.config["TESTING"] = True
+    test_client = app.test_client()
+    yield test_client
 
-    return app.test_client()
+    # Drain before monkeypatch restores the real _persist_default_model.
+    # A 6s wait outlasts the 5s OAuth mock barriers so a leftover worker
+    # finishes (and hits the stub) instead of writing ~/.config/gptme.
+    with api_mod._subscription_tasks_lock:
+        pending = [
+            str(task_id)
+            for task_id, task in api_mod._subscription_tasks.items()
+            if task.get("status") == "pending"
+        ]
+    for task_id in pending:
+        _drain_task(test_client, task_id, timeout=6.0)
 
 
 def auth_headers():
@@ -77,37 +89,39 @@ def test_start_subscription_connect_returns_task_id(client: FlaskClient):
     """Starting a valid provider returns a pending task immediately."""
     # Mock the OAuth function so it blocks until we release it, then succeeds.
     barrier = threading.Event()
+    task_id = ""
 
     def _fake_openai_oauth(**kwargs):
         barrier.wait(timeout=5)  # block until test releases
 
-    with unittest.mock.patch(
-        "gptme.llm.llm_openai_subscription.oauth_authenticate",
-        side_effect=_fake_openai_oauth,
-    ):
-        resp = client.post(
-            "/api/v2/user/subscription-connect",
-            json={"provider": "openai-subscription"},
+    try:
+        with unittest.mock.patch(
+            "gptme.llm.llm_openai_subscription.oauth_authenticate",
+            side_effect=_fake_openai_oauth,
+        ):
+            resp = client.post(
+                "/api/v2/user/subscription-connect",
+                json={"provider": "openai-subscription"},
+                headers=auth_headers(),
+            )
+        assert resp.status_code == 202
+        data = resp.get_json()
+        assert data["status"] == "pending"
+        assert "task_id" in data
+        task_id = data["task_id"]
+
+        # Status endpoint should return pending before OAuth completes
+        status_resp = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
             headers=auth_headers(),
         )
-    assert resp.status_code == 202
-    data = resp.get_json()
-    assert data["status"] == "pending"
-    assert "task_id" in data
-    task_id = data["task_id"]
-
-    # Status endpoint should return pending before OAuth completes
-    status_resp = client.get(
-        f"/api/v2/user/subscription-connect/{task_id}",
-        headers=auth_headers(),
-    )
-    assert status_resp.status_code == 200
-    status_data = status_resp.get_json()
-    assert status_data["status"] == "pending"
-    assert status_data["provider"] == "openai-subscription"
-
-    # Let the background thread finish
-    barrier.set()
+        assert status_resp.status_code == 200
+        status_data = status_resp.get_json()
+        assert status_data["status"] == "pending"
+        assert status_data["provider"] == "openai-subscription"
+    finally:
+        barrier.set()
+        _drain_task(client, task_id)
 
 
 def test_subscription_connect_success(client: FlaskClient):
@@ -292,26 +306,29 @@ def test_start_subscription_connect_reuses_pending_task(client: FlaskClient):
     def _block_oauth(**kwargs):
         barrier.wait(timeout=5)
 
-    with unittest.mock.patch(
-        "gptme.llm.llm_openai_subscription.oauth_authenticate",
-        side_effect=_block_oauth,
-    ):
-        first = client.post(
-            "/api/v2/user/subscription-connect",
-            json={"provider": "openai-subscription"},
-            headers=auth_headers(),
-        )
-        second = client.post(
-            "/api/v2/user/subscription-connect",
-            json={"provider": "openai-subscription"},
-            headers=auth_headers(),
-        )
+    task_id = ""
     try:
+        with unittest.mock.patch(
+            "gptme.llm.llm_openai_subscription.oauth_authenticate",
+            side_effect=_block_oauth,
+        ):
+            first = client.post(
+                "/api/v2/user/subscription-connect",
+                json={"provider": "openai-subscription"},
+                headers=auth_headers(),
+            )
+            second = client.post(
+                "/api/v2/user/subscription-connect",
+                json={"provider": "openai-subscription"},
+                headers=auth_headers(),
+            )
         assert first.status_code == 202
         assert second.status_code == 202
-        assert first.get_json()["task_id"] == second.get_json()["task_id"]
+        task_id = first.get_json()["task_id"]
+        assert task_id == second.get_json()["task_id"]
     finally:
         barrier.set()
+        _drain_task(client, task_id)
 
 
 def test_reuse_or_create_is_atomic_under_concurrency():
@@ -372,17 +389,20 @@ def test_start_requires_auth(client: FlaskClient):
     assert resp.status_code == 401
 
 
-def _drain_task(client: FlaskClient, task_id: str) -> None:
+def _drain_task(client: FlaskClient, task_id: str, timeout: float = 5) -> None:
     """Wait for the OAuth thread to leave `pending` so it finishes before teardown."""
     if not task_id:
         return
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        data = client.get(
-            f"/api/v2/user/subscription-connect/{task_id}",
-            headers=auth_headers(),
-        ).get_json()
-        if data["status"] != "pending":
+        data = (
+            client.get(
+                f"/api/v2/user/subscription-connect/{task_id}",
+                headers=auth_headers(),
+            ).get_json()
+            or {}
+        )
+        if data.get("status") != "pending":
             return
         time.sleep(0.05)
 
@@ -462,30 +482,32 @@ def test_oauth_url_exposed_in_status(client: FlaskClient, monkeypatch):
         url_set.set()
         barrier.wait(timeout=5)  # hold until test is done checking
 
-    with unittest.mock.patch(
-        "gptme.llm.llm_openai_subscription.oauth_authenticate",
-        side_effect=_slow_oauth,
-    ):
-        resp = client.post(
-            "/api/v2/user/subscription-connect",
-            json={"provider": "openai-subscription"},
+    task_id = ""
+    try:
+        with unittest.mock.patch(
+            "gptme.llm.llm_openai_subscription.oauth_authenticate",
+            side_effect=_slow_oauth,
+        ):
+            resp = client.post(
+                "/api/v2/user/subscription-connect",
+                json={"provider": "openai-subscription"},
+                headers=auth_headers(),
+            )
+        task_id = resp.get_json()["task_id"]
+
+        # Wait until the background thread has called on_url_ready
+        url_set.wait(timeout=5)
+        time.sleep(0.05)  # small grace period for the task dict update
+
+        status_resp = client.get(
+            f"/api/v2/user/subscription-connect/{task_id}",
             headers=auth_headers(),
         )
-    task_id = resp.get_json()["task_id"]
-
-    # Wait until the background thread has called on_url_ready
-    url_set.wait(timeout=5)
-    time.sleep(0.05)  # small grace period for the task dict update
-
-    status_resp = client.get(
-        f"/api/v2/user/subscription-connect/{task_id}",
-        headers=auth_headers(),
-    )
-    data = status_resp.get_json()
-    assert data["oauth_url"] == fake_url
-
-    barrier.set()
-    _drain_task(client, task_id)
+        data = status_resp.get_json()
+        assert data["oauth_url"] == fake_url
+    finally:
+        barrier.set()
+        _drain_task(client, task_id)
 
 
 def _clear_headless_env(monkeypatch) -> None:
