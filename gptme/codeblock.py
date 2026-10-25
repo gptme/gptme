@@ -486,15 +486,15 @@ def _line_fence_states(
                             break
                     nested_example_continues = False
                     if nested_closer_idx is not None:
-                        # A tagged fence after the nested closer is a later
-                        # tool call (unfinished reasoning after a completed
-                        # save). Unlabelled content is remaining save text.
-                        # Search the rest of the message, not a 4-line window:
-                        # blank lines between the nested closer and a later
-                        # ```shell would otherwise hide the command.
-                        nested_example_continues = not any(
-                            re.match(r"^`{3,}", lines[k]) and len(lines[k].strip()) > 3
-                            for k in range(nested_closer_idx + 1, len(lines))
+                        # Unlabelled content between the thinking tag and the
+                        # first nested fence means the tag is literal example
+                        # content inside a still-open save. A fence immediately
+                        # after the tag (blank lines ignored) is unfinished
+                        # reasoning after a completed save — including when
+                        # later ```shell is far below the nested closer.
+                        nested_example_continues = any(
+                            bool(lines[j].strip()) and not re.match(r"^`{3,}", lines[j])
+                            for j in range(i + 2, nested_closer_idx)
                         )
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
@@ -510,8 +510,8 @@ def _line_fence_states(
                         # block completed — nested unlabelled examples close
                         # their thinking tags because those tags are content.
                         # An unclosed opener as the first nested-example line
-                        # still continues the save when lookahead finds a
-                        # nested closer followed by unlabelled content.
+                        # still continues the save when unlabelled content sits
+                        # between that opener and the nested fence.
                         # During streaming, closed tags alone cannot distinguish
                         # reasoning from a still-growing literal nested example.
                         # Wait for a following tagged fence before recovering a

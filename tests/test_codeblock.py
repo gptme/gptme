@@ -2370,6 +2370,26 @@ def test_unlabelled_nested_unclosed_thinking_example_preserves_save():
             ]
 
 
+def test_nested_unclosed_think_save_keeps_later_command():
+    """A later tagged command must not suppress a nested unclosed-think save.
+
+    Regression for gptme/gptme#4491 AI-review P1 c8c061f20f7c: any later tagged
+    fence made `nested_example_continues` false, so a subsequent ```shell after
+    a completed save whose nested example started with unclosed <think> dropped
+    both blocks. Unlabelled content between the tag and the nested fence is
+    what distinguishes that save from unfinished reasoning
+    (`test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shell`).
+    """
+    for tag in ("think", "thinking"):
+        content = f"intro\n```\n<{tag}>\nexample\n```\nDone"
+        markdown = f"```save a.md\n{content}\n```\n\n```shell\necho final\n```\n\n"
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.md", content),
+                Codeblock("shell", "echo final"),
+            ]
+
+
 def test_streaming_nested_thinking_example_waits_for_outer_closer() -> None:
     """Closed literal tags do not confirm an unfinished nested save's closure."""
     for tag in ("think", "thinking"):
