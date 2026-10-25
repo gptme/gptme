@@ -1036,7 +1036,8 @@ export function useConversation(conversationId: string, serverId?: string) {
     files?: string[],
     pendingFiles?: File[]
   ) => {
-    if (positionalMutationBlocked()) return;
+    if (positionalMutationBlocked()) return false;
+    let saved = false;
     const applyEdit = async (epoch?: number) => {
       try {
         // Upload any new files first, then merge with existing file paths
@@ -1048,6 +1049,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         }
         if (positionalMutationBlocked()) return;
         const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
+        saved = true;
         // Use API response directly (SSE event may also arrive, but this is immediate)
         replaceLog(conversationId, result.log);
         if (result.branches) {
@@ -1070,9 +1072,10 @@ export function useConversation(conversationId: string, serverId?: string) {
     // A truncating edit re-generates, so it owns the stop flag from here on.
     if (truncate) {
       await runGeneration(applyEdit);
-      return;
+    } else {
+      await applyEdit();
     }
-    await applyEdit();
+    return saved;
   };
 
   const deleteMessage = async (index: number) => {

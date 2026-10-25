@@ -1330,6 +1330,39 @@ it('retains a direct-send 409 in its owning queue after switching conversations'
   expect(newSend).not.toHaveBeenCalled();
 });
 
+it('retries a late direct 409 after returning to the owning conversation before rejection', async () => {
+  let rejectFirst!: (error: unknown) => void;
+  const first = new Promise<void>((_resolve, reject) => {
+    rejectFirst = reject;
+  });
+  const oldSend = jest.fn().mockReturnValueOnce(first).mockResolvedValue(undefined);
+  const newSend = jest.fn();
+  const { rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'late original' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={newSend} />
+  );
+  rerender(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  fireEvent.change(screen.getByRole('textbox', { name: 'Chat message' }), {
+    target: { value: 'new draft must survive' },
+  });
+  await act(async () => {
+    rejectFirst(new ApiClientError('Busy', 409));
+  });
+  await waitFor(() => expect(oldSend).toHaveBeenCalledTimes(2), { timeout: 2500 });
+  expect(oldSend.mock.calls[1][0]).toBe('late original');
+  expect(newSend).not.toHaveBeenCalled();
+  expect(screen.getByRole('textbox', { name: 'Chat message' })).toHaveValue(
+    'new draft must survive'
+  );
+});
+
 it.each(['rejected', 'unknown'] as const)(
   'withholds positional mutations while a late attachment POST is %s',
   async (persistence) => {
@@ -1370,8 +1403,8 @@ it.each(['rejected', 'unknown'] as const)(
     step.mockClear();
     const rerun = jest.spyOn(mockClient, 'rerunTools');
     await act(async () => {
-      await result.current.editMessage(0, 'must not edit the saved message');
-      await result.current.editMessage(1, 'must not use shifted saved index');
+      expect(await result.current.editMessage(0, 'must not edit the saved message')).toBe(false);
+      expect(await result.current.editMessage(1, 'must not use shifted saved index')).toBe(false);
       await result.current.deleteMessage(0);
       await result.current.deleteMessage(1);
       await result.current.regenerateMessage(1);

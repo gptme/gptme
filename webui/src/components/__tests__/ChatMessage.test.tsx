@@ -6,6 +6,19 @@ import type { Message, MessageRole } from '@/types/conversation';
 import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 
+jest.mock('../ChatInput', () => ({
+  ChatInput: ({ value, onChange, onEditSave }: any) => (
+    <>
+      <textarea
+        aria-label="Edit draft"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button onClick={() => onEditSave(value, [], [], false)}>Save edit</button>
+    </>
+  ),
+}));
+
 // Mock the ApiContext. Primary vs secondary clients let tests assert that
 // user identity (color/avatar) comes from the conversation's server.
 const mockPrimaryUserInfo$ = observable<{
@@ -47,6 +60,32 @@ describe('ChatMessage', () => {
   const renderWithProviders = (component: React.ReactElement) => {
     return render(<SettingsProvider>{component}</SettingsProvider>);
   };
+
+  it('keeps the edit draft open when saving is blocked, then closes after success', async () => {
+    const onEdit = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const message$ = observable<Message>({ role: 'user', content: 'original' });
+    renderWithProviders(
+      <ChatMessage
+        message$={message$}
+        conversationId={testConversationId}
+        messageIndex={0}
+        onEdit={onEdit}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit draft' }), {
+      target: { value: 'retained edit' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+    });
+    expect(screen.getByRole('textbox', { name: 'Edit draft' })).toHaveValue('retained edit');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+    });
+    expect(screen.queryByRole('textbox', { name: 'Edit draft' })).not.toBeInTheDocument();
+    expect(onEdit).toHaveBeenLastCalledWith(0, 'retained edit', false, [], []);
+  });
 
   it('renders user message', () => {
     const message$ = observable<Message>({

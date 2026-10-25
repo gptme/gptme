@@ -173,7 +173,7 @@ interface Props {
     truncate: boolean,
     files?: string[],
     pendingFiles?: File[]
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
   onDelete?: (index: number) => void;
   onRerun?: (index: number) => void;
   onRegenerate?: (index: number) => void;
@@ -755,9 +755,15 @@ const ChatMessageComponent: FC<Props> = ({
                           }
                           editMode
                           editFiles={message$.files?.get()?.map(String)}
-                          onEditSave={(content, files, pendingFiles, truncate) => {
-                            onEdit?.(messageIndex!, content, truncate, files, pendingFiles);
-                            isEditing$.set(false);
+                          onEditSave={async (content, files, pendingFiles, truncate) => {
+                            const saved = await onEdit?.(
+                              messageIndex!,
+                              content,
+                              truncate,
+                              files,
+                              pendingFiles
+                            );
+                            if (saved !== false) isEditing$.set(false);
                           }}
                           onEditCancel={() => isEditing$.set(false)}
                         />

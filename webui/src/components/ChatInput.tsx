@@ -1195,7 +1195,7 @@ export const ChatInput: FC<Props> = ({
           // conversation is visible now. Only its active composer may retry.
           clearSubmittedDraft();
           setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
-          if (conversationEpoch.current === owner && currentDraftKey.current === draftKey) {
+          if (currentDraftKey.current === draftKey) {
             scheduleQueueRetry();
           }
         } else {
