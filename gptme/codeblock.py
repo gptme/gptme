@@ -733,6 +733,7 @@ def _extract_codeblocks(
                 # truncated just before this closer. Keep tool calls preceding
                 # the opener when removing a later reasoning section.
                 _standalone_start = None
+                _concatenated_start = None
                 _gemini_fence_start = None
                 _has_any = False
                 _offset = 0
@@ -747,15 +748,19 @@ def _extract_codeblocks(
                     # `<think>` after `</think>` on the same line is a new
                     # section, not an opener preceding this closer.
                     _line_before = _line[: max(0, _think_end - _offset)]
+                    _payload = _line_before.lstrip("`")
+                    _concat_here = _delim and _payload.startswith(_think_start_tag)
                     if _think_start_tag in _line_before and (
-                        _depth == 0
-                        or _is_thinking_lang(_outer)
-                        or (
-                            _delim
-                            and _line_before.lstrip("`").startswith(_think_start_tag)
-                        )
+                        _depth == 0 or _is_thinking_lang(_outer) or _concat_here
                     ):
                         _has_any = True
+                    if _concat_here and _concatenated_start is None:
+                        # Keep the fence closer (` ``` `) and strip from the
+                        # thinking tag. Leaving the span in place lets fence
+                        # recovery split ```<think> and extract inner commands.
+                        _concatenated_start = (
+                            _offset + len(_line_before) - len(_payload)
+                        )
                     if (
                         not _delim
                         and _depth == 0
@@ -772,14 +777,18 @@ def _extract_codeblocks(
                             _gemini_fence_start = _offset
                     _offset += len(_line) + 1
                 _has_standalone = _standalone_start is not None
-                # Strip if standalone opening exists, or if there is no real
-                # opening tag outside literal file content (Gemini ```thinking>).
-                if _has_standalone or not _has_any:
-                    # Ordinary reasoning removes only its own span. Gemini's
-                    # ```thinking> opener has no <thinking> tag; strip from
-                    # that fence so a prior save with literal tags survives.
+                # Strip if standalone opening exists, concatenated ```<think>
+                # is closed, or there is no real opening tag outside literal
+                # file content (Gemini ```thinking>).
+                if _has_standalone or not _has_any or _concatenated_start is not None:
+                    # Ordinary reasoning removes only its own span. Concatenated
+                    # ```<think> keeps the fence closer. Gemini's ```thinking>
+                    # opener has no <thinking> tag; strip from that fence so a
+                    # prior save with literal tags survives.
                     if _standalone_start is not None:
                         _start = _standalone_start
+                    elif _concatenated_start is not None:
+                        _start = _concatenated_start
                     elif _gemini_fence_start is not None:
                         _start = _gemini_fence_start
                     else:
@@ -791,8 +800,9 @@ def _extract_codeblocks(
                     )
                     _stripped = True
                     break
-                # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
-                # Inner-loop fence-recovery handles this; track position of the closing tag.
+                # Found </think> but didn't strip: opening was inline in prose,
+                # not a line-start or ```<think> fence. Inner-loop recovery
+                # still needs the closer position for unclosed-after checks.
                 # NOTE: if both </thinking> and </think> appear concatenated in the same message,
                 # _concatenated_end_pos is overwritten by the second iteration (the later position).
                 # This means the _after_concat scan misses standalone think blocks between the two

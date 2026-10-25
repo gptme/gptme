@@ -2459,6 +2459,33 @@ def test_closed_thinking_with_bare_example_after_save_preserves_commands() -> No
             ]
 
 
+def test_concatenated_thinking_inner_shell_is_not_extracted() -> None:
+    """Closed concatenated reasoning must not yield its inner commands.
+
+    Regression for gptme/gptme#4491 AI-review P1 925bab0b1373: preserving
+    markdown[:_start] left ```<think> ... echo draft ... </think> in place,
+    fence recovery split the closer, and extraction executed the draft.
+    """
+    for first, second in (("think", "thinking"), ("thinking", "think")):
+        for with_later in (False, True):
+            markdown = (
+                f"```shell\necho first\n```<{first}>\n"
+                f"```shell\necho draft\n```\n"
+                f"</{first}>\n"
+            )
+            if with_later:
+                markdown += f"<{second}>plan</{second}>\n"
+            markdown += "```shell\necho final\n```\n"
+            expected = [
+                Codeblock("shell", "echo first"),
+                Codeblock("shell", "echo final"),
+            ]
+            for streaming in (False, True):
+                assert (
+                    list(_extract_codeblocks(markdown, streaming=streaming)) == expected
+                )
+
+
 def test_concatenated_thinking_unclosed_inner_shell_then_unfinished_reasoning() -> None:
     """An unclosed fence inside concatenated reasoning must not hide a new opener."""
     for first_tag in ("think", "thinking"):
