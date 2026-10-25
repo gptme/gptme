@@ -2370,24 +2370,47 @@ def test_unlabelled_nested_unclosed_thinking_example_preserves_save():
             ]
 
 
-def test_nested_unclosed_think_save_keeps_later_command():
-    """A later tagged command must not suppress a nested unclosed-think save.
+def test_nested_unclosed_think_save_later_command_fail_closed():
+    """A later tagged command after nested unclosed-think is fail-closed.
 
-    Regression for gptme/gptme#4491 AI-review P1 c8c061f20f7c: any later tagged
-    fence made `nested_example_continues` false, so a subsequent ```shell after
-    a completed save whose nested example started with unclosed <think> dropped
-    both blocks. Unlabelled content between the tag and the nested fence is
-    what distinguishes that save from unfinished reasoning
-    (`test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shell`).
+    That shape is indistinguishable from unfinished reasoning that leaks a
+    shell (`test_unfinished_thinking_prose_before_nested_fence_does_not_extract_shell`).
+    Nested unclosed-think saves still extract when no later tagged command
+    follows (`test_unlabelled_nested_unclosed_thinking_example_preserves_save`).
     """
     for tag in ("think", "thinking"):
         content = f"intro\n```\n<{tag}>\nexample\n```\nDone"
         markdown = f"```save a.md\n{content}\n```\n\n```shell\necho final\n```\n\n"
         for streaming in (False, True):
-            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
-                Codeblock("save a.md", content),
-                Codeblock("shell", "echo final"),
-            ]
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_unfinished_thinking_prose_before_nested_fence_does_not_extract_shell():
+    """Reasoning prose before a nested fence must not yield later commands.
+
+    Regression for gptme/gptme#4491 AI-review P1 f6df6a24b601: `Considering:`
+    made `nested_example_continues` true, so unfinished `<think>` was treated
+    as save content and `echo should-not-run` extracted.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        "<think>\nConsidering:\n```\ndraft\n```\n\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_same_line_closer_then_opener_does_not_extract_shell():
+    """A `<think>` after `</think>` on the same line is a new unclosed section.
+
+    Regression for gptme/gptme#4491 AI-review P1 e8d692a6c72c: `_has_any`
+    searched the whole closer line, counted the second opener as preceding
+    `</think>`, took concatenated recovery, and extracted `echo draft`.
+    """
+    markdown = "plan</think><think>\n```shell\necho draft\n```\n"
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
 
 
 def test_streaming_nested_thinking_example_waits_for_outer_closer() -> None:

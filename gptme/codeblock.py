@@ -486,15 +486,19 @@ def _line_fence_states(
                             break
                     nested_example_continues = False
                     if nested_closer_idx is not None:
-                        # Unlabelled content between the thinking tag and the
-                        # first nested fence means the tag is literal example
-                        # content inside a still-open save. A fence immediately
-                        # after the tag (blank lines ignored) is unfinished
-                        # reasoning after a completed save — including when
-                        # later ```shell is far below the nested closer.
-                        nested_example_continues = any(
-                            bool(lines[j].strip()) and not re.match(r"^`{3,}", lines[j])
-                            for j in range(i + 2, nested_closer_idx)
+                        # A later tagged fence after the nested closer is a
+                        # tool call. That shape is also unfinished reasoning
+                        # after a completed save (`Considering:` then ```draft
+                        # then ```shell): unlabelled content between the tag
+                        # and nested fence cannot tell those apart, so fail
+                        # closed. Nested unclosed-think saves still extract
+                        # when no later tagged command follows. Search the
+                        # rest of the message, not a 4-line window: blank
+                        # lines between the nested closer and a later
+                        # ```shell would otherwise hide the command.
+                        nested_example_continues = not any(
+                            re.match(r"^`{3,}", lines[k]) and len(lines[k].strip()) > 3
+                            for k in range(nested_closer_idx + 1, len(lines))
                         )
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
@@ -510,8 +514,8 @@ def _line_fence_states(
                         # block completed — nested unlabelled examples close
                         # their thinking tags because those tags are content.
                         # An unclosed opener as the first nested-example line
-                        # still continues the save when unlabelled content sits
-                        # between that opener and the nested fence.
+                        # still continues the save when lookahead finds a
+                        # nested closer and no later tagged command.
                         # During streaming, closed tags alone cannot distinguish
                         # reasoning from a still-growing literal nested example.
                         # Wait for a following tagged fence before recovering a
@@ -700,10 +704,17 @@ def _extract_codeblocks(
                 ):
                     if _offset >= _think_end:
                         break
-                    if _think_start_tag in _line and (
+                    # Only text before this closer can open it. A second
+                    # `<think>` after `</think>` on the same line is a new
+                    # section, not an opener preceding this closer.
+                    _line_before = _line[: max(0, _think_end - _offset)]
+                    if _think_start_tag in _line_before and (
                         _depth == 0
                         or _is_thinking_lang(_outer)
-                        or (_delim and _line.lstrip("`").startswith(_think_start_tag))
+                        or (
+                            _delim
+                            and _line_before.lstrip("`").startswith(_think_start_tag)
+                        )
                     ):
                         _has_any = True
                     if (
