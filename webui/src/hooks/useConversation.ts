@@ -1013,6 +1013,22 @@ export function useConversation(conversationId: string, serverId?: string) {
     });
   };
 
+  // Server mutations use log positions. An unsaved/uncertain local entry can
+  // shift every later index, so withhold positional operations until Retry or
+  // a history refresh restores a fully persisted log. Never guess an index.
+  const positionalMutationBlocked = () => {
+    const log = conversations$.get(conversationId)?.data.log.get() ?? [];
+    if (!log.some((message) => message._retry && message._retry.persistence !== 'saved')) {
+      return false;
+    }
+    toast({
+      variant: 'destructive',
+      title: 'Message history not synchronized',
+      description: 'Retry the unsaved message or refresh history before editing messages.',
+    });
+    return true;
+  };
+
   const editMessage = async (
     index: number,
     content: string,
@@ -1020,6 +1036,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     files?: string[],
     pendingFiles?: File[]
   ) => {
+    if (positionalMutationBlocked()) return;
     const applyEdit = async (epoch?: number) => {
       try {
         // Upload any new files first, then merge with existing file paths
@@ -1029,6 +1046,7 @@ export function useConversation(conversationId: string, serverId?: string) {
           const newPaths = uploadResult.files.map((f) => f.path);
           allFiles = [...(files || []), ...newPaths];
         }
+        if (positionalMutationBlocked()) return;
         const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
         // Use API response directly (SSE event may also arrive, but this is immediate)
         replaceLog(conversationId, result.log);
@@ -1058,6 +1076,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const deleteMessage = async (index: number) => {
+    if (positionalMutationBlocked()) return;
     try {
       const result = await api.deleteMessage(conversationId, index);
       replaceLog(conversationId, result.log);
@@ -1072,10 +1091,11 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const rerunFromMessage = async (index: number) => {
-    if (!conversation$) return;
+    if (!conversation$ || positionalMutationBlocked()) return;
     const conv$ = conversation$;
 
     await runGeneration(async (epoch) => {
+      if (positionalMutationBlocked()) return;
       const log = conv$.data.log.get();
       const localIndex = index - conv$.logOffset.get();
       const isLastMessage = localIndex === log.length - 1;
@@ -1119,7 +1139,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const regenerateMessage = async (index: number) => {
-    if (!conversation$) return;
+    if (!conversation$ || positionalMutationBlocked()) return;
     // Remove the assistant message and everything after, then step to regenerate
     // Truncate at the message BEFORE this one (the user message)
     const prevIndex = index - 1;
@@ -1127,6 +1147,7 @@ export function useConversation(conversationId: string, serverId?: string) {
 
     await runGeneration(async (epoch) => {
       try {
+        if (positionalMutationBlocked()) return;
         const result = await api.editMessage(conversationId, prevIndex, undefined, true);
         replaceLog(conversationId, result.log);
         if (result.branches) {
@@ -1143,6 +1164,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const forkConversation = async (index: number) => {
+    if (positionalMutationBlocked()) return null;
     try {
       const branch = conversation$?.currentBranch.get() ?? 'main';
       return await api.forkConversation(conversationId, index, branch);

@@ -103,10 +103,15 @@ function currentLogRevision(conversationId: string): number {
 }
 
 function sameLogMessage(a: Message, b: Message): boolean {
+  if (a.timestamp === undefined || b.timestamp === undefined) return false;
+  // Date.parse normalizes timezone/formatting but drops sub-millisecond digits.
+  // Preserve those digits too: Python logs can contain microsecond timestamps.
+  const remainder = (timestamp: string) =>
+    (timestamp.match(/\.(\d+)/)?.[1] ?? '').slice(3).replace(/0+$/, '');
   return (
-    a.timestamp !== undefined &&
-    b.timestamp !== undefined &&
-    Date.parse(a.timestamp) === Date.parse(b.timestamp)
+    a.role === b.role &&
+    Date.parse(a.timestamp) === Date.parse(b.timestamp) &&
+    remainder(a.timestamp) === remainder(b.timestamp)
   );
 }
 

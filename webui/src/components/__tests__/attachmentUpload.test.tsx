@@ -1300,3 +1300,128 @@ it('keeps a new-chat failed message available when deliberate Retry also returns
   ]);
   expect(post).toHaveBeenCalledTimes(2);
 });
+
+it('retains a direct-send 409 in its owning queue after switching conversations', async () => {
+  let rejectFirst!: (error: unknown) => void;
+  const first = new Promise<void>((_resolve, reject) => {
+    rejectFirst = reject;
+  });
+  const oldSend = jest.fn().mockReturnValueOnce(first).mockResolvedValue(undefined);
+  const newSend = jest.fn();
+  const { rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'direct original' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={newSend} />
+  );
+  await act(async () => {
+    rejectFirst(new ApiClientError('Busy', 409));
+  });
+  expect(newSend).not.toHaveBeenCalled();
+  expect(screen.queryByTitle('direct original')).not.toBeInTheDocument();
+  rerender(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  await waitFor(() => expect(oldSend).toHaveBeenCalledTimes(2));
+  expect(oldSend.mock.calls[1][0]).toBe('direct original');
+  expect(newSend).not.toHaveBeenCalled();
+});
+
+it.each(['rejected', 'unknown'] as const)(
+  'withholds positional mutations while a late attachment POST is %s',
+  async (persistence) => {
+    const { renderHook } = await import('@testing-library/react');
+    const create = jest.spyOn(mockClient, 'createConversation');
+    let resolveUpload!: (value: any) => void;
+    jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        })
+    );
+    jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+    jest
+      .spyOn(mockClient, 'sendMessage')
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new ApiClientError('failed', persistence === 'rejected' ? 422 : 500));
+    const creation = mockClient.createConversationWithPlaceholder('original attached', {
+      pendingFiles: [new File(['one'], 'one.txt')],
+    });
+    await waitFor(() => expect(resolveUpload).toBeDefined());
+    const id = create.mock.calls[0][0];
+    const { result } = renderHook(() => useConversation(id));
+    await act(async () => {
+      await result.current.interruptGeneration();
+      await result.current.sendMessage({ message: 'newer saved message' });
+    });
+    await act(async () => {
+      resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+      await creation;
+    });
+    const log = conversations$.get(id)!.data.log.get();
+    expect(log[0]._retry?.persistence).toBe(persistence);
+    const response = { ...conversations$.get(id)!.data.get(), log };
+    const edit = jest.spyOn(mockClient, 'editMessage').mockResolvedValue(response);
+    const remove = jest.spyOn(mockClient, 'deleteMessage').mockResolvedValue(response);
+    const step = jest.spyOn(mockClient, 'step');
+    step.mockClear();
+    const rerun = jest.spyOn(mockClient, 'rerunTools');
+    await act(async () => {
+      await result.current.editMessage(0, 'must not edit the saved message');
+      await result.current.editMessage(1, 'must not use shifted saved index');
+      await result.current.deleteMessage(0);
+      await result.current.deleteMessage(1);
+      await result.current.regenerateMessage(1);
+      await result.current.rerunFromMessage(0);
+    });
+    expect(edit).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(step).not.toHaveBeenCalled();
+    expect(rerun).not.toHaveBeenCalled();
+    expect(conversations$.get(id)!.data.log.get()).toEqual(log);
+  }
+);
+
+it('keeps sub-millisecond distinct entries and their own Retry metadata during reconciliation', async () => {
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const state = conversations$.get(id)!;
+  const original = state.data.log.get()[0];
+  const earlier = {
+    role: 'assistant' as const,
+    content: 'earlier',
+    timestamp: '2026-10-24T20:01:00.000100Z',
+  };
+  const later = {
+    role: 'user' as const,
+    content: 'later',
+    timestamp: '2026-10-24T20:01:00.000900Z',
+    _status: 'failed' as const,
+    _retry: { persistence: 'saved' as const, options: { model: 'later-model' } },
+  };
+  state.data.log.set([original, later, earlier]);
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...state.data.get(),
+    log: [earlier, attached],
+  });
+  resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+  await creation;
+  expect(state.data.log.get()).toEqual([earlier, attached, later]);
+  expect(state.data.log.get()[0]._retry).toBeUndefined();
+});

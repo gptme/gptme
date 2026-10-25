@@ -1190,13 +1190,16 @@ export const ChatInput: FC<Props> = ({
           error && typeof error === 'object' && 'status' in error
             ? (error as { status: number }).status
             : undefined;
-        if (conversationEpoch.current !== owner || currentDraftKey.current !== draftKey) return;
         if (status === 409 && !(error instanceof AttachmentUploadError)) {
-          // Preserve the existing server-busy queue behavior.
+          // The captured setter belongs to the original draft, even if another
+          // conversation is visible now. Only its active composer may retry.
           clearSubmittedDraft();
           setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
-          scheduleQueueRetry();
+          if (conversationEpoch.current === owner && currentDraftKey.current === draftKey) {
+            scheduleQueueRetry();
+          }
         } else {
+          if (conversationEpoch.current !== owner || currentDraftKey.current !== draftKey) return;
           console.error('[ChatInput] Failed to send message:', error);
           if (hasPendingFiles) {
             toast({
