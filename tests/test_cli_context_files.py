@@ -64,6 +64,51 @@ def test_context_files_expands_workspace_globs(tmp_path: Path):
     assert "(not found)" not in result.output + result.stderr
 
 
+@pytest.mark.parametrize("directory_link", [False, True])
+@pytest.mark.parametrize("glob_pattern", [False, True])
+def test_context_files_skips_relative_symlinks_outside_workspace(
+    tmp_path: Path, directory_link: bool, glob_pattern: bool
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "private"
+    outside.mkdir()
+    secret = outside / "notes.md"
+    secret.write_text("outside private content\n")
+    guide = workspace / "guide.md"
+    guide.write_text("public guide\n")
+    docs = workspace / "docs"
+    try:
+        if directory_link:
+            docs.symlink_to(outside, target_is_directory=True)
+        else:
+            docs.mkdir()
+            (docs / "notes.md").symlink_to(secret)
+        (workspace / "guide-alias.md").symlink_to(guide)
+    except OSError:
+        pytest.skip("symlinks unavailable on this platform")
+    entry = "docs/*.md" if glob_pattern else "docs/notes.md"
+    result = _invoke(
+        workspace,
+        f'[prompt]\nfiles = ["{entry}", "guide-alias.md", "guide.md"]\n',
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "outside private content" not in result.output
+    assert "## FILE: docs/notes.md" not in result.output
+    # In-workspace symlinks still work, with resolved-path deduplication.
+    assert result.output.count("public guide") == 1
+    assert "## FILE: guide-alias.md" in result.output
+    # Skipping a relative alias must not suppress an explicit external entry.
+    result = _invoke(
+        workspace,
+        f'[prompt]\nfiles = ["{entry}", "{secret.as_posix()}"]\n',
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert result.output.count("outside private content") == 1
+    assert f"## FILE: {secret}" in result.output
+    assert "## FILE: docs/notes.md" not in result.output
+
+
 @pytest.mark.parametrize("home_relative", [False, True])
 def test_context_files_reads_external_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_relative: bool

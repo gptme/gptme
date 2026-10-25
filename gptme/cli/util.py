@@ -1081,6 +1081,10 @@ def context_files(config: str | None):
                 resolved_relative = resolved.relative_to(workspace)
             except ValueError:
                 resolved_relative = None
+            # Relative patterns must not pull in external symlink targets.
+            # Explicit absolute and home-expanded entries remain supported.
+            if resolved_relative is None and not expanded.is_absolute():
+                continue
             # Check the raw alias, its lexical normalization (without following
             # symlinks), and the resolved target for workspace-relative exclusions.
             if any(
