@@ -2185,6 +2185,27 @@ def test_literal_thinking_tags_reuse_fence_scan():
             assert scan.call_count <= 3
 
 
+def test_nested_thinking_examples_use_linear_tagged_fence_scan():
+    """Repeated literal examples must not rescan every remaining fence."""
+    from unittest.mock import patch
+
+    from gptme import codeblock
+
+    for tag in ("think", "thinking"):
+        for count in (10, 100):
+            content = f"```\n<{tag}>x</{tag}>\n```\nDone\n" * count
+            markdown = f"```save a.md\n{content}```\n\n"
+            for streaming in (False, True):
+                with patch(
+                    "gptme.codeblock.re.match", wraps=codeblock.re.match
+                ) as match:
+                    blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+                assert blocks == [Codeblock("save a.md", content.rstrip("\n"))]
+                # Count work instead of wall time: suffix rescans exceed this
+                # linear bound at 100 examples, even with shared fence walks.
+                assert match.call_count < 50 * len(markdown.split("\n"))
+
+
 def test_bare_fences_without_thinking_tags_skip_fence_state_walker():
     """Standalone-tag checks must not walk fence state when no thinking tags exist.
 

@@ -382,6 +382,16 @@ def _line_fence_states(
     language-tagged nested openers so thinking-tag checks agree with extraction.
     """
     lines = text.split("\n")
+    # Suffix queries only need to know whether a tagged fence remains. Compute
+    # its last position once rather than rescanning for every literal example.
+    last_tagged_fence = next(
+        (
+            i
+            for i in range(len(lines) - 1, -1, -1)
+            if re.match(r"^`{3,}", lines[i]) and len(lines[i].strip()) > 3
+        ),
+        -1,
+    )
     states: list[tuple[int, bool, str]] = []
     depth = 0
     fence_len = 0
@@ -503,10 +513,8 @@ def _line_fence_states(
                             # rest of the message, not a 4-line window: blank
                             # lines between the nested closer and a later
                             # ```shell would otherwise hide the command.
-                            nested_example_continues = not any(
-                                re.match(r"^`{3,}", lines[k])
-                                and len(lines[k].strip()) > 3
-                                for k in range(nested_closer_idx + 1, len(lines))
+                            nested_example_continues = (
+                                last_tagged_fence <= nested_closer_idx
                             )
                         start_tag = (
                             "<thinking>"
