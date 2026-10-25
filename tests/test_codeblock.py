@@ -2185,6 +2185,28 @@ def test_literal_thinking_tags_reuse_fence_scan():
             assert scan.call_count <= 3
 
 
+def test_bare_fences_without_thinking_tags_skip_fence_state_walker():
+    """Standalone-tag checks must not walk fence state when no thinking tags exist.
+
+    Regression for gptme/gptme#4491 AI-review P2: `_line_fence_states` scanned
+    the remaining suffix at every nested closer, and the two standalone-tag
+    checks invoked that walker even for messages with no thinking tags.
+    `("```\\nx\\n```\\nprose\\n") * 2000` took ~5s per extraction on 6281ce98.
+    """
+    from unittest.mock import patch
+
+    from gptme.codeblock import _line_fence_states
+
+    markdown = ("```\nx\n```\nprose\n") * 200
+    for streaming in (False, True):
+        with patch(
+            "gptme.codeblock._line_fence_states", wraps=_line_fence_states
+        ) as scan:
+            blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+        assert blocks == []
+        assert scan.call_count == 0
+
+
 def test_nested_language_fence_with_think_tags_inside_save_is_extracted():
     """A language-tagged nested fence must not close the outer save for thinking checks.
 

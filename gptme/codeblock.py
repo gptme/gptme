@@ -484,25 +484,30 @@ def _line_fence_states(
                         if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
                             has_following_tagged_fence = True
                             break
-                    nested_example_continues = False
-                    if nested_closer_idx is not None:
-                        # A later tagged fence after the nested closer is a
-                        # tool call. That shape is also unfinished reasoning
-                        # after a completed save (`Considering:` then ```draft
-                        # then ```shell): unlabelled content between the tag
-                        # and nested fence cannot tell those apart, so fail
-                        # closed. Nested unclosed-think saves still extract
-                        # when no later tagged command follows. Search the
-                        # rest of the message, not a 4-line window: blank
-                        # lines between the nested closer and a later
-                        # ```shell would otherwise hide the command.
-                        nested_example_continues = not any(
-                            re.match(r"^`{3,}", lines[k]) and len(lines[k].strip()) > 3
-                            for k in range(nested_closer_idx + 1, len(lines))
-                        )
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
                     if next_line.startswith(("<think>", "<thinking>")):
+                        # Only this branch reads `nested_example_continues`.
+                        # Scanning the remaining suffix on every bare fence
+                        # made large Markdown quadratic even when no thinking
+                        # tags were present.
+                        nested_example_continues = False
+                        if nested_closer_idx is not None:
+                            # A later tagged fence after the nested closer is a
+                            # tool call. That shape is also unfinished reasoning
+                            # after a completed save (`Considering:` then ```draft
+                            # then ```shell): unlabelled content between the tag
+                            # and nested fence cannot tell those apart, so fail
+                            # closed. Nested unclosed-think saves still extract
+                            # when no later tagged command follows. Search the
+                            # rest of the message, not a 4-line window: blank
+                            # lines between the nested closer and a later
+                            # ```shell would otherwise hide the command.
+                            nested_example_continues = not any(
+                                re.match(r"^`{3,}", lines[k])
+                                and len(lines[k].strip()) > 3
+                                for k in range(nested_closer_idx + 1, len(lines))
+                            )
                         start_tag = (
                             "<thinking>"
                             if next_line.startswith("<thinking>")
@@ -589,6 +594,8 @@ def _is_standalone_outside_fences(text: str, tag: str, streaming: bool = False) 
     as literal file content inside a save/patch code block. Fence tracking follows
     `_extract_codeblocks` (adjacent-fence recovery and nested language tags).
     """
+    if tag not in text:
+        return False
     lines = text.split("\n")
     for line, (depth, is_delim, _) in zip(
         lines, _line_fence_states(text, streaming=streaming), strict=True
