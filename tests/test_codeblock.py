@@ -2587,6 +2587,29 @@ def test_thinking_span_followed_by_prose_preserves_tool_boundaries() -> None:
             ]
 
 
+def test_shell_heredoc_thinking_tags_remain_literal():
+    """Thinking recovery must not close a shell fence inside its heredoc body."""
+    for lang in ("shell", "bash", "sh"):
+        for terminator in ("EOF", "'EOF'", '"EOF"'):
+            for tag in ("think", "thinking"):
+                content = f"cat <<{terminator} > a.md\n```\n<{tag}>\nexample\nEOF"
+                markdown = f"```{lang}\n{content}\n```\n\n"
+                assert list(_extract_codeblocks(markdown)) == [Codeblock(lang, content)]
+
+                # With a balanced nested example, both extraction modes can
+                # confirm completion; later unfinished reasoning still blocks it.
+                content = content.replace("example\nEOF", "example\n```\nEOF")
+                markdown = f"```{lang}\n{content}\n```\n\n"
+                for streaming in (False, True):
+                    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                        Codeblock(lang, content)
+                    ]
+                    unfinished = markdown + "<think>\n```shell\necho draft\n```\n\n"
+                    assert (
+                        list(_extract_codeblocks(unfinished, streaming=streaming)) == []
+                    )
+
+
 def test_shell_quoted_fence_does_not_hide_later_unfinished_thinking():
     """A quoted fence must not hide the genuine unfinished reasoning after shell."""
     for lang in ("shell", "bash", "sh"):

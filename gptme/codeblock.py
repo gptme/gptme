@@ -503,7 +503,11 @@ def _line_fence_states(
                             break
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
-                    if next_line.startswith(("<think>", "<thinking>")):
+                    if heredoc_terminator is None and next_line.startswith(
+                        ("<think>", "<thinking>")
+                    ):
+                        # Heredoc payload tags are literal shell content, not
+                        # evidence that the preceding tool fence has closed.
                         # Only this branch reads `nested_example_continues`.
                         # Scanning the remaining suffix on every bare fence
                         # made large Markdown quadratic even when no thinking
