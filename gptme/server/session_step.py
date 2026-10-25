@@ -232,6 +232,25 @@ def _released(lock: threading.RLock):
         lock.acquire()
 
 
+def _run_turn_post_on_step_pre_complete(
+    manager: LogManager, session: ConversationSession
+) -> None:
+    """Run TURN_POST when STEP_PRE ends the session.
+
+    Server TURN_POST fires after generation and before tools, so the tool
+    batch that produced the exhausting policy blocks has not been observed
+    by autocommit/pre-commit. CLI already runs TURN_POST in this path.
+    Failures here must not hide the original SessionCompleteException.
+    """
+    try:
+        if post_msgs := trigger_hook(HookType.TURN_POST, manager=manager):
+            for hook_msg in post_msgs:
+                _append_and_notify(manager, session, hook_msg)
+            manager.write()
+    except Exception:
+        logger.exception("TURN_POST during session-complete from STEP_PRE failed")
+
+
 def _compact_after_tool_results(
     manager: LogManager,
     session: ConversationSession,
@@ -582,6 +601,11 @@ async def _acp_step(
             from ..tools.complete import SessionCompleteException  # fmt: skip
 
             if isinstance(e, SessionCompleteException):
+                # ACP TURN_POST runs after the prompt loop, so a STEP_PRE
+                # completion never reached it. Run post-turn hooks now so
+                # autocommit/pre-commit observe the previous turn's tools
+                # (parity with chat.py and step()).
+                _run_turn_post_on_step_pre_complete(manager, session)
                 released = False
                 with session.step_lock:
                     if session.step_seq == my_step_seq:
@@ -982,12 +1006,12 @@ def step(
         from ..tools.complete import SessionCompleteException  # fmt: skip
 
         if isinstance(e, SessionCompleteException):
-            # Unlike the CLI (whose turn-level TURN_POST at the end of the step
-            # loop is skipped by this raise), the server triggers TURN_POST after
-            # every generation (see the normal path below). The preceding step is
-            # what produced the policy blocks that exhausted the budget, so its
-            # post-turn hooks (pre-commit checks, autocommit) have already run.
-            # Re-triggering here would fire per-step hooks twice for one turn.
+            # Server TURN_POST fires after generation and before tools. The
+            # policy blocks that exhausted the budget were appended during that
+            # previous step's tool execution, so those file changes have not
+            # been observed by post-turn hooks. Run TURN_POST now (CLI already
+            # does this) before releasing the reservation.
+            _run_turn_post_on_step_pre_complete(manager, session)
             released = False
             with session.step_lock:
                 if session.step_seq == my_step_seq:

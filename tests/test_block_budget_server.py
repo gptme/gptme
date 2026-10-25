@@ -88,3 +88,69 @@ def test_step_pre_completion_retries_wakes_only_after_owned_release(
         assert session.generating_since is None
         assert events == [{"type": "step_complete"}]
         assert retried == ["budget-conversation"]
+
+
+@pytest.mark.parametrize("backend", ["inprocess", "acp"])
+def test_step_pre_completion_runs_turn_post(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    """Budget STEP_PRE must still run TURN_POST so autocommit sees the last tools.
+
+    Server TURN_POST fires after generation and before tools. The sixth policy
+    block is appended during tool execution, so the next STEP_PRE raise is the
+    first chance to observe those file changes.
+    """
+    session = ConversationSession(id="budget-session", generating=True)
+    session.acp_runtime = MagicMock()
+    manager = MagicMock()
+    manager.logdir = tmp_path
+    manager.log.messages = [
+        Message("user", "Do the task"),
+        Message("assistant", "Working"),
+    ]
+    monkeypatch.setattr(session_step, "get_logs_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        ChatConfig, "load_or_create", lambda *args: ChatConfig(interactive=False)
+    )
+    monkeypatch.setattr(
+        session_step, "prepare_execution_environment", lambda **kw: None
+    )
+    monkeypatch.setattr(session_step.LogManager, "load", lambda *args, **kw: manager)
+    monkeypatch.setattr(session_step.CostTracker, "ensure_session", lambda *args: None)
+    monkeypatch.setattr(session, "track_skill_turn", lambda *args: None)
+    monkeypatch.chdir(tmp_path)
+
+    seen: list[HookType] = []
+
+    def record_hooks(hook_type: HookType, **kwargs: object) -> list[Message]:
+        seen.append(hook_type)
+        if hook_type == HookType.STEP_PRE:
+            raise SessionCompleteException("policy block budget exhausted: 6 blocks")
+        if hook_type == HookType.TURN_POST:
+            return [Message("system", "turn-post-ran", hide=True)]
+        return []
+
+    monkeypatch.setattr(session_step, "trigger_hook", record_hooks)
+    posted: list[Message] = []
+    monkeypatch.setattr(
+        session_step,
+        "_append_and_notify",
+        lambda mgr, sess, msg: posted.append(msg),
+    )
+    monkeypatch.setattr(SessionManager, "add_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        SessionManager, "retry_deferred_watch_wakes", lambda conversation_id: None
+    )
+    with pytest.raises(SessionCompleteException, match="policy block budget exhausted"):
+        if backend == "acp":
+            asyncio.run(
+                session_step._acp_step("budget-conversation", session, tmp_path)
+            )
+        else:
+            session_step.step(
+                "budget-conversation", session, "openai/gpt-4o-mini", tmp_path
+            )
+
+    assert seen == [HookType.STEP_PRE, HookType.TURN_POST]
+    assert [m.content for m in posted] == ["turn-post-ran"]
+    manager.write.assert_called()
