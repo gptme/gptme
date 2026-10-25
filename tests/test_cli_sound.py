@@ -1,5 +1,7 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import tomllib
 from click.testing import CliRunner
 
 from gptme.cli.util import main
@@ -26,6 +28,33 @@ def test_sound_ding_plays_bell():
     assert result.exit_code == 0
     ring.assert_called_once()
     assert play.call_args.args[0].name == "bell.wav"
+
+
+def test_sound_ding_missing_bell_exits(tmp_path, monkeypatch):
+    monkeypatch.setattr("gptme.util.sound.media_path", tmp_path)
+    result = CliRunner().invoke(main, ["sound", "ding"])
+    assert result.exit_code == 1
+    assert "Bell sound file not found" in result.output
+
+
+def test_sound_ding_play_failure_exits():
+    with (
+        patch("gptme.cli.cmd_sound._ring_terminal_bell"),
+        patch("gptme.cli.cmd_sound._play", return_value=False),
+    ):
+        result = CliRunner().invoke(main, ["sound", "ding"])
+    assert result.exit_code == 1
+    assert "No audio player available" in result.output
+
+
+def test_media_wav_included_in_wheel():
+    """Poetry include without format is sdist-only; wav/png must list wheel."""
+    data = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    )
+    includes = {item["path"]: item for item in data["tool"]["poetry"]["include"]}
+    for path in ("media/*.wav", "media/*.png", "media/*.svg"):
+        assert "wheel" in includes[path].get("format", []), path
 
 
 def test_afplay_volume_args(tmp_path):
