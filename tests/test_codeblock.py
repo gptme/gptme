@@ -2401,6 +2401,35 @@ def test_unfinished_thinking_prose_before_nested_fence_does_not_extract_shell():
         assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
 
 
+def test_closed_thinking_with_bare_example_after_save_preserves_commands() -> None:
+    """Closed reasoning with a fenced draft is not nested save content."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```save a.txt\nhello\n```\n"
+            f"<{tag}>\n```\ndraft\n```\n</{tag}>\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.txt", "hello"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
+def test_concatenated_thinking_unclosed_inner_shell_then_unfinished_reasoning() -> None:
+    """An unclosed fence inside concatenated reasoning must not hide a new opener."""
+    for first_tag in ("think", "thinking"):
+        for second_tag in ("think", "thinking"):
+            markdown = (
+                f"```shell\necho first\n```<{first_tag}>\n"
+                f"```shell\necho draft\n</{first_tag}>\n"
+                f"<{second_tag}>\n```\n\n"
+                "```shell\necho should-not-run\n```\n\n"
+            )
+            for streaming in (False, True):
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
 def test_same_line_closer_then_opener_does_not_extract_shell():
     """A `<think>` after `</think>` on the same line is a new unclosed section.
 

@@ -509,7 +509,24 @@ def _line_fence_states(
                             else "<think>"
                         )
                         close_tag = start_tag.replace("<", "</")
-                        thinking_closed = close_tag in "\n".join(lines[i + 1 :])
+                        thinking_closer_idx = next(
+                            (
+                                k
+                                for k in range(i + 1, len(lines))
+                                if close_tag in lines[k]
+                            ),
+                            None,
+                        )
+                        thinking_closed = thinking_closer_idx is not None
+                        # A bare fence *before* the reasoning closer belongs
+                        # to reasoning, not a literal example beginning with
+                        # thinking tags. A later tagged tool confirms that the
+                        # preceding save ended; otherwise keep nested examples.
+                        reasoning_contains_fence = (
+                            nested_closer_idx is not None
+                            and thinking_closer_idx is not None
+                            and nested_closer_idx < thinking_closer_idx
+                        )
                         # Unclosed reasoning after this fence means the tool
                         # block completed — nested unlabelled examples close
                         # their thinking tags because those tags are content.
@@ -520,7 +537,10 @@ def _line_fence_states(
                         # reasoning from a still-growing literal nested example.
                         # Wait for a following tagged fence before recovering a
                         # completed tool block; never execute a truncated save.
-                        if (not thinking_closed and not nested_example_continues) or (
+                        if (
+                            (not thinking_closed or reasoning_contains_fence)
+                            and not nested_example_continues
+                        ) or (
                             not has_closing_fence
                             and (not streaming or has_following_tagged_fence)
                         ):
@@ -597,9 +617,10 @@ def _literal_thinking_closers(text: str, streaming: bool = False) -> set[int]:
     offset = 0
     in_thinking = False
     for line, (depth, is_delim, outer_lang) in zip(lines, states, strict=True):
-        if not is_delim and depth == 0:
-            if line.startswith(("<thinking>", "<think>")):
-                in_thinking = True
+        if (
+            (not is_delim and depth == 0) or (is_delim and line.startswith("```"))
+        ) and line.lstrip("`").startswith(("<thinking>", "<think>")):
+            in_thinking = True
         if not in_thinking and depth > 0 and not _is_thinking_lang(outer_lang):
             literal_closers.update(
                 offset + match.start()
@@ -617,13 +638,16 @@ def _unclosed_standalone_after(
     text: str, after_pos: int, streaming: bool = False
 ) -> bool:
     """True if a fence-outside thinking opener after `after_pos` has no closer."""
+    # The closer ends reasoning even when its inner fence was left unclosed.
+    # Fence state from that reasoning must not hide openers in the new suffix.
+    text = text[after_pos:]
     lines = text.split("\n")
     states = _line_fence_states(text, streaming=streaming)
     offset = 0
     for line, (depth, is_delim, _) in zip(lines, states, strict=True):
         line_start = offset
         offset += len(line) + 1
-        if line_start < after_pos or is_delim or depth != 0:
+        if is_delim or depth != 0:
             continue
         for start_tag in ("<thinking>", "<think>"):
             if line.startswith(start_tag):
