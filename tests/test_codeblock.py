@@ -2334,6 +2334,35 @@ def test_unlabelled_nested_thinking_example_preserves_save():
         ]
 
 
+def test_streaming_nested_thinking_example_waits_for_outer_closer() -> None:
+    """Closed literal tags do not confirm an unfinished nested save's closure."""
+    for tag in ("think", "thinking"):
+        prefix = f"```save a.md\nintro\n```\n<{tag}>x</{tag}>\n\n"
+        assert list(_extract_codeblocks(prefix, streaming=True)) == []
+        content = f"intro\n```\n<{tag}>x</{tag}>\n\n```\nDone"
+        completed = f"```save a.md\n{content}\n```\n\n"
+        for end in range(1, len(completed)):
+            assert list(_extract_codeblocks(completed[:end], streaming=True)) == []
+        assert list(_extract_codeblocks(completed, streaming=True)) == [
+            Codeblock("save a.md", content)
+        ]
+
+
+def test_thinking_span_followed_by_prose_preserves_tool_boundaries() -> None:
+    """Removing reasoning leaves a separator before inline trailing prose."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```save a.txt\nhello\n```\n"
+            f"<{tag}>plan</{tag}>Now running it.\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.txt", "hello"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
 def test_shell_quoted_fence_does_not_hide_later_unfinished_thinking():
     """A quoted fence must not hide the genuine unfinished reasoning after shell."""
     for lang in ("shell", "bash", "sh"):

@@ -471,6 +471,7 @@ def _line_fence_states(
                     # a confirmed inner closer, non-streaming keeps this fence
                     # literal; streaming conservatively opens another level.
                     has_closing_fence = False
+                    has_following_tagged_fence = False
                     for j in range(i + 1, min(i + 20, len(lines))):
                         if re.match(r"^(`{3,})$", lines[j].strip()):
                             has_closing_fence = any(
@@ -479,6 +480,7 @@ def _line_fence_states(
                             )
                             break
                         if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
+                            has_following_tagged_fence = True
                             break
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
@@ -493,9 +495,14 @@ def _line_fence_states(
                         # Unclosed reasoning after this fence means the tool
                         # block completed — nested unlabelled examples close
                         # their thinking tags because those tags are content.
-                        # Closed reasoning with no nested closer is also a
-                        # completed block (later tool calls must survive).
-                        if not thinking_closed or not has_closing_fence:
+                        # During streaming, closed tags alone cannot distinguish
+                        # reasoning from a still-growing literal nested example.
+                        # Wait for a following tagged fence before recovering a
+                        # completed tool block; never execute a truncated save.
+                        if not thinking_closed or (
+                            not has_closing_fence
+                            and (not streaming or has_following_tagged_fence)
+                        ):
                             depth = 0
                             fence_len = 0
                             outer_lang = ""
@@ -711,7 +718,9 @@ def _extract_codeblocks(
                     else:
                         _start = 0
                     markdown = (
-                        markdown[:_start] + markdown[_think_end + len(_think_end_tag) :]
+                        markdown[:_start]
+                        + ("\n" if _start > 0 else "")
+                        + markdown[_think_end + len(_think_end_tag) :]
                     )
                     _stripped = True
                     break
@@ -1022,19 +1031,9 @@ def _extract_codeblocks(
                                         # Hit a language-tagged fence, stop looking
                                         break
 
-                                if not has_closing_fence and lines[i + 1].startswith(
-                                    ("<think>", "<thinking>")
-                                ):
-                                    # Explicit reasoning after this fence confirms
-                                    # closure, even without a streaming blank line.
-                                    yield Codeblock(
-                                        lang,
-                                        "\n".join(content_lines),
-                                        start=start_line,
-                                        fence="`" * fence_len,
-                                    )
-                                    i += 1
-                                    break
+                                # Genuine reasoning was removed above. Any tags
+                                # still here belong to literal content and must
+                                # not confirm closure of a growing nested save.
                                 if has_closing_fence:
                                     # Looks like a real nested block
                                     nesting_depth += 1
