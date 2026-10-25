@@ -1,4 +1,5 @@
 import re
+from bisect import bisect_left
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
@@ -392,6 +393,12 @@ def _line_fence_states(
         ),
         -1,
     )
+    # Index literal substring occurrences too: missing closers otherwise cause
+    # a full suffix scan for every unclosed thinking-tag example.
+    thinking_closer_lines = {
+        tag: [i for i, line in enumerate(lines) if tag in line]
+        for tag in ("</think>", "</thinking>")
+    }
     states: list[tuple[int, bool, str]] = []
     depth = 0
     fence_len = 0
@@ -522,13 +529,12 @@ def _line_fence_states(
                             else "<think>"
                         )
                         close_tag = start_tag.replace("<", "</")
-                        thinking_closer_idx = next(
-                            (
-                                k
-                                for k in range(i + 1, len(lines))
-                                if close_tag in lines[k]
-                            ),
-                            None,
+                        closer_lines = thinking_closer_lines[close_tag]
+                        closer_pos = bisect_left(closer_lines, i + 1)
+                        thinking_closer_idx = (
+                            closer_lines[closer_pos]
+                            if closer_pos < len(closer_lines)
+                            else None
                         )
                         thinking_closed = thinking_closer_idx is not None
                         # A bare fence *before* the reasoning closer belongs
@@ -785,10 +791,14 @@ def _extract_codeblocks(
                     # ```<think> keeps the fence closer. Gemini's ```thinking>
                     # opener has no <thinking> tag; strip from that fence so a
                     # prior save with literal tags survives.
-                    if _standalone_start is not None:
-                        _start = _standalone_start
-                    elif _concatenated_start is not None:
-                        _start = _concatenated_start
+                    if _standalone_start is not None or _concatenated_start is not None:
+                        # Repeated openers form one span regardless of whether
+                        # the first opener was standalone or fence-concatenated.
+                        _start = min(
+                            pos
+                            for pos in (_standalone_start, _concatenated_start)
+                            if pos is not None
+                        )
                     elif _gemini_fence_start is not None:
                         _start = _gemini_fence_start
                     else:

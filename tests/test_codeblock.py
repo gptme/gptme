@@ -2206,6 +2206,52 @@ def test_nested_thinking_examples_use_linear_tagged_fence_scan():
                 assert match.call_count < 50 * len(markdown.split("\n"))
 
 
+def test_repeated_opener_after_concatenated_thinking_does_not_extract_draft():
+    """A later standalone opener must not override the earlier concat opener."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```shell\necho first\n"
+            f"```<{tag}>\n```shell\necho draft\n```\n\n"
+            f"<{tag}>\nmore\n</{tag}>\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("shell", "echo first"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
+def test_unclosed_literal_thinking_examples_use_linear_closer_search():
+    """Count substring checks too: regex-only bounds miss quadratic suffix scans."""
+    from gptme.codeblock import _line_fence_states
+
+    class CountedLine(str):
+        checks = 0
+
+        def __contains__(self, item):
+            if item in ("</think>", "</thinking>"):
+                CountedLine.checks += 1
+            return super().__contains__(item)
+
+    class CountedText(str):
+        def split(self, sep=None, maxsplit=-1):
+            return [CountedLine(line) for line in super().split(sep, maxsplit)]
+
+    for tag in ("think", "thinking"):
+        for count in (10, 100):
+            content = f"```\n<{tag}>\nexample\n```\nDone\n" * count
+            markdown = f"```save a.md\n{content}```\n\n"
+            for streaming in (False, True):
+                CountedLine.checks = 0
+                states = _line_fence_states(CountedText(markdown), streaming=streaming)
+                assert len(states) == len(markdown.split("\n"))
+                assert CountedLine.checks <= 4 * len(states)
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                    Codeblock("save a.md", content.rstrip("\n"))
+                ]
+
+
 def test_bare_fences_without_thinking_tags_skip_fence_state_walker():
     """Standalone-tag checks must not walk fence state when no thinking tags exist.
 
