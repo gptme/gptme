@@ -472,8 +472,10 @@ def _line_fence_states(
                     # literal; streaming conservatively opens another level.
                     has_closing_fence = False
                     has_following_tagged_fence = False
+                    nested_closer_idx: int | None = None
                     for j in range(i + 1, min(i + 20, len(lines))):
                         if re.match(r"^(`{3,})$", lines[j].strip()):
+                            nested_closer_idx = j
                             has_closing_fence = any(
                                 lines[k].strip()
                                 for k in range(j + 1, min(j + 5, len(lines)))
@@ -482,6 +484,18 @@ def _line_fence_states(
                         if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
                             has_following_tagged_fence = True
                             break
+                    nested_example_continues = False
+                    if nested_closer_idx is not None:
+                        # A tagged fence after the nested closer is a later
+                        # tool call (unfinished reasoning after a completed
+                        # save). Unlabelled content is remaining save text.
+                        nested_example_continues = not any(
+                            re.match(r"^`{3,}", lines[k]) and len(lines[k].strip()) > 3
+                            for k in range(
+                                nested_closer_idx + 1,
+                                min(nested_closer_idx + 5, len(lines)),
+                            )
+                        )
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
                     if next_line.startswith(("<think>", "<thinking>")):
@@ -495,11 +509,14 @@ def _line_fence_states(
                         # Unclosed reasoning after this fence means the tool
                         # block completed — nested unlabelled examples close
                         # their thinking tags because those tags are content.
+                        # An unclosed opener as the first nested-example line
+                        # still continues the save when lookahead finds a
+                        # nested closer followed by unlabelled content.
                         # During streaming, closed tags alone cannot distinguish
                         # reasoning from a still-growing literal nested example.
                         # Wait for a following tagged fence before recovering a
                         # completed tool block; never execute a truncated save.
-                        if not thinking_closed or (
+                        if (not thinking_closed and not nested_example_continues) or (
                             not has_closing_fence
                             and (not streaming or has_following_tagged_fence)
                         ):
