@@ -129,8 +129,38 @@ class TestEpisodeCounter:
         assert _is_harness_user_message(
             Message("user", "<system>You appear stuck: x</system>")
         )
+        assert _is_harness_user_message(
+            Message(
+                "user",
+                "Context budget has been reached — produce a structured checkpoint",
+                metadata={"compaction_checkpoint_view": ""},
+            )
+        )
         assert not _is_harness_user_message(Message("user", "<system>Custom</system>"))
         assert not _is_harness_user_message(Message("user", "plain human message"))
+
+    def test_checkpoint_request_does_not_reset(self):
+        # Autocompaction checkpoint requests are harness-generated user
+        # messages (CLI TURN_POST and server post-tool compaction). Treating
+        # them as human input would reset the episode and replenish the
+        # block budget mid-retry-loop.
+        checkpoint = Message(
+            "user",
+            "Context budget has been reached — produce a structured checkpoint",
+            metadata={"compaction_checkpoint_view": "main"},
+        )
+        msgs = [PROMPT, *_blocks(5), checkpoint]
+        assert count_policy_blocks(msgs) == 5
+
+    def test_user_quoting_checkpoint_prompt_resets(self):
+        # A real user message that quotes the checkpoint prompt, without the
+        # harness metadata, is new authority and must start a fresh episode.
+        quoted = Message(
+            "user",
+            "Context budget has been reached — produce a structured checkpoint",
+        )
+        msgs = [PROMPT, *_blocks(5), quoted, _block()]
+        assert count_policy_blocks(msgs) == 1
 
 
 class TestBudgetAutoReply:
