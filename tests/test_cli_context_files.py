@@ -109,6 +109,39 @@ def test_context_files_skips_relative_symlinks_outside_workspace(
     assert "## FILE: docs/notes.md" not in result.output
 
 
+@pytest.mark.parametrize("excluded", [False, True])
+def test_context_files_reads_explicit_parent_relative_file(
+    tmp_path: Path, excluded: bool
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    shared = tmp_path / "shared" / "guide.md"
+    shared.parent.mkdir()
+    shared.write_text("shared instructions\n")
+    exclusion = 'exclude = ["guide.md"]\n' if excluded else ""
+    result = _invoke(
+        workspace,
+        '[prompt]\nfiles = ["../shared/guide.md"]\n' + exclusion,
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    if excluded:
+        assert "shared instructions" not in result.output
+    else:
+        assert "## FILE: ../shared/guide.md" in result.output
+        assert "shared instructions" in result.output
+
+
+def test_context_files_keeps_parent_relative_glob_contained(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    secret = tmp_path / "private" / "notes.md"
+    secret.parent.mkdir()
+    secret.write_text("outside private content\n")
+    result = _invoke(workspace, '[prompt]\nfiles = ["../private/*.md"]\n')
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "outside private content" not in result.output
+
+
 @pytest.mark.parametrize("home_relative", [False, True])
 def test_context_files_reads_external_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_relative: bool
@@ -196,9 +229,15 @@ def test_context_files_excludes_symlink_by_target_basename(
         alias.symlink_to(secret)
     except OSError:
         pytest.skip("symlinks unavailable on this platform")
+    # Explicit external aliases must reach exclusion matching, not be rejected
+    # by the relative-path containment guard before the exclusion is evaluated.
+    entry = alias.as_posix() if external else "public/notes.rst"
+    allowed = _invoke(workspace, f'[prompt]\nfiles = ["{entry}"]\n')
+    assert allowed.exit_code == 0, allowed.output + str(allowed.exception)
+    assert "excluded secret content" in allowed.output
     result = _invoke(
         workspace,
-        f'[prompt]\nfiles = ["public/notes.rst", "guide.rst"]\nexclude = ["{excluded}"]\n',
+        f'[prompt]\nfiles = ["{entry}", "guide.rst"]\nexclude = ["{excluded}"]\n',
         {"guide.rst": "public guide\n"},
     )
     assert result.exit_code == 0, result.output + str(result.exception)
