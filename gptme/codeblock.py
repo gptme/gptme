@@ -481,14 +481,26 @@ def _line_fence_states(
                         if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
                             break
                     states.append((depth, True, outer_lang))
-                    if not has_closing_fence and lines[i + 1].startswith(
-                        ("<think>", "<thinking>")
-                    ):
-                        # A reasoning section after a completed block is not
-                        # an unlabelled nested example (which has a closer).
-                        depth = 0
-                        fence_len = 0
-                        outer_lang = ""
+                    next_line = lines[i + 1]
+                    if next_line.startswith(("<think>", "<thinking>")):
+                        start_tag = (
+                            "<thinking>"
+                            if next_line.startswith("<thinking>")
+                            else "<think>"
+                        )
+                        close_tag = start_tag.replace("<", "</")
+                        thinking_closed = close_tag in "\n".join(lines[i + 1 :])
+                        # Unclosed reasoning after this fence means the tool
+                        # block completed — nested unlabelled examples close
+                        # their thinking tags because those tags are content.
+                        # Closed reasoning with no nested closer is also a
+                        # completed block (later tool calls must survive).
+                        if not thinking_closed or not has_closing_fence:
+                            depth = 0
+                            fence_len = 0
+                            outer_lang = ""
+                        else:
+                            depth += 1
                     elif has_closing_fence or streaming:
                         depth += 1
                     continue
@@ -650,34 +662,54 @@ def _extract_codeblocks(
                     _search_from = _think_end + 1
                     continue
                 _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
-                _prefix = markdown[:_think_end]
-                # Use the complete message for fence lookahead, not the prefix
+                # Use the complete message for fence lookahead, not a prefix
                 # truncated just before this closer. Keep tool calls preceding
                 # the opener when removing a later reasoning section.
                 _standalone_start = None
+                _gemini_fence_start = None
+                _has_any = False
                 _offset = 0
-                for _line, (_depth, _delim, _) in zip(
+                for _line, (_depth, _delim, _outer) in zip(
                     markdown.split("\n"),
                     _line_fence_states(markdown, streaming=streaming),
                     strict=True,
                 ):
                     if _offset >= _think_end:
                         break
+                    if _think_start_tag in _line and (
+                        _depth == 0
+                        or _is_thinking_lang(_outer)
+                        or (_delim and _line.lstrip("`").startswith(_think_start_tag))
+                    ):
+                        _has_any = True
                     if (
                         not _delim
                         and _depth == 0
                         and _line.startswith(_think_start_tag)
                     ):
-                        _standalone_start = _offset
+                        if _standalone_start is None:
+                            # Repeated openers are one span: keep the first.
+                            _standalone_start = _offset
+                    if _delim and _depth == 0:
+                        _fence_match = re.match(r"^(`{3,})", _line)
+                        if _fence_match and _is_thinking_lang(
+                            _line[len(_fence_match.group(1)) :].strip()
+                        ):
+                            _gemini_fence_start = _offset
                     _offset += len(_line) + 1
                 _has_standalone = _standalone_start is not None
-                _has_any = _think_start_tag in _prefix
-                # Strip if standalone opening exists, or if there is no opening tag at
-                # all in the prefix (covers the Gemini "```thinking>" malformed case).
+                # Strip if standalone opening exists, or if there is no real
+                # opening tag outside literal file content (Gemini ```thinking>).
                 if _has_standalone or not _has_any:
-                    # Gemini's malformed opener still needs prefix recovery;
-                    # ordinary reasoning removes only its own span.
-                    _start = _standalone_start if _standalone_start is not None else 0
+                    # Ordinary reasoning removes only its own span. Gemini's
+                    # ```thinking> opener has no <thinking> tag; strip from
+                    # that fence so a prior save with literal tags survives.
+                    if _standalone_start is not None:
+                        _start = _standalone_start
+                    elif _gemini_fence_start is not None:
+                        _start = _gemini_fence_start
+                    else:
+                        _start = 0
                     markdown = (
                         markdown[:_start] + markdown[_think_end + len(_think_end_tag) :]
                     )

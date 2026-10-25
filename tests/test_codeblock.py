@@ -2274,6 +2274,56 @@ def test_thinking_directly_after_save_preserves_following_command():
             ]
 
 
+def test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shell():
+    """Unclosed reasoning after a completed save must not yield inner commands.
+
+    Regression for gptme/gptme#4491 AI-review P1: nested-fence lookahead treated
+    the save closer as a nested opener because a later bare fence existed inside
+    unfinished `<think>`, so `echo should-not-run` was extracted.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        "<think>\n```\ndraft\n```\n\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_repeated_thinking_openers_are_one_span():
+    """Repeated openers must strip from the first, not leave an unfinished tag.
+
+    Regression for gptme/gptme#4491 Greptile P1: the second `<think>` overwrote
+    `_standalone_start`, so the first opener survived and suppressed the shell.
+    """
+    markdown = (
+        "<think>\nplan\n<think>\nmore plan\n</think>\n\n```shell\necho final\n```\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+            Codeblock("shell", "echo final")
+        ]
+
+
+def test_literal_thinking_opener_does_not_disable_gemini_recovery():
+    """A literal `<thinking>` in a prior save must not block Gemini stripping.
+
+    Regression for gptme/gptme#4491 AI-review P1: `_has_any` counted the file
+    content tag, classified `</thinking>` as concatenated, and dropped the
+    following shell command.
+    """
+    markdown = (
+        "```save a.xml\n<thinking>\n```\n\n"
+        "```thinking>\nplan\n</thinking>\n"
+        "```shell\necho final\n```"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+            Codeblock("save a.xml", "<thinking>"),
+            Codeblock("shell", "echo final"),
+        ]
+
+
 def test_unlabelled_nested_thinking_example_preserves_save():
     """Bare nested fences must use the extractor's lookahead, not close the save."""
     content = "```\n<think>\nx\n</think>\n```\nDone"
