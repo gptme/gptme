@@ -489,12 +489,12 @@ def _line_fence_states(
                         # A tagged fence after the nested closer is a later
                         # tool call (unfinished reasoning after a completed
                         # save). Unlabelled content is remaining save text.
+                        # Search the rest of the message, not a 4-line window:
+                        # blank lines between the nested closer and a later
+                        # ```shell would otherwise hide the command.
                         nested_example_continues = not any(
                             re.match(r"^`{3,}", lines[k]) and len(lines[k].strip()) > 3
-                            for k in range(
-                                nested_closer_idx + 1,
-                                min(nested_closer_idx + 5, len(lines)),
-                            )
+                            for k in range(nested_closer_idx + 1, len(lines))
                         )
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]

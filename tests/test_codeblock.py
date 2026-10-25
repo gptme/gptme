@@ -2290,6 +2290,23 @@ def test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shel
         assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
 
 
+def test_unfinished_thinking_blank_lines_before_shell_does_not_extract_command():
+    """Blank lines after a nested closer must not hide a later tagged shell.
+
+    Regression for gptme/gptme#4491 Greptile P1 on 217c5beb65a3: the tagged-fence
+    search after the nested closer used a 4-line window, so five blank lines
+    made `nested_example_continues` true and extracted `echo should-not-run`.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        "<think>\n```\ndraft\n```\n"
+        "\n\n\n\n\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
 def test_repeated_thinking_openers_are_one_span():
     """Repeated openers must strip from the first, not leave an unfinished tag.
 
