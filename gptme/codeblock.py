@@ -363,6 +363,11 @@ def _extract_codeblocks(
 
     This handles nested cases where ``` appears inside string literals or other content.
     """
+    # Normalize line endings first: the thinking-tag boundary checks below match
+    # on "\n", so a CR-only "<think>" would otherwise escape the unclosed-tag exit
+    # and normalization would then expose its fences as code blocks.
+    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
+
     # dont extract codeblocks from thinking blocks
     # (since claude sometimes forgets to close codeblocks in its thinking,
     #  and gemini uses </thinking> instead of </think>)
@@ -425,9 +430,6 @@ def _extract_codeblocks(
     fence_pattern = re.compile(r"`{3,}")
     if len(fence_pattern.findall(markdown)) < 2:
         return
-
-    # Normalize line endings so CRLF input does not leak carriage returns into content.
-    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
 
     # Languages where a bare fence at depth 1 is never a nested opener.
     # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic

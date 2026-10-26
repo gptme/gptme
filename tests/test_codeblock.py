@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from gptme.codeblock import Codeblock, _extract_codeblocks
 
 EXAMPLES_DIR = Path(__file__).parent / "data"
@@ -2019,6 +2021,37 @@ def test_thinking_block_unclosed_thinking_tag_early_exit():
     markdown = "<thinking>\nmodel is still reasoning...\n```save pipeline.py\nprint('hello')\n```"
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 0
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+@pytest.mark.parametrize("tag", ["<think>", "<thinking>"])
+def test_unclosed_thinking_tag_early_exit_any_line_ending(newline, tag):
+    """An unclosed standalone thinking tag must hide its code blocks for LF, CRLF and CR.
+
+    The tag-boundary check matched only on "\n", so a CR-delimited tag escaped the
+    early exit and later line-ending normalization exposed the hidden fence.
+    """
+    markdown = newline.join(["intro", tag, "```shell", "echo hidden", "```", ""])
+    assert list(_extract_codeblocks(markdown)) == []
+    assert Codeblock.iter_from_markdown(markdown) == []
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_closed_thinking_block_stripped_any_line_ending(newline):
+    """A closed thinking block is stripped and the following block extracted for every line ending."""
+    markdown = newline.join(
+        [
+            "<think>",
+            "```shell",
+            "echo hidden",
+            "```",
+            "</think>",
+            "```shell",
+            "pwd",
+            "```",
+        ]
+    )
+    assert Codeblock.iter_from_markdown(markdown) == [Codeblock("shell", "pwd")]
 
 
 def test_thinking_tag_concatenated_then_unclosed_standalone():
