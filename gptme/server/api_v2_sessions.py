@@ -751,6 +751,16 @@ def api_conversation_tool_confirm(conversation_id: str):
             404,
         )
 
+    # Native tool calls carry their arguments in kwargs, and tools read kwargs
+    # before content: replacing content would report success and then run the
+    # original, unedited call. Refuse before resolving any hook confirmation.
+    if action == "edit" and tool_exec.tooluse.kwargs is not None:
+        return flask.jsonify(
+            {
+                "error": "edit is not supported for native tool calls; skip the call instead"
+            }
+        ), 400
+
     logdir = get_logs_dir() / conversation_id
 
     # Skip reserves its continuation before resolving hook state or consuming the
