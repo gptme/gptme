@@ -32,14 +32,16 @@ import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
 import { navigateTo } from '@/utils/navigation';
+import { composerDraftKey } from '@/utils/composerDraft';
+import { useComposerDraft } from '@/hooks/useComposerDraft';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
 export const WelcomeView = () => {
   const { consumeSeedPrompt } = useEmbeddedContext();
-  const [inputValue, setInputValue] = useState(
-    () => (typeof window !== 'undefined' ? localStorage.getItem('gptme-draft-new') : null) || ''
-  );
+  const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
+  // The new-chat draft belongs to the active server and account.
+  const [inputValue, setInputValue] = useComposerDraft(composerDraftKey(connectionConfig));
   const [hostedLoopbackReachable, setHostedLoopbackReachable] = useState(false);
   const seedConsumedRef = useRef(false);
 
@@ -58,24 +60,13 @@ export const WelcomeView = () => {
       seedConsumedRef.current = true;
       setInputValue((current) => current || seed);
     }
-  }, [consumeSeedPrompt]);
-
-  // Persist new-chat draft to localStorage
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (inputValue) {
-      localStorage.setItem('gptme-draft-new', inputValue);
-    } else {
-      localStorage.removeItem('gptme-draft-new');
-    }
-  }, [inputValue]);
+  }, [consumeSeedPrompt, setInputValue]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
   const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
   const navigate = useNavigate();
-  const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const demoMode = isDemoMode();
   const isTauri = isTauriEnvironment();
   const { managesLocalServer } = useTauriServerStatus();

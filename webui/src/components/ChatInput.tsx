@@ -28,6 +28,9 @@ import {
   type SetStateAction,
 } from 'react';
 import { useApi } from '@/contexts/ApiContext';
+import { serverRegistry$ } from '@/stores/servers';
+import { composerDraftKey } from '@/utils/composerDraft';
+import { useComposerDraft } from '@/hooks/useComposerDraft';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
 import { ModelPicker } from '@/components/ModelPicker';
@@ -86,6 +89,8 @@ export interface ChatOptions {
 
 interface Props {
   conversationId?: string;
+  /** Server that owns the conversation; defaults to the primary server. */
+  serverId?: string;
   onSend?: (message: string, options?: ChatOptions) => void | Promise<void>;
   onInterrupt?: () => Promise<void>;
   isReadOnly?: boolean;
@@ -614,6 +619,7 @@ const AttachedFileBadge: FC<{ name: string; previewUrl?: string; onRemove: () =>
 
 export const ChatInput: FC<Props> = ({
   conversationId,
+  serverId,
   onSend,
   onInterrupt,
   isReadOnly,
@@ -670,47 +676,21 @@ export const ChatInput: FC<Props> = ({
       !defaultModel &&
       !apiDefaultModel);
 
-  // Initialize message from localStorage for persistence across page reloads
-  // Skip localStorage in edit mode — content comes from the message being edited
-  const storageKey = conversationId ? `gptme-draft-${conversationId}` : 'gptme-draft-new';
-  const [internalMessage, setInternalMessage] = useState(() => {
-    if (editMode) return '';
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem(storageKey) || '';
-    }
-    return '';
-  });
+  // Unsent drafts persist in localStorage across reloads, scoped to the server
+  // and credentials that own the conversation. A conversation on a server that
+  // is no longer registered has no known owner, so its draft is not persisted.
+  const servers = use$(serverRegistry$.servers);
+  const draftOwner = serverId ? servers.find((s) => s.id === serverId) : connectionConfig;
+  const storageKey = draftOwner ? composerDraftKey(draftOwner, conversationId) : null;
+  // Edit mode skips localStorage — its content comes from the message being edited.
+  const [internalMessage, setInternalMessage] = useComposerDraft(
+    editMode ? null : storageKey,
+    JSON.stringify([serverId ?? null, conversationId ?? null])
+  );
   const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [maxTokens, setMaxTokens] = useState<number | undefined>(undefined);
   const [temperature, setTemperature] = useState<number | undefined>(undefined);
   const [topP, setTopP] = useState<number | undefined>(undefined);
-
-  // When switching conversations, load the new conversation's draft.
-  // Use a ref to track the previous key so we can save the outgoing draft first.
-  const prevStorageKey = useRef(storageKey);
-  useEffect(() => {
-    if (editMode || typeof window === 'undefined') return;
-    if (storageKey !== prevStorageKey.current) {
-      // Save outgoing draft to old key (if non-empty)
-      // skip if current message was already cleared (e.g. after send)
-      // Note: we read internalMessage indirectly via the DOM/ref to avoid
-      // needing it as a dependency (which would cause infinite loops)
-      prevStorageKey.current = storageKey;
-      // Load incoming draft from new key
-      setInternalMessage(localStorage.getItem(storageKey) || '');
-    }
-  }, [storageKey, editMode]);
-
-  // Persist message draft to localStorage (skip in edit mode).
-  // Clears the draft when the input is emptied (e.g. after send).
-  useEffect(() => {
-    if (editMode || typeof window === 'undefined') return;
-    if (internalMessage) {
-      localStorage.setItem(storageKey, internalMessage);
-    } else {
-      localStorage.removeItem(storageKey);
-    }
-  }, [internalMessage, storageKey, editMode]);
 
   // Track if user has explicitly selected a model (temporary override)
   const [hasExplicitModelSelection, setHasExplicitModelSelection] = useState(false);
@@ -1068,7 +1048,7 @@ export const ChatInput: FC<Props> = ({
         setMessage('');
         cleanupAndClearFiles();
         // Clear localStorage draft since we're queueing it
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && storageKey) {
           localStorage.removeItem(storageKey);
         }
         // Reset textarea height
