@@ -36,9 +36,9 @@ RECOMMENDED_MODELS: dict[str, str] = {
     "gemini": "gemini-3.1-pro-preview",
     "xai": "grok-4.6",
     "grok-subscription": "grok-4.6",
-    # Sonnet 5.5 is exposed only through OpenRouter on gptme.ai, where its
-    # billing metadata must be updated before changing this direct default.
-    "gptme": "claude-sonnet-4-6",
+    # Billing verified 2026-10-26: production messages v141 charges $2/$10 per
+    # million tokens for this path. Smoke test (streaming + tool call) passed.
+    "gptme": "openrouter/anthropic/claude-sonnet-5.5",
     "deepseek": "deepseek-v4-flash",
     "groq": "llama-3.3-70b-versatile",
 }
