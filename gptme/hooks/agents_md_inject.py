@@ -42,15 +42,11 @@ from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any
 
-from ..config import config_path, get_config, get_project_config
+from ..config import get_config, get_project_config
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from ..prompts import (
-    _loaded_agent_files_var,
-    find_agent_files_in_tree,
-    resolve_prompt_file_paths,
-)
+from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
 from ..util.context_dedup import _content_hash
 
 # Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
@@ -182,43 +178,36 @@ def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
         current = current.parent
 
 
-def _prompt_file_roots() -> set[Path]:
-    """Agent workspaces whose instructions were loaded at session start.
+def _prompt_file_roots(log: Log | None) -> set[Path]:
+    """Agent roots represented by files in the actual startup system messages.
 
-    A session that already carries an agent workspace's instructions (e.g. via
-    ``prompt.files``) has adopted that identity: the workspace is part of the
-    session's own context, never foreign. Without this, a session without an
-    agent name would skip the very instructions it was started with.
-
-    The files are resolved exactly as startup resolves them (relative entries
-    against the config directory, missing files skipped), so the exemption
-    matches the instructions the session actually carries.
+    Configuration alone is not evidence of loading: exclusions and selective
+    context can omit a configured file. Read the startup log instead, which also
+    survives fresh server request contexts. Later tool output must not grant an
+    identity exemption.
     """
     roots: set[Path] = set()
-    try:
-        files = get_config().user.prompt.files
-    except Exception as e:  # config problems shouldn't break the hook
-        logger.debug(f"Could not read prompt files from config: {e}")
+    if log is None:
         return roots
-    if not files:
-        return roots
-    config_dir = Path(config_path).expanduser().resolve().parent
-    for configured, resolved in resolve_prompt_file_paths(files, config_dir):
-        # A symlinked file is loaded from its configured location, so that
-        # location decides which workspace the session carries it from.
-        # Normalize it lexically (no symlink resolution) so that a ".."
-        # segment cannot make the walk pick up an unrelated workspace.
-        for location in (
-            Path(os.path.normpath(str(configured.parent))),
-            resolved.parent,
-        ):
-            found = _nearest_agent_root(location)
-            if found is not None:
-                roots.add(found[0])
+    for msg in log.messages:
+        if msg.role != "system":
+            break
+        origins = msg.metadata.get("startup_prompt_files", []) if msg.metadata else []
+        files = [file for file in msg.files if isinstance(file, Path)]
+        files.extend(Path(origin) for origin in origins)
+        for file in files:
+            # Resolve directory symlinks and '..' together, preserving only the
+            # final file symlink's location as well as its target's location.
+            for location in (file.parent.resolve(), file.resolve().parent):
+                found = _nearest_agent_root(location)
+                if found is not None:
+                    roots.add(found[0])
     return roots
 
 
-def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
+def _session_identity(
+    workspace: Path | None, log: Log | None = None
+) -> tuple[str | None, set[Path]]:
     """Return the session's agent name and its own workspace roots.
 
     The agent name comes from the chat config's agent workspace when available,
@@ -249,7 +238,7 @@ def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
         # workspaces whose instructions it already loaded at startup. A session
         # that *does* have an identity keeps it: entering another agent's
         # workspace must not hand over the identity.
-        roots |= _prompt_file_roots()
+        roots |= _prompt_file_roots(log)
     return name, roots
 
 
@@ -345,10 +334,10 @@ def _format_foreign_notice(
 
 
 def _partition_foreign(
-    agent_files: list[Path], workspace: Path | None
+    agent_files: list[Path], workspace: Path | None, log: Log | None = None
 ) -> tuple[list[Path], dict[Path, tuple[str, list[Path]]], str | None]:
     """Split candidates into allowed files and files in foreign agent workspaces."""
-    session_name, own_roots = _session_identity(workspace)
+    session_name, own_roots = _session_identity(workspace, log)
     allowed: list[Path] = []
     foreign: dict[Path, tuple[str, list[Path]]] = {}
     for agent_file in agent_files:
@@ -395,7 +384,7 @@ def inject_agent_instruction_files(
     if not candidates:
         return
 
-    allowed, foreign, session_name = _partition_foreign(candidates, workspace)
+    allowed, foreign, session_name = _partition_foreign(candidates, workspace, log)
     for root, (name, files) in foreign.items():
         logger.info(
             "Not loading instructions from agent workspace '%s' (%s): %s",

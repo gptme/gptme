@@ -163,8 +163,8 @@ def resolve_prompt_file_paths(
     The configured path matters for symlinked files: it tells which workspace
     the file was loaded *from*, which the target path does not.
 
-    Shared with the agents_md_inject hook, which must resolve the same files
-    to know which agent workspaces the session already carries.
+    Startup retains these origins after filtering so the agents_md_inject hook
+    can identify the workspaces represented by the actual selected files.
     """
     pairs: list[tuple[Path, Path]] = []
     seen: set[str] = set()
@@ -283,6 +283,7 @@ def prompt_workspace(
     agent_files: list[Path] = []  # Agent instruction files (AGENTS.md, etc.)
     context_files: list[Path] = []  # Regular context files (README, etc.)
     seen_paths: set[str] = set()
+    configured_paths: dict[Path, Path] = {}
     workspace_resolved = workspace.resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
 
@@ -391,11 +392,15 @@ def prompt_workspace(
             )
         except (ImportError, OSError, ValueError, AttributeError):
             user_files = []
-        for p in resolve_prompt_files(user_files, config_dir):
+        for configured, p in resolve_prompt_file_paths(user_files, config_dir):
             rp = str(p)
             if rp not in seen_paths:
                 context_files.append(p)
                 seen_paths.add(rp)
+                # Keep the final file symlink's origin in the startup message.
+                # Resolve its parent first so directory symlinks followed by
+                # '..' retain filesystem semantics, not lexical semantics.
+                configured_paths[p] = configured.parent.resolve() / configured.name
 
     # Apply exclude patterns from project config (glob-matched against file names and paths)
     if project and project.exclude:
@@ -450,6 +455,13 @@ def prompt_workspace(
             "system",
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
+            metadata={
+                "startup_prompt_files": [
+                    str(configured_paths.get(f, f))
+                    for f in valid_context_files
+                    if isinstance(f, Path)
+                ]
+            },
         )
 
     # Load persistent memories from all layered roots (project, CC, agent, user).

@@ -691,7 +691,7 @@ class TestForeignAgentWorkspace:
 
 
 def _set_prompt_files(monkeypatch, files: list[str], config_path=None) -> None:
-    """Make the session look like it loaded ``files`` at startup.
+    """Configure ``files``; callers must assemble startup messages separately.
 
     ``config_path`` is where relative entries resolve from, as at startup.
     """
@@ -713,8 +713,23 @@ def _set_prompt_files(monkeypatch, files: list[str], config_path=None) -> None:
     monkeypatch.setattr(
         agents_md_inject, "get_config", lambda: _FakeConfig(files), raising=True
     )
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.get_config", agents_md_inject.get_config
+    )
     if config_path is not None:
-        monkeypatch.setattr(agents_md_inject, "config_path", str(config_path))
+        monkeypatch.setattr("gptme.prompts.workspace.config_path", str(config_path))
+
+
+def _load_startup(log, workspace: Path) -> None:
+    from gptme.prompts import prompt_workspace
+
+    log.messages.extend(
+        prompt_workspace(
+            workspace,
+            include_context_cmd=False,
+            include_runtime_context=False,
+        )
+    )
 
 
 class TestStartupLoadedAgentWorkspace:
@@ -725,6 +740,7 @@ class TestStartupLoadedAgentWorkspace:
     ):
         erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
         _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
 
         msgs = _cd_messages(empty_log, tmp_path, erbot)
 
@@ -737,6 +753,7 @@ class TestStartupLoadedAgentWorkspace:
         erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
         bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
         _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
 
         msgs = _cd_messages(empty_log, tmp_path, bob)
 
@@ -769,6 +786,7 @@ class TestStartupLoadedAgentWorkspace:
             ["../erbot/AGENTS.md"],
             config_path=config_dir / "config.toml",
         )
+        _load_startup(empty_log, tmp_path)
 
         msgs = _cd_messages(empty_log, tmp_path, erbot)
 
@@ -796,6 +814,7 @@ class TestStartupLoadedAgentWorkspace:
         bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
         erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
         _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+        _load_startup(empty_log, bob)
 
         msgs = _cd_messages(empty_log, bob, erbot)
 
@@ -818,11 +837,125 @@ class TestStartupLoadedSymlinkedWorkspace:
         (alice / "AGENTS.md").unlink()
         (alice / "AGENTS.md").symlink_to(shared)
         _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
 
-        msgs = _cd_messages(empty_log, tmp_path, alice)
+        # JSON serialization resolves Message.files symlinks. Startup origin
+        # metadata must still admit Alice in a new request after reload.
+        import json
+
+        from gptme.logmanager import Log
+        from gptme.logmanager.manager import _message_from_json_line
+
+        empty_log = Log(
+            messages=[
+                _message_from_json_line(
+                    json.dumps(msg.to_dict()), tmp_path / "log.jsonl", msg.timestamp
+                )
+                for msg in empty_log.messages
+            ]
+        )
+        _set_prompt_files(monkeypatch, [])
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice subdirectory")
+        msgs = _cd_messages(empty_log, tmp_path, sub)
 
         assert _injected(msgs), "startup-loaded workspace should be injected"
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+
+class TestStartupPromptSelection:
+    def test_startup_evidence_survives_log_roundtrip_and_config_change(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        from gptme.logmanager import Log
+
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        empty_log.messages.append(Message("user", "Enter Alice's source directory"))
+        _set_prompt_files(monkeypatch, [])
+        _loaded_agent_files_var.set(None)  # a fresh server request
+        restored = Log(
+            messages=[Message.from_toml(m.to_toml()) for m in empty_log.messages]
+        )
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(restored, tmp_path, sub)
+
+        assert any("Alice source rules" in msg.content for msg in _injected(msgs))
+        assert not any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+    def test_later_system_attachment_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        empty_log.messages.extend(
+            [
+                Message("system", "Startup without Alice"),
+                Message("user", "Read a file"),
+                Message("system", "Tool output", files=[alice / "AGENTS.md"]),
+            ]
+        )
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+    @pytest.mark.parametrize(
+        ("excluded", "include_user"), [(True, True), (False, False)]
+    )
+    def test_omitted_startup_file_does_not_admit_workspace(
+        self, tmp_path: Path, monkeypatch, excluded: bool, include_user: bool
+    ):
+        from gptme.logmanager import Log
+        from gptme.prompts import prompt_workspace
+
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text(
+            "[prompt]\nfiles = []\n" + ('exclude = ["AGENTS.md"]\n' if excluded else "")
+        )
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+
+        startup = list(
+            prompt_workspace(
+                workspace,
+                include_user_context=include_user,
+                include_context_cmd=False,
+                include_runtime_context=False,
+            )
+        )
+        assert not any(alice / "AGENTS.md" in msg.files for msg in startup)
+
+        msgs = _cd_messages(Log(messages=startup), workspace, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+    def test_directory_symlink_before_dotdot_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        outside = tmp_path / "outside"
+        (outside / "child").mkdir(parents=True)
+        (outside / "AGENTS.md").write_text("# Shared")
+        (alice / "link").symlink_to(outside / "child", target_is_directory=True)
+        entry = str(alice / "link" / ".." / "AGENTS.md")
+        assert Path(entry).resolve() == outside / "AGENTS.md"
+        _set_prompt_files(monkeypatch, [entry])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in msg.content for msg in msgs)
 
 
 class TestStartupLoadedUnrelatedWorkspace:
@@ -840,6 +973,7 @@ class TestStartupLoadedUnrelatedWorkspace:
         # itself lives in the shared directory.
         entry = str(agents / "alice" / ".." / "shared" / "AGENTS.md")
         _set_prompt_files(monkeypatch, [entry])
+        _load_startup(empty_log, tmp_path)
 
         msgs = _cd_messages(empty_log, tmp_path, alice)
 
