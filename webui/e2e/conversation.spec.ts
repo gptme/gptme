@@ -32,8 +32,15 @@ test.describe('Connecting', () => {
     // Click the demo conversation
     await page.getByText('Introduction to gptme').click();
 
-    // Should show the conversation content
-    await expect(page.getByText(/Hello! I'm gptme, your AI programming assistant/)).toBeVisible();
+    // Conversations open at the bottom; the virtualizer may not mount the
+    // opening message until we scroll it into the rendered range.
+    const viewport = page.getByTestId('message-scroll-viewport');
+    await expect(viewport).toBeVisible();
+    await expect(page.locator('[data-message-index]').first()).toBeVisible();
+    await expect(async () => {
+      await viewport.evaluate((element) => element.scrollTo({ top: 0 }));
+      await expect(page.getByText(/Hello! I'm gptme, your AI programming assistant/)).toBeVisible();
+    }).toPass({ timeout: 10000 });
     await page.goto('/');
 
     // In the new layout, conversations should be visible by default
