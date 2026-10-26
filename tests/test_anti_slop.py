@@ -244,6 +244,30 @@ def test_staccato_no_false_positive_on_technical_doc_sentences():
     )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # One ordinary sentence: abbreviation periods are not sentence ends.
+        (
+            "Our team rewrote the scheduler so that every queued job gets retried "
+            "with exponential backoff, e.g. after a transient network failure, i.e. "
+            "a DNS flap or a reset socket from the upstream provider."
+        ),
+        # Version strings and file names contain periods too.
+        (
+            "Upgrade to gptme v0.35.2.dev20261019 and edit gptme.toml before "
+            "restarting the server so the new provider settings are picked up "
+            "by every running agent on the host."
+        ),
+    ],
+)
+def test_staccato_ignores_non_terminal_periods(text):
+    """Periods inside abbreviations, versions and file names do not end sentences."""
+    hits = detect_smells(text)["hits"]
+    assert not [h for h in hits if h["category"] == "staccato"], hits
+    assert evaluate_gate(text)["status"] == "pass"
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
