@@ -645,6 +645,7 @@
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#content-capture">Content capture</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
@@ -902,6 +903,21 @@ uv<span class="w"> </span>run<span class="w"> </span>--extra<span class="w"> </s
 <li><p>Resource usage patterns</p></li>
 </ul>
 </section>
+<section id="content-capture">
+<h3>Content capture<a class="headerlink" href="#content-capture" title="Link to this heading">#</a></h3>
+<p>Enabling telemetry keeps model names, token counts and timing data, but defaults
+OpenAI and Anthropic SDK prompt and response capture to off. To explicitly include
+model inputs and outputs in traces sent to your configured collector, set
+<code class="docutils literal notranslate"><span class="pre">TRACELOOP_TRACE_CONTENT=true</span></code> before starting gptme. Unset or empty values default
+to <code class="docutils literal notranslate"><span class="pre">false</span></code>; explicit settings are preserved (only <code class="docutils literal notranslate"><span class="pre">true</span></code>, case-insensitive,
+enables capture).</p>
+<p>The SDK instrumentors also honor the OpenTelemetry context value
+<code class="docutils literal notranslate"><span class="pre">override_enable_content_tracing</span></code>. Code that explicitly sets this value to true
+enables capture within that context, even with <code class="docutils literal notranslate"><span class="pre">TRACELOOP_TRACE_CONTENT=false</span></code>.
+This is a default for SDK model content, not a general redaction filter: other
+telemetry, including tool and function error strings, may contain sensitive data.
+Send telemetry only to a collector you trust.</p>
+</section>
 <section id="available-metrics">
 <h3>Available Metrics<a class="headerlink" href="#available-metrics" title="Link to this heading">#</a></h3>
 <div class="admonition note">
@@ -955,6 +971,8 @@ uv<span class="w"> </span>run<span class="w"> </span>--extra<span class="w"> </s
 <h3>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_TELEMETRY_ENABLED</span></code>: Enable/disable telemetry (default: false)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TRACELOOP_TRACE_CONTENT</span></code>: Include SDK model inputs/outputs in traces (default: false;
+explicit per-context overrides can also enable capture, see <a class="reference internal" href="#content-capture">Content capture</a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">OTLP_ENDPOINT</span></code>: OTLP endpoint for traces and metrics (default: <a class="reference external" href="http://localhost:4318">http://localhost:4318</a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">OTEL_EXPORTER_OTLP_TIMEOUT</span></code>: OTLP exporter timeout in milliseconds (default: 10000)</p></li>
 </ul>
@@ -1144,6 +1162,7 @@ so signing secrets are never exposed to PR-triggered builds.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#telemetry">Telemetry</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">Setup</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#content-capture">Content capture</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#available-metrics">Available Metrics</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-prometheus-queries">Example Prometheus Queries</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
