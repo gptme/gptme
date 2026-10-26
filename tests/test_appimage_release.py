@@ -24,7 +24,11 @@ def bundled_signature(trusted_comment: str) -> str:
     "failure",
     ["", "unversioned", "build", "patch", "sign", "missing-signature", "missing-key"],
 )
-def test_release_appimage_order(tmp_path: Path, failure: str) -> None:
+def test_release_appimage_order(
+    tmp_path: Path, failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An inherited value must not replace the per-case bundler signature.
+    monkeypatch.setenv("BUNDLED_SIG", "")
     scripts = tmp_path / "tauri/scripts"
     scripts.mkdir(parents=True)
     wrapper = scripts / SCRIPT.name
@@ -65,8 +69,8 @@ def test_release_appimage_order(tmp_path: Path, failure: str) -> None:
     if failure != "unversioned":
         stamp += "\tversion:0.35.2-dev.20261026"
     env = {
-        "BUNDLED_SIG": bundled_signature(stamp),
         **os.environ,
+        "BUNDLED_SIG": bundled_signature(stamp),
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "LEDGER": str(ledger),
         "FAILURE": failure,
