@@ -27,7 +27,7 @@ def test_get_recommended_model():
     from gptme.llm.models import get_recommended_model
 
     model = get_recommended_model("gptme")
-    assert model == "claude-sonnet-4-6"
+    assert model == "openrouter/anthropic/claude-sonnet-5.5"
 
 
 def test_get_provider_from_model():
