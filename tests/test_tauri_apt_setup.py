@@ -85,8 +85,18 @@ def test_tauri_apt_cache_and_download_bounds() -> None:
     assert prepare < steps.index(cache)
 
 
+@pytest.mark.parametrize(
+    ("packages", "extra_packages"),
+    [
+        ("python3-dev build-essential libffi-dev", "xvfb webkit2gtk-driver"),
+        ("python3-dev\nbuild-essential\tlibffi-dev", "xvfb\nwebkit2gtk-driver"),
+        ("python3-dev\r\nbuild-essential libffi-dev", "xvfb\r\nwebkit2gtk-driver\n"),
+    ],
+)
 @pytest.mark.parametrize("update_status", [0, 100])
-def test_tauri_apt_executes_real_script(tmp_path: Path, update_status: int) -> None:
+def test_tauri_apt_executes_real_script(
+    tmp_path: Path, update_status: int, packages: str, extra_packages: str
+) -> None:
     action = yaml.safe_load(ACTION.read_text())
     install = action["runs"]["steps"][-1]["run"]
     calls = tmp_path / "calls"
@@ -106,8 +116,8 @@ def test_tauri_apt_executes_real_script(tmp_path: Path, update_status: int) -> N
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "CALLS": str(calls),
             "UPDATE_STATUS": str(update_status),
-            "PACKAGES": "python3-dev build-essential libffi-dev",
-            "EXTRA_PACKAGES": "xvfb webkit2gtk-driver",
+            "PACKAGES": packages,
+            "EXTRA_PACKAGES": extra_packages,
         },
         check=False,
         capture_output=True,
@@ -124,6 +134,45 @@ def test_tauri_apt_executes_real_script(tmp_path: Path, update_status: int) -> N
         assert installs[0].endswith(
             "install -y python3-dev build-essential libffi-dev xvfb webkit2gtk-driver"
         )
+
+
+def test_tauri_apt_hash_includes_all_lines(tmp_path: Path) -> None:
+    action = yaml.safe_load(ACTION.read_text())
+    prepare = action["runs"]["steps"][0]["run"]
+    sudo = tmp_path / "sudo"
+    sudo.write_text("#!/usr/bin/env bash\nexit 0\n")
+    sudo.chmod(0o755)
+
+    def package_hash(packages: str, extras: str) -> str:
+        output = tmp_path / "outputs"
+        output.write_text("")
+        subprocess.run(
+            ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", prepare],
+            env={
+                "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                "GITHUB_OUTPUT": str(output),
+                "PACKAGES": packages,
+                "EXTRA_PACKAGES": extras,
+            },
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return dict(line.split("=", 1) for line in output.read_text().splitlines())[
+            "hash"
+        ]
+
+    expected = package_hash("python3-dev build-essential", "xvfb webkit2gtk-driver")
+    assert (
+        package_hash("python3-dev\nbuild-essential", "xvfb\nwebkit2gtk-driver")
+        == expected
+    )
+    assert (
+        package_hash("python3-dev\r\nbuild-essential", "xvfb\r\nwebkit2gtk-driver")
+        == expected
+    )
+    assert package_hash("python3-dev build-essential", "xvfb\npatchelf") != expected
 
 
 def test_action_changes_trigger_all_platforms() -> None:

@@ -21,7 +21,7 @@ runs:
       run: |
         . /etc/os-release
         echo "distro=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
-        read -r -a packages <<< "$PACKAGES $EXTRA_PACKAGES"
+        read -r -a packages <<< "$(printf '%s %s' "$PACKAGES" "$EXTRA_PACKAGES" | tr '[:space:]' ' ')"
         hash=$(printf '%s\n' "${packages[@]}" | sort -u | sha256sum | cut -d' ' -f1)
         echo "hash=$hash" >> "$GITHUB_OUTPUT"
         echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
@@ -53,5 +53,5 @@ runs:
         # Also clean from /etc/apt/sources.list when configured directly.
         sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
         sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o APT::Update::Error-Mode=any update
-        read -r -a packages <<< "$PACKAGES $EXTRA_PACKAGES"
+        read -r -a packages <<< "$(printf '%s %s' "$PACKAGES" "$EXTRA_PACKAGES" | tr '[:space:]' ' ')"
         sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Binary::apt::APT::Keep-Downloaded-Packages=true install -y "${packages[@]}"
