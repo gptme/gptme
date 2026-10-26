@@ -748,8 +748,10 @@ resists it reliably.</p>
 <ul class="simple">
 <li><p>The dangerous combination is <strong>untrusted input + powerful tools + valuable
 credentials</strong>. Remove at least one of them.</p></li>
-<li><p>gptme screens tool output for common injection patterns and warns the model (on
-by default; see <code class="docutils literal notranslate"><span class="pre">GPTME_INJECTION_HYGIENE</span></code>). This helps, but it isn’t a guarantee.</p></li>
+<li><p>gptme screens tool output, and pages fetched for URLs in your prompt, for common
+injection patterns and warns the model (on by default; see
+<code class="docutils literal notranslate"><span class="pre">GPTME_INJECTION_HYGIENE</span></code>). Fetched pages are also labeled as untrusted external
+content. This helps, but it isn’t a guarantee.</p></li>
 <li><p>Review <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> before working in an unfamiliar repository; see
 <a class="reference internal" href="#project-configuration-trust">Project Configuration Trust</a>.</p></li>
 </ul>
