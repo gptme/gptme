@@ -147,7 +147,7 @@ _WORD = re.compile(r"\b\w+\b")
 # marks. Start only at the beginning of a punctuation run to avoid quadratic
 # retries when a long run is not followed by a sentence boundary.
 _SENT_END = re.compile(
-    r"(?<![.!?])(?:[!?]|(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bvs)(?<!\bcf)\.)[.!?]*"
+    r"(?<![.!?])(?:\.*[!?]|(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bvs)(?<!\bcf)\.)[.!?]*"
     r"[\"'”’\)\]\}*_`~]*(?=\s|$)",
     re.IGNORECASE,
 )

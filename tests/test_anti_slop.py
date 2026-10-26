@@ -308,7 +308,7 @@ def test_staccato_detects_formatted_sentences(opening, closing, terminator):
     assert evaluate_gate(text)["status"] == "fail"
 
 
-@pytest.mark.parametrize("terminator", ["!", "?"])
+@pytest.mark.parametrize("terminator", ["!", "?", ".!", ".?", "...?"])
 def test_staccato_abbreviation_prefix_does_not_hide_other_terminators(terminator):
     text = terminator.join(
         [
