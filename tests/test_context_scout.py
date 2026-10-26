@@ -1,6 +1,7 @@
 """Unit tests for context-scout pre-pass module."""
 
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -82,6 +83,60 @@ class TestGetMessagesFromManager:
         manager.log = inner_log
         result = _get_messages_from_manager(manager)
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# get_workspace_files — Git-quoted filename regression (issue #4504)
+# ---------------------------------------------------------------------------
+
+
+class TestGetWorkspaceFilesQuotedNames:
+    """get_workspace_files must return all tracked files regardless of quoting."""
+
+    @pytest.fixture()
+    def git_workspace(self, tmp_path):
+        """A real git repo with non-ASCII, quote, and backslash filenames."""
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.email", "t@t.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True
+        )
+        # Force git to C-style-quote the non-ASCII and special names.
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "core.quotePath", "true"],
+            check=True,
+        )
+        names = ["plain.py", "café.py", "中文.py", 'quote".py', "back\\slash.py"]
+        for name in names:
+            (tmp_path / name).write_text("pass\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "--", *names], check=True)
+        return tmp_path, names
+
+    def test_returns_all_tracked_files(self, git_workspace):
+        """All five tracked filenames are discovered even when core.quotePath=true."""
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        workspace, names = git_workspace
+        found = {f.name for f in get_workspace_files(workspace)}
+        assert found == set(names), f"missing: {set(names) - found}"
+
+    def test_no_path_with_quotes_in_name(self, git_workspace):
+        """Returned paths are real Path objects that exist on disk."""
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        workspace, _ = git_workspace
+        for f in get_workspace_files(workspace):
+            assert f.exists(), f"{f} does not exist on disk"
+
+    def test_build_file_tree_includes_quoted_names(self, git_workspace):
+        """_build_file_tree must include all filenames in its output."""
+        workspace, names = git_workspace
+        tree = _build_file_tree(workspace)
+        for name in names:
+            assert name in tree, f"{name!r} missing from file tree"
 
 
 # ---------------------------------------------------------------------------
