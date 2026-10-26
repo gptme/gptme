@@ -1,11 +1,11 @@
 """gptme-util context files: emit the same files the prompt loader would include."""
 
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 
 import pytest
 from click.testing import CliRunner, Result
 
-from gptme.cli.util import main
+from gptme.cli.util import _relpath_matches_exclude, main
 
 
 def _invoke(
@@ -258,3 +258,23 @@ def test_context_files_excludes_absolute_path_with_parent_components(
     )
     assert result.exit_code == 0, result.output + str(result.exception)
     assert "excluded content" not in result.output
+
+
+@pytest.mark.parametrize(
+    "relpath",
+    [
+        PureWindowsPath("private") / "notes.md",
+        PurePosixPath("private/notes.md"),
+        Path("private/notes.md"),
+        None,
+    ],
+)
+def test_relpath_matches_exclude_uses_posix_separators(
+    relpath: PurePath | None,
+) -> None:
+    """Directory globs in gptme.toml use '/'; Windows str(Path) uses '\\'."""
+    if relpath is None:
+        assert _relpath_matches_exclude(None, "private/*") is False
+        return
+    assert _relpath_matches_exclude(relpath, "private/*")
+    assert _relpath_matches_exclude(relpath, "docs/releases/*") is False

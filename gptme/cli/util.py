@@ -40,7 +40,7 @@ import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 import click
@@ -1002,6 +1002,17 @@ def context_tree(path: str, max_depth: int):
     print(_codeblock("tree", buffer.getvalue().rstrip()))
 
 
+def _relpath_matches_exclude(relpath: PurePath | None, pat: str) -> bool:
+    """Match a workspace-relative path against a gptme.toml exclude pattern.
+
+    ``fnmatch`` treats ``/`` as a literal, so Windows ``str(Path)`` backslashes
+    miss directory globs such as ``private/*``. Use POSIX separators.
+    """
+    if relpath is None:
+        return False
+    return fnmatch.fnmatch(relpath.as_posix(), pat)
+
+
 @context.command("files")
 @click.option(
     "--config",
@@ -1102,7 +1113,7 @@ def context_files(config: str | None):
                 fnmatch.fnmatch(fpath.name, pat)
                 or fnmatch.fnmatch(resolved.name, pat)
                 or any(
-                    relpath is not None and fnmatch.fnmatch(str(relpath), pat)
+                    _relpath_matches_exclude(relpath, pat)
                     for relpath in (relative, normalized_relative, resolved_relative)
                 )
                 for pat in project.exclude
