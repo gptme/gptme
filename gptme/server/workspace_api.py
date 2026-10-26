@@ -251,6 +251,11 @@ def list_directory(
 @workspace_api.route(
     "/api/v2/conversations/<string:conversation_id>/workspace/<path:subpath>"
 )
+@workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/attachments/<path:subpath>",
+    defaults={"root": "attachments"},
+    endpoint="browse_attachments",
+)
 @require_auth
 @api_doc_simple(
     responses={
@@ -274,17 +279,24 @@ def list_directory(
                 "enum": ["workspace", "attachments"],
                 "default": "workspace",
             },
-            "description": "Root directory to browse: 'workspace' (default) or 'attachments' (uploaded files)",
+            "description": (
+                "Root directory for /workspace: 'workspace' (default) or "
+                "'attachments' (uploaded files). The /attachments path always "
+                "uses the attachments root regardless of this parameter."
+            ),
         },
     ],
     tags=["workspace"],
 )
-def browse_workspace(conversation_id: str, subpath: str | None = None):
+def browse_workspace(
+    conversation_id: str, subpath: str | None = None, root: str | None = None
+):
     """Browse workspace directory.
 
     List contents of a conversation's workspace directory.
     Returns file metadata for a single file or directory listing.
     Use ?root=attachments to browse uploaded attachment files instead.
+    The /attachments/<path> alias keeps that root in relative resource URLs.
     """
     if error := _validate_conversation_id(conversation_id):
         return error
@@ -295,7 +307,7 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         except FileNotFoundError:
             return flask.jsonify({"error": "Conversation not found"}), 404
 
-        root_param = request.args.get("root", "workspace")
+        root_param = root or request.args.get("root", "workspace")
         if root_param not in ("workspace", "attachments"):
             return flask.jsonify(
                 {"error": "root must be 'workspace' or 'attachments'"}
@@ -317,13 +329,6 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
             # Serve 3D model files as raw bytes so that model-viewer can use
             # the file's natural URL as the base for relative URI resolution
             # (e.g. sibling buffers and textures referenced by .gltf files).
-            # TODO: sibling requests from model-viewer (buffers, textures) are
-            # plain relative-path fetches and do not carry ?root=attachments.
-            # A .gltf stored under the attachments root therefore has working
-            # intra-root relative URIs only when the sibling assets reside at
-            # the same path under the workspace root. Fix: detect/infer the root
-            # from the request path prefix or a signed URL token so sibling
-            # fetches inherit the correct root automatically.
             ext = path.suffix.lower()
             if ext in _MODEL3D_MIME:
                 return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
@@ -590,6 +595,11 @@ def preview_file(conversation_id: str, filepath: str):
         wfile = WorkspaceFile(path, workspace)
         mime_type = wfile.mime_type
 
+        # glTF is JSON text, so model dispatch must precede text sniffing.
+        ext = path.suffix.lower()
+        if ext in _MODEL3D_MIME:
+            return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
+
         # Handle different file types
         if wfile.is_text:
             # Text files — cap preview to avoid OOM on huge files.
@@ -608,10 +618,6 @@ def preview_file(conversation_id: str, filepath: str):
         if mime_type and mime_type.startswith("image/"):
             # Images
             return flask.send_file(path, mimetype=mime_type)
-        # 3D model files — served as raw bytes; frontend creates a blob URL for model-viewer.
-        ext = path.suffix.lower()
-        if ext in _MODEL3D_MIME:
-            return flask.send_file(path, mimetype=_MODEL3D_MIME[ext])
         # Binary files - return only metadata
         return flask.jsonify({"type": "binary", "metadata": wfile.to_dict()})
 

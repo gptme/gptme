@@ -1,8 +1,10 @@
 """Tests for workspace API endpoints, including file upload."""
 
 import io
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.parse import urljoin
 
 import pytest
 
@@ -489,3 +491,156 @@ class TestServeConversationFileEndpoint:
 
         assert resp.status_code == 200
         assert "text/plain" in resp.content_type
+
+
+class TestAttachmentResourceEndpoint:
+    """Attachment URLs keep relative model resources in the attachments root."""
+
+    base = "/api/v2/conversations/test-conv/attachments/"
+
+    def test_model_relative_resources_and_legacy_routes(
+        self, app, mock_logmanager_full, mock_auth
+    ) -> None:
+        _, logdir, workspace = mock_logmanager_full
+        attachments = logdir / "attachments"
+        model = {
+            "asset": {"version": "2.0"},
+            "buffers": [{"uri": "mesh.bin", "byteLength": 4}],
+            "images": [{"uri": "textures/color.png"}],
+        }
+        files = {
+            "models/scene.gltf": json.dumps(model).encode(),
+            "models/mesh.bin": b"mesh",
+            "models/textures/color.png": b"\x89PNG\r\n\x1a\n",
+        }
+        workspace_model = json.dumps(
+            {**model, "asset": {"version": "2.0", "generator": "workspace-copy"}}
+        ).encode()
+        for relative, content in files.items():
+            for root, data in (
+                (attachments, content),
+                (
+                    workspace,
+                    workspace_model
+                    if relative.endswith(".gltf")
+                    else b"wrong workspace content",
+                ),
+                (workspace / "attachments", b"wrong fallback content"),
+            ):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+
+        model_url = self.base + "models/scene.gltf"
+        with app.test_request_context():
+            from flask import url_for
+
+            assert (
+                url_for(
+                    "workspace_api.browse_workspace",
+                    conversation_id="test-conv",
+                    subpath="models/scene.gltf",
+                )
+                == "/api/v2/conversations/test-conv/workspace/models/scene.gltf"
+            )
+        with app.test_client() as client:
+            response = client.get(model_url)
+            assert response.status_code == 200
+            assert response.mimetype == "model/gltf+json"
+            loaded = json.loads(response.data)
+            for resource in loaded["buffers"] + loaded["images"]:
+                resource_url = urljoin(model_url, resource["uri"])
+                assert resource_url.startswith(self.base)
+                sibling = client.get(resource_url)
+                assert sibling.status_code == 200
+                assert sibling.data == files["models/" + resource["uri"]]
+
+            # Path-selected root cannot be changed by the legacy query selector.
+            override = client.get(model_url + "?root=workspace")
+            assert override.status_code == 200
+            assert override.data == files["models/scene.gltf"]
+
+            legacy = client.get(
+                "/api/v2/conversations/test-conv/workspace/models/scene.gltf"
+                "?root=attachments"
+            )
+            assert legacy.status_code == 200
+            assert legacy.data == files["models/scene.gltf"]
+            ordinary = client.get(
+                "/api/v2/conversations/test-conv/workspace/models/scene.gltf"
+            )
+            assert ordinary.status_code == 200
+            assert ordinary.data == workspace_model
+
+            # Textual glTF must reach the model renderer, not the text preview.
+            for query, expected in (
+                ("?root=attachments", files["models/scene.gltf"]),
+                ("", workspace_model),
+            ):
+                preview = client.get(
+                    "/api/v2/conversations/test-conv/workspace/models/scene.gltf/preview"
+                    + query
+                )
+                assert preview.status_code == 200
+                assert preview.mimetype == "model/gltf+json"
+                assert preview.data == expected
+
+    def test_missing_sibling_does_not_fall_back_to_workspace(
+        self, app, mock_logmanager_full, mock_auth
+    ) -> None:
+        _, logdir, workspace = mock_logmanager_full
+        (logdir / "attachments").mkdir()
+        for root in (workspace, workspace / "attachments"):
+            root.mkdir(exist_ok=True)
+            (root / "missing.bin").write_bytes(b"private workspace data")
+        with app.test_client() as client:
+            response = client.get(self.base + "missing.bin")
+        assert response.status_code == 404
+        assert b"private workspace data" not in response.data
+
+    @pytest.mark.parametrize(
+        "escape", ["..%2Fsecret.bin", "%2e%2e/secret.bin", "link.bin"]
+    )
+    def test_rejects_escape_from_attachments(
+        self, app, mock_logmanager_full, mock_auth, escape: str
+    ) -> None:
+        _, logdir, _ = mock_logmanager_full
+        attachments = logdir / "attachments"
+        attachments.mkdir()
+        secret = logdir / "secret.bin"
+        secret.write_bytes(b"private conversation data")
+        (attachments / "link.bin").symlink_to(secret)
+        with app.test_client() as client:
+            response = client.get(self.base + escape)
+        assert response.status_code == 400
+        assert b"private conversation data" not in response.data
+
+    def test_resource_requests_require_bearer_or_cookie_auth(
+        self, app, mock_logmanager_full, monkeypatch
+    ) -> None:
+        import gptme.server.auth as auth_mod
+
+        monkeypatch.setattr(auth_mod, "_auth_enabled", True)
+        monkeypatch.setattr(auth_mod, "_server_token", "attachment-test-token")
+        _, logdir, _ = mock_logmanager_full
+        attachments = logdir / "attachments"
+        attachments.mkdir()
+        (attachments / "mesh.bin").write_bytes(b"mesh")
+        url = self.base + "mesh.bin"
+        with app.test_client() as client:
+            assert client.get(url).status_code == 401
+            assert (
+                client.get(url, headers={"Authorization": "Bearer wrong"}).status_code
+                == 401
+            )
+            bearer = client.get(
+                url, headers={"Authorization": "Bearer attachment-test-token"}
+            )
+            assert bearer.status_code == 200
+            assert bearer.data == b"mesh"
+            client.set_cookie(
+                auth_mod.AUTH_COOKIE_NAME, "attachment-test-token", path="/api/"
+            )
+            cookie = client.get(url)
+            assert cookie.status_code == 200
+            assert cookie.data == b"mesh"
