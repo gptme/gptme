@@ -429,7 +429,8 @@ class ProjectConfig:
             prompt = prompt_data
             base_prompt = config_data.pop("base_prompt", None)
             files = _require_str_list("files", config_data.pop("files", None))
-            exclude = []
+            # to_dict() writes exclude at the top level, so read it back here
+            exclude = _require_str_list("exclude", config_data.pop("exclude", []))
             context_cmd = config_data.pop("context_cmd", None)
 
         hooks_data = _pop_object_section(config_data, "hooks")

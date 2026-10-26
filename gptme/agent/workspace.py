@@ -574,6 +574,22 @@ def _merge_project_config(
     project_config: ProjectConfig | None,
 ) -> None:
     """Merge project config with any existing config in the workspace."""
+    config_path = path / "gptme.toml"
+    if project_config is None and config_path.exists():
+        # Nothing to merge: only ensure the agent name, editing in place so the
+        # template's [prompt] section, comments, and unset defaults survive.
+        # Round-tripping through ProjectConfig.to_dict() flattens [prompt] into
+        # the legacy top-level form and freezes every default into the file.
+        doc = tomlkit.parse(config_path.read_text())
+        agent = doc.get("agent")
+        if agent is None:
+            agent = tomlkit.table()
+            doc["agent"] = agent
+        if not agent.get("name"):
+            agent["name"] = agent_name
+            config_path.write_text(tomlkit.dumps(doc))
+        return
+
     existing_config = get_project_config(path)
 
     if not existing_config and not project_config:

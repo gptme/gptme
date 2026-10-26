@@ -162,6 +162,29 @@ class TestCheckGptmeToml:
         check_gptme_toml(workspace, report)
         assert report.warnings == 3  # name, prompt, context_cmd
 
+    def test_legacy_flat_config(self, workspace: Path):
+        # Top-level files/context_cmd is still loaded by ProjectConfig
+        (workspace / "gptme.toml").write_text(
+            'files = ["README.md"]\ncontext_cmd = "echo"\n\n[agent]\nname = "Bob"\n'
+        )
+        report = DoctorReport()
+        check_gptme_toml(workspace, report)
+        assert report.passes == 3
+        assert report.warnings == 0
+
+    @pytest.mark.parametrize("prompt_table", ['files = ["README.md"]\n', ""])
+    def test_prompt_table_ignores_top_level_context_cmd(
+        self, workspace: Path, prompt_table: str
+    ):
+        (workspace / "gptme.toml").write_text(
+            'context_cmd = "echo ignored"\n\n[agent]\nname = "Bob"\n\n[prompt]\n'
+            + prompt_table
+        )
+        report = DoctorReport()
+        check_gptme_toml(workspace, report)
+        context_result = next(r for r in report.results if r.name == "Context command")
+        assert context_result.status == "warn"
+
     def test_no_file(self, workspace: Path):
         report = DoctorReport()
         check_gptme_toml(workspace, report)
