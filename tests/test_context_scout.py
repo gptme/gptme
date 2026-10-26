@@ -131,6 +131,27 @@ class TestGetWorkspaceFilesQuotedNames:
         for f in get_workspace_files(workspace):
             assert f.exists(), f"{f} does not exist on disk"
 
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX byte filenames")
+    @pytest.mark.parametrize("replacement_exists", [False, True])
+    def test_preserves_non_utf8_filename_identity(self, tmp_path, replacement_exists):
+        """Byte filenames must not be omitted or replaced by a different file."""
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        raw_name = b"bad\xff.py"
+        tracked = tmp_path / os.fsdecode(raw_name)
+        tracked.write_text("tracked\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", "--", tracked.name], check=True
+        )
+        if replacement_exists:
+            (tmp_path / "bad\ufffd.py").write_text("untracked\n", encoding="utf-8")
+
+        found = get_workspace_files(tmp_path)
+        assert found == [tracked]
+        assert os.fsencode(found[0].name) == raw_name
+        assert found[0].read_text(encoding="utf-8") == "tracked\n"
+
     def test_build_file_tree_includes_quoted_names(self, git_workspace):
         """_build_file_tree must include all filenames in its output."""
         workspace, names = git_workspace

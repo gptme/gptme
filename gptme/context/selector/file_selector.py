@@ -1,6 +1,7 @@
 """Enhanced file selection using context selector."""
 
 import logging
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,7 +33,7 @@ def get_workspace_files(workspace: Path) -> list[Path]:
             check=True,
             timeout=30,
         )
-        names = p.stdout.decode("utf-8", errors="replace").split("\0")
+        names = os.fsdecode(p.stdout).split("\0")
         files = [workspace / f for f in names if f]
         # Filter existing files
         files = [f for f in files if f.exists()]
