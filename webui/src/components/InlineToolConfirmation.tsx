@@ -92,7 +92,7 @@ export function InlineToolConfirmation({
       const isNewTool =
         confirmedToolId.current === null || pendingTool.id !== confirmedToolId.current;
       if (isNewTool) {
-        setEditedContent(pendingTool.tooluse.content);
+        setEditedContent(pendingTool.tooluse.content ?? '');
         setIsEditing(false);
         setShowCustomInput(false);
         releaseLock();
@@ -224,6 +224,11 @@ export function InlineToolConfirmation({
 
   if (!pendingTool) return null;
 
+  // Native tool calls have no content, only kwargs: preview those as JSON
+  const previewCode =
+    pendingTool.tooluse.content ||
+    (pendingTool.tooluse.kwargs ? JSON.stringify(pendingTool.tooluse.kwargs, null, 2) : '');
+
   return (
     <div className="role-system mb-2 mt-2">
       <div className="mx-auto max-w-3xl px-4">
@@ -276,14 +281,18 @@ export function InlineToolConfirmation({
                     />
                   ) : (
                     <CodeDisplay
-                      code={pendingTool.tooluse.content}
+                      code={previewCode}
                       maxHeight="200px"
                       showLineNumbers={true}
-                      language={detectToolLanguage(
-                        pendingTool.tooluse.tool,
-                        pendingTool.tooluse.args ?? undefined,
+                      language={
                         pendingTool.tooluse.content
-                      )}
+                          ? detectToolLanguage(
+                              pendingTool.tooluse.tool,
+                              pendingTool.tooluse.args ?? undefined,
+                              pendingTool.tooluse.content
+                            )
+                          : 'json'
+                      }
                     />
                   )}
                 </div>
@@ -300,16 +309,18 @@ export function InlineToolConfirmation({
                   ) : (
                     <>
                       <div className="flex items-center gap-1.5">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsEditing(!isEditing)}
-                          disabled={confirmLoading}
-                          className="h-7 px-2 text-xs"
-                        >
-                          <Edit className="mr-1 h-3.5 w-3.5" />
-                          {isEditing ? 'Cancel' : 'Edit'}
-                        </Button>
+                        {(pendingTool.tooluse.content || !pendingTool.tooluse.kwargs) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setIsEditing(!isEditing)}
+                            disabled={confirmLoading}
+                            className="h-7 px-2 text-xs"
+                          >
+                            <Edit className="mr-1 h-3.5 w-3.5" />
+                            {isEditing ? 'Cancel' : 'Edit'}
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
