@@ -141,10 +141,12 @@ _WORD = re.compile(r"\b\w+\b")
 # returns a sorted list of integers."); 7 is the upper bound for genuinely
 # punchy slop-style phrasing ("It works. It scales. It delivers.").
 # A terminator only ends a sentence when followed by whitespace or end of
-# text, so periods inside versions (v0.35.1), file names (gptme.toml) and URLs
-# do not split. Common abbreviations are skipped for the same reason.
+# text (allowing closing quotes, brackets and Markdown marks in between), so
+# periods inside versions (v0.35.1), file names (gptme.toml) and URLs do not
+# split. Common abbreviations are skipped for the same reason.
 _SENT_END = re.compile(
-    r"(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bvs)(?<!\bcf)[.!?]+(?=\s|$)",
+    r"(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bvs)(?<!\bcf)[.!?]+"
+    r"[\"'”’\)\]\}*_`~]*(?=\s|$)",
     re.IGNORECASE,
 )
 _STACCATO_MAX_WORDS = 7

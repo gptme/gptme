@@ -268,6 +268,46 @@ def test_staccato_ignores_non_terminal_periods(text):
     assert evaluate_gate(text)["status"] == "pass"
 
 
+@pytest.mark.parametrize("abbreviation", ["e.g.", "i.e.", "etc.", "vs.", "cf.", "E.G."])
+def test_staccato_preserves_abbreviation_separated_clauses(abbreviation):
+    text = (
+        f"Use {abbreviation} after resets {abbreviation} network faults {abbreviation} "
+        "while checking logs and recording detailed diagnostics for every retry "
+        "attempt on the production server."
+    )
+    hits = detect_smells(text)["hits"]
+    assert not [h for h in hits if h["category"] == "staccato"], hits
+    assert evaluate_gate(text)["status"] == "pass"
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [
+        ('"', '"'),
+        ("'", "'"),
+        ("“", "”"),
+        ("‘", "’"),
+        ("(", ")"),
+        ("**", "**"),
+        ("_", "_"),
+        ("`", "`"),
+        ("~~", "~~"),
+        ("**“", "”**"),
+    ],
+)
+@pytest.mark.parametrize("terminator", [".", "!", "?"])
+def test_staccato_detects_formatted_sentences(opening, closing, terminator):
+    sentences = [
+        "It works well every single time",
+        "It scales up fast under heavy load",
+        "It delivers clean results every single day",
+    ]
+    text = " ".join(f"{opening}{s}{terminator}{closing}" for s in sentences)
+    hits = detect_smells(text)["hits"]
+    assert [h for h in hits if h["category"] == "staccato"], hits
+    assert evaluate_gate(text)["status"] == "fail"
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
