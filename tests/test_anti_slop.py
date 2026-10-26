@@ -308,6 +308,25 @@ def test_staccato_detects_formatted_sentences(opening, closing, terminator):
     assert evaluate_gate(text)["status"] == "fail"
 
 
+@pytest.mark.parametrize("terminator", ["!", "?"])
+def test_staccato_abbreviation_prefix_does_not_hide_other_terminators(terminator):
+    text = terminator.join(
+        [
+            "It handles retries and resets etc",
+            " It scales up fast under heavy load",
+            " It delivers clean results every single day",
+            "",
+        ]
+    )
+    assert evaluate_gate(text)["status"] == "fail"
+
+
+@pytest.mark.timeout(5)
+def test_staccato_handles_long_non_terminal_punctuation_run():
+    text = "a" + "." * 100_000 + "b"
+    assert not [h for h in detect_smells(text)["hits"] if h["category"] == "staccato"]
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
