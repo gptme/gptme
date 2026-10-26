@@ -40,7 +40,7 @@ import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 import click
@@ -1002,6 +1002,27 @@ def context_tree(path: str, max_depth: int):
     print(_codeblock("tree", buffer.getvalue().rstrip()))
 
 
+def _relpath_matches_exclude(relpath: PurePath | None, pat: str) -> bool:
+    """Match a workspace-relative path against a gptme.toml exclude pattern.
+
+    ``fnmatch`` treats ``/`` as a literal, so Windows ``str(Path)`` backslashes
+    miss directory globs such as ``private/*``. Use POSIX separators.
+    """
+    if relpath is None:
+        return False
+    return fnmatch.fnmatch(relpath.as_posix(), pat)
+
+
+def _workspace_glob_pattern(pattern: PurePath) -> str:
+    """Return a gptme.toml include glob using POSIX separators.
+
+    ``Path.glob`` and ``glob.has_magic`` treat ``/`` as the directory
+    separator in patterns. Windows ``str(Path)`` uses backslashes, so a
+    config glob such as ``src/types/*.ts`` would fail to expand.
+    """
+    return pattern.as_posix()
+
+
 @context.command("files")
 @click.option(
     "--config",
@@ -1015,10 +1036,16 @@ def context_files(config: str | None):
     Replaces ad-hoc context scripts in non-gptme harnesses (autonomous runs,
     project-monitoring) that manually concatenate gptme.toml prompt files.
     """
+    import copy
+    from glob import has_magic
+
     if sys.version_info >= (3, 11):
         import tomllib
     else:
         import tomli as tomllib
+
+    from ..config.models import ProjectConfig
+    from ..prompts.workspace import _sorted_workspace_matches
 
     # Discover gptme.toml from cwd → git root
     toml_path: Path | None
@@ -1038,20 +1065,76 @@ def context_files(config: str | None):
     with open(toml_path, "rb") as f:
         cfg = tomllib.load(f)
 
-    files = cfg.get("prompt", {}).get("files", [])
+    workspace = toml_path.parent.resolve()
+    project = ProjectConfig.from_dict(copy.deepcopy(cfg), workspace=workspace)
+    files = project.files or []
     if not files:
-        click.echo("No [prompt] files configured in gptme.toml.", err=True)
+        click.echo("No prompt files configured in gptme.toml.", err=True)
         raise SystemExit(1)
 
-    workspace = toml_path.parent
-    for rel in files:
-        fpath = workspace / rel
-        if not fpath.exists():
-            click.echo(f"# FILE: {rel} (not found)\n", err=True)
+    seen: set[Path] = set()
+    for pattern in files:
+        expanded = Path(pattern).expanduser()
+        glob_pattern = _workspace_glob_pattern(expanded)
+        # Absolute entries were supported before glob expansion was added.
+        candidates = (
+            [expanded]
+            if expanded.is_absolute()
+            else _sorted_workspace_matches(workspace, glob_pattern)
+        )
+        matches = [path for path in candidates if path.is_file()]
+        if not matches:
+            click.echo(f"# FILE: {pattern} (not found)\n", err=True)
             continue
-        print(f"## FILE: {rel}\n")
-        print(fpath.read_text())
-        print("---\n")
+        for fpath in matches:
+            resolved = fpath.resolve()
+            if resolved in seen:
+                continue
+            try:
+                relative = fpath.relative_to(workspace)
+            except ValueError:
+                relative = None
+            try:
+                normalized_relative = Path(os.path.abspath(fpath)).relative_to(
+                    workspace
+                )
+            except ValueError:
+                normalized_relative = None
+            try:
+                resolved_relative = resolved.relative_to(workspace)
+            except ValueError:
+                resolved_relative = None
+            # Relative globs and in-workspace aliases must not pull in external
+            # symlink targets. Explicit external files (absolute, home-expanded,
+            # or literal parent-relative entries) remain supported.
+            explicit_parent_file = (
+                not expanded.is_absolute()
+                and not has_magic(glob_pattern)
+                and normalized_relative is None
+            )
+            if (
+                resolved_relative is None
+                and not expanded.is_absolute()
+                and not explicit_parent_file
+            ):
+                continue
+            # Check the raw alias, its lexical normalization (without following
+            # symlinks), and the resolved target for workspace-relative exclusions.
+            if any(
+                fnmatch.fnmatch(fpath.name, pat)
+                or fnmatch.fnmatch(resolved.name, pat)
+                or any(
+                    _relpath_matches_exclude(relpath, pat)
+                    for relpath in (relative, normalized_relative, resolved_relative)
+                )
+                for pat in project.exclude
+            ):
+                continue
+            seen.add(resolved)
+            rel = relative.as_posix() if relative is not None else str(fpath)
+            print(f"## FILE: {rel}\n")
+            print(fpath.read_text())
+            print("---\n")
 
 
 @context.command("journal")
