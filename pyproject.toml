@@ -197,9 +197,12 @@ include = [
     { path = "gptme/server/webui-dist", format = ["sdist", "wheel"] },
     { path = "gptme/data/faq.yaml", format = ["sdist", "wheel"] },
     { path = "gptme/eval/tbench/setup.sh" },
-    { path = "media/*.png" },
+    # Poetry include without `format` is sdist-only. Wheels must list both.
+    # #969 added media/*.wav without format, so pip/uv installs shipped no
+    # sounds (`gptme-util sound list` empty; #964 recurred on the wheel).
+    { path = "media/*.png", format = ["sdist", "wheel"] },
     { path = "media/*.svg", format = ["sdist", "wheel"] },
-    { path = "media/*.wav" },
+    { path = "media/*.wav", format = ["sdist", "wheel"] },
 ]
 
 [dependency-groups]

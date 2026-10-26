@@ -96,8 +96,18 @@ def ding(volume: float) -> None:
     """Ring the terminal bell and play the ding, like gptme does after a turn."""
     from ..util.sound import media_path
 
+    path = media_path / "bell.wav"
     _ring_terminal_bell()
-    _play(media_path / "bell.wav", volume)
+    if not path.exists():
+        available = ", ".join(_sound_names()) or "(none)"
+        click.echo(
+            f"Bell sound file not found: {path}. Available: {available}",
+            err=True,
+        )
+        sys.exit(1)
+    if not _play(path, volume):
+        click.echo("No audio player available (tried afplay/paplay/ffplay)", err=True)
+        sys.exit(1)
 
 
 @sound.command("list")
