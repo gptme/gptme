@@ -1808,6 +1808,42 @@ class TestToolConfirmEndpoint:
         finally:
             session.pending_tools.pop(tool_id, None)
 
+    def test_edit_rejects_native_kwargs_call(self, conv, client: FlaskClient):
+        """Edit on a native call returns 400 instead of running the original kwargs."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("shell", None, None, kwargs={"command": "echo original"}),
+        )
+
+        try:
+            with (
+                patch("gptme.server.api_v2_sessions.start_tool_execution") as start,
+                patch(
+                    "gptme.server.api_v2_sessions.resolve_hook_confirmation"
+                ) as resolve,
+            ):
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                    json={
+                        "session_id": conv["session_id"],
+                        "tool_id": tool_id,
+                        "action": "edit",
+                        "content": "echo edited",
+                    },
+                )
+            assert response.status_code == 400
+            data = response.get_json()
+            assert data is not None
+            assert "native" in data["error"].lower()
+            start.assert_not_called()
+            resolve.assert_not_called()
+            assert tool_id in session.pending_tools
+        finally:
+            session.pending_tools.pop(tool_id, None)
+
     def test_auto_with_invalid_count(self, conv, client: FlaskClient):
         """Auto action with count <= 0 returns 400."""
         session = SessionManager.get_session(conv["session_id"])
