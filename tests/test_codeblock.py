@@ -2935,3 +2935,36 @@ def test_extract_codeblocks_shell_ansi_c_escaped_quote_does_not_hide_closer():
     assert blocks_stream == expected, (
         "Streaming must still close after a complete ANSI-C string"
     )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("prose_lines", [1, 30])
+@pytest.mark.parametrize("shell_fence", ["```shell", "``````shell"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_prose_before_unfinished_thinking_does_not_expose_draft(
+    tag: str, prose_lines: int, shell_fence: str, streaming: bool
+) -> None:
+    """Prose after a save closer must not hide unfinished reasoning.
+
+    Regression for gptme/gptme#4491 finding f2719f3a488c. The opener
+    need not be on the line immediately after the completed save.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        + "Considering:\n" * prose_lines
+        + f"<{tag}>\n{shell_fence}\necho draft\n```\n\n"
+    )
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_thinking_example_with_introductory_prose_preserves_save(
+    tag: str, streaming: bool
+) -> None:
+    """Recovery through prose still preserves a confirmed nested example."""
+    content = f"intro\n```\nExample:\n<{tag}>x</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+        Codeblock("save a.md", content)
+    ]

@@ -399,6 +399,12 @@ def _line_fence_states(
         tag: [i for i, line in enumerate(lines) if tag in line]
         for tag in ("</think>", "</thinking>")
     }
+    # Prose can separate a completed tool fence from a reasoning opener.
+    # Index both boundaries so recovery need not rescan every remaining suffix.
+    thinking_opener_lines = [
+        i for i, line in enumerate(lines) if line.startswith(("<think>", "<thinking>"))
+    ]
+    fence_lines = [i for i, line in enumerate(lines) if line.startswith("```")]
     states: list[tuple[int, bool, str]] = []
     depth = 0
     fence_len = 0
@@ -503,6 +509,13 @@ def _line_fence_states(
                             break
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
+                    opener_pos = bisect_left(thinking_opener_lines, i + 1)
+                    fence_pos = bisect_left(fence_lines, i + 1)
+                    if opener_pos < len(thinking_opener_lines) and (
+                        fence_pos == len(fence_lines)
+                        or thinking_opener_lines[opener_pos] < fence_lines[fence_pos]
+                    ):
+                        next_line = lines[thinking_opener_lines[opener_pos]]
                     if heredoc_terminator is None and next_line.startswith(
                         ("<think>", "<thinking>")
                     ):
