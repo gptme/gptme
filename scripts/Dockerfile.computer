@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBIAN_PRIORITY=high
@@ -8,9 +8,9 @@ RUN apt-get update && \
     apt-get -y upgrade && \
     apt-get -y install \
     build-essential \
-    python3.10 \
-    python3.10-dev \
-    python3-pip \
+    python3 \
+    python3-dev \
+    python3-venv \
     # UI Requirements
     xvfb \
     xterm \
@@ -61,7 +61,7 @@ RUN useradd -m -s /bin/bash -d $HOME $USERNAME && \
 
 # Set up environment
 ENV PYTHONPATH=/app
-ENV PATH="/usr/local/bin:$PATH"
+ENV PATH="/opt/venv/bin:/usr/local/bin:$PATH"
 ENV DISPLAY_NUM=1
 ENV WIDTH=1024
 ENV HEIGHT=768
@@ -69,16 +69,18 @@ ENV DISPLAY=:${DISPLAY_NUM}
 
 # Install uv and dependencies from the committed lockfile.
 WORKDIR /app
-RUN python3.10 -m pip install --no-cache-dir --upgrade pip && \
-    python3.10 -m pip install --no-cache-dir uv
+# Ubuntu's system Python is externally managed; keep application installs isolated.
+RUN python3 -m venv /opt/venv && \
+    python -m pip install --no-cache-dir --upgrade pip && \
+    python -m pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock README.md /app/
 RUN uv export --frozen --no-hashes --no-dev --no-emit-project --extra server --extra browser -o requirements.txt && \
-    python3.10 -m pip install --no-cache-dir -r requirements.txt
+    python -m pip install --no-cache-dir -r requirements.txt
 COPY --chown=$USERNAME:$USERNAME . /app
-RUN python3.10 -m pip install --no-cache-dir --no-deps .
+RUN python -m pip install --no-cache-dir --no-deps .
 
 # Install Playwright system-level deps (needs root)
-RUN python3.10 -m playwright install-deps chromium
+RUN python -m playwright install-deps chromium
 
 # Warm the fontconfig cache so the first xterm launch inside the container
 # does not trigger a 1-3 second font directory scan (issue #216 terminal delay).
@@ -97,7 +99,7 @@ USER $USERNAME
 WORKDIR $HOME
 
 # Install Playwright chromium browser binaries as the runtime user
-RUN python3.10 -m playwright install chromium
+RUN python -m playwright install chromium
 
 # Configure git
 RUN git config --global user.name "gptme" && \
