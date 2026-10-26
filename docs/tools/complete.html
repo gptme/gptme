@@ -639,6 +639,12 @@
 <dd><p>Exception raised to signal that the session should end.</p>
 </dd></dl>
 
+<dl class="py exception">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">StaleManifestError</span></span></dt>
+<dd><p>Raised when a live-manifest runner changed after approval and cannot be snapshotted.</p>
+</dd></dl>
+
 <dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">auto_reply_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../api/core.html#gptme.logmanager.LogManager" title="gptme.logmanager.LogManager"><span class="pre">LogManager</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">interactive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt_queue</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.15)"><span class="pre">Any</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_confirm</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.15)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../api/core.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">StopPropagation</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
@@ -669,9 +675,12 @@ and no_confirm.</p>
 immediately after complete tool is called.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">GPTME_VERIFY_COMPLETION</span></code> is set (or a <code class="docutils literal notranslate"><span class="pre">.gptme/verify-completion.sh</span></code>
 script exists in the workspace), that command is run before the session is
-allowed to close.  On failure the agent receives one more turn to fix the
-issue; it can retry up to <code class="docutils literal notranslate"><span class="pre">GPTME_VERIFY_COMPLETION_MAX_RETRIES</span></code> times
-(default 3) before the hook gives up and closes the session anyway.</p>
+allowed to close. With <code class="docutils literal notranslate"><span class="pre">GPTME_VERIFY_COMPLETION_AUTO=1</span></code>, a conventional
+test command is inferred after source-authoring tool calls when neither
+explicit configuration exists. On failure the agent receives one more turn
+to fix the issue; it can retry up to
+<code class="docutils literal notranslate"><span class="pre">GPTME_VERIFY_COMPLETION_MAX_RETRIES</span></code> times (default 3) before the hook
+gives up and closes the session anyway.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
