@@ -336,6 +336,38 @@ describe('ChatInput', () => {
       expect(screen.getByText('new.txt')).toBeInTheDocument();
     });
   });
+
+  it('locks the editor during a pending save so later drafts cannot disappear', async () => {
+    let resolveSave!: (value: boolean) => void;
+    const pending = new Promise<boolean>((resolve) => {
+      resolveSave = resolve;
+    });
+    const onEditSave = jest.fn().mockReturnValue(pending);
+    render(
+      <ChatInput
+        conversationId="conv-a"
+        autoFocus$={observable(false)}
+        editMode
+        onEditSave={onEditSave}
+      />
+    );
+    const input = screen.getByRole('textbox', { name: 'Edit message' });
+    fireEvent.change(input, { target: { value: 'first' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    expect(onEditSave).toHaveBeenCalledTimes(1);
+    expect(onEditSave.mock.calls[0][0]).toBe('first');
+    expect(input).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.change(input, { target: { value: 'second' } });
+    expect(input).toHaveValue('first');
+    await act(async () => {
+      resolveSave(true);
+    });
+    await waitFor(() => expect(input).not.toBeDisabled());
+    expect(onEditSave).toHaveBeenCalledTimes(1);
+  });
 });
 
 // Regression suite for gptme/gptme#3440 — model selector stability.

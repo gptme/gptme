@@ -1030,7 +1030,10 @@ export const ChatInput: FC<Props> = ({
           } else if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
             setMessageQueue((prev) => [nextMessage, ...prev]);
-            if (conversationEpoch.current === owner) scheduleQueueRetry();
+            // Returning to idle A while this POST is pending leaves the queue
+            // empty, so the switch effect cannot re-arm wasBusy. Retry whenever
+            // the original draft is visible, even after conversationEpoch moved.
+            if (currentDraftKey.current === storageKey) scheduleQueueRetry();
           } else {
             console.error('[ChatInput] Failed to send queued message:', error);
           }
@@ -1067,13 +1070,24 @@ export const ChatInput: FC<Props> = ({
     selectedWorkspace$.set(workspace === '.' ? '' : workspace);
   };
 
-  // Edit mode: save with truncate option
+  // Edit mode: save with truncate option. Lock the composer for the whole
+  // pending save so later edits cannot disappear when the editor unmounts.
   const handleEditSave = useCallback(
-    (truncate: boolean) => {
-      if (!onEditSave) return;
+    async (truncate: boolean) => {
+      if (!onEditSave || uploadInFlight.current) return;
       const existingPaths = attachedFiles.filter((f) => f.path && !f.file).map((f) => f.path);
       const newFiles = attachedFiles.filter((f) => f.file).map((f) => f.file!);
-      onEditSave(message, existingPaths, newFiles, truncate);
+      const epoch = ++submissionEpoch.current;
+      uploadInFlight.current = true;
+      setIsUploading(true);
+      try {
+        await onEditSave(message, existingPaths, newFiles, truncate);
+      } finally {
+        if (submissionEpoch.current === epoch) {
+          uploadInFlight.current = false;
+          setIsUploading(false);
+        }
+      }
     },
     [onEditSave, attachedFiles, message]
   );
@@ -1082,7 +1096,7 @@ export const ChatInput: FC<Props> = ({
     // In edit mode, save instead of send
     if (editMode) {
       if (message.trim() || attachedFiles.length > 0) {
-        handleEditSave(false);
+        await handleEditSave(false);
       }
       return;
     }
@@ -1299,6 +1313,7 @@ export const ChatInput: FC<Props> = ({
   // Auto-resize is handled by PromptTextarea itself; this only updates
   // message state and the file autocomplete popup.
   const handleTextareaValueChange = (newValue: string, cursorPos: number) => {
+    if (isDisabled) return;
     setMessage(newValue);
     fileAutocomplete.handleInputChange(newValue, cursorPos);
   };
@@ -1433,6 +1448,7 @@ export const ChatInput: FC<Props> = ({
                       className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
                       onClick={() => fileInputRef.current?.click()}
                       title="Attach files"
+                      disabled={isDisabled}
                     >
                       <Paperclip className="mr-0.5 h-2.5 w-2.5" />
                       Attach
@@ -1442,8 +1458,8 @@ export const ChatInput: FC<Props> = ({
                         type="button"
                         size="sm"
                         className="h-6 px-2 text-xs"
-                        onClick={() => handleEditSave(false)}
-                        disabled={!message.trim() && attachedFiles.length === 0}
+                        onClick={() => void handleEditSave(false)}
+                        disabled={isDisabled || (!message.trim() && attachedFiles.length === 0)}
                       >
                         Save
                       </Button>
@@ -1452,8 +1468,8 @@ export const ChatInput: FC<Props> = ({
                         size="sm"
                         variant="secondary"
                         className="h-6 px-2 text-xs"
-                        onClick={() => handleEditSave(true)}
-                        disabled={!message.trim() && attachedFiles.length === 0}
+                        onClick={() => void handleEditSave(true)}
+                        disabled={isDisabled || (!message.trim() && attachedFiles.length === 0)}
                       >
                         Save & Re-run
                       </Button>

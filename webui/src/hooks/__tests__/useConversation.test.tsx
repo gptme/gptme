@@ -63,6 +63,7 @@ describe('useConversation', () => {
     rerunTools,
     closeEventStream,
     getConversation: jest.fn(),
+    reconcileLateUploadOrder: jest.fn().mockResolvedValue(undefined),
     getChatConfig,
     waitForConversationCreation: jest.fn().mockResolvedValue(undefined),
   });

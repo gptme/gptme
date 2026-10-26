@@ -798,6 +798,31 @@ export function useConversation(conversationId: string, serverId?: string) {
         await api.sendMessage(conversationId, userMessage);
         messageSent = true;
       }
+      // Retry appends at save time. If another message already occupies the
+      // original placeholder slot, local history stays [retried, newer] while
+      // the server is [newer, retried] — reconcile before lifting the
+      // positional-mutation guard.
+      if (
+        !requeueOnBusy &&
+        userMessage.timestamp &&
+        (conversations$.get(conversationId)?.data.log.get() ?? []).some(
+          (entry) => entry.timestamp !== userMessage.timestamp
+        )
+      ) {
+        const log = conversations$.get(conversationId)!.data.log.get();
+        const current = log.find((entry) => entry.timestamp === userMessage.timestamp);
+        if (current) {
+          replaceLog(conversationId, [
+            ...log.filter((entry) => entry.timestamp !== userMessage.timestamp),
+            current,
+          ]);
+        }
+        try {
+          await api.reconcileLateUploadOrder(conversationId);
+        } catch (error) {
+          console.warn('[useConversation] Failed to reconcile retried message order:', error);
+        }
+      }
       setRetryState('saved');
       setMessageStatus(conversationId, userMessage.timestamp!, 'sent', '');
       // Keep settings even when the step fails or waits for server-idle.

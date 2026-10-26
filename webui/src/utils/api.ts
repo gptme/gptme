@@ -1732,12 +1732,13 @@ export class ApiClient {
   }
 
   /**
-   * Reconcile local log order with the server after a late attachment POST.
-   * Edit/delete bump logRevision; a snapshot fetched across that change is
-   * stale and can restore deleted messages or overwrite edits. Retry once,
-   * then keep local if the log is still mutating.
+   * Reconcile local log order with the server after a late attachment POST
+   * or a successful Retry of a previously rejected POST. Edit/delete bump
+   * logRevision; a snapshot fetched across that change is stale and can
+   * restore deleted messages or overwrite edits. Retry once, then keep
+   * local if the log is still mutating.
    */
-  private async reconcileLateUploadOrder(conversationId: string): Promise<void> {
+  async reconcileLateUploadOrder(conversationId: string): Promise<void> {
     const applyIfUnchanged = async (revision: number): Promise<boolean> => {
       const data = await this.getConversation(conversationId);
       if (currentLogRevision(conversationId) !== revision) {

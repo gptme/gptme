@@ -752,6 +752,69 @@ it('uses server order for positional edits/deletes after a late new-chat upload 
   });
 });
 
+it('reconciles server order after a successful Retry of a rejected late attachment POST', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  const post = jest
+    .spyOn(mockClient, 'sendMessage')
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new ApiClientError('invalid', 422))
+    .mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('original attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const original = conversations$.get(id)!.data.log.get()[0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved message' });
+  });
+  const saved = post.mock.calls[0][1];
+  expect(saved.content).toBe('newer saved message');
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  const serverLog = [
+    saved,
+    { role: 'assistant' as const, content: 'newer response', timestamp: '2099-01-01T00:00:00Z' },
+    attached,
+  ];
+  jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: serverLog,
+  });
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+    await creation;
+  });
+  const failed = conversations$.get(id)!.data.log.get()[0];
+  expect(failed._retry?.persistence).toBe('rejected');
+  const edit = jest.spyOn(mockClient, 'editMessage').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: serverLog,
+  });
+  await act(async () => {
+    await result.current.retryMessage(failed);
+  });
+  const log = conversations$.get(id)!.data.log.get();
+  expect(log.map((entry) => entry.content)).toEqual(serverLog.map((entry) => entry.content));
+  expect(log.every((entry) => entry._retry?.persistence !== 'rejected')).toBe(true);
+  const index = log.findIndex((entry) => entry.timestamp === original.timestamp);
+  await act(async () => {
+    await result.current.editMessage(index, 'edited attached');
+  });
+  expect(edit).toHaveBeenCalledWith(id, 2, 'edited attached', false, undefined);
+  expect(post).toHaveBeenCalledTimes(3);
+});
+
 it('does not restore a message deleted during upload-order reconciliation GET', async () => {
   const { renderHook } = await import('@testing-library/react');
   const create = jest.spyOn(mockClient, 'createConversation');
@@ -1361,6 +1424,53 @@ it('retries a late direct 409 after returning to the owning conversation before 
   expect(screen.getByRole('textbox', { name: 'Chat message' })).toHaveValue(
     'new draft must survive'
   );
+});
+
+it('retries a queued 409 after returning to idle A before rejection', async () => {
+  let rejectQueued!: (error: unknown) => void;
+  const queued = new Promise<void>((_resolve, reject) => {
+    rejectQueued = reject;
+  });
+  const oldSend = jest.fn().mockReturnValueOnce(queued).mockResolvedValue(undefined);
+  const newSend = jest.fn();
+  conversations$.get('upload-existing')!.isGenerating.set(true);
+  initConversation(
+    'other-upload',
+    {
+      id: 'other-upload',
+      name: 'Other',
+      log: [],
+      logfile: 'other-upload',
+      branches: {},
+      workspace: '.',
+    },
+    {}
+  );
+  const { rerender } = render(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  const input = screen.getByRole('textbox', { name: 'Chat message' });
+  fireEvent.change(input, { target: { value: 'queued original' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(oldSend).not.toHaveBeenCalled();
+  await act(async () => {
+    conversations$.get('upload-existing')!.isGenerating.set(false);
+  });
+  await waitFor(() => expect(oldSend).toHaveBeenCalledTimes(1));
+  expect(oldSend.mock.calls[0][0]).toBe('queued original');
+  rerender(
+    <ChatInput conversationId="other-upload" autoFocus$={observable(false)} onSend={newSend} />
+  );
+  rerender(
+    <ChatInput conversationId="upload-existing" autoFocus$={observable(false)} onSend={oldSend} />
+  );
+  await act(async () => {
+    rejectQueued(new ApiClientError('Busy', 409));
+  });
+  await waitFor(() => expect(oldSend).toHaveBeenCalledTimes(2), { timeout: 2500 });
+  expect(oldSend.mock.calls[1][0]).toBe('queued original');
+  expect(newSend).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Retry upload' })).not.toBeInTheDocument();
 });
 
 it.each(['rejected', 'unknown'] as const)(
