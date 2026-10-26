@@ -120,7 +120,9 @@ function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]
   return [
     ...snapshot.map((entry) => {
       const previous = local.find((candidate) => sameLogMessage(candidate, entry));
-      return previous ? { ...previous, ...entry } : entry;
+      // Preserve the local identity spelling used by in-flight status updates.
+      // The server may serialize the same instant with different precision/zone.
+      return previous ? { ...previous, ...entry, timestamp: previous.timestamp } : entry;
     }),
     ...local.filter((entry) => !snapshot.some((saved) => sameLogMessage(entry, saved))),
   ];
@@ -1739,6 +1741,10 @@ export class ApiClient {
    * local if the log is still mutating.
    */
   async reconcileLateUploadOrder(conversationId: string): Promise<void> {
+    const state = conversations$.get(conversationId);
+    // A fallback order is not authoritative, even though the POST succeeded.
+    // Keep positional mutations blocked on GET failure or a repeatedly stale GET.
+    state?.historyOrderUncertain.set(true);
     const applyIfUnchanged = async (revision: number): Promise<boolean> => {
       const data = await this.getConversation(conversationId);
       if (currentLogRevision(conversationId) !== revision) {
@@ -1748,6 +1754,7 @@ export class ApiClient {
       // their local order (including newer SSE messages). Only the snapshot
       // prefix has authoritative server indices.
       replaceLog(conversationId, mergeAuthoritativeLogPrefix(conversationId, data.log));
+      state?.historyOrderUncertain.set(false);
       return true;
     };
 

@@ -90,6 +90,9 @@ export interface ConversationState {
   // Incremented whenever the displayed log is replaced wholesale without a
   // necessarily observable count/offset change (edit, branch switch, reload).
   logRevision: number;
+  // A late attachment POST saved, but server order has not yet been confirmed.
+  // Independent of Retry persistence: reposting a saved message is not recovery.
+  historyOrderUncertain?: boolean;
   // Max tokens setting for model responses, persisted across operations.
   // Set by ChatInput when sending a message; read by all step() call sites.
   maxTokens?: number;
@@ -374,6 +377,7 @@ export function updateConversationData(id: string, data: ConversationResponse) {
   const logOffset = data.has_more ? (data.before ?? 0) : 0;
   batch(() => {
     conv.data.set(data);
+    conv.historyOrderUncertain.set(false);
     conv.logRevision.set((revision) => revision + 1);
     conv.logOffset.set(logOffset);
     conv.hasMoreBefore.set(data.has_more ?? false);

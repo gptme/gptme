@@ -10,6 +10,7 @@ import {
   initConversation,
   replaceLog,
   setGenerating,
+  updateConversationData,
 } from '@/stores/conversations';
 
 let mockClient: ApiClient;
@@ -781,7 +782,11 @@ it('reconciles server order after a successful Retry of a rejected late attachme
   });
   const saved = post.mock.calls[0][1];
   expect(saved.content).toBe('newer saved message');
-  const attached = { ...original, files: ['attachments/one.txt'] };
+  const attached = {
+    ...original,
+    timestamp: original.timestamp!.replace('Z', '000+00:00'),
+    files: ['attachments/one.txt'],
+  };
   const serverLog = [
     saved,
     { role: 'assistant' as const, content: 'newer response', timestamp: '2099-01-01T00:00:00Z' },
@@ -806,8 +811,8 @@ it('reconciles server order after a successful Retry of a rejected late attachme
   });
   const log = conversations$.get(id)!.data.log.get();
   expect(log.map((entry) => entry.content)).toEqual(serverLog.map((entry) => entry.content));
-  expect(log.every((entry) => entry._retry?.persistence !== 'rejected')).toBe(true);
-  const index = log.findIndex((entry) => entry.timestamp === original.timestamp);
+  expect(log.every((entry) => !entry._retry || entry._retry.persistence === 'saved')).toBe(true);
+  const index = log.findIndex((entry) => entry.content === original.content);
   await act(async () => {
     await result.current.editMessage(index, 'edited attached');
   });
@@ -1017,7 +1022,7 @@ it('preserves Retry metadata and sends started during upload-order reconciliatio
   });
   await creation;
   expect(state.data.log.get()).toEqual([
-    { ...saved, timestamp: '2026-10-24T20:01:00+00:00' },
+    saved,
     attached,
     persistedDuringGet,
     responseDuringGet,
@@ -1027,6 +1032,7 @@ it('preserves Retry metadata and sends started during upload-order reconciliatio
 });
 
 it('does not mark a saved upload failed or idle newer generation when order refresh fails', async () => {
+  const { renderHook } = await import('@testing-library/react');
   const create = jest.spyOn(mockClient, 'createConversation');
   let resolveUpload!: (value: any) => void;
   jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
@@ -1051,6 +1057,47 @@ it('does not mark a saved upload failed or idle newer generation when order refr
   expect(state.data.log.get()).toEqual([newer, { ...original, files: ['attachments/one.txt'] }]);
   expect(post).toHaveBeenCalledTimes(1);
   expect(state.isGenerating.get()).toBe(true);
+  const { result } = renderHook(() => useConversation(id));
+  const edit = jest.spyOn(mockClient, 'editMessage');
+  const remove = jest.spyOn(mockClient, 'deleteMessage');
+  await act(async () => {
+    await result.current.editMessage(1, 'would target an unseen assistant');
+    await result.current.deleteMessage(1);
+  });
+  expect(edit).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  expect(state.historyOrderUncertain.get()).toBe(true);
+  // A deliberate authoritative refresh restores indices without reposting.
+  const assistant = { role: 'assistant' as const, content: 'response' };
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  updateConversationData(id, { ...state.data.get(), log: [newer, assistant, attached] });
+  remove.mockResolvedValue({ ...state.data.get(), log: [newer, assistant] });
+  await act(async () => {
+    await result.current.deleteMessage(2);
+  });
+  expect(remove).toHaveBeenCalledWith(id, 2);
+  expect(post).toHaveBeenCalledTimes(1);
+});
+
+it('keeps positional mutations blocked when both order snapshots become stale', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const state = conversations$.get('upload-existing')!;
+  const message = { role: 'user' as const, content: 'saved', timestamp: '2026-10-24T20:00:00Z' };
+  replaceLog('upload-existing', [message]);
+  const get = jest.spyOn(mockClient, 'getConversation').mockImplementation(async () => {
+    const snapshot = { ...state.data.get(), log: [message] };
+    replaceLog('upload-existing', [message, { role: 'assistant', content: 'new arrival' }]);
+    return snapshot;
+  });
+  await mockClient.reconcileLateUploadOrder('upload-existing');
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(state.historyOrderUncertain.get()).toBe(true);
+  const { result } = renderHook(() => useConversation('upload-existing'));
+  const remove = jest.spyOn(mockClient, 'deleteMessage');
+  await act(async () => {
+    await result.current.deleteMessage(0);
+  });
+  expect(remove).not.toHaveBeenCalled();
 });
 
 it('keeps newer saved messages when an earlier new-chat POST fails after upload', async () => {

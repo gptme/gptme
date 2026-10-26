@@ -1043,7 +1043,10 @@ export function useConversation(conversationId: string, serverId?: string) {
   // a history refresh restores a fully persisted log. Never guess an index.
   const positionalMutationBlocked = () => {
     const log = conversations$.get(conversationId)?.data.log.get() ?? [];
-    if (!log.some((message) => message._retry && message._retry.persistence !== 'saved')) {
+    if (
+      !conversations$.get(conversationId)?.historyOrderUncertain.get() &&
+      !log.some((message) => message._retry && message._retry.persistence !== 'saved')
+    ) {
       return false;
     }
     toast({
