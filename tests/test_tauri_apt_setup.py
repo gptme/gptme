@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,10 @@ def test_tauri_apt_executes_real_script(
         )
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="Preparation uses Linux /etc/os-release and GNU sha256sum",
+)
 def test_tauri_apt_hash_includes_all_lines(tmp_path: Path) -> None:
     action = yaml.safe_load(ACTION.read_text())
     prepare = action["runs"]["steps"][0]["run"]
