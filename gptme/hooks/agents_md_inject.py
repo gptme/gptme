@@ -46,7 +46,7 @@ from ..config import get_config, get_project_config
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
+from ..prompts import AGENT_FILES, _loaded_agent_files_var, find_agent_files_in_tree
 from ..util.context_dedup import _content_hash
 
 # Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
@@ -178,13 +178,35 @@ def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
         current = current.parent
 
 
+# Suffix patterns for known agent instruction files, as Path objects.
+# A startup file grants an identity exemption only when it is itself an
+# instruction file — not when it is any other file from an agent workspace.
+_AGENT_INSTRUCTION_PATTERNS: tuple[tuple[str, ...], ...] = tuple(
+    Path(p).parts for p in AGENT_FILES
+)
+
+
+def _is_agent_instruction_file(path: Path) -> bool:
+    """Return True if path is a known agent instruction filename."""
+    parts = path.parts
+    for pattern_parts in _AGENT_INSTRUCTION_PATTERNS:
+        n = len(pattern_parts)
+        if parts[-n:] == pattern_parts:
+            return True
+    return False
+
+
 def _prompt_file_roots(log: Log | None) -> set[Path]:
-    """Agent roots represented by files in the actual startup system messages.
+    """Agent roots represented by instruction files in the startup system messages.
 
     Configuration alone is not evidence of loading: exclusions and selective
     context can omit a configured file. Read the startup log instead, which also
     survives fresh server request contexts. Later tool output must not grant an
     identity exemption.
+
+    Only files that are themselves known agent instruction files (AGENTS.md,
+    CLAUDE.md, etc.) are counted as evidence of identity adoption — a plain
+    context file from an agent workspace is not sufficient.
     """
     roots: set[Path] = set()
     if log is None:
@@ -196,6 +218,8 @@ def _prompt_file_roots(log: Log | None) -> set[Path]:
         files = [file for file in msg.files if isinstance(file, Path)]
         files.extend(Path(origin) for origin in origins)
         for file in files:
+            if not _is_agent_instruction_file(file):
+                continue
             # Resolve directory symlinks and '..' together, preserving only the
             # final file symlink's location as well as its target's location.
             for location in (file.parent.resolve(), file.resolve().parent):

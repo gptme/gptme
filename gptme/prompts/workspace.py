@@ -163,11 +163,12 @@ def resolve_prompt_file_paths(
     The configured path matters for symlinked files: it tells which workspace
     the file was loaded *from*, which the target path does not.
 
-    Startup retains these origins after filtering so the agents_md_inject hook
-    can identify the workspaces represented by the actual selected files.
+    All valid entries are returned, including multiple configured paths that
+    resolve to the same target. Callers are responsible for deduplicating
+    content when that matters; retaining every alias is necessary so the
+    agents_md_inject hook can find the workspaces for all configured files.
     """
     pairs: list[tuple[Path, Path]] = []
-    seen: set[str] = set()
     for entry in entries:
         p = Path(entry).expanduser()
         if not p.is_absolute():
@@ -180,10 +181,6 @@ def resolve_prompt_file_paths(
         if not resolved.exists():
             logger.debug(f"User-configured file not found: {resolved}")
             continue
-        key = str(resolved)
-        if key in seen:
-            continue
-        seen.add(key)
         pairs.append((p, resolved))
     return pairs
 
@@ -192,8 +189,17 @@ def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
     """Resolve configured prompt files the way startup does.
 
     See :func:`resolve_prompt_file_paths` for the resolution rules.
+    Deduplicates by resolved path; use :func:`resolve_prompt_file_paths`
+    directly when all configured aliases must be retained.
     """
-    return [resolved for _, resolved in resolve_prompt_file_paths(entries, config_dir)]
+    seen: set[str] = set()
+    result: list[Path] = []
+    for _, resolved in resolve_prompt_file_paths(entries, config_dir):
+        key = str(resolved)
+        if key not in seen:
+            seen.add(key)
+            result.append(resolved)
+    return result
 
 
 def find_agent_files_in_tree(
@@ -283,7 +289,7 @@ def prompt_workspace(
     agent_files: list[Path] = []  # Agent instruction files (AGENTS.md, etc.)
     context_files: list[Path] = []  # Regular context files (README, etc.)
     seen_paths: set[str] = set()
-    configured_paths: dict[Path, Path] = {}
+    configured_paths: dict[Path, list[Path]] = {}
     workspace_resolved = workspace.resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
 
@@ -394,13 +400,17 @@ def prompt_workspace(
             user_files = []
         for configured, p in resolve_prompt_file_paths(user_files, config_dir):
             rp = str(p)
+            # Keep the final file symlink's origin in the startup message.
+            # Resolve its parent first so directory symlinks followed by
+            # '..' retain filesystem semantics, not lexical semantics.
+            # Always record the alias so that symlinked files pointing to
+            # the same content as an earlier entry are still tracked — their
+            # configured paths matter for the foreign-workspace exemption.
+            origin = configured.parent.resolve() / configured.name
+            configured_paths.setdefault(p, []).append(origin)
             if rp not in seen_paths:
                 context_files.append(p)
                 seen_paths.add(rp)
-                # Keep the final file symlink's origin in the startup message.
-                # Resolve its parent first so directory symlinks followed by
-                # '..' retain filesystem semantics, not lexical semantics.
-                configured_paths[p] = configured.parent.resolve() / configured.name
 
     # Apply exclude patterns from project config (glob-matched against file names and paths)
     if project and project.exclude:
@@ -457,9 +467,10 @@ def prompt_workspace(
             files=valid_context_files,
             metadata={
                 "startup_prompt_files": [
-                    str(configured_paths.get(f, f))
+                    str(alias)
                     for f in valid_context_files
                     if isinstance(f, Path)
+                    for alias in configured_paths.get(f, [f])
                 ]
             },
         )

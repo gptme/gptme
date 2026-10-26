@@ -980,3 +980,69 @@ class TestStartupLoadedUnrelatedWorkspace:
         assert _injected(msgs) == []
         notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
         assert len(notices) == 1
+
+
+class TestNonInstructionFileDoesNotAdmitWorkspace:
+    """A non-instruction file from an agent workspace must not grant an exemption.
+
+    Only files that are themselves known agent instruction files (AGENTS.md,
+    CLAUDE.md, etc.) are evidence of identity adoption.  A plain context file
+    (README.md, rules.txt, etc.) does not prove the session carries the agent's
+    identity instructions — admitting the workspace in that case would let an
+    attacker plant arbitrary files to bypass the foreign-workspace guard.
+    """
+
+    def test_non_instruction_file_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """configure README.md from an agent workspace — workspace must stay foreign."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        readme = alice / "README.md"
+        readme.write_text("# Alice project docs")
+        # Only the README is in prompt.files — the identity file was never loaded.
+        _set_prompt_files(monkeypatch, [str(readme)])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == [], "non-instruction file should not exempt workspace"
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1, "workspace must still be treated as foreign"
+
+
+class TestSymlinkedAliasRetained:
+    """When a symlinked file resolves to the same target as an earlier entry,
+    its configured path must still be recorded so its workspace is not foreign.
+    """
+
+    def test_symlinked_alias_admits_its_own_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """alice/AGENTS.md → shared/rules.md; shared/rules.md is also configured.
+
+        Deduplication of resolved content must not drop Alice's configured path.
+        Entering Alice's workspace should not be treated as foreign.
+        """
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        shared_rules = shared_dir / "rules.md"
+        shared_rules.write_text("# Shared rules")
+
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        # Replace Alice's AGENTS.md with a symlink to the shared file.
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared_rules)
+
+        # Configure both files; the shared one is first so its resolved path is
+        # seen first — Alice's symlink resolves to the same target and would
+        # be deduplicated in the content layer.
+        _set_prompt_files(
+            monkeypatch,
+            [str(shared_rules), str(alice / "AGENTS.md")],
+        )
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs), "Alice's workspace should be admitted via its alias"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
