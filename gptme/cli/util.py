@@ -1013,6 +1013,16 @@ def _relpath_matches_exclude(relpath: PurePath | None, pat: str) -> bool:
     return fnmatch.fnmatch(relpath.as_posix(), pat)
 
 
+def _workspace_glob_pattern(pattern: PurePath) -> str:
+    """Return a gptme.toml include glob using POSIX separators.
+
+    ``Path.glob`` and ``glob.has_magic`` treat ``/`` as the directory
+    separator in patterns. Windows ``str(Path)`` uses backslashes, so a
+    config glob such as ``src/types/*.ts`` would fail to expand.
+    """
+    return pattern.as_posix()
+
+
 @context.command("files")
 @click.option(
     "--config",
@@ -1065,11 +1075,12 @@ def context_files(config: str | None):
     seen: set[Path] = set()
     for pattern in files:
         expanded = Path(pattern).expanduser()
+        glob_pattern = _workspace_glob_pattern(expanded)
         # Absolute entries were supported before glob expansion was added.
         candidates = (
             [expanded]
             if expanded.is_absolute()
-            else _sorted_workspace_matches(workspace, str(expanded))
+            else _sorted_workspace_matches(workspace, glob_pattern)
         )
         matches = [path for path in candidates if path.is_file()]
         if not matches:
@@ -1098,7 +1109,7 @@ def context_files(config: str | None):
             # or literal parent-relative entries) remain supported.
             explicit_parent_file = (
                 not expanded.is_absolute()
-                and not has_magic(str(expanded))
+                and not has_magic(glob_pattern)
                 and normalized_relative is None
             )
             if (

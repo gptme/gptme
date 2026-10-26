@@ -5,7 +5,7 @@ from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 import pytest
 from click.testing import CliRunner, Result
 
-from gptme.cli.util import _relpath_matches_exclude, main
+from gptme.cli.util import _relpath_matches_exclude, _workspace_glob_pattern, main
 
 
 def _invoke(
@@ -278,3 +278,18 @@ def test_relpath_matches_exclude_uses_posix_separators(
         return
     assert _relpath_matches_exclude(relpath, "private/*")
     assert _relpath_matches_exclude(relpath, "docs/releases/*") is False
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        (PureWindowsPath("src") / "types" / "*.ts", "src/types/*.ts"),
+        (PurePosixPath("src/types/*.ts"), "src/types/*.ts"),
+        (Path("src/types/*.ts"), "src/types/*.ts"),
+    ],
+)
+def test_workspace_glob_pattern_uses_posix_separators(
+    pattern: PurePath, expected: str
+) -> None:
+    """Include globs in gptme.toml use '/'; Windows str(Path) uses '\\'."""
+    assert _workspace_glob_pattern(pattern) == expected
