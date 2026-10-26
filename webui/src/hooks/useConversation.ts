@@ -280,6 +280,20 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
 
+        // Keep stream ownership by identity: a late attachment POST can append
+        // a user message after the assistant currently receiving tokens.
+        let streamingTimestamp: string | undefined;
+        const streamingMessage = () => {
+          const messages = conversation$?.data.log.get() ?? [];
+          const index = streamingTimestamp
+            ? messages.findIndex(
+                (message) =>
+                  message.role === 'assistant' && message.timestamp === streamingTimestamp
+              )
+            : messages.length - 1;
+          return index >= 0 ? conversation$?.data.log[index] : undefined;
+        };
+
         // Connect to event stream. Record the client generation that owns the
         // stream so all instances of this conversation agree a live subscription
         // exists, and a replaced client is detected as stale.
@@ -313,11 +327,13 @@ export function useConversation(conversationId: string, serverId?: string) {
                   isComplete: false,
                 };
                 addMessage(conversationId, streamingMessage);
+                streamingTimestamp = streamingMessage.timestamp;
+              } else {
+                streamingTimestamp = lastMessage$.timestamp.get();
               }
             },
             onToken: (token) => {
-              const messages$ = conversation$?.data.log;
-              const lastMessage$ = messages$?.[messages$.length - 1];
+              const lastMessage$ = streamingMessage();
               if (lastMessage$?.role?.get() === 'assistant') {
                 lastMessage$.content.set((prev) => prev + token);
               } else {
@@ -331,9 +347,8 @@ export function useConversation(conversationId: string, serverId?: string) {
               messageJustCompleted.current = true;
               lastCompletedMessageRef.current = message;
 
-              // Update the last message with final content and metadata
-              const messages$ = conversation$?.data.log;
-              const lastMessage$ = messages$?.[messages$.length - 1];
+              // Update the stream-owned message even if a late POST follows it.
+              const lastMessage$ = streamingMessage();
               if (lastMessage$?.role.get() === 'assistant') {
                 lastMessage$.content.set(message.content);
                 if (message.metadata) {
@@ -342,8 +357,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 if (message.timestamp) {
                   lastMessage$.timestamp.set(message.timestamp);
                 }
-                if ('isComplete' in lastMessage$) {
-                  lastMessage$.isComplete.set(true);
+                if ('isComplete' in lastMessage$.get()) {
+                  lastMessage$.set({ ...lastMessage$.get(), isComplete: true } as StreamingMessage);
                 }
               }
 
@@ -1045,7 +1060,11 @@ export function useConversation(conversationId: string, serverId?: string) {
     const log = conversations$.get(conversationId)?.data.log.get() ?? [];
     if (
       !conversations$.get(conversationId)?.historyOrderUncertain.get() &&
-      !log.some((message) => message._retry && message._retry.persistence !== 'saved')
+      !log.some(
+        (message) =>
+          message._status === 'pending' ||
+          (message._retry && message._retry.persistence !== 'saved')
+      )
     ) {
       return false;
     }

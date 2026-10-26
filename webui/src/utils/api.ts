@@ -122,7 +122,14 @@ function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]
       const previous = local.find((candidate) => sameLogMessage(candidate, entry));
       // Preserve the local identity spelling used by in-flight status updates.
       // The server may serialize the same instant with different precision/zone.
-      return previous ? { ...previous, ...entry, timestamp: previous.timestamp } : entry;
+      return previous
+        ? {
+            ...previous,
+            ...entry,
+            timestamp: previous.timestamp,
+            ...(previous._status ? { _status: previous._status } : {}),
+          }
+        : entry;
     }),
     ...local.filter((entry) => !snapshot.some((saved) => sameLogMessage(entry, saved))),
   ];
@@ -1792,6 +1799,7 @@ export class ApiClient {
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
+      ...(options?.pendingFiles?.length ? { _status: 'pending' as const } : {}),
     };
 
     // Create placeholder conversation in store immediately.
@@ -1860,6 +1868,8 @@ export class ApiClient {
         let saved = false;
         try {
           await this.sendMessage(conversationId, attachedMessage);
+          attachedMessage._status = 'sent';
+          replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
           saved = true;
         } catch (error) {
           // Upload succeeded: transfer ownership to the visible failed message,

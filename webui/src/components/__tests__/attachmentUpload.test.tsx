@@ -715,7 +715,7 @@ it('uses server order for positional edits/deletes after a late new-chat upload 
   const serverLog = [
     saved,
     { role: 'assistant' as const, content: 'newer response', timestamp: '2099-01-01T00:00:00Z' },
-    { ...original, files: ['attachments/one.txt'] },
+    { ...original, files: ['attachments/one.txt'], _status: 'sent' as const },
   ];
   const get = jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
     ...conversations$.get(id)!.data.get(),
@@ -859,7 +859,7 @@ it('does not restore a message deleted during upload-order reconciliation GET', 
     .get(id)!
     .data.log.get()
     .find((entry) => entry.content === 'newer saved message')!;
-  const attached = { ...original, files: ['attachments/one.txt'] };
+  const attached = { ...original, files: ['attachments/one.txt'], _status: 'sent' as const };
   const assistant = {
     role: 'assistant' as const,
     content: 'newer response',
@@ -1011,7 +1011,7 @@ it('preserves Retry metadata and sends started during upload-order reconciliatio
     timestamp: '2026-10-24T20:01:40Z',
   };
   state.data.log.set([...state.data.log.get(), persistedDuringGet, responseDuringGet, pending]);
-  const attached = { ...original, files: ['attachments/one.txt'] };
+  const attached = { ...original, files: ['attachments/one.txt'], _status: 'sent' as const };
   resolveGet({
     ...state.data.get(),
     log: [
@@ -1054,7 +1054,10 @@ it('does not mark a saved upload failed or idle newer generation when order refr
   state.data.log.set([original, newer]);
   resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
   await creation;
-  expect(state.data.log.get()).toEqual([newer, { ...original, files: ['attachments/one.txt'] }]);
+  expect(state.data.log.get()).toEqual([
+    newer,
+    { ...original, files: ['attachments/one.txt'], _status: 'sent' },
+  ]);
   expect(post).toHaveBeenCalledTimes(1);
   expect(state.isGenerating.get()).toBe(true);
   const { result } = renderHook(() => useConversation(id));
@@ -1069,7 +1072,7 @@ it('does not mark a saved upload failed or idle newer generation when order refr
   expect(state.historyOrderUncertain.get()).toBe(true);
   // A deliberate authoritative refresh restores indices without reposting.
   const assistant = { role: 'assistant' as const, content: 'response' };
-  const attached = { ...original, files: ['attachments/one.txt'] };
+  const attached = { ...original, files: ['attachments/one.txt'], _status: 'sent' as const };
   updateConversationData(id, { ...state.data.get(), log: [newer, assistant, attached] });
   remove.mockResolvedValue({ ...state.data.get(), log: [newer, assistant] });
   await act(async () => {
@@ -1605,7 +1608,7 @@ it('keeps sub-millisecond distinct entries and their own Retry metadata during r
     _retry: { persistence: 'saved' as const, options: { model: 'later-model' } },
   };
   state.data.log.set([original, later, earlier]);
-  const attached = { ...original, files: ['attachments/one.txt'] };
+  const attached = { ...original, files: ['attachments/one.txt'], _status: 'sent' as const };
   jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
     ...state.data.get(),
     log: [earlier, attached],
@@ -1614,4 +1617,103 @@ it('keeps sub-millisecond distinct entries and their own Retry metadata during r
   await creation;
   expect(state.data.log.get()).toEqual([earlier, attached, later]);
   expect(state.data.log.get()[0]._retry).toBeUndefined();
+});
+
+it('blocks positional mutations while the initial attachment upload is pending', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('pending attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const { result } = renderHook(() => useConversation(id));
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved' });
+  });
+  const response = conversations$.get(id)!.data.get();
+  const edit = jest.spyOn(mockClient, 'editMessage').mockResolvedValue(response);
+  const remove = jest.spyOn(mockClient, 'deleteMessage').mockResolvedValue(response);
+  await act(async () => {
+    expect(await result.current.editMessage(1, 'wrong index')).toBe(false);
+    await result.current.deleteMessage(1);
+  });
+  expect(edit).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+    await creation;
+  });
+});
+
+it('keeps streaming tokens and completion on their assistant after late upload reorder', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  // A second mounted client can already have a live stream while this client uploads.
+  jest.spyOn(mockClient, 'waitForConversationCreation').mockResolvedValue(undefined);
+  let handlers: any;
+  jest.spyOn(mockClient, 'subscribeToEvents').mockImplementation(async (_id, callbacks) => {
+    handlers = callbacks;
+    callbacks.onConnected?.();
+  });
+  const create = jest.spyOn(mockClient, 'createConversation');
+  let resolveUpload!: (value: any) => void;
+  jest.spyOn(mockClient, 'uploadFiles').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveUpload = resolve;
+      })
+  );
+  jest.spyOn(mockClient, 'interruptGeneration').mockResolvedValue(undefined);
+  const post = jest.spyOn(mockClient, 'sendMessage').mockResolvedValue(undefined);
+  const creation = mockClient.createConversationWithPlaceholder('pending attached', {
+    pendingFiles: [new File(['one'], 'one.txt')],
+  });
+  await waitFor(() => expect(resolveUpload).toBeDefined());
+  const id = create.mock.calls[0][0];
+  const original = conversations$.get(id)!.data.log.get()[0];
+  const { result } = renderHook(() => useConversation(id));
+  await waitFor(() => expect(handlers).toBeDefined());
+  await act(async () => {
+    await result.current.interruptGeneration();
+    await result.current.sendMessage({ message: 'newer saved' });
+    handlers.onMessageStart();
+    handlers.onToken('first');
+  });
+  const assistant = conversations$
+    .get(id)!
+    .data.log.get()
+    .find((m) => m.role === 'assistant')!;
+  expect(assistant.content).toBe('first');
+  const attached = { ...original, files: ['attachments/one.txt'] };
+  jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...conversations$.get(id)!.data.get(),
+    log: [post.mock.calls[0][1], assistant, attached],
+  });
+  await act(async () => {
+    resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
+    await creation;
+    handlers.onToken(' second');
+  });
+  expect(
+    conversations$
+      .get(id)!
+      .data.log.get()
+      .find((m) => m.role === 'assistant')!.content
+  ).toBe('first second');
+  await act(async () => {
+    handlers.onMessageComplete({ ...assistant, content: 'final response' });
+  });
+  const log = conversations$.get(id)!.data.log.get();
+  expect(log.find((m) => m.role === 'assistant')!.content).toBe('final response');
+  expect(log[log.length - 1]).toMatchObject({ role: 'user', content: 'pending attached' });
 });
