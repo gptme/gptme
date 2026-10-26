@@ -162,6 +162,16 @@ class TestCheckGptmeToml:
         check_gptme_toml(workspace, report)
         assert report.warnings == 3  # name, prompt, context_cmd
 
+    def test_legacy_flat_config(self, workspace: Path):
+        # Top-level files/context_cmd is still loaded by ProjectConfig
+        (workspace / "gptme.toml").write_text(
+            'files = ["README.md"]\ncontext_cmd = "echo"\n\n[agent]\nname = "Bob"\n'
+        )
+        report = DoctorReport()
+        check_gptme_toml(workspace, report)
+        assert report.passes == 3
+        assert report.warnings == 0
+
     def test_no_file(self, workspace: Path):
         report = DoctorReport()
         check_gptme_toml(workspace, report)
