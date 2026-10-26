@@ -12,6 +12,7 @@ from gptme.context.config import ContextConfig
 from gptme.context.scout import (
     _SCOUT_SENTINEL,
     _UNTRUSTED_PREAMBLE,
+    _advertised_resolved,
     _AdvertisedFile,
     _build_file_tree,
     _get_messages_from_manager,
@@ -205,6 +206,48 @@ class TestBuildFileTree:
             mock_gwf.return_value = [tmp_path / f"f{i}.py" for i in range(600)]
             result = _build_file_tree(tmp_path, max_paths=5)
         assert len(result.splitlines()) == 5
+
+    def test_filters_paths_with_newline_in_name(self, tmp_path):
+        """Paths whose relative string contains a line separator are dropped.
+
+        A filename like '00-untracked.py\\nplain.py' would split into two
+        fragments under splitlines(), causing _advertised_resolved() to see a
+        fictional 'plain.py' entry and admit an untracked file of that name.
+        """
+        normal = tmp_path / "normal.py"
+        with patch(
+            "gptme.context.selector.file_selector.get_workspace_files"
+        ) as mock_gwf:
+            # Simulate a path whose relative form contains \n.
+            # relative_to() returns a real Path so str() on it contains the separator.
+            bad_path = MagicMock()
+            bad_path.relative_to.return_value = Path("bad\nfile.py")
+            mock_gwf.return_value = [normal, bad_path]
+            normal.write_text("x")
+            result = _build_file_tree(tmp_path)
+        lines = result.splitlines()
+        assert "normal.py" in result
+        assert "bad" not in result, "path with embedded newline must be filtered out"
+        assert len(lines) == 1, f"expected 1 line, got {lines!r}"
+
+    def test_advertised_resolved_ignores_newline_path_fragments(self, tmp_path):
+        """_advertised_resolved must not admit a file whose name equals a fragment
+        produced by splitlines() on a pathological multi-line entry.
+
+        Regression from issue #4504: tracking '00-untracked.py\\nplain.py' then
+        creating an untracked 'plain.py' caused _advertised_resolved to include
+        the untracked file because splitlines() produced 'plain.py' as a separate
+        entry.
+        """
+        # Create a real, plain file so the resolved/exists checks pass
+        (tmp_path / "plain.py").write_text("real")
+        # _build_file_tree filters paths with embedded newlines, so the tree
+        # it emits only contains single-component entries.  Provide exactly
+        # that clean tree: the fragment 'plain.py' is not present.
+        clean_tree = "00-untracked.py"
+        result = _advertised_resolved(tmp_path, clean_tree)
+        # 'plain.py' must NOT be in advertised — it was never in the clean tree
+        assert "plain.py" not in result
 
 
 # ---------------------------------------------------------------------------
