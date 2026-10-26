@@ -511,11 +511,26 @@ def _line_fence_states(
                     next_line = lines[i + 1]
                     opener_pos = bisect_left(thinking_opener_lines, i + 1)
                     fence_pos = bisect_left(fence_lines, i + 1)
-                    if opener_pos < len(thinking_opener_lines) and (
-                        fence_pos == len(fence_lines)
-                        or thinking_opener_lines[opener_pos] < fence_lines[fence_pos]
-                    ):
-                        next_line = lines[thinking_opener_lines[opener_pos]]
+                    if opener_pos < len(thinking_opener_lines):
+                        opener_line = lines[thinking_opener_lines[opener_pos]]
+                        opener_close = (
+                            "</thinking>"
+                            if opener_line.startswith("<thinking>")
+                            else "</think>"
+                        )
+                        # Intervening output/example fences must not hide an
+                        # unfinished reasoning opener from the fail-closed path.
+                        if (
+                            fence_pos == len(fence_lines)
+                            or thinking_opener_lines[opener_pos]
+                            < fence_lines[fence_pos]
+                            or bisect_left(
+                                thinking_closer_lines[opener_close],
+                                thinking_opener_lines[opener_pos],
+                            )
+                            == len(thinking_closer_lines[opener_close])
+                        ):
+                            next_line = opener_line
                     if heredoc_terminator is None and next_line.startswith(
                         ("<think>", "<thinking>")
                     ):
@@ -554,6 +569,24 @@ def _line_fence_states(
                             else None
                         )
                         thinking_closed = thinking_closer_idx is not None
+                        # A tagged fence can itself be inside a literal nested
+                        # example. Confirm the unlabelled example's closer after
+                        # the thinking span instead of truncating the outer save
+                        # at its opener merely because lookahead hit ```shell.
+                        if thinking_closer_idx is not None:
+                            after_thinking = bisect_left(
+                                fence_lines, thinking_closer_idx + 1
+                            )
+                            if after_thinking < len(fence_lines):
+                                example_close = fence_lines[after_thinking]
+                                if (
+                                    re.fullmatch(r"`{3,}", lines[example_close])
+                                    and example_close + 1 < len(lines)
+                                    and lines[example_close + 1].strip()
+                                    and not lines[example_close + 1].startswith("```")
+                                ):
+                                    has_closing_fence = True
+                                    nested_example_continues = True
                         # A bare fence *before* the reasoning closer belongs
                         # to reasoning, not a literal example beginning with
                         # thinking tags. A later tagged tool confirms that the
@@ -574,6 +607,17 @@ def _line_fence_states(
                         # Wait for a following tagged fence before recovering a
                         # completed tool block; never execute a truncated save.
                         if (
+                            streaming
+                            and thinking_closer_idx is not None
+                            and has_following_tagged_fence
+                            and fence_pos < len(fence_lines)
+                            and fence_lines[fence_pos] < thinking_closer_idx
+                            and not has_closing_fence
+                        ):
+                            # A growing literal example may not have emitted
+                            # its closing fence yet. Do not expose a prefix save.
+                            depth += 1
+                        elif (
                             (not thinking_closed or reasoning_contains_fence)
                             and not nested_example_continues
                         ) or (

@@ -2968,3 +2968,56 @@ def test_nested_thinking_example_with_introductory_prose_preserves_save(
     assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
         Codeblock("save a.md", content)
     ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_output_before_unfinished_thinking_does_not_expose_draft(
+    tag: str, streaming: bool
+) -> None:
+    markdown = (
+        "```save a.txt\nhello\n```\nHere is output:\n```output\nx\n```\n"
+        f"<{tag}>\n``````shell\necho DRAFT\n```\n\n"
+    )
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_thinking_with_tagged_example_does_not_truncate_save(
+    tag: str, streaming: bool
+) -> None:
+    content = f"intro\n```\n<{tag}>\n```shell\necho example\n```\n</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+        Codeblock("save a.md", content)
+    ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_streaming_nested_tagged_thinking_example_never_writes_prefix(tag: str) -> None:
+    content = f"intro\n```\n<{tag}>\n```shell\necho example\n```\n</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    for end in range(1, len(markdown) + 1):
+        blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
+        assert all(block == Codeblock("save a.md", content) for block in blocks), (
+            end,
+            blocks,
+        )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_tagged_thinking_example_with_later_command_never_truncates(
+    tag: str, streaming: bool
+) -> None:
+    content = f"intro\n```\n<{tag}>\n```shell\necho example\n```\n</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n```shell\necho final\n```\n\n"
+    # Non-streaming remains fail-closed on this ambiguous shape. Streaming
+    # confirms the complete literal save; neither mode may write just "intro".
+    expected = (
+        [Codeblock("save a.md", content), Codeblock("shell", "echo final")]
+        if streaming
+        else []
+    )
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == expected
