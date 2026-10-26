@@ -645,7 +645,10 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#secret-paths-reached-indirectly">Secret paths reached indirectly</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="pst-show_toc_level nav section-nav flex-column">
@@ -928,6 +931,60 @@ it; existing secret-path rules still apply independently. Variable-name matching
 is a heuristic, not a guarantee: names such as <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> or <code class="docutils literal notranslate"><span class="pre">GH_PAT</span></code>
 can carry credentials without matching this rule. Only print values you know
 are diagnostic; use <code class="docutils literal notranslate"><span class="pre">compgen</span> <span class="pre">-e</span></code> when you need names alone.</p>
+<section id="secret-paths-reached-indirectly">
+<h4>Secret paths reached indirectly<a class="headerlink" href="#secret-paths-reached-indirectly" title="Link to this heading">#</a></h4>
+<p>The secret-path rule also inspects pathname globs in literal reader commands
+(<code class="docutils literal notranslate"><span class="pre">cat</span></code>, <code class="docutils literal notranslate"><span class="pre">head</span></code>, <code class="docutils literal notranslate"><span class="pre">tail</span></code>, <code class="docutils literal notranslate"><span class="pre">less</span></code>, <code class="docutils literal notranslate"><span class="pre">more</span></code>, <code class="docutils literal notranslate"><span class="pre">sed</span></code>, <code class="docutils literal notranslate"><span class="pre">awk</span></code> and grep variants).
+For example, <code class="docutils literal notranslate"><span class="pre">cat</span> <span class="pre">config/*</span></code> is flagged if it expands to a protected <code class="docutils literal notranslate"><span class="pre">.pem</span></code>
+file. Stdin file redirections on those readers are included
+(<code class="docutils literal notranslate"><span class="pre">cat</span> <span class="pre">&lt;</span> <span class="pre">config/*</span></code>); output redirections and non-stdin descriptors are not.
+Quoted and escaped wildcard characters remain literal, including <code class="docutils literal notranslate"><span class="pre">$</span></code> and
+<code class="docutils literal notranslate"><span class="pre">~</span></code> inside single quotes. Unquoted and double-quoted parameter and unquoted
+tilde expansion still apply before glob matching. Unquoted parameter values
+are split on default shell whitespace (space, tab and LF); quoted whitespace
+stays within the pathname. Custom <code class="docutils literal notranslate"><span class="pre">IFS</span></code> and shell-local assignments are not
+modeled. The same unquoted/double-quoted parameter expansion applies to grep
+search patterns (<code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-rF</span> <span class="pre">&quot;$NEEDLE&quot;</span></code>); single-quoted patterns stay literal.
+Unset or empty names expand to empty, so <code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-rF</span> <span class="pre">&quot;$UNSET&quot;</span> <span class="pre">.</span></code> is an empty
+fixed-string search. Unquoted empty names are removed as words. Unquoted
+pattern expansions also field-split, so <code class="docutils literal notranslate"><span class="pre">NEEDLE='TOKEN</span> <span class="pre">.'</span></code> makes
+<code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-rF</span> <span class="pre">$NEEDLE</span></code> search for <code class="docutils literal notranslate"><span class="pre">TOKEN</span></code> in <code class="docutils literal notranslate"><span class="pre">.</span></code>. GNU grep’s
+<code class="docutils literal notranslate"><span class="pre">-r</span></code>/<code class="docutils literal notranslate"><span class="pre">-R</span></code> and <code class="docutils literal notranslate"><span class="pre">--recursive</span></code> searches inspect protected files in the search
+root and its immediate child directories, including wildcard directory operands.
+Literal recursive roots retain shell quoting instead of expanding quoted <code class="docutils literal notranslate"><span class="pre">$</span></code>
+or <code class="docutils literal notranslate"><span class="pre">~</span></code> a second time. <code class="docutils literal notranslate"><span class="pre">-R</span></code>/<code class="docutils literal notranslate"><span class="pre">--dereference-recursive</span></code> follows file symlinks
+with protected names; <code class="docutils literal notranslate"><span class="pre">-r</span></code> skips discovered symlinks. Directory symlinks
+remain outside the bounded traversal for both modes.
+<code class="docutils literal notranslate"><span class="pre">--directories=recurse</span></code> has the same effect; a later <code class="docutils literal notranslate"><span class="pre">skip</span></code> or <code class="docutils literal notranslate"><span class="pre">read</span></code>
+disables it. Ordinary <code class="docutils literal notranslate"><span class="pre">rg</span></code> recursion is not added: hidden/ignore rules differ
+from grep.</p>
+<p>A simple grep pattern must match a non-comment assignment line in dotenv files
+(or any line in other protected file formats). This leaves searches such as
+<code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-rn</span> <span class="pre">'def</span> <span class="pre">foo'</span> <span class="pre">.</span></code> alone while detecting <code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-rn</span> <span class="pre">API_KEY</span> <span class="pre">.</span></code> when a
+matching assignment is in reach. Include/exclude filters, including
+<code class="docutils literal notranslate"><span class="pre">--exclude-from</span></code>, fixed strings, case-insensitive, word and whole-line matching
+are recognized. Ripgrep <code class="docutils literal notranslate"><span class="pre">--no-fixed-strings</span></code> last-wins against
+<code class="docutils literal notranslate"><span class="pre">-F</span></code>/<code class="docutils literal notranslate"><span class="pre">--fixed-strings</span></code> and restores regex matching. GNU grep <code class="docutils literal notranslate"><span class="pre">-z</span></code>/<code class="docutils literal notranslate"><span class="pre">--null-data</span></code> treats <code class="docutils literal notranslate"><span class="pre">.</span></code> as matching an embedded LF
+inside the NUL-delimited record; ripgrep <code class="docutils literal notranslate"><span class="pre">--null-data</span></code> does not.
+Ripgrep <code class="docutils literal notranslate"><span class="pre">--crlf</span></code>
+(last-wins against <code class="docutils literal notranslate"><span class="pre">--no-crlf</span></code>) treats a
+trailing carriage return as part of the line ending for whole-line matches;
+GNU grep stays LF-only. Ripgrep <code class="docutils literal notranslate"><span class="pre">-E</span></code>/<code class="docutils literal notranslate"><span class="pre">--encoding</span></code> and <code class="docutils literal notranslate"><span class="pre">-r</span></code>/<code class="docutils literal notranslate"><span class="pre">--replace</span></code>
+operands are consumed without replacing the search pattern; candidate decoding
+remains the default text decoding, not a simulation of every ripgrep encoding.
+Ripgrep <code class="docutils literal notranslate"><span class="pre">--passthru</span></code>/<code class="docutils literal notranslate"><span class="pre">--passthrough</span></code> prints matching and non-matching
+lines, so a reached protected file is flagged even when the pattern does not
+match. Context searches
+are conservative; quiet/count/filename-only searches do not add reach refusals.
+Complex regular expressions are conservatively flagged when a protected file
+is reached, rather than evaluated with an unbounded backtracking engine.</p>
+<p>Reach checking shares a 256-directory-entry budget across the command and reads
+at most 64 KiB of each candidate. It does not walk deep trees, follow directory
+symlinks during recursive discovery, track shell <code class="docutils literal notranslate"><span class="pre">cd</span></code> commands, execute scripts,
+or resolve innocuously named symlinks to their targets. Exhausted budgets and
+unreadable files can leave misses. The existing literal-path rule is unchanged,
+including its conservative treatment of explicitly named protected paths.
+Refusals and shadow logs report paths only, never candidate file contents.</p>
 <p>This is a bounded accidental-disclosure policy, <strong>not a shell sandbox</strong>.
 It does not resolve dynamic command names, arbitrary interpreters, sourced
 files, script contents, <code class="docutils literal notranslate"><span class="pre">eval</span></code>, all wrapper options or obfuscated expansions.
@@ -938,6 +995,7 @@ line matching that filter. A downstream filter also does not prevent tracing or
 intermediate output from exposing a credential.
 Do not infer new-pattern false-positive rates from older shadow logs; evaluate
 fresh exposure before enabling the entire hook in unattended sessions.</p>
+</section>
 </section>
 </section>
 <section id="managing-hooks">
@@ -1290,7 +1348,10 @@ If not provided, defaults will be loaded from env/config.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#registering-hooks-programmatically">Registering Hooks Programmatically</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-function-signatures">Hook Function Signatures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#confirmation-hooks-and-deny-decisions">Confirmation Hooks and Deny Decisions</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-credential-output-policy">Built-in Credential-Output Policy</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#secret-paths-reached-indirectly">Secret paths reached indirectly</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-hooks">Managing Hooks</a><ul class="pst-show_toc_level nav section-nav flex-column">
