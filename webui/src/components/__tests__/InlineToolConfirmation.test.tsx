@@ -291,5 +291,7 @@ describe('InlineToolConfirmation — native kwargs preview', () => {
 
     expect(screen.getByText('regression-content')).toBeVisible();
     expect(document.body.textContent).not.toContain('"command"');
+    // The previewed content is what Edit edits, so the action stays available
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
   });
 });

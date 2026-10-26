@@ -309,7 +309,7 @@ export function InlineToolConfirmation({
                   ) : (
                     <>
                       <div className="flex items-center gap-1.5">
-                        {!pendingTool.tooluse.kwargs && (
+                        {(pendingTool.tooluse.content || !pendingTool.tooluse.kwargs) && (
                           <Button
                             variant="outline"
                             size="sm"
