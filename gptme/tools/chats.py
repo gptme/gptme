@@ -102,11 +102,15 @@ def search_chats(
     if not query.strip():
         print("Error: search query cannot be empty.", file=sys.stderr)
         return
+    if max_results <= 0:
+        print(f"No results found for query: '{query}'")
+        return
 
-    from ..logmanager import LogManager, list_conversations  # fmt: skip
+    from ..logmanager import LogManager, get_user_conversations  # fmt: skip
 
     results: list[dict] = []
-    for conv in list_conversations(10 * max_results):
+    scan_complete = True
+    for conv in get_user_conversations(detail=False):
         log_path = Path(conv.path)
         log_manager = LogManager.load(log_path, lock=False)
 
@@ -120,6 +124,9 @@ def search_chats(
                     "matching_messages": matching_messages,
                 }
             )
+            if sort == "date" and len(results) >= max_results:
+                scan_complete = False
+                break
 
     if not results:
         print(f"No results found for query: '{query}'")
@@ -130,9 +137,12 @@ def search_chats(
         print("Sorting by number of matching messages")
         results.sort(key=lambda x: len(x["matching_messages"]), reverse=True)
 
-    print(
-        f"Search results for '{query}' ({len(results)} conversations, showing {min(max_results, len(results))}):"
-    )
+    if scan_complete:
+        print(
+            f"Search results for '{query}' ({len(results)} conversations, showing {min(max_results, len(results))}):"
+        )
+    else:
+        print(f"Search results for '{query}' (showing {len(results)}):")
     for i, result in enumerate(results[:max_results], 1):
         conversation = result["conversation"]
         matches = result["matching_messages"][:max_matches]
