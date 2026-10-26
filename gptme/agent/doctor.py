@@ -133,7 +133,7 @@ def check_gptme_toml(workspace: Path, report: DoctorReport) -> None:
 
     # Check for prompt config. The legacy flat form (top-level files/context_cmd)
     # is still loaded by ProjectConfig, so accept it too.
-    prompt_section = config.get("prompt", {})
+    prompt_section = config.get("prompt")
     if "prompt" in config:
         report.passed("Prompt config", "section present")
     elif "files" in config:
@@ -141,10 +141,10 @@ def check_gptme_toml(workspace: Path, report: DoctorReport) -> None:
     else:
         report.warn("Prompt config", "no [prompt] section (auto-includes won't work)")
 
-    # Check for context_cmd
-    if (
-        isinstance(prompt_section, dict) and "context_cmd" in prompt_section
-    ) or "context_cmd" in config:
+    # Match ProjectConfig's precedence: a [prompt] table disables flat settings,
+    # even when the table is empty or has no context_cmd of its own.
+    prompt_config = prompt_section if isinstance(prompt_section, dict) else config
+    if "context_cmd" in prompt_config:
         report.passed("Context command", "configured")
     else:
         report.warn("Context command", "not configured (no dynamic context)")
