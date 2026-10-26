@@ -18,10 +18,49 @@ def test_tauri_apt_setup_is_shared_and_bounded() -> None:
     for name, job in workflow["jobs"].items():
         for step in job["steps"]:
             assert "apt-get" not in step.get("run", ""), name
-            if step.get("uses") == "./.github/actions/setup-tauri-apt":
+            if step.get("uses", "").endswith("/.github/actions/setup-tauri-apt"):
                 found.add(name)
                 assert step["timeout-minutes"] == 8
     assert found == expected
+
+
+def test_old_tag_build_loads_action_from_workflow_revision() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tauri.yml").read_text())
+    for name in ("lint", "test", "e2e", "build", "build-sidecar", "release"):
+        steps = workflow["jobs"][name]["steps"]
+        install = next(
+            step
+            for step in steps
+            if step.get("uses", "").endswith("/.github/actions/setup-tauri-apt")
+        )
+        # The source checkout may be an old tag with no local action at all.
+        source = next(
+            step for step in steps if step.get("uses") == "actions/checkout@v7"
+        )
+        assert source["with"]["ref"] == "${{ inputs.tag || github.ref }}"
+        action_checkout = next(
+            step for step in steps if step.get("name") == "Check out workflow actions"
+        )
+        assert action_checkout["with"]["ref"] == "${{ github.workflow_sha }}"
+        assert action_checkout["with"]["path"] == ".workflow-actions"
+        assert action_checkout["with"]["persist-credentials"] is False
+        assert (
+            action_checkout["with"]["sparse-checkout"]
+            == ".github/actions/setup-tauri-apt"
+        )
+        assert steps.index(source) < steps.index(action_checkout) < steps.index(install)
+        assert action_checkout.get("if") == install.get("if")
+        assert install["uses"] == "./.workflow-actions/.github/actions/setup-tauri-apt"
+
+
+def test_tauri_apt_cache_rotates_with_stable_restore_prefix() -> None:
+    action = yaml.safe_load(ACTION.read_text())
+    steps = action["runs"]["steps"]
+    cache = next(step for step in steps if step.get("uses") == "actions/cache@v6")
+    prefix = cache["with"]["restore-keys"].strip()
+    assert prefix.endswith("${{ steps.packages.outputs.hash }}-")
+    assert cache["with"]["key"] == prefix + "${{ steps.packages.outputs.day }}"
+    assert "date -u +%Y-%m-%d" in steps[0]["run"]
 
 
 def test_tauri_apt_cache_and_download_bounds() -> None:

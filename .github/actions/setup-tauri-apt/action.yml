@@ -24,6 +24,7 @@ runs:
         read -r -a packages <<< "$PACKAGES $EXTRA_PACKAGES"
         hash=$(printf '%s\n' "${packages[@]}" | sort -u | sha256sum | cut -d' ' -f1)
         echo "hash=$hash" >> "$GITHUB_OUTPUT"
+        echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
         # actions/cache restores as the runner user, before apt runs as root.
         sudo mkdir -p /var/cache/apt/archives
         sudo chown "$(id -u):$(id -g)" /var/cache/apt/archives
@@ -35,7 +36,10 @@ runs:
       with:
         # Exclude root-owned lock/partial entries; only debs are reusable.
         path: /var/cache/apt/archives/*.deb
-        key: ${{ runner.os }}-${{ runner.arch }}-apt-v1-${{ steps.packages.outputs.distro }}-${{ steps.packages.outputs.hash }}
+        # Cache entries are immutable: rotate daily so newer debs can be saved.
+        key: ${{ runner.os }}-${{ runner.arch }}-apt-v1-${{ steps.packages.outputs.distro }}-${{ steps.packages.outputs.hash }}-${{ steps.packages.outputs.day }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-apt-v1-${{ steps.packages.outputs.distro }}-${{ steps.packages.outputs.hash }}-
 
     - name: Install packages
       shell: bash

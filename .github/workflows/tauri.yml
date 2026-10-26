@@ -87,8 +87,17 @@ jobs:
       - name: Check formatting
         run: cd tauri/src-tauri && cargo fmt -- --check
 
+      # Build source can be an older tag; CI actions follow the workflow revision.
+      - name: Check out workflow actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
-        uses: ./.github/actions/setup-tauri-apt
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
         timeout-minutes: 8
 
       - name: Create placeholder sidecar for tauri-build
@@ -121,8 +130,16 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
-        uses: ./.github/actions/setup-tauri-apt
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
         timeout-minutes: 8
 
       - name: Set up Rust
@@ -164,8 +181,16 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
-        uses: ./.github/actions/setup-tauri-apt
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
         timeout-minutes: 8
         with:
           extra-packages: xvfb webkit2gtk-driver
@@ -266,9 +291,18 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
-        uses: ./.github/actions/setup-tauri-apt
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
         timeout-minutes: 8
         with:
           extra-packages: libglib2.0-bin
@@ -390,9 +424,18 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        if: runner.os == 'Linux'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        uses: ./.github/actions/setup-tauri-apt
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
         timeout-minutes: 8
         with:
           packages: python3-dev build-essential libffi-dev
@@ -468,9 +511,18 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
-        uses: ./.github/actions/setup-tauri-apt
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
         timeout-minutes: 8
 
       - name: Set up Rust
