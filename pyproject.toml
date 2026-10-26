@@ -273,6 +273,13 @@ ignore = ["E402", "E501", "B905", "PERF203"]  # PERF203: try-except-in-loop ofte
 #fixable = ["ALL"]
 #unfixable = ["B"]
 
+[tool.uv]
+# Force filelock>=4.2.1 across all Python versions (3.11+). The 3.x series
+# has three unfixed advisories (GHSA-v4x8-3wr5-3wq8, GHSA-9vhv-jxww-xfm5,
+# GHSA-567q-5qvw-pf92) for ReadWriteLock/Windows usage. filelock 4.x fixes
+# them and requires Python>=3.11, matching our own floor.
+constraint-dependencies = ["filelock>=4.2.1"]
+
 [tool.mypy]
 check_untyped_defs = true
 disable_error_code = "import-untyped"

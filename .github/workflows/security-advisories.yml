@@ -60,12 +60,10 @@ jobs:
           uv audit --preview-features audit-command \
               --output-format sarif \
               --ignore CVE-2025-69872 \
-              --ignore GHSA-w8v5-vhqr-4h9v \
-              --ignore PYSEC-2026-2447 \
               > /tmp/audit_tmp.sarif || audit_exit=$?
-          # Accepted ignores (diskcache advisories, no fix available):
-          #   CVE-2025-69872, GHSA-w8v5-vhqr-4h9v, PYSEC-2026-2447 — one diskcache pickle advisory
-          #   under three IDs; no upstream fix yet. Remove when diskcache ships a fixed version.
+          # Accepted ignores (no fix available):
+          #   CVE-2025-69872 — diskcache pickle deserialization advisory (PYSEC-2026-2447);
+          #   no upstream fix yet. Remove when diskcache ships a fixed version.
           # NOT ignored (flask/setuptools advisories currently inactive in dep tree):
           #   PYSEC-2026-2151, PYSEC-2026-3447 — unconditionally ignoring them
           #   would mask real advisories if these packages re-enter the dep tree.
