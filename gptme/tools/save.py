@@ -193,8 +193,11 @@ def execute_save_impl(
         yield Message("system", f"Cannot save to {path_display}: not a regular file")
         return
 
-    # Save the file
-    with open(path, "w", encoding="utf-8", newline="") as f:
+    # Preserve an existing text file's line endings before truncating it.
+    newline = file_newline(path) if original_content else ""
+    if original_content:
+        content = content.replace("\r\n", "\n")
+    with open(path, "w", encoding="utf-8", newline=newline) as f:
         f.write(content)
 
     # Trigger post-save hooks (file.save.post)
