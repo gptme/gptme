@@ -320,3 +320,100 @@ def test_chats_fork_copies_files_dir(monkeypatch):
         fork_attachments = logs_dir / "my-fork" / "attachments"
         assert fork_attachments.exists(), "attachments/ dir not copied to fork"
         assert (fork_attachments / "pasted.txt").exists(), "paste attachment not copied"
+
+
+def test_chats_fork_attachment_references_survive_source_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copied images must be referenced locally, not through the source session."""
+    from PIL import Image
+
+    from gptme.cli.cmd_chats import chats_fork
+    from gptme.llm.llm_anthropic import _process_file
+    from gptme.logmanager import Log
+    from gptme.message import Message
+    from gptme.util.file_storage import store_file
+    from gptme.util.uri import URI, FilePath
+
+    logs_dir = tmp_path / "logs"
+    source = logs_dir / "source"
+    attachments = source / "attachments"
+    attachments.mkdir(parents=True)
+    image = attachments / "pixel.png"
+    Image.new("RGB", (2, 2), "red").save(image)
+    relative = attachments / "note.txt"
+    relative.write_text("original note")
+    external = tmp_path / "workspace.txt"
+    external.write_text("external workspace file")
+    uri = URI("https://example.com/image.png")
+    refs: list[FilePath] = [image, relative, external, uri]
+    image_hash, _ = store_file(source, image)
+    note_hash, _ = store_file(source, relative)
+    external_hash, _ = store_file(source, external)
+    hashes = {
+        str(image): image_hash,
+        str(relative): note_hash,
+        str(external): external_hash,
+    }
+    Log(
+        [
+            Message("user", "Describe", files=refs, file_hashes=hashes),
+            Message("assistant", "Red"),
+            Message("user", "Not included"),
+        ]
+    ).write_jsonl(source / "conversation.jsonl")
+    original = (source / "conversation.jsonl").read_bytes()
+    monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
+
+    result = CliRunner().invoke(
+        chats_fork,
+        ["source", "--at-turn", "1", "--name", "fork"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    assert (source / "conversation.jsonl").read_bytes() == original
+    fork = logs_dir / "fork"
+    messages = Log.read_jsonl(fork / "conversation.jsonl").messages
+    assert len(messages) == 2
+    user = messages[0]
+    assert user.files == [
+        fork / "attachments/pixel.png",
+        fork / "attachments/note.txt",
+        external,
+        uri,
+    ]
+    assert user.file_hashes == {
+        str(fork / "attachments/pixel.png"): image_hash,
+        str(fork / "attachments/note.txt"): note_hash,
+        str(external): external_hash,
+    }
+    source.rename(tmp_path / "preserved-original")
+    assert isinstance(user.files[0], Path)
+    assert (
+        user.files[0].read_bytes()
+        == (tmp_path / "preserved-original/attachments/pixel.png").read_bytes()
+    )
+    rendered = _process_file({"content": "Describe", "files": [str(user.files[0])]})
+    assert sum(block["type"] == "image" for block in rendered["content"]) == 1
+    assert (fork / "attachments/note.txt").read_text() == "original note"
+
+
+def test_fork_relative_attachment_with_missing_snapshot(tmp_path: Path) -> None:
+    """A stale hash must not drop a live conversation-relative attachment."""
+    from gptme.logmanager.fork import copy_messages_for_fork
+
+    source = tmp_path / "source"
+    attachment = source / "attachments" / "note.txt"
+    attachment.parent.mkdir(parents=True)
+    attachment.write_text("live attachment")
+    message = Message(
+        "user",
+        "Read note",
+        files=[Path("attachments/note.txt")],
+        file_hashes={"attachments/note.txt": "missing-snapshot"},
+    )
+    dest = tmp_path / "fork"
+    copied = copy_messages_for_fork([message], source, dest)
+    assert copied[0].files == [dest / "attachments/note.txt"]
+    assert copied[0].file_hashes == {}
+    assert (dest / "attachments/note.txt").read_text() == "live attachment"
