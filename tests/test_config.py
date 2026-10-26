@@ -3287,6 +3287,19 @@ def test_project_config_ignores_legacy_gear_setting():
     assert not hasattr(config.settings, "gear")
 
 
+def test_project_config_legacy_flat_roundtrip():
+    """The flat form written by to_dict() loads back without dropping exclude."""
+    config = ProjectConfig.from_dict(
+        {"files": ["README.md"], "exclude": ["secret.md"], "context_cmd": "echo"}
+    )
+    assert config.files == ["README.md"]
+    assert config.exclude == ["secret.md"]
+    assert config.context_cmd == "echo"
+
+    reloaded = ProjectConfig.from_dict(config.to_dict())
+    assert reloaded.exclude == ["secret.md"]
+
+
 def test_agent_and_user_color_config(tmp_path, caplog):
     """[agent].color / [user].color are accepted; invalid colors warn, not fail."""
     # Explicit level: another test may leave the root logger at CRITICAL.
