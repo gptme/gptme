@@ -14,9 +14,10 @@ if TYPE_CHECKING:
     from tree_sitter import Node
 
 _SHELLS = {"bash", "sh", "dash", "zsh", "ksh"}
-# Explicit non-secret diagnostics. Unknown printenv operands are conservatively
-# denied; compgen -e (names only) is not a value dump.
-_DIAGNOSTICS = {"PATH", "HOME", "LANG", "SHELL", "TERM", "PWD", "USER", "LOGNAME", "TZ"}
+# Literal variable names. printenv of named operands prints only those values,
+# so it follows the same secret-name rule as echo "$NAME"; compgen -e (names
+# only) is not a value dump.
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 _SECRET_NAME = re.compile(
     r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)(?:_|$)",
     re.IGNORECASE,
@@ -120,10 +121,18 @@ def _command_reason(words: list[str], depth: int) -> str | None:
     if name == "printenv":
         if args in [["--help"], ["--version"]]:
             return None
-        operands = [arg for arg in args if not arg.startswith("-")]
+        operands = args[:]
+        while operands and operands[0] in {"-0", "--null"}:
+            operands.pop(0)
+        if operands and operands[0] == "--":
+            operands.pop(0)
         return (
             None
-            if operands and all(arg in _DIAGNOSTICS for arg in operands)
+            if operands
+            and all(
+                _IDENTIFIER.fullmatch(arg) and not _SECRET_NAME.search(arg)
+                for arg in operands
+            )
             else _REASON
         )
     if name == "set" and not args:
