@@ -140,7 +140,17 @@ _WORD = re.compile(r"\b\w+\b")
 # 8-word sentences are normal in technical documentation (e.g. "The function
 # returns a sorted list of integers."); 7 is the upper bound for genuinely
 # punchy slop-style phrasing ("It works. It scales. It delivers.").
-_SENT_END = re.compile(r"[.!?]+")
+# A terminator only ends a sentence when followed by whitespace or end of
+# text (allowing closing quotes, brackets and Markdown marks in between), so
+# periods inside versions (v0.35.1), file names (gptme.toml) and URLs do not
+# split. Common abbreviations protect periods only, not question/exclamation
+# marks. Start only at the beginning of a punctuation run to avoid quadratic
+# retries when a long run is not followed by a sentence boundary.
+_SENT_END = re.compile(
+    r"(?<![.!?])(?:\.*[!?]|(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bvs)(?<!\bcf)\.)[.!?]*"
+    r"[\"'”’\)\]\}*_`~]*(?=\s|$)",
+    re.IGNORECASE,
+)
 _STACCATO_MAX_WORDS = 7
 _STACCATO_MIN_RUN = 3
 

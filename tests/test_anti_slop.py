@@ -244,6 +244,89 @@ def test_staccato_no_false_positive_on_technical_doc_sentences():
     )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # One ordinary sentence: abbreviation periods are not sentence ends.
+        (
+            "Our team rewrote the scheduler so that every queued job gets retried "
+            "with exponential backoff, e.g. after a transient network failure, i.e. "
+            "a DNS flap or a reset socket from the upstream provider."
+        ),
+        # Version strings and file names contain periods too.
+        (
+            "Upgrade to gptme v0.35.2.dev20261019 and edit gptme.toml before "
+            "restarting the server so the new provider settings are picked up "
+            "by every running agent on the host."
+        ),
+    ],
+)
+def test_staccato_ignores_non_terminal_periods(text):
+    """Periods inside abbreviations, versions and file names do not end sentences."""
+    hits = detect_smells(text)["hits"]
+    assert not [h for h in hits if h["category"] == "staccato"], hits
+    assert evaluate_gate(text)["status"] == "pass"
+
+
+@pytest.mark.parametrize("abbreviation", ["e.g.", "i.e.", "etc.", "vs.", "cf.", "E.G."])
+def test_staccato_preserves_abbreviation_separated_clauses(abbreviation):
+    text = (
+        f"Use {abbreviation} after resets {abbreviation} network faults {abbreviation} "
+        "while checking logs and recording detailed diagnostics for every retry "
+        "attempt on the production server."
+    )
+    hits = detect_smells(text)["hits"]
+    assert not [h for h in hits if h["category"] == "staccato"], hits
+    assert evaluate_gate(text)["status"] == "pass"
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [
+        ('"', '"'),
+        ("'", "'"),
+        ("“", "”"),
+        ("‘", "’"),
+        ("(", ")"),
+        ("**", "**"),
+        ("_", "_"),
+        ("`", "`"),
+        ("~~", "~~"),
+        ("**“", "”**"),
+    ],
+)
+@pytest.mark.parametrize("terminator", [".", "!", "?"])
+def test_staccato_detects_formatted_sentences(opening, closing, terminator):
+    sentences = [
+        "It works well every single time",
+        "It scales up fast under heavy load",
+        "It delivers clean results every single day",
+    ]
+    text = " ".join(f"{opening}{s}{terminator}{closing}" for s in sentences)
+    hits = detect_smells(text)["hits"]
+    assert [h for h in hits if h["category"] == "staccato"], hits
+    assert evaluate_gate(text)["status"] == "fail"
+
+
+@pytest.mark.parametrize("terminator", ["!", "?", ".!", ".?", "...?"])
+def test_staccato_abbreviation_prefix_does_not_hide_other_terminators(terminator):
+    text = terminator.join(
+        [
+            "It handles retries and resets etc",
+            " It scales up fast under heavy load",
+            " It delivers clean results every single day",
+            "",
+        ]
+    )
+    assert evaluate_gate(text)["status"] == "fail"
+
+
+@pytest.mark.timeout(5)
+def test_staccato_handles_long_non_terminal_punctuation_run():
+    text = "a" + "." * 100_000 + "b"
+    assert not [h for h in detect_smells(text)["hits"] if h["category"] == "staccato"]
+
+
 # ---------------------------------------------------------------------------
 # evaluate_gate — scoring and modes
 # ---------------------------------------------------------------------------
