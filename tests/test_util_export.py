@@ -268,6 +268,35 @@ def test_fetch_cdn_resource_refetches_invalid_cache(tmp_path):
         network.assert_called_once()
 
 
+@pytest.mark.parametrize("with_integrity", [False, True])
+def test_fetch_cdn_resource_refetches_undecodable_cache(tmp_path, with_integrity):
+    url = "https://example.com/lib.js"
+    cached = b"\xff"
+    content = b"// usable script"
+    integrity = (
+        "sha256-" + base64.b64encode(hashlib.sha256(cached).digest()).decode()
+        if with_integrity
+        else ""
+    )
+    cache_path = tmp_path / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.js"
+    cache_path.write_bytes(cached)
+    with (
+        patch("gptme.util.export._cdn_cache_dir", return_value=tmp_path),
+        patch("urllib.request.urlopen") as network,
+    ):
+        network.return_value.__enter__.return_value.read.return_value = content
+        if with_integrity:
+            # Refetching must not bypass the expected hash on the fresh bytes.
+            with pytest.raises(RuntimeError, match="integrity"):
+                _fetch_cdn_resource(url, integrity)
+            assert cache_path.read_bytes() == cached
+        else:
+            assert _fetch_cdn_resource(url) == content.decode()
+            assert cache_path.read_bytes() == content
+            assert _fetch_cdn_resource(url) == content.decode()
+        network.assert_called_once()
+
+
 def test_embed_cdn_resources_passes_integrity():
     with patch(CDN_PATCH, return_value=CDN_STUB) as fetch:
         _embed_cdn_resources(

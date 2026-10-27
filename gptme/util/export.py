@@ -50,10 +50,11 @@ def _fetch_cdn_resource(url: str, integrity: str = "") -> str:
         cache_path = _cdn_cache_dir() / f"{url_hash}{suffix}"
         cached = cache_path.read_bytes()
         _verify_cdn_integrity(cached, integrity, url)
-    except (OSError, RuntimeError):
+        decoded = cached.decode("utf-8")
+    except (OSError, RuntimeError, UnicodeDecodeError):
         pass  # Missing, inaccessible or invalid cache entries need a fresh download.
     else:
-        return cached.decode("utf-8")
+        return decoded
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "gptme/1.0"})
