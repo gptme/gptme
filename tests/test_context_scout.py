@@ -96,7 +96,7 @@ class TestGetWorkspaceFilesQuotedNames:
 
     @pytest.fixture()
     def git_workspace(self, tmp_path):
-        """A real git repo with non-ASCII, quote, and backslash filenames."""
+        """A real git repo with platform-supported names that Git C-style-quotes."""
         subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
         subprocess.run(
             ["git", "-C", str(tmp_path), "config", "user.email", "t@t.com"],
@@ -110,14 +110,16 @@ class TestGetWorkspaceFilesQuotedNames:
             ["git", "-C", str(tmp_path), "config", "core.quotePath", "true"],
             check=True,
         )
-        names = ["plain.py", "café.py", "中文.py", 'quote".py', "back\\slash.py"]
+        names = ["plain.py", "café.py", "中文.py"]
+        if os.name == "posix":
+            names.extend(['quote".py', "back\\slash.py"])
         for name in names:
             (tmp_path / name).write_text("pass\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(tmp_path), "add", "--", *names], check=True)
         return tmp_path, names
 
     def test_returns_all_tracked_files(self, git_workspace):
-        """All five tracked filenames are discovered even when core.quotePath=true."""
+        """All tracked filenames are discovered even when core.quotePath=true."""
         from gptme.context.selector.file_selector import get_workspace_files
 
         workspace, names = git_workspace
