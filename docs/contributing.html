@@ -654,6 +654,7 @@
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#android-release-signing">Android release signing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#windows-authenticode-signing">Windows Authenticode signing</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="pst-show_toc_level nav section-nav flex-column">
@@ -1043,6 +1044,50 @@ the build. Signing deliberately happens in the tag-gated release job rather
 than via a Gradle <code class="docutils literal notranslate"><span class="pre">signingConfig</span></code> or Tauri’s keystore hooks in the build job,
 so signing secrets are never exposed to PR-triggered builds.</p>
 </section>
+<section id="windows-authenticode-signing">
+<h3>Windows Authenticode signing<a class="headerlink" href="#windows-authenticode-signing" title="Link to this heading">#</a></h3>
+<p>Windows releases can optionally use a PFX/PKCS12 Authenticode certificate from
+the <code class="docutils literal notranslate"><span class="pre">tauri-autoupdater-signing</span></code> GitHub environment. A trusted signature
+identifies the publisher, but does not guarantee SmartScreen reputation or
+acceptance by an enterprise’s AppLocker policy.</p>
+<p>This workflow supports only an <strong>existing exportable private key</strong> with a valid
+code-signing certificate. Newly issued publicly trusted OV/EV code-signing
+certificates require hardware-backed keys and cannot simply be exported as PFX;
+see <a class="reference external" href="https://knowledge.digicert.com/general-information/export-a-code-signing-certificate-as-a-pfx-file">DigiCert’s PFX export limitations</a>.
+Do not purchase a new certificate expecting to enable this PFX-only path.</p>
+<p>For new publicly trusted signing, use a hardware-backed or cloud signing service,
+for example <a class="reference external" href="https://learn.microsoft.com/en-us/azure/artifact-signing/">Azure Artifact Signing</a>. Its signing client
+must be integrated into both the sidecar step and Tauri’s
+<code class="docutils literal notranslate"><span class="pre">bundle.windows.signCommand</span></code> before enabling signed releases. That integration
+and its provider credentials are <strong>not implemented by this workflow</strong>; do not
+put a public certificate without its private key into <code class="docutils literal notranslate"><span class="pre">WINDOWS_CERTIFICATE</span></code>.</p>
+<p>If an appropriate exportable key is already available, configure both secrets:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">WINDOWS_CERTIFICATE</span></code>: base64-encoded PFX/PKCS12 containing the private key</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">WINDOWS_CERTIFICATE_PASSWORD</span></code>: password for the PFX file</p></li>
+</ul>
+<p>Encode the existing PFX:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>base64<span class="w"> </span>-w0<span class="w"> </span>your-certificate.pfx
+</pre></div>
+</div>
+<p>Store the PFX and password in the project’s offline recovery vault before
+provisioning GitHub. The certificate is referenced by its thumbprint, which the
+CI workflow extracts automatically at build time.</p>
+<p>The release workflow signs these Windows artifacts:</p>
+<ol class="arabic simple">
+<li><p>The main executable and NSIS installer (<code class="docutils literal notranslate"><span class="pre">.exe</span></code>) — signed by the Tauri CLI
+via <code class="docutils literal notranslate"><span class="pre">signtool</span></code> using the <code class="docutils literal notranslate"><span class="pre">bundle.windows.certificateThumbprint</span></code> override.</p></li>
+<li><p>The PyInstaller sidecar binary (<code class="docutils literal notranslate"><span class="pre">gptme-server-*.exe</span></code>) — signed separately
+before Tauri bundles it; Tauri does not sign external sidecars.</p></li>
+</ol>
+<p>Unless both secrets are present the workflow uses the unsigned path. A signing
+or verification failure in the enabled sidecar step stops the release rather
+than falling back to unsigned output. From a Windows SDK command prompt, verify
+an embedded signature (trust-chain checks may require network access):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">signtool</span> <span class="n">verify</span> <span class="o">/</span><span class="n">pa</span> <span class="n">gptme_X</span><span class="o">.</span><span class="n">Y</span><span class="o">.</span><span class="n">Z_x64</span><span class="o">-</span><span class="n">setup</span><span class="o">.</span><span class="n">exe</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="issue-labels">
 <h2>Issue Labels<a class="headerlink" href="#issue-labels" title="Link to this heading">#</a></h2>
@@ -1171,6 +1216,7 @@ so signing secrets are never exposed to PR-triggered builds.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#release">Release</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#android-release-signing">Android release signing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#windows-authenticode-signing">Windows Authenticode signing</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-labels">Issue Labels</a><ul class="pst-show_toc_level nav section-nav flex-column">
