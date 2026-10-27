@@ -93,31 +93,23 @@ def _embed_cdn_resources(html_content: str) -> str:
     Fetched resources are cached to ~/.cache/gptme/cdn/ to avoid re-downloading.
     """
 
-    def fetch_tag(m: re.Match) -> str:
+    def inline_resource(m: re.Match) -> str:
         integrity = re.search(r'\bintegrity="([^"]*)"', m.group(0))
-        return _fetch_cdn_resource(m.group(1), integrity.group(1) if integrity else "")
-
-    def inline_script(m: re.Match) -> str:
-        content = fetch_tag(m)
-        # HTML closes raw-text elements even inside JavaScript string literals.
-        content = re.sub(r"</(?=script\b)", r"<\\/", content, flags=re.IGNORECASE)
-        return f"<script>{content}</script>"
-
-    def inline_stylesheet(m: re.Match) -> str:
-        content = fetch_tag(m)
+        url = m.group(1) or m.group(2)
+        content = _fetch_cdn_resource(url, integrity.group(1) if integrity else "")
+        if m.group(1):
+            # HTML closes raw-text elements even inside JavaScript string literals.
+            content = re.sub(r"</(?=script\b)", r"<\\/", content, flags=re.IGNORECASE)
+            return f"<script>{content}</script>"
         return f"<style>{content}</style>"
 
-    html_content = re.sub(
-        r'<script\s+src="(https://[^"]+)"[^>]*></script>',
-        inline_script,
+    # One pass over the template: never scan downloaded source as HTML markup.
+    return re.sub(
+        r'<script\s+src="(https://[^"]+)"[^>]*></script>'
+        r'|<link\s+rel="stylesheet"\s+href="(https://[^"]+)"[^>]*>',
+        inline_resource,
         html_content,
     )
-    html_content = re.sub(
-        r'<link\s+rel="stylesheet"\s+href="(https://[^"]+)"[^>]*>',
-        inline_stylesheet,
-        html_content,
-    )
-    return html_content
 
 
 def replace_or_fail(content: str, old: str, new: str, desc: str = "") -> str:

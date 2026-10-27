@@ -148,6 +148,23 @@ def test_embed_cdn_script_preserves_closing_delimiter_in_string(closing_tag):
     assert result == f"<script>{expected}</script>"
 
 
+def test_embed_cdn_resources_does_not_scan_downloaded_source():
+    script_url = "https://example.com/lib.js"
+    stylesheet_url = "https://example.com/lib.css"
+    source = 'const tag = \'<link rel="stylesheet" href="https://internal.example/private.css">\';'
+    with patch(CDN_PATCH, side_effect=[source, "body {\n color: red;\n}"]) as fetch:
+        result = _embed_cdn_resources(
+            f'<script src="{script_url}"></script>'
+            f'<link rel="stylesheet" href="{stylesheet_url}">'
+        )
+    assert [call.args for call in fetch.call_args_list] == [
+        (script_url, ""),
+        (stylesheet_url, ""),
+    ]
+    assert f"<script>{source}</script>" in result
+    assert "<style>body {\n color: red;\n}</style>" in result
+
+
 def test_embed_cdn_resources_inlines_scripts():
     """CDN <script src> tags are replaced with <script>CONTENT</script>."""
     html_in = (
