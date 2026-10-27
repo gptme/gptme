@@ -905,9 +905,10 @@ export const ChatInput: FC<Props> = ({
   // Keep raw File objects in memory under their owning draft, never in another
   // conversation's queue. Switching away must not discard a failed upload.
   const [messageQueues, setMessageQueues] = useState<Record<string, QueuedMessage[]>>({});
-  const messageQueue = messageQueues[storageKey] ?? [];
+  const messageQueue: QueuedMessage[] = storageKey != null ? (messageQueues[storageKey] ?? []) : [];
   const setMessageQueue = useCallback(
     (update: SetStateAction<QueuedMessage[]>) => {
+      if (!storageKey) return;
       setMessageQueues((queues) => ({
         ...queues,
         [storageKey]: typeof update === 'function' ? update(queues[storageKey] ?? []) : update,
@@ -978,7 +979,7 @@ export const ChatInput: FC<Props> = ({
     const switched = previousStorageKey.current !== storageKey;
     previousStorageKey.current = storageKey;
     if (!switched || isBusy) return;
-    if (!messageQueue.some((queued) => !queued.uploadFailed)) return;
+    if (!messageQueue.some((queued: QueuedMessage) => !queued.uploadFailed)) return;
     wasBusy.current = true;
   }, [storageKey, isBusy, messageQueue]);
 
@@ -1364,7 +1365,7 @@ export const ChatInput: FC<Props> = ({
         {/* Show queued messages indicator */}
         {messageQueue.length > 0 && (
           <div className="flex flex-wrap items-center gap-1">
-            {messageQueue.map((msg, index) => (
+            {messageQueue.map((msg: QueuedMessage, index: number) => (
               <QueuedMessageBadge
                 key={index}
                 message={messageQueue.length > 1 ? `(${index + 1}) ${msg.text}` : msg.text}
