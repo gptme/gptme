@@ -49,10 +49,10 @@ def _fetch_cdn_resource(url: str, integrity: str = "") -> str:
     try:
         cache_path = _cdn_cache_dir() / f"{url_hash}{suffix}"
         cached = cache_path.read_bytes()
-    except OSError:
-        pass  # An absent or inaccessible cache must not prevent downloading.
-    else:
         _verify_cdn_integrity(cached, integrity, url)
+    except (OSError, RuntimeError):
+        pass  # Missing, inaccessible or invalid cache entries need a fresh download.
+    else:
         return cached.decode("utf-8")
 
     try:

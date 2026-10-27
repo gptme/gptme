@@ -248,7 +248,24 @@ def test_fetch_cdn_resource_verifies_integrity(tmp_path, cached, valid):
                 _fetch_cdn_resource(url, integrity)
             if not cached:
                 assert not cache_path.exists()
-        assert network.call_count == (0 if cached else 1)
+        assert network.call_count == (0 if cached and valid else 1)
+
+
+def test_fetch_cdn_resource_refetches_invalid_cache(tmp_path):
+    url = "https://example.com/lib.js"
+    content = b"// updated script"
+    integrity = "sha256-" + base64.b64encode(hashlib.sha256(content).digest()).decode()
+    cache_path = tmp_path / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.js"
+    cache_path.write_bytes(b"// stale script")
+    with (
+        patch("gptme.util.export._cdn_cache_dir", return_value=tmp_path),
+        patch("urllib.request.urlopen") as network,
+    ):
+        network.return_value.__enter__.return_value.read.return_value = content
+        assert _fetch_cdn_resource(url, integrity) == content.decode()
+        assert cache_path.read_bytes() == content
+        assert _fetch_cdn_resource(url, integrity) == content.decode()
+        network.assert_called_once()
 
 
 def test_embed_cdn_resources_passes_integrity():
