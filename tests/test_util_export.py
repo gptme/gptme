@@ -2,6 +2,8 @@
 
 import base64
 import hashlib
+import html
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -112,6 +114,38 @@ def test_export_chat_to_html_is_self_contained(tmp_path):
     # the conversation itself made it in
     assert "what is 2+2?" in html
     assert "test-conversation" in html
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        '<link rel="stylesheet" href="https://internal.example/private.css">',
+        '</title><script src="https://internal.example/private.js"></script>',
+    ],
+)
+def test_html_export_only_fetches_template_resources(tmp_path, name):
+    with patch(CDN_PATCH, return_value=CDN_STUB) as fetch:
+        export_chat_to_html("safe-name", Log([]), tmp_path / "baseline.html")
+        template_calls = fetch.call_args_list.copy()
+        fetch.reset_mock()
+        export_chat_to_html(name, Log([]), tmp_path / "untrusted.html")
+    assert fetch.call_args_list == template_calls
+    exported = (tmp_path / "untrusted.html").read_text()
+    assert f"<title>{html.escape(name)} - gptme</title>" in exported
+    serialized_name = exported.split("window.CHAT_NAME = ", 1)[1].split(";", 1)[0]
+    assert "<" not in serialized_name
+    assert json.loads(serialized_name) == name
+
+
+@pytest.mark.parametrize("closing_tag", ["</script>", "</ScRiPt >"])
+def test_embed_cdn_script_preserves_closing_delimiter_in_string(closing_tag):
+    source = f'const closingTag = "{closing_tag}"; window.ready = true;'
+    with patch(CDN_PATCH, return_value=source):
+        result = _embed_cdn_resources(
+            '<script src="https://example.com/lib.js"></script>'
+        )
+    expected = source.replace("</", "<\\/")
+    assert result == f"<script>{expected}</script>"
 
 
 def test_embed_cdn_resources_inlines_scripts():

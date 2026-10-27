@@ -99,6 +99,8 @@ def _embed_cdn_resources(html_content: str) -> str:
 
     def inline_script(m: re.Match) -> str:
         content = fetch_tag(m)
+        # HTML closes raw-text elements even inside JavaScript string literals.
+        content = re.sub(r"</(?=script\b)", r"<\\/", content, flags=re.IGNORECASE)
         return f"<script>{content}</script>"
 
     def inline_stylesheet(m: re.Match) -> str:
@@ -139,6 +141,9 @@ def export_chat_to_html(name: str, chat_data: Log, output_path: Path) -> None:
     with open(template_dir / "main.js", encoding="utf-8") as f:
         js = f.read()
 
+    # Only trusted template tags may cause downloads, never conversation data.
+    html_template = _embed_cdn_resources(html_template)
+
     # No need to modify JavaScript since it now handles embedded data
 
     # Prepare the chat data, escaping any HTML in the content
@@ -150,6 +155,7 @@ def export_chat_to_html(name: str, chat_data: Log, output_path: Path) -> None:
         chat_data_list.append(msg_dict)
 
     chat_data_json = json.dumps(chat_data_list, indent=2)
+    chat_name_json = json.dumps(name).replace("<", "\\u003c")
 
     # Embed script and conversation
     standalone_html = replace_or_fail(
@@ -157,7 +163,7 @@ def export_chat_to_html(name: str, chat_data: Log, output_path: Path) -> None:
         '<script type="module" src="/static/main.js"></script>',
         f"""
 <script>
-window.CHAT_NAME = {json.dumps(name)};
+window.CHAT_NAME = {chat_name_json};
 window.CHAT_DATA = {chat_data_json};
 </script>
 <script>
@@ -175,7 +181,7 @@ window.CHAT_DATA = {chat_data_json};
     standalone_html = replace_or_fail(
         standalone_html,
         "<title>gptme</title>",
-        f"<title>{name} - gptme</title>",
+        f"<title>{html.escape(name)} - gptme</title>",
         "title",
     )
 
@@ -234,9 +240,6 @@ window.CHAT_DATA = {chat_data_json};
         '<div style="display: none;" class="sidebar',
         "sidebar div",
     )
-
-    # Embed external CDN scripts/stylesheets inline so the file works offline
-    standalone_html = _embed_cdn_resources(standalone_html)
 
     # Write the file
     with open(output_path, "w", encoding="utf-8") as f:
