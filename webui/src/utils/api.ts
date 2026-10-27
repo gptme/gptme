@@ -25,6 +25,11 @@ import {
   setMaxTokens,
   setTemperature,
   setTopP,
+  clearInitialStepState,
+  replaceLog,
+  removeMessage,
+  addMessage,
+  conversations$,
 } from '@/stores/conversations';
 
 // Add DOM types
@@ -67,6 +72,17 @@ export class ApiClientError extends Error {
   }
 }
 
+/** Upload failed before message persistence; keep the draft for deliberate retry. */
+export class AttachmentUploadError extends Error {
+  cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Attached files could not be uploaded. Check the files and try Send again.');
+    this.cause = cause;
+    this.name = 'AttachmentUploadError';
+  }
+}
+
 // Returns undefined for unset / default '.' workspace so the server can apply
 // its own @log (isolated per-conversation) default. Explicit non-default paths
 // (e.g. '/workspace/project') are passed through unchanged.
@@ -75,6 +91,75 @@ function requestWorkspace(workspace?: string): string | undefined {
     return undefined;
   }
   return workspace;
+}
+
+function conversationHasOtherMessages(conversationId: string, timestamp: string): boolean {
+  const log = conversations$.get(conversationId)?.data.log.get() ?? [];
+  return log.some((entry) => entry.timestamp !== timestamp);
+}
+
+function currentLogRevision(conversationId: string): number {
+  return conversations$.get(conversationId)?.logRevision.get() ?? 0;
+}
+
+function sameLogMessage(a: Message, b: Message): boolean {
+  if (a.timestamp === undefined || b.timestamp === undefined) return false;
+  // Date.parse normalizes timezone/formatting but drops sub-millisecond digits.
+  // Preserve those digits too: Python logs can contain microsecond timestamps.
+  const remainder = (timestamp: string) =>
+    (timestamp.match(/\.(\d+)/)?.[1] ?? '').slice(3).replace(/0+$/, '');
+  return (
+    a.role === b.role &&
+    Date.parse(a.timestamp) === Date.parse(b.timestamp) &&
+    remainder(a.timestamp) === remainder(b.timestamp)
+  );
+}
+
+function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]): Message[] {
+  const local = conversations$.get(conversationId)!.data.log.get();
+  return [
+    ...snapshot.map((entry) => {
+      const previous = local.find((candidate) => sameLogMessage(candidate, entry));
+      // Preserve the local identity spelling used by in-flight status updates.
+      // The server may serialize the same instant with different precision/zone.
+      return previous
+        ? {
+            ...previous,
+            ...entry,
+            timestamp: previous.timestamp,
+            ...(previous._status ? { _status: previous._status } : {}),
+            ...('isComplete' in previous && previous.isComplete === false
+              ? { content: previous.content, isComplete: false }
+              : {}),
+          }
+        : entry;
+    }),
+    ...local.filter((entry) => !snapshot.some((saved) => sameLogMessage(entry, saved))),
+  ];
+}
+
+function stopPlaceholderGeneration(conversationId: string, placeholderTimestamp: string): void {
+  const laterActivity = conversationHasOtherMessages(conversationId, placeholderTimestamp);
+  clearInitialStepState(conversationId);
+  if (!laterActivity) {
+    setGenerating(conversationId, false);
+  }
+}
+
+function replaceMessageByTimestamp(conversationId: string, timestamp: string, next: Message): void {
+  const log = conversations$.get(conversationId)?.data.log.get();
+  if (!log) {
+    addMessage(conversationId, next);
+    return;
+  }
+  const idx = log.findIndex((entry) => entry.timestamp === timestamp);
+  if (idx === -1) {
+    addMessage(conversationId, next);
+    return;
+  }
+  const updated = [...log];
+  updated[idx] = next;
+  replaceLog(conversationId, updated);
 }
 
 export function getApiErrorPresentation(
@@ -1659,6 +1744,55 @@ export class ApiClient {
   }
 
   /**
+   * Reconcile local log order with the server after a late attachment POST
+   * or a successful Retry of a previously rejected POST. Edit/delete bump
+   * logRevision; a snapshot fetched across that change is stale and can
+   * restore deleted messages or overwrite edits. Retry once, then keep
+   * local if the log is still mutating.
+   */
+  async reconcileLateUploadOrder(conversationId: string): Promise<void> {
+    const state = conversations$.get(conversationId);
+    // A fallback order is not authoritative, even though the POST succeeded.
+    // Keep positional mutations blocked on GET failure or a repeatedly stale GET.
+    state?.historyOrderUncertain.set(true);
+    const applyIfUnchanged = async (revision: number): Promise<boolean> => {
+      const data = await this.getConversation(conversationId);
+      if (currentLogRevision(conversationId) !== revision) {
+        return false;
+      }
+      const local = state?.data.log.get() ?? [];
+      // A live assistant has a client-generated timestamp until completion.
+      // Do not guess its server identity or publish duplicate positional rows.
+      // Timestamp-less local rows are similarly ambiguous; an authoritative
+      // history reload remains the safe recovery path in that case.
+      if (
+        local.some(
+          (entry) =>
+            !entry.timestamp ||
+            ('isComplete' in entry &&
+              entry.isComplete === false &&
+              !data.log.some((saved) => sameLogMessage(entry, saved)))
+        )
+      ) {
+        return false;
+      }
+      // Keep Retry metadata and append entries absent from this snapshot in
+      // their local order (including newer SSE messages). Only the snapshot
+      // prefix has authoritative server indices.
+      replaceLog(conversationId, mergeAuthoritativeLogPrefix(conversationId, data.log));
+      state?.historyOrderUncertain.set(false);
+      return true;
+    };
+
+    const firstRevision = currentLogRevision(conversationId);
+    if (await applyIfUnchanged(firstRevision)) {
+      return;
+    }
+    const retryRevision = currentLogRevision(conversationId);
+    await applyIfUnchanged(retryRevision);
+  }
+
+  /**
    * Create a conversation with immediate placeholder and background sync.
    * This ensures instant navigation while handling server sync transparently.
    */
@@ -1669,6 +1803,7 @@ export class ApiClient {
       stream?: boolean;
       workspace?: string;
       pendingFiles?: File[];
+      onFilesUploaded?: () => void;
       maxTokens?: number;
       temperature?: number;
       topP?: number;
@@ -1683,6 +1818,7 @@ export class ApiClient {
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
+      ...(options?.pendingFiles?.length ? { _status: 'pending' as const } : {}),
     };
 
     // Create placeholder conversation in store immediately.
@@ -1739,15 +1875,68 @@ export class ApiClient {
             workspace: requestWorkspace(options?.workspace),
           },
         });
+        let uploadResult;
         try {
-          const uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
-          const filePaths = uploadResult.files.map((f) => f.path);
-          await this.sendMessage(conversationId, { ...message, files: filePaths });
+          uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
         } catch (error) {
-          console.error('[API] Failed to upload pending files:', error);
-          // Fall back: send original message without files
-          await this.sendMessage(conversationId, message);
+          throw new AttachmentUploadError(error);
         }
+        const filePaths = uploadResult.files.map((f) => f.path);
+        const attachedMessage = { ...message, files: filePaths };
+        replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
+        let saved = false;
+        try {
+          await this.sendMessage(conversationId, attachedMessage);
+          attachedMessage._status = 'sent';
+          replaceMessageByTimestamp(conversationId, message.timestamp!, attachedMessage);
+          saved = true;
+        } catch (error) {
+          // Upload succeeded: transfer ownership to the visible failed message,
+          // not back to a composer that might blindly duplicate an ambiguous POST.
+          // Patch in place so a newer send during the pending upload is kept.
+          stopPlaceholderGeneration(conversationId, message.timestamp!);
+          const rejected =
+            ApiClientError.isApiError(error) &&
+            [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
+          replaceMessageByTimestamp(conversationId, message.timestamp!, {
+            ...attachedMessage,
+            _status: 'failed',
+            _error:
+              'Message could not be saved. Use Retry; uncertain saves require refreshing history first.',
+            _retry: {
+              persistence: rejected ? 'rejected' : 'unknown',
+              options: {
+                model: options?.model,
+                stream: options?.stream,
+                maxTokens: options?.maxTokens,
+                temperature: options?.temperature,
+                topP: options?.topP,
+              },
+            },
+          });
+        }
+        if (saved && conversationHasOtherMessages(conversationId, message.timestamp!)) {
+          // POST appends at save time, not at the placeholder's original position.
+          // Timestamp sorting is wrong too: this message still has its old timestamp.
+          // Move it to the end as a fallback, then obtain authoritative server order
+          // (including any intervening assistant/tool messages) for positional edits.
+          const log = conversations$.get(conversationId)!.data.log.get();
+          replaceLog(conversationId, [
+            ...log.filter((entry) => entry.timestamp !== message.timestamp),
+            attachedMessage,
+          ]);
+          try {
+            await this.reconcileLateUploadOrder(conversationId);
+          } catch (error) {
+            // The POST succeeded. A refresh failure must not turn it into a
+            // rejected message whose Retry could duplicate the saved prompt.
+            console.warn('[ApiClient] Failed to reconcile uploaded message order:', error);
+          }
+        }
+        // Keep the new-chat draft locked through persistence. The caller
+        // navigates as soon as creation resolves, discarding any new files
+        // attached if we release the composer while the POST is still pending.
+        options.onFilesUploaded?.();
       } else {
         // No files: create conversation with the initial message.
         // useConversation will call step() after subscribing (needsInitialStep: true above).
@@ -1773,7 +1962,21 @@ export class ApiClient {
 
     // NOTE: step() is NOT called here — useConversation calls it after subscribing to SSE.
 
-    // Return the ID immediately; server creation runs concurrently.
+    // Retain the new-chat composer until attachment upload succeeds. Text-only
+    // chats still navigate immediately; a failed attachment attempt may leave
+    // an empty server conversation, but must never generate from a stripped one.
+    if (options?.pendingFiles?.length) {
+      try {
+        await serverCreation;
+      } catch (error) {
+        // Only this placeholder is unsent: another composer may have saved
+        // newer messages while the upload was pending. Keep those intact.
+        // A later send may already own generation; do not idle it.
+        stopPlaceholderGeneration(conversationId, message.timestamp!);
+        removeMessage(conversationId, message.timestamp!);
+        throw error;
+      }
+    }
     return conversationId;
   }
 

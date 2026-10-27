@@ -38,7 +38,12 @@ import { playChime } from '@/utils/audio';
 import { speakText } from '@/utils/tts';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
-import { ApiClientError, getApiErrorPresentation, getClientGeneration } from '@/utils/api';
+import {
+  ApiClientError,
+  AttachmentUploadError,
+  getApiErrorPresentation,
+  getClientGeneration,
+} from '@/utils/api';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
@@ -275,6 +280,20 @@ export function useConversation(conversationId: string, serverId?: string) {
           }
         }
 
+        // Keep stream ownership by identity: a late attachment POST can append
+        // a user message after the assistant currently receiving tokens.
+        let streamingTimestamp: string | undefined;
+        const streamingMessage = () => {
+          const messages = conversation$?.data.log.get() ?? [];
+          const index = streamingTimestamp
+            ? messages.findIndex(
+                (message) =>
+                  message.role === 'assistant' && message.timestamp === streamingTimestamp
+              )
+            : messages.length - 1;
+          return index >= 0 ? conversation$?.data.log[index] : undefined;
+        };
+
         // Connect to event stream. Record the client generation that owns the
         // stream so all instances of this conversation agree a live subscription
         // exists, and a replaced client is detected as stale.
@@ -308,11 +327,13 @@ export function useConversation(conversationId: string, serverId?: string) {
                   isComplete: false,
                 };
                 addMessage(conversationId, streamingMessage);
+                streamingTimestamp = streamingMessage.timestamp;
+              } else {
+                streamingTimestamp = lastMessage$.timestamp.get();
               }
             },
             onToken: (token) => {
-              const messages$ = conversation$?.data.log;
-              const lastMessage$ = messages$?.[messages$.length - 1];
+              const lastMessage$ = streamingMessage();
               if (lastMessage$?.role?.get() === 'assistant') {
                 lastMessage$.content.set((prev) => prev + token);
               } else {
@@ -326,9 +347,8 @@ export function useConversation(conversationId: string, serverId?: string) {
               messageJustCompleted.current = true;
               lastCompletedMessageRef.current = message;
 
-              // Update the last message with final content and metadata
-              const messages$ = conversation$?.data.log;
-              const lastMessage$ = messages$?.[messages$.length - 1];
+              // Update the stream-owned message even if a late POST follows it.
+              const lastMessage$ = streamingMessage();
               if (lastMessage$?.role.get() === 'assistant') {
                 lastMessage$.content.set(message.content);
                 if (message.metadata) {
@@ -337,8 +357,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 if (message.timestamp) {
                   lastMessage$.timestamp.set(message.timestamp);
                 }
-                if ('isComplete' in lastMessage$) {
-                  lastMessage$.isComplete.set(true);
+                if ('isComplete' in lastMessage$.get()) {
+                  lastMessage$.set({ ...lastMessage$.get(), isComplete: true } as StreamingMessage);
                 }
               }
 
@@ -728,10 +748,11 @@ export function useConversation(conversationId: string, serverId?: string) {
           toast({
             variant: 'destructive',
             title: 'Upload failed',
-            description: 'Failed to upload attached files',
+            description: 'Your message was not sent. Check the files and try Send again.',
           });
-          // Continue sending the message without files
+          throw new AttachmentUploadError(error);
         }
+        options.onFilesUploaded?.();
       }
 
       // Create user message with pending status
@@ -754,7 +775,8 @@ export function useConversation(conversationId: string, serverId?: string) {
     userMessage: Message,
     options: ChatOptions | undefined,
     epoch: number,
-    messageSent: boolean
+    messageSent: boolean,
+    requeueOnBusy = true
   ) => {
     const resumingSavedMessage = messageSent;
     const checkRetryTurn = () => {
@@ -790,6 +812,31 @@ export function useConversation(conversationId: string, serverId?: string) {
         setRetryState('unknown');
         await api.sendMessage(conversationId, userMessage);
         messageSent = true;
+      }
+      // Retry appends at save time. If another message already occupies the
+      // original placeholder slot, local history stays [retried, newer] while
+      // the server is [newer, retried] — reconcile before lifting the
+      // positional-mutation guard.
+      if (
+        !requeueOnBusy &&
+        userMessage.timestamp &&
+        (conversations$.get(conversationId)?.data.log.get() ?? []).some(
+          (entry) => entry.timestamp !== userMessage.timestamp
+        )
+      ) {
+        const log = conversations$.get(conversationId)!.data.log.get();
+        const current = log.find((entry) => entry.timestamp === userMessage.timestamp);
+        if (current) {
+          replaceLog(conversationId, [
+            ...log.filter((entry) => entry.timestamp !== userMessage.timestamp),
+            current,
+          ]);
+        }
+        try {
+          await api.reconcileLateUploadOrder(conversationId);
+        } catch (error) {
+          console.warn('[useConversation] Failed to reconcile retried message order:', error);
+        }
       }
       setRetryState('saved');
       setMessageStatus(conversationId, userMessage.timestamp!, 'sent', '');
@@ -857,7 +904,12 @@ export function useConversation(conversationId: string, serverId?: string) {
       // re-throw so the caller (e.g. ChatInput queue flush) can requeue it.
       // Once persisted, a 409 falls through to the failed-status path below —
       // a requeue would re-send and duplicate the message.
-      if (!messageSent && ApiClientError.isApiError(error) && error.status === 409) {
+      if (
+        !messageSent &&
+        requeueOnBusy &&
+        ApiClientError.isApiError(error) &&
+        error.status === 409
+      ) {
         removeMessage(conversationId, userMessage.timestamp!);
         throw error;
       }
@@ -866,7 +918,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         // errors and 5xx responses are ambiguous and must never blindly repost.
         const rejected =
           ApiClientError.isApiError(error) &&
-          [400, 401, 403, 404, 413, 422].includes(error.status ?? 0);
+          [400, 401, 403, 404, 409, 413, 422].includes(error.status ?? 0);
         setRetryState(rejected ? 'rejected' : 'unknown');
       }
       const { title, description } = getApiErrorPresentation(error, {
@@ -995,9 +1047,33 @@ export function useConversation(conversationId: string, serverId?: string) {
         current,
         current._retry.options,
         epoch,
-        current._retry.persistence === 'saved'
+        current._retry.persistence === 'saved',
+        false
       );
     });
+  };
+
+  // Server mutations use log positions. An unsaved/uncertain local entry can
+  // shift every later index, so withhold positional operations until Retry or
+  // a history refresh restores a fully persisted log. Never guess an index.
+  const positionalMutationBlocked = () => {
+    const log = conversations$.get(conversationId)?.data.log.get() ?? [];
+    if (
+      !conversations$.get(conversationId)?.historyOrderUncertain.get() &&
+      !log.some(
+        (message) =>
+          message._status === 'pending' ||
+          (message._retry && message._retry.persistence !== 'saved')
+      )
+    ) {
+      return false;
+    }
+    toast({
+      variant: 'destructive',
+      title: 'Message history not synchronized',
+      description: 'Retry the unsaved message or refresh history before editing messages.',
+    });
+    return true;
   };
 
   const editMessage = async (
@@ -1007,6 +1083,8 @@ export function useConversation(conversationId: string, serverId?: string) {
     files?: string[],
     pendingFiles?: File[]
   ) => {
+    if (positionalMutationBlocked()) return false;
+    let saved = false;
     const applyEdit = async (epoch?: number) => {
       try {
         // Upload any new files first, then merge with existing file paths
@@ -1016,7 +1094,9 @@ export function useConversation(conversationId: string, serverId?: string) {
           const newPaths = uploadResult.files.map((f) => f.path);
           allFiles = [...(files || []), ...newPaths];
         }
+        if (positionalMutationBlocked()) return;
         const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
+        saved = true;
         // Use API response directly (SSE event may also arrive, but this is immediate)
         replaceLog(conversationId, result.log);
         if (result.branches) {
@@ -1039,12 +1119,14 @@ export function useConversation(conversationId: string, serverId?: string) {
     // A truncating edit re-generates, so it owns the stop flag from here on.
     if (truncate) {
       await runGeneration(applyEdit);
-      return;
+    } else {
+      await applyEdit();
     }
-    await applyEdit();
+    return saved;
   };
 
   const deleteMessage = async (index: number) => {
+    if (positionalMutationBlocked()) return;
     try {
       const result = await api.deleteMessage(conversationId, index);
       replaceLog(conversationId, result.log);
@@ -1059,10 +1141,11 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const rerunFromMessage = async (index: number) => {
-    if (!conversation$) return;
+    if (!conversation$ || positionalMutationBlocked()) return;
     const conv$ = conversation$;
 
     await runGeneration(async (epoch) => {
+      if (positionalMutationBlocked()) return;
       const log = conv$.data.log.get();
       const localIndex = index - conv$.logOffset.get();
       const isLastMessage = localIndex === log.length - 1;
@@ -1106,7 +1189,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const regenerateMessage = async (index: number) => {
-    if (!conversation$) return;
+    if (!conversation$ || positionalMutationBlocked()) return;
     // Remove the assistant message and everything after, then step to regenerate
     // Truncate at the message BEFORE this one (the user message)
     const prevIndex = index - 1;
@@ -1114,6 +1197,7 @@ export function useConversation(conversationId: string, serverId?: string) {
 
     await runGeneration(async (epoch) => {
       try {
+        if (positionalMutationBlocked()) return;
         const result = await api.editMessage(conversationId, prevIndex, undefined, true);
         replaceLog(conversationId, result.log);
         if (result.branches) {
@@ -1130,6 +1214,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   };
 
   const forkConversation = async (index: number) => {
+    if (positionalMutationBlocked()) return null;
     try {
       const branch = conversation$?.currentBranch.get() ?? 'main';
       return await api.forkConversation(conversationId, index, branch);

@@ -484,6 +484,9 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     sendMessage: async (logfile, message) => {
       appendLocalMessage(logfile, message);
     },
+    // No remote log: sendMessage already appends locally, so retry order is
+    // already the demo history.
+    reconcileLateUploadOrder: async () => {},
     editMessage: async () => notImpl('editMessage'),
     deleteMessage: async () => notImpl('deleteMessage'),
     rerunTools: async () => notImpl('rerunTools'),

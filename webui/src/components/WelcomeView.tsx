@@ -44,6 +44,13 @@ export const WelcomeView = () => {
   const [inputValue, setInputValue] = useComposerDraft(composerDraftKey(connectionConfig));
   const [hostedLoopbackReachable, setHostedLoopbackReachable] = useState(false);
   const seedConsumedRef = useRef(false);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Pick up a seed prompt from the host (e.g. gptme-cloud forwarding a prompt
   // typed on the landing page before login). consumeSeedPrompt is stable-ref
@@ -67,6 +74,15 @@ export const WelcomeView = () => {
   const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
   const navigate = useNavigate();
+  const serverEpoch = useRef(0);
+  const currentServerUrl = useRef(connectionConfig.baseUrl);
+  if (currentServerUrl.current !== connectionConfig.baseUrl) {
+    currentServerUrl.current = connectionConfig.baseUrl;
+    serverEpoch.current++;
+  }
+  useEffect(() => {
+    setIsSubmitting(false);
+  }, [connectionConfig.baseUrl]);
   const demoMode = isDemoMode();
   const isTauri = isTauriEnvironment();
   const { managesLocalServer } = useTauriServerStatus();
@@ -116,34 +132,39 @@ export const WelcomeView = () => {
     if ((!message.trim() && !options?.pendingFiles?.length) || !isConnected) return;
 
     setIsSubmitting(true);
+    const owner = serverEpoch.current;
+    const isCurrent = () => mountedRef.current && serverEpoch.current === owner;
 
     try {
-      // Create conversation with immediate placeholder and get ID
+      // Text-only chats navigate immediately. Attached files keep this composer
+      // mounted until upload and message persistence finish.
       const conversationId = await api.createConversationWithPlaceholder(message, {
         model: options?.model,
         stream: options?.stream,
         workspace: options?.workspace || '.',
         pendingFiles: options?.pendingFiles,
+        onFilesUploaded: () => {
+          if (isCurrent()) options?.onFilesUploaded?.();
+        },
         maxTokens: options?.maxTokens,
         temperature: options?.temperature,
         topP: options?.topP,
       });
 
-      // Navigate immediately - server-side creation happens in background
-      // Errors from backend are handled via toast in api.ts
-      navigate(chatRoute(conversationId));
+      // The placeholder's initial step starts after the chat view subscribes.
+      if (isCurrent()) navigate(chatRoute(conversationId));
 
       // Invalidate conversations query to refresh the list (async, don't block)
       queryClient.invalidateQueries({
         queryKey: conversationsQueryKey(connectionConfig.baseUrl),
       });
     } catch (error) {
-      // This only catches synchronous errors (e.g., local state issues)
-      // Server-side errors are handled in api.ts with toast notifications
+      // Propagate attachment failures so ChatInput retains the unsent draft.
       console.error('Failed to create conversation:', error);
-      toast.error('Failed to start conversation. Please try again.');
+      if (isCurrent()) toast.error('Failed to start conversation. Please try again.');
+      throw error;
     } finally {
-      setIsSubmitting(false);
+      if (isCurrent()) setIsSubmitting(false);
     }
   };
 
@@ -602,6 +623,7 @@ export const WelcomeView = () => {
 
             <div className="mx-auto w-full max-w-2xl [&_textarea]:min-h-[80px] [&_textarea]:text-base">
               <ChatInput
+                key={connectionConfig.baseUrl}
                 onSend={handleSend}
                 autoFocus$={autoFocus$}
                 value={inputValue}

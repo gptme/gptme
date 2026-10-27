@@ -31,6 +31,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { serverRegistry$ } from '@/stores/servers';
 import { composerDraftKey } from '@/utils/composerDraft';
 import { useComposerDraft } from '@/hooks/useComposerDraft';
+import { AttachmentUploadError } from '@/utils/api';
 import { useConnectionStatus } from '@/hooks/useConnectionStatus';
 import { Badge } from '@/components/ui/badge';
 import { ModelPicker } from '@/components/ModelPicker';
@@ -79,6 +80,8 @@ export interface ChatOptions {
   files?: string[];
   /** Raw File objects to upload after conversation creation (for new chat view) */
   pendingFiles?: File[];
+  /** Release the buffered composer only after upload, before message persistence. */
+  onFilesUploaded?: () => void;
   /** Max tokens for the model's response. Undefined = provider default. */
   maxTokens?: number;
   /** Sampling temperature (0–2). Undefined = provider default. */
@@ -560,7 +563,11 @@ const AgentBadge: FC<{ agent: Agent; baseUrl: string; onRemove: () => void }> = 
   </Badge>
 );
 
-const QueuedMessageBadge: FC<{ message: string; onClear: () => void }> = ({ message, onClear }) => {
+const QueuedMessageBadge: FC<{ message: string; onClear: () => void; onRetry?: () => void }> = ({
+  message,
+  onClear,
+  onRetry,
+}) => {
   // Truncate long messages for display
   const displayMessage = message.length > 30 ? message.slice(0, 30) + '...' : message;
 
@@ -585,15 +592,21 @@ const QueuedMessageBadge: FC<{ message: string; onClear: () => void }> = ({ mess
       >
         <X className="h-2.5 w-2.5" />
       </Button>
+      {onRetry && (
+        <Button type="button" variant="ghost" size="sm" onClick={onRetry}>
+          Retry upload
+        </Button>
+      )}
     </Badge>
   );
 };
 
-const AttachedFileBadge: FC<{ name: string; previewUrl?: string; onRemove: () => void }> = ({
-  name,
-  previewUrl,
-  onRemove,
-}) => (
+const AttachedFileBadge: FC<{
+  name: string;
+  previewUrl?: string;
+  onRemove: () => void;
+  disabled?: boolean;
+}> = ({ name, previewUrl, onRemove, disabled }) => (
   <Badge variant="secondary" className="flex items-center gap-1.5 pr-1">
     <div className="flex items-center gap-1.5">
       {previewUrl ? (
@@ -611,6 +624,7 @@ const AttachedFileBadge: FC<{ name: string; previewUrl?: string; onRemove: () =>
       onClick={onRemove}
       className="h-4 w-4 p-0 hover:bg-destructive/20"
       aria-label={`Remove file ${name}`}
+      disabled={disabled}
     >
       <X className="h-2.5 w-2.5" />
     </Button>
@@ -633,6 +647,7 @@ export const ChatInput: FC<Props> = ({
   onEditCancel,
 }) => {
   const { isConnected$, connectionConfig } = useApi();
+  const { toast } = useToast();
   const { settings } = useSettings();
   const sidebarSelectedWorkspace = use$(selectedWorkspace$);
   const sidebarSelectedAgent = use$(selectedAgent$);
@@ -812,6 +827,7 @@ export const ChatInput: FC<Props> = ({
 
   // Always buffer files locally — upload happens on send, not on attach
   const attachFiles = useCallback((files: FileList | File[]) => {
+    if (uploadInFlight.current) return;
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
     setAttachedFiles((prev) => [
@@ -884,8 +900,42 @@ export const ChatInput: FC<Props> = ({
   interface QueuedMessage {
     text: string;
     options: ChatOptions;
+    uploadFailed?: boolean;
   }
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  // Keep raw File objects in memory under their owning draft, never in another
+  // conversation's queue. Switching away must not discard a failed upload.
+  const [messageQueues, setMessageQueues] = useState<Record<string, QueuedMessage[]>>({});
+  const messageQueue: QueuedMessage[] = storageKey != null ? (messageQueues[storageKey] ?? []) : [];
+  const setMessageQueue = useCallback(
+    (update: SetStateAction<QueuedMessage[]>) => {
+      if (!storageKey) return;
+      setMessageQueues((queues) => ({
+        ...queues,
+        [storageKey]: typeof update === 'function' ? update(queues[storageKey] ?? []) : update,
+      }));
+    },
+    [storageKey]
+  );
+  const [isUploading, setIsUploading] = useState(false);
+  const uploadInFlight = useRef(false);
+  // Async upload completion must not clear a different conversation's draft.
+  const currentDraftKey = useRef(storageKey);
+  currentDraftKey.current = storageKey;
+  const submissionEpoch = useRef(0);
+  const conversationEpoch = useRef(0);
+  useEffect(() => {
+    // A mounted composer can change conversations while an old request is pending.
+    // Invalidate its callbacks as well as releasing this conversation's lock.
+    submissionEpoch.current++;
+    conversationEpoch.current++;
+    uploadInFlight.current = false;
+    setIsUploading(false);
+    wasBusy.current = false;
+    return () => {
+      submissionEpoch.current++;
+      conversationEpoch.current++;
+    };
+  }, [storageKey]);
 
   const autoFocus = use$(autoFocus$);
   const conversation = conversationId ? use$(conversations$.get(conversationId)) : undefined;
@@ -905,7 +955,7 @@ export const ChatInput: FC<Props> = ({
 
   // Don't disable input while waiting for session - let users type
   // Session will be established by the time they finish typing
-  const isDisabled = isReadOnly || !isConnected;
+  const isDisabled = isReadOnly || !isConnected || isUploading;
 
   // Focus the textarea when autoFocus is true and component is interactive
   useEffect(() => {
@@ -920,12 +970,26 @@ export const ChatInput: FC<Props> = ({
   // Track previous busy state to detect when the whole step (generation +
   // tool execution/confirmation) completes.
   const wasBusy = useRef(false);
+  const previousStorageKey = useRef(storageKey);
+
+  // Conversation change disarms wasBusy so A's queue cannot flush through B.
+  // Returning to idle A with a surviving sendable queue must re-arm, or the
+  // messages sit forever with no Retry control.
+  useEffect(() => {
+    const switched = previousStorageKey.current !== storageKey;
+    previousStorageKey.current = storageKey;
+    if (!switched || isBusy) return;
+    if (!messageQueue.some((queued: QueuedMessage) => !queued.uploadFailed)) return;
+    wasBusy.current = true;
+  }, [storageKey, isBusy, messageQueue]);
 
   // After a 409 requeue the busy→idle transition may already have happened (the
   // 100ms fallback timer can beat the server's release), so a transition-driven
   // retry would never fire. Re-arm the flush effect on a timer instead.
   const scheduleQueueRetry = () => {
+    const owner = conversationEpoch.current;
     setTimeout(() => {
+      if (conversationEpoch.current !== owner) return;
       wasBusy.current = true;
       setMessageQueue((prev) => [...prev]);
     }, 1000);
@@ -937,6 +1001,7 @@ export const ChatInput: FC<Props> = ({
     if (wasBusy.current && !isBusy && messageQueue.length > 0) {
       if (!onSend) return;
       const nextMessage = messageQueue[0];
+      if (nextMessage.uploadFailed) return;
       console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
@@ -944,17 +1009,32 @@ export const ChatInput: FC<Props> = ({
       // generating), put it back at the front of the queue — the message is not
       // lost and will be retried when isBusy next transitions to false.
       setMessageQueue((prev) => prev.slice(1));
+      const owner = conversationEpoch.current;
       const result = onSend(nextMessage.text, nextMessage.options);
       if (result instanceof Promise) {
         result.catch((error: unknown) => {
+          // The scoped setter restores failed work to its original draft even
+          // when the user switched away while the request was pending.
           const status =
             error && typeof error === 'object' && 'status' in error
               ? (error as { status: number }).status
               : undefined;
-          if (status === 409) {
+          if (error instanceof AttachmentUploadError) {
+            setMessageQueue((prev) => [{ ...nextMessage, uploadFailed: true }, ...prev]);
+            if (conversationEpoch.current === owner) {
+              toast({
+                variant: 'destructive',
+                title: 'Upload failed',
+                description: 'Your queued message was not sent. Use Retry upload to try again.',
+              });
+            }
+          } else if (status === 409) {
             console.warn('[ChatInput] Queued message got 409, requeuing', nextMessage.text);
             setMessageQueue((prev) => [nextMessage, ...prev]);
-            scheduleQueueRetry();
+            // Returning to idle A while this POST is pending leaves the queue
+            // empty, so the switch effect cannot re-arm wasBusy. Retry whenever
+            // the original draft is visible, even after conversationEpoch moved.
+            if (currentDraftKey.current === storageKey) scheduleQueueRetry();
           } else {
             console.error('[ChatInput] Failed to send queued message:', error);
           }
@@ -962,7 +1042,7 @@ export const ChatInput: FC<Props> = ({
       }
     }
     wasBusy.current = isBusy;
-  }, [isBusy, messageQueue, onSend]);
+  }, [isBusy, messageQueue, onSend, toast, setMessageQueue]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
   // Sidebar workspace selections sync both ways. Agent default applies only when
@@ -991,13 +1071,24 @@ export const ChatInput: FC<Props> = ({
     selectedWorkspace$.set(workspace === '.' ? '' : workspace);
   };
 
-  // Edit mode: save with truncate option
+  // Edit mode: save with truncate option. Lock the composer for the whole
+  // pending save so later edits cannot disappear when the editor unmounts.
   const handleEditSave = useCallback(
-    (truncate: boolean) => {
-      if (!onEditSave) return;
+    async (truncate: boolean) => {
+      if (!onEditSave || uploadInFlight.current) return;
       const existingPaths = attachedFiles.filter((f) => f.path && !f.file).map((f) => f.path);
       const newFiles = attachedFiles.filter((f) => f.file).map((f) => f.file!);
-      onEditSave(message, existingPaths, newFiles, truncate);
+      const epoch = ++submissionEpoch.current;
+      uploadInFlight.current = true;
+      setIsUploading(true);
+      try {
+        await onEditSave(message, existingPaths, newFiles, truncate);
+      } finally {
+        if (submissionEpoch.current === epoch) {
+          uploadInFlight.current = false;
+          setIsUploading(false);
+        }
+      }
     },
     [onEditSave, attachedFiles, message]
   );
@@ -1006,12 +1097,12 @@ export const ChatInput: FC<Props> = ({
     // In edit mode, save instead of send
     if (editMode) {
       if (message.trim() || attachedFiles.length > 0) {
-        handleEditSave(false);
+        await handleEditSave(false);
       }
       return;
     }
 
-    if (!onSend) return;
+    if (!onSend || uploadInFlight.current) return;
 
     // Files are always buffered locally — pass raw File objects for upload on send
     const pendingFiles =
@@ -1077,30 +1168,69 @@ export const ChatInput: FC<Props> = ({
         temperature,
         topP,
       };
-      const result = onSend(sentMessage, sentOptions);
-      if (result instanceof Promise) {
-        result.catch((error: unknown) => {
-          const status =
-            error && typeof error === 'object' && 'status' in error
-              ? (error as { status: number }).status
-              : undefined;
-          if (status === 409) {
-            // Server was still generating (concurrent client). The optimistic
-            // message was already removed by sendMessage; requeue it so it's
-            // retried on the next isBusy -> false transition instead of lost.
-            console.warn('[ChatInput] Direct send got 409, requeuing', sentMessage);
-            setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
-            scheduleQueueRetry();
-          } else {
-            console.error('[ChatInput] Failed to send message:', error);
-          }
-        });
+      const draftKey = storageKey;
+      const epoch = ++submissionEpoch.current;
+      const owner = conversationEpoch.current;
+      let draftCleared = false;
+      const clearSubmittedDraft = () => {
+        if (
+          draftCleared ||
+          submissionEpoch.current !== epoch ||
+          currentDraftKey.current !== draftKey
+        )
+          return;
+        draftCleared = true;
+        uploadInFlight.current = false;
+        setIsUploading(false);
+        setMessage('');
+        cleanupAndClearFiles();
+        if (textareaRef.current) textareaRef.current.style.height = '';
+      };
+      const hasPendingFiles = !!pendingFiles?.length;
+      if (hasPendingFiles) {
+        uploadInFlight.current = true;
+        setIsUploading(true);
+      } else {
+        clearSubmittedDraft();
       }
-      setMessage('');
-      cleanupAndClearFiles();
-      // Reset textarea height to default by removing inline style
-      if (textareaRef.current) {
-        textareaRef.current.style.height = '';
+      try {
+        await onSend(sentMessage, {
+          ...sentOptions,
+          ...(hasPendingFiles ? { onFilesUploaded: clearSubmittedDraft } : {}),
+        });
+        // Also support onSend implementations that do not use the upload callback.
+        if (hasPendingFiles) clearSubmittedDraft();
+      } catch (error) {
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? (error as { status: number }).status
+            : undefined;
+        if (status === 409 && !(error instanceof AttachmentUploadError)) {
+          // The captured setter belongs to the original draft, even if another
+          // conversation is visible now. Only its active composer may retry.
+          clearSubmittedDraft();
+          setMessageQueue((prev) => [{ text: sentMessage, options: sentOptions }, ...prev]);
+          if (currentDraftKey.current === draftKey) {
+            scheduleQueueRetry();
+          }
+        } else {
+          if (conversationEpoch.current !== owner || currentDraftKey.current !== draftKey) return;
+          console.error('[ChatInput] Failed to send message:', error);
+          if (hasPendingFiles) {
+            toast({
+              variant: 'destructive',
+              title: 'Message not sent',
+              description: 'Check the attached files and try Send again.',
+            });
+          }
+        }
+      } finally {
+        // The upload callback may already have released the composer and a
+        // newer send may be uploading. Do not unlock that newer submission.
+        if (!draftCleared && submissionEpoch.current === epoch) {
+          uploadInFlight.current = false;
+          setIsUploading(false);
+        }
       }
     }
   };
@@ -1184,6 +1314,7 @@ export const ChatInput: FC<Props> = ({
   // Auto-resize is handled by PromptTextarea itself; this only updates
   // message state and the file autocomplete popup.
   const handleTextareaValueChange = (newValue: string, cursorPos: number) => {
+    if (isDisabled) return;
     setMessage(newValue);
     fileAutocomplete.handleInputChange(newValue, cursorPos);
   };
@@ -1201,6 +1332,7 @@ export const ChatInput: FC<Props> = ({
         multiple
         className="hidden"
         aria-label="Attach files"
+        disabled={isDisabled}
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
             attachFiles(e.target.files);
@@ -1218,6 +1350,7 @@ export const ChatInput: FC<Props> = ({
                 key={`${file.name}-${index}`}
                 name={file.name}
                 previewUrl={file.previewUrl}
+                disabled={isUploading}
                 onRemove={() =>
                   setAttachedFiles((prev) => {
                     const removed = prev[index];
@@ -1232,11 +1365,28 @@ export const ChatInput: FC<Props> = ({
         {/* Show queued messages indicator */}
         {messageQueue.length > 0 && (
           <div className="flex flex-wrap items-center gap-1">
-            {messageQueue.map((msg, index) => (
+            {messageQueue.map((msg: QueuedMessage, index: number) => (
               <QueuedMessageBadge
                 key={index}
                 message={messageQueue.length > 1 ? `(${index + 1}) ${msg.text}` : msg.text}
-                onClear={() => setMessageQueue((prev) => prev.filter((_, i) => i !== index))}
+                onClear={() => {
+                  // A failed upload never starts generation, so discarding it
+                  // must re-arm the flush for messages waiting behind it.
+                  if (index === 0 && msg.uploadFailed) wasBusy.current = true;
+                  setMessageQueue((prev) => prev.filter((_, i) => i !== index));
+                }}
+                onRetry={
+                  msg.uploadFailed
+                    ? () => {
+                        wasBusy.current = true;
+                        setMessageQueue((prev) =>
+                          prev.map((item, i) =>
+                            i === index ? { ...item, uploadFailed: false } : item
+                          )
+                        );
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -1299,6 +1449,7 @@ export const ChatInput: FC<Props> = ({
                       className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
                       onClick={() => fileInputRef.current?.click()}
                       title="Attach files"
+                      disabled={isDisabled}
                     >
                       <Paperclip className="mr-0.5 h-2.5 w-2.5" />
                       Attach
@@ -1308,8 +1459,8 @@ export const ChatInput: FC<Props> = ({
                         type="button"
                         size="sm"
                         className="h-6 px-2 text-xs"
-                        onClick={() => handleEditSave(false)}
-                        disabled={!message.trim() && attachedFiles.length === 0}
+                        onClick={() => void handleEditSave(false)}
+                        disabled={isDisabled || (!message.trim() && attachedFiles.length === 0)}
                       >
                         Save
                       </Button>
@@ -1318,8 +1469,8 @@ export const ChatInput: FC<Props> = ({
                         size="sm"
                         variant="secondary"
                         className="h-6 px-2 text-xs"
-                        onClick={() => handleEditSave(true)}
-                        disabled={!message.trim() && attachedFiles.length === 0}
+                        onClick={() => void handleEditSave(true)}
+                        disabled={isDisabled || (!message.trim() && attachedFiles.length === 0)}
                       >
                         Save & Re-run
                       </Button>
