@@ -1,6 +1,7 @@
 """Enhanced file selection using context selector."""
 
 import logging
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,15 +24,17 @@ def get_workspace_files(workspace: Path) -> list[Path]:
     files: list[Path] = []
     # Try git first
     try:
+        # -z outputs NUL-delimited paths without C-style quoting so filenames
+        # with non-ASCII characters, quotes, or backslashes are returned verbatim.
         p = subprocess.run(
-            [GIT_CMD, "ls-files"],
+            [GIT_CMD, "ls-files", "-z"],
             cwd=workspace,
             capture_output=True,
-            text=True,
             check=True,
             timeout=30,
         )
-        files = [workspace / f for f in p.stdout.splitlines()]
+        names = os.fsdecode(p.stdout).split("\0")
+        files = [workspace / f for f in names if f]
         # Filter existing files
         files = [f for f in files if f.exists()]
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):

@@ -184,7 +184,7 @@ class TestFileSelectorTimeouts:
     def test_get_workspace_files_passes_timeout(self, mock_run):
         """get_workspace_files passes timeout to subprocess.run."""
         mock_run.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="file1.py\nfile2.py\n"
+            args=[], returncode=0, stdout=b"file1.py\0file2.py\0"
         )
         from gptme.context.selector.file_selector import get_workspace_files
 

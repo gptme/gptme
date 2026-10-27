@@ -1,6 +1,7 @@
 """Unit tests for context-scout pre-pass module."""
 
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,7 @@ from gptme.context.config import ContextConfig
 from gptme.context.scout import (
     _SCOUT_SENTINEL,
     _UNTRUSTED_PREAMBLE,
+    _advertised_resolved,
     _AdvertisedFile,
     _build_file_tree,
     _get_messages_from_manager,
@@ -85,6 +87,83 @@ class TestGetMessagesFromManager:
 
 
 # ---------------------------------------------------------------------------
+# get_workspace_files — Git-quoted filename regression (issue #4504)
+# ---------------------------------------------------------------------------
+
+
+class TestGetWorkspaceFilesQuotedNames:
+    """get_workspace_files must return all tracked files regardless of quoting."""
+
+    @pytest.fixture()
+    def git_workspace(self, tmp_path):
+        """A real git repo with platform-supported names that Git C-style-quotes."""
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.email", "t@t.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True
+        )
+        # Force git to C-style-quote the non-ASCII and special names.
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "core.quotePath", "true"],
+            check=True,
+        )
+        names = ["plain.py", "café.py", "中文.py"]
+        if os.name == "posix":
+            names.extend(['quote".py', "back\\slash.py"])
+        for name in names:
+            (tmp_path / name).write_text("pass\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "--", *names], check=True)
+        return tmp_path, names
+
+    def test_returns_all_tracked_files(self, git_workspace):
+        """All tracked filenames are discovered even when core.quotePath=true."""
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        workspace, names = git_workspace
+        found = {f.name for f in get_workspace_files(workspace)}
+        assert found == set(names), f"missing: {set(names) - found}"
+
+    def test_no_path_with_quotes_in_name(self, git_workspace):
+        """Returned paths are real Path objects that exist on disk."""
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        workspace, _ = git_workspace
+        for f in get_workspace_files(workspace):
+            assert f.exists(), f"{f} does not exist on disk"
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX byte filenames")
+    @pytest.mark.parametrize("replacement_exists", [False, True])
+    def test_preserves_non_utf8_filename_identity(self, tmp_path, replacement_exists):
+        """Byte filenames must not be omitted or replaced by a different file."""
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        raw_name = b"bad\xff.py"
+        tracked = tmp_path / os.fsdecode(raw_name)
+        tracked.write_text("tracked\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", "--", tracked.name], check=True
+        )
+        if replacement_exists:
+            (tmp_path / "bad\ufffd.py").write_text("untracked\n", encoding="utf-8")
+
+        found = get_workspace_files(tmp_path)
+        assert found == [tracked]
+        assert os.fsencode(found[0].name) == raw_name
+        assert found[0].read_text(encoding="utf-8") == "tracked\n"
+
+    def test_build_file_tree_includes_quoted_names(self, git_workspace):
+        """_build_file_tree must include all filenames in its output."""
+        workspace, names = git_workspace
+        tree = _build_file_tree(workspace)
+        for name in names:
+            assert name in tree, f"{name!r} missing from file tree"
+
+
+# ---------------------------------------------------------------------------
 # _build_file_tree
 # ---------------------------------------------------------------------------
 
@@ -129,6 +208,62 @@ class TestBuildFileTree:
             mock_gwf.return_value = [tmp_path / f"f{i}.py" for i in range(600)]
             result = _build_file_tree(tmp_path, max_paths=5)
         assert len(result.splitlines()) == 5
+
+    def test_filters_paths_with_newline_in_name(self, tmp_path):
+        """Paths whose relative string contains a line separator are dropped.
+
+        A filename like '00-untracked.py\\nplain.py' would split into two
+        fragments under splitlines(), causing _advertised_resolved() to see a
+        fictional 'plain.py' entry and admit an untracked file of that name.
+        """
+        normal = tmp_path / "normal.py"
+        with patch(
+            "gptme.context.selector.file_selector.get_workspace_files"
+        ) as mock_gwf:
+            # Simulate a path whose relative form contains \n.
+            # relative_to() returns a real Path so str() on it contains the separator.
+            bad_path = MagicMock()
+            bad_path.relative_to.return_value = Path("bad\nfile.py")
+            mock_gwf.return_value = [normal, bad_path]
+            normal.write_text("x")
+            result = _build_file_tree(tmp_path)
+        lines = result.splitlines()
+        assert "normal.py" in result
+        assert "bad" not in result, "path with embedded newline must be filtered out"
+        assert len(lines) == 1, f"expected 1 line, got {lines!r}"
+
+    @pytest.mark.skipif(os.name != "posix", reason="Requires newline in a filename")
+    def test_advertised_resolved_ignores_newline_path_fragments(self, tmp_path):
+        """A tracked multiline name must not advertise an untracked fragment.
+
+        Regression from issue #4504: tracking '00-untracked.py\\nplain.py' then
+        creating an untracked 'plain.py' caused _advertised_resolved to include
+        the untracked file because splitlines() produced 'plain.py' as a separate
+        entry.
+        """
+        from gptme.context.selector.file_selector import get_workspace_files
+
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        bad_name = "00-untracked.py\nplain.py"
+        normal = tmp_path / "normal.py"
+        normal.write_text("tracked")
+        (tmp_path / bad_name).write_text("tracked multiline name")
+        (tmp_path / "plain.py").write_text("untracked fragment")
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "add", "--", bad_name, normal.name],
+            check=True,
+        )
+        assert {p.name for p in get_workspace_files(tmp_path)} == {
+            bad_name,
+            normal.name,
+        }
+
+        file_tree = _build_file_tree(tmp_path)
+        result = _advertised_resolved(tmp_path, file_tree)
+        assert "plain.py" not in result
+        assert file_tree.splitlines() == [normal.name]
+        assert set(result) == {normal.name}
+        assert result[normal.name].path == normal.resolve()
 
 
 # ---------------------------------------------------------------------------

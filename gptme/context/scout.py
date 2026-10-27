@@ -89,6 +89,15 @@ def _build_file_tree(workspace: Path, max_paths: int = 500) -> str:
 
     files = get_workspace_files(workspace)
     paths = sorted(str(f.relative_to(workspace)) for f in files)
+    # Paths whose string form contains a line separator are pathological filenames
+    # that cannot be represented in the newline-delimited protocol used by
+    # _advertised_resolved().  Filter them before the max_paths slice so a
+    # single bad filename cannot displace a legitimate one or cause the
+    # advertised set to include an untracked file whose name equals one of the
+    # fragments produced by splitlines().
+    paths = [
+        p for p in paths if not any(c in p for c in "\n\r\x0b\x0c\x1c\x1d\x1e\x85  ")
+    ]
     if len(paths) > max_paths:
         paths = paths[:max_paths]
     return "\n".join(paths)
