@@ -1,5 +1,6 @@
 """OpenCode Go uses the existing OpenAI transport with conversation affinity."""
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -109,8 +110,40 @@ def test_opencode_go_deepseek_tool_history() -> None:
     assert result[1]["content"] == "file.py"
 
 
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "opencode-go/deepseek-v4.1-flash",
+        "opencode-go/deepseek-v4-pro",
+        "deepseek/deepseek-reasoner",
+    ],
+)
+def test_deepseek_tool_history_without_thinking(model_name: str) -> None:
+    """A pending tool turn from a non-reasoning model can contain plain text."""
+    model = get_model(model_name)
+    history: list[dict[str, Any]] = [
+        {
+            "role": "assistant",
+            "content": "Inspect files",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call-1", "content": "file.py"},
+    ]
+    result = list(llm_openai._transform_msgs_for_special_provider(history, model))
+    assert result[0] == {**history[0], "reasoning_content": ""}
+    assert result[1] == history[1]
+    assert "reasoning_content" not in history[0]
+
+
 @pytest.mark.parametrize("streaming", [False, True])
-def test_opencode_go_wire_request(streaming: bool) -> None:
+@pytest.mark.parametrize("tool_history", [False, True])
+def test_opencode_go_wire_request(streaming: bool, tool_history: bool) -> None:
     """Exercise the real SDK and gptme request path, without paid inference."""
     import json
 
@@ -118,7 +151,11 @@ def test_opencode_go_wire_request(streaming: bool) -> None:
     from openai import OpenAI
 
     from gptme.message import Message
+    from gptme.tools import get_tool, init_tools
 
+    init_tools(allowlist=["shell"])
+    shell = get_tool("shell")
+    assert shell
     requests: list[httpx.Request] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -173,10 +210,22 @@ def test_opencode_go_wire_request(streaming: bool) -> None:
                         Message("system", "You are helpful"),
                         Message("user", "Hello"),
                         Message("assistant", "Hello back"),
+                        *(
+                            [
+                                Message("user", "Inspect files"),
+                                Message(
+                                    "assistant",
+                                    'Inspect files\n@shell(call-1): {"command": "ls"}',
+                                ),
+                                Message("system", "file.py", call_id="call-1"),
+                            ]
+                            if tool_history
+                            else []
+                        ),
                         Message("user", "Say OK"),
                     ],
                     "opencode-go/deepseek-v4.1-flash",
-                    None,
+                    [shell],
                 )
                 if streaming:
                     assert "OK" in "".join(llm_openai.stream(*args))
@@ -200,6 +249,33 @@ def test_opencode_go_wire_request(streaming: bool) -> None:
                 {"role": "system", "content": "You are helpful"},
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hello back"},
+                *(
+                    [
+                        {"role": "user", "content": "Inspect files"},
+                        {
+                            "role": "assistant",
+                            "content": "Inspect files",
+                            "reasoning_content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "shell",
+                                        "arguments": '{"command": "ls"}',
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "role": "tool",
+                            "tool_call_id": "call-1",
+                            "content": "file.py",
+                        },
+                    ]
+                    if tool_history
+                    else []
+                ),
                 {"role": "user", "content": "Say OK"},
             ]
         finally:

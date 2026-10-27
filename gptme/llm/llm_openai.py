@@ -2692,11 +2692,7 @@ def _transform_msgs_for_special_provider(
             else:
                 # content is a string
                 # For DeepSeek reasoner with tool calls: extract <think> into reasoning_content
-                if (
-                    is_assistant_tool_call
-                    and model.supports_reasoning
-                    and ("<think>" in content or "<thinking>" in content)
-                ):
+                if is_assistant_tool_call and model.supports_reasoning:
                     reasoning, cleaned = _extract_and_strip_reasoning(content)
                     result_msg = {**msg, "reasoning_content": reasoning}
                     if cleaned:
