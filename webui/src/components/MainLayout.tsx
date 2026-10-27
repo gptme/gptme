@@ -695,6 +695,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                       return activeTab && conversation ? (
                         <RightSidebarContent
                           conversationId={conversation.id}
+                          serverId={serverParam || conversation.serverId}
                           activeTab={activeTab}
                         />
                       ) : (
@@ -814,7 +815,11 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                     onCollapse={() => rightSidebarVisible$.set(false)}
                     onExpand={() => rightSidebarVisible$.set(true)}
                   >
-                    <RightSidebarContent conversationId={conversation.id} activeTab={activeTab} />
+                    <RightSidebarContent
+                      conversationId={conversation.id}
+                      serverId={serverParam || conversation.serverId}
+                      activeTab={activeTab}
+                    />
                   </ResizablePanel>
                 </>
               ) : null;

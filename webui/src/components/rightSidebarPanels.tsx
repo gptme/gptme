@@ -24,6 +24,7 @@ import { WorkspaceExplorer } from './workspace/WorkspaceExplorer';
 
 interface RightSidebarPanelRenderProps {
   conversationId: string;
+  serverId?: string;
 }
 
 export interface RightSidebarPanelDefinition {
@@ -38,7 +39,9 @@ export const rightSidebarPanels: RightSidebarPanelDefinition[] = [
     id: 'settings',
     label: 'Chat Settings',
     icon: SlidersHorizontal,
-    render: ({ conversationId }) => <ConversationSettings conversationId={conversationId} />,
+    render: ({ conversationId, serverId }) => (
+      <ConversationSettings conversationId={conversationId} serverId={serverId} />
+    ),
   },
   {
     id: 'workspace',

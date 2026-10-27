@@ -25,14 +25,15 @@ import { useConversationMetadata } from '@/hooks/useConversationMetadata';
 import { conversationsQueryKey } from '@/hooks/useConversationsInfiniteQuery';
 import { getClientForServer } from '@/stores/serverClients';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ConversationSummary } from '@/types/conversation';
+import type { ConversationSummary, Message } from '@/types/conversation';
 import type { ExternalSessionCatalogItem } from '@/types/api';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
-
+import { serverRegistry$ } from '@/stores/servers';
+import { getClientGeneration } from '@/utils/api';
 import { toast } from 'sonner';
 
 const HARNESS_LABELS: Record<string, string> = {
@@ -116,7 +117,7 @@ export const ConversationList: FC<Props> = ({
   onSelectExternal,
   selectedExternalId,
 }) => {
-  const { api, isConnected$ } = useApi();
+  const { api, getClient, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
   const connectionStatus = useConnectionStatus();
   const queryClient = useQueryClient();
@@ -184,33 +185,98 @@ export const ConversationList: FC<Props> = ({
   // Track our own URL writes to avoid echo-syncing back to local state.
   const prevUrlSearchRef = useRef(urlSearch);
 
-  const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
-    const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
-    const messages = storeConv?.data?.log ?? [];
-    const name = storeConv?.data?.name || conv.name || conv.id;
-    if (messages.length === 0) {
-      toast.error('No messages to export. Open the conversation first.');
-      return;
-    }
-    reportDownloadOutcome(
-      exportConversationAsMarkdown(conv.id, name, getExportableMessages(messages)),
-      'Exported as Markdown'
-    );
-  }, []);
+  /**
+   * Fetch from the server that owns this sidebar row. The store is keyed only
+   * by conversation ID, so its cached log/name may belong to another server
+   * with the same ID. The loaded window is never mutated.
+   */
+  const loadFullExportLog = useCallback(
+    async (conv: ConversationSummary): Promise<{ messages: Message[]; name: string } | null> => {
+      const servers = serverRegistry$.get().servers;
+      const storeConv = conversations$.get(conv.id);
+      const cachedGeneration = storeConv?.streamClientGeneration?.peek();
+      const cachedOwnerId = storeConv?.serverId?.peek();
+      // Prefer the stable owner recorded by useConversation. Legacy entries
+      // without it can still recover ownership from the live client identity.
+      const ownerId =
+        conv.serverId ??
+        cachedOwnerId ??
+        (typeof cachedGeneration === 'number'
+          ? servers.find((server) => getClientGeneration(getClient(server.id)) === cachedGeneration)
+              ?.id
+          : undefined);
+      // getClient() falls back to primary for unknown IDs; validate first.
+      if (!ownerId || !servers.some((server) => server.id === ownerId)) {
+        toast.error('Cannot export: conversation server is unavailable');
+        return null;
+      }
 
-  const handleExportJSON = useCallback((conv: ConversationSummary) => {
-    const storeConv = storeEntryOwnedByRow(conv) ? conversations$.get(conv.id)?.peek() : undefined;
-    const messages = storeConv?.data?.log ?? [];
-    const name = storeConv?.data?.name || conv.name || conv.id;
-    if (messages.length === 0) {
-      toast.error('No messages to export. Open the conversation first.');
-      return;
-    }
-    reportDownloadOutcome(
-      exportConversationAsJSON(conv.id, name, getExportableMessages(messages)),
-      'Exported as JSON'
-    );
-  }, []);
+      const client = getClient(ownerId);
+      // Snapshot the selected branch before awaiting. The store is shared by
+      // conversation ID, so verify the owner before trusting its branch. Client
+      // replacement (e.g. token refresh) changes generation, not server identity.
+      const cacheBelongsToRow =
+        cachedOwnerId !== undefined
+          ? cachedOwnerId === ownerId
+          : typeof cachedGeneration === 'number' &&
+            cachedGeneration === getClientGeneration(client);
+      const selectedBranch = cacheBelongsToRow
+        ? (storeConv?.currentBranch?.peek() ?? 'main')
+        : 'main';
+
+      try {
+        const full = await client.getConversation(conv.id);
+        // Branch logs in the response are complete; the cached window never is.
+        // A selected named branch that the fresh response cannot resolve must
+        // fail closed rather than silently exporting main instead.
+        const branchLog = selectedBranch !== 'main' ? full.branches?.[selectedBranch] : undefined;
+        if (selectedBranch !== 'main' && !branchLog) {
+          toast.error(`Cannot export: branch "${selectedBranch}" is unavailable`);
+          return null;
+        }
+        return {
+          messages: branchLog ?? full.log,
+          name: full.name || conv.name || conv.id,
+        };
+      } catch {
+        toast.error('Failed to load full conversation history');
+        return null;
+      }
+    },
+    [getClient]
+  );
+
+  const handleExportMarkdown = useCallback(
+    async (conv: ConversationSummary) => {
+      const result = await loadFullExportLog(conv);
+      if (!result) return;
+      if (result.messages.length === 0) {
+        toast.error('No messages to export');
+        return;
+      }
+      reportDownloadOutcome(
+        exportConversationAsMarkdown(conv.id, result.name, getExportableMessages(result.messages)),
+        'Exported as Markdown'
+      );
+    },
+    [loadFullExportLog]
+  );
+
+  const handleExportJSON = useCallback(
+    async (conv: ConversationSummary) => {
+      const result = await loadFullExportLog(conv);
+      if (!result) return;
+      if (result.messages.length === 0) {
+        toast.error('No messages to export');
+        return;
+      }
+      reportDownloadOutcome(
+        exportConversationAsJSON(conv.id, result.name, getExportableMessages(result.messages)),
+        'Exported as JSON'
+      );
+    },
+    [loadFullExportLog]
+  );
 
   const handleStartRename = useCallback((conv: ConversationSummary) => {
     // getConversationName is owner-aware: secondary rows never prefill from the
