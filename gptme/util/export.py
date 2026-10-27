@@ -1,9 +1,76 @@
+import hashlib
 import html
 import json
+import os
+import re
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 from ..logmanager import Log
+
+
+def _cdn_cache_dir() -> Path:
+    """Return the gptme CDN cache directory, creating it if needed."""
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg_cache) if xdg_cache else Path.home() / ".cache"
+    cache_dir = base / "gptme" / "cdn"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def _fetch_cdn_resource(url: str) -> str:
+    """Fetch content from a CDN URL, caching to disk under ~/.cache/gptme/cdn/."""
+    url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
+    suffix = Path(url.split("?")[0].split("/")[-1]).suffix or ".js"
+    cache_path = _cdn_cache_dir() / f"{url_hash}{suffix}"
+
+    if cache_path.exists():
+        return cache_path.read_text(encoding="utf-8")
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "gptme/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            content = resp.read().decode("utf-8")
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to fetch CDN resource for offline embedding.\n"
+            f"  URL: {url}\n"
+            f"  Error: {e}\n"
+            "HTML export requires network access to bundle external dependencies.\n"
+            "Subsequent exports will use the cached copy."
+        ) from e
+
+    cache_path.write_text(content, encoding="utf-8")
+    return content
+
+
+def _embed_cdn_resources(html_content: str) -> str:
+    """Replace external CDN script/stylesheet links with inline content.
+
+    Makes the exported HTML self-contained so it renders without network access.
+    Fetched resources are cached to ~/.cache/gptme/cdn/ to avoid re-downloading.
+    """
+
+    def inline_script(m: re.Match) -> str:
+        content = _fetch_cdn_resource(m.group(1))
+        return f"<script>{content}</script>"
+
+    def inline_stylesheet(m: re.Match) -> str:
+        content = _fetch_cdn_resource(m.group(1))
+        return f"<style>{content}</style>"
+
+    html_content = re.sub(
+        r'<script\s+src="(https://[^"]+)"[^>]*></script>',
+        inline_script,
+        html_content,
+    )
+    html_content = re.sub(
+        r'<link\s+rel="stylesheet"\s+href="(https://[^"]+)"[^>]*>',
+        inline_stylesheet,
+        html_content,
+    )
+    return html_content
 
 
 def replace_or_fail(content: str, old: str, new: str, desc: str = "") -> str:
@@ -122,6 +189,9 @@ window.CHAT_DATA = {chat_data_json};
         '<div style="display: none;" class="sidebar',
         "sidebar div",
     )
+
+    # Embed external CDN scripts/stylesheets inline so the file works offline
+    standalone_html = _embed_cdn_resources(standalone_html)
 
     # Write the file
     with open(output_path, "w", encoding="utf-8") as f:
