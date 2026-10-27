@@ -169,7 +169,12 @@ def test_opencode_go_wire_request(streaming: bool) -> None:
         try:
             with patch.dict(llm_openai.clients, {"opencode-go": client}):
                 args = (
-                    [Message("user", "Say OK")],
+                    [
+                        Message("system", "You are helpful"),
+                        Message("user", "Hello"),
+                        Message("assistant", "Hello back"),
+                        Message("user", "Say OK"),
+                    ],
                     "opencode-go/deepseek-v4.1-flash",
                     None,
                 )
@@ -189,6 +194,13 @@ def test_opencode_go_wire_request(streaming: bool) -> None:
                 request.headers["x-opencode-session"]
                 == llm_openai.extra_headers("opencode-go")["x-opencode-session"]
             )
-            assert json.loads(request.content)["model"] == "deepseek-v4.1-flash"
+            payload = json.loads(request.content)
+            assert payload["model"] == "deepseek-v4.1-flash"
+            assert payload["messages"] == [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hello back"},
+                {"role": "user", "content": "Say OK"},
+            ]
         finally:
             current_conversation_id.reset(token)

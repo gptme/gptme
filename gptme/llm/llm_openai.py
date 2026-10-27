@@ -2646,13 +2646,13 @@ def _transform_msgs_for_special_provider(
     Returns:
         Transformed message dicts conforming to MessageDict type
     """
-    # groq and deepseek needs message.content to be a string
-    if model.provider == "groq" or model.provider == "deepseek":
+    # Groq and DeepSeek (including OpenCode Go) require string message content.
+    if model.provider in ("groq", "deepseek", "opencode-go"):
         result: list[MessageDict] = []
         for msg in messages_dicts:
             content = msg.get("content")
             is_assistant_tool_call = (
-                model.provider == "deepseek"
+                model.provider in ("deepseek", "opencode-go")
                 and msg.get("role") == "assistant"
                 and msg.get("tool_calls")
             )
@@ -2712,15 +2712,13 @@ def _transform_msgs_for_special_provider(
     # representation before historical messages go back to the provider.
     # OpenRouter requires it on tool-call turns; K3 requires it on every turn.
     preserve_all_reasoning = model.provider == "moonshot" and model.model == "kimi-k3"
-    if (
-        model.provider in ("openrouter", "opencode-go") and model.supports_reasoning
-    ) or (preserve_all_reasoning):
+    if (model.provider == "openrouter" and model.supports_reasoning) or (
+        preserve_all_reasoning
+    ):
         # DeepSeek models routed through OpenRouter also require string (not
         # array) content on tool-result messages — same strictness as direct
         # deepseek provider.  Detected by the OpenRouter model namespace prefix.
-        needs_string_tool_content = model.model.startswith("deepseek/") or (
-            model.provider == "opencode-go" and model.model.startswith("deepseek-")
-        )
+        needs_string_tool_content = model.model.startswith("deepseek/")
 
         openrouter_result: list[MessageDict] = []
         for msg in messages_dicts:
