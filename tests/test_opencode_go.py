@@ -27,6 +27,13 @@ def test_opencode_go_registration() -> None:
         assert model.price_output > 0
 
 
+def test_opencode_go_bare_provider_selects_default_model() -> None:
+    model = get_model("opencode-go")
+    assert model == get_model("opencode-go/deepseek-v4.1-flash")
+    assert model.provider == "opencode-go"
+    assert model.model == "deepseek-v4.1-flash"
+
+
 def test_opencode_go_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENCODE_API_KEY", "test-go-key")
     with (

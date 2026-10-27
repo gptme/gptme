@@ -226,11 +226,11 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 108 of the 131 models in the
+- ``default_tool_format`` is set to ``tool`` on 110 of the 133 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
-  ``deepseek``, ``moonshot``, ``openrouter``, ``requesty``, and the
+  ``deepseek``, ``opencode-go``, ``moonshot``, ``openrouter``, ``requesty``, and the
   subscription/proxy variants). ``anthropic`` is excluded because it uses the
   Anthropic SDK rather than the OpenAI-compatible path, and ``mock`` is
   test-only. An explicit per-model value always wins over the provider stamp.
@@ -240,7 +240,7 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 71 entries: the Claude Fable 5.x
+- ``supports_parallel_tool_calls`` is set on 73 entries: the Claude Fable 5.x
   and Opus/Sonnet 4.x/5.x families, the OpenRouter Claude Opus/Sonnet aliases,
   Kimi K3, the GPT-4.1/GPT-5/GPT-6
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
@@ -248,7 +248,8 @@ behaviour silently:
   ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
   ``grok-2-vision-1212``; including ``grok-subscription``), Groq's
   ``llama-3.3-70b-versatile``, DeepSeek chat/reasoner/Flash, and the
-  OpenRouter DeepSeek V4 aliases including the new V4.1 Flash. Deliberate
+  OpenRouter DeepSeek V4 aliases including the new V4.1 Flash, and OpenCode Go's
+  DeepSeek V4.1 Flash/V4 Pro. Deliberate
   omissions are meaningful: Claude Haiku 4.5
   carries an explicit comment that it does *not* emit multiple tool calls per
   response. Moonshot Kimi K2/K2.6, OpenRouter Qwen/Llama/Kimi K2, and Groq's
