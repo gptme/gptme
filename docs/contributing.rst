@@ -405,52 +405,68 @@ so signing secrets are never exposed to PR-triggered builds.
 Windows Authenticode signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Windows releases can optionally use a PFX/PKCS12 Authenticode certificate from
-the ``tauri-autoupdater-signing`` GitHub environment. A trusted signature
-identifies the publisher, but does not guarantee SmartScreen reputation or
-acceptance by an enterprise's AppLocker policy.
+Windows releases can use two signing paths, both gated on secrets in the
+``tauri-autoupdater-signing`` GitHub environment:
 
-This workflow supports only an **existing exportable private key** with a valid
-code-signing certificate. Newly issued publicly trusted OV/EV code-signing
-certificates require hardware-backed keys and cannot simply be exported as PFX;
-see `DigiCert's PFX export limitations
-<https://knowledge.digicert.com/general-information/export-a-code-signing-certificate-as-a-pfx-file>`_.
-Do not purchase a new certificate expecting to enable this PFX-only path.
+**Path A — PFX (OV certificate)**
 
-For new publicly trusted signing, use a hardware-backed or cloud signing service,
-for example `Azure Artifact Signing
-<https://learn.microsoft.com/en-us/azure/artifact-signing/>`_. Its signing client
-must be integrated into both the sidecar step and Tauri's
-``bundle.windows.signCommand`` before enabling signed releases. That integration
-and its provider credentials are **not implemented by this workflow**; do not
-put a public certificate without its private key into ``WINDOWS_CERTIFICATE``.
+Uses a PFX/PKCS12 file that contains an exportable private key. Suitable for
+OV (Organization Validation) certificates whose issuing CA allows software-based
+key export. SmartScreen reputation for OV certificates builds gradually; a fresh
+OV certificate will still trigger a SmartScreen warning until sufficient
+reputation is accumulated.
 
-If an appropriate exportable key is already available, configure both secrets:
+.. note::
+   Newly issued publicly trusted OV/EV code-signing certificates typically
+   require hardware-backed keys and cannot be exported as PFX. Only use this
+   path with a certificate whose CA explicitly supports PFX export.
+
+Configure two secrets:
 
 - ``WINDOWS_CERTIFICATE``: base64-encoded PFX/PKCS12 containing the private key
 - ``WINDOWS_CERTIFICATE_PASSWORD``: password for the PFX file
 
-Encode the existing PFX:
+Encode an existing PFX:
 
 .. code-block:: bash
 
    base64 -w0 your-certificate.pfx
 
-Store the PFX and password in the project's offline recovery vault before
-provisioning GitHub. The certificate is referenced by its thumbprint, which the
-CI workflow extracts automatically at build time.
+**Path B — Azure Trusted Signing (EV certificate)**
 
-The release workflow signs these Windows artifacts:
+Uses `Azure Trusted Signing
+<https://learn.microsoft.com/en-us/azure/trusted-signing/>`_ to sign with an
+EV (Extended Validation) certificate whose private key never leaves Azure HSM.
+EV certificates give *immediate* SmartScreen reputation and satisfy enterprise
+AppLocker policies that require EV.  The CI workflow installs the
+``Microsoft.Trusted.Signing.Client`` NuGet package (which provides the DLIB),
+authenticates via a service principal, and calls ``signtool`` with the DLIB for
+both the sidecar and the installer (via Tauri's ``signCommand``).
+
+Configure six secrets:
+
+- ``AZURE_TENANT_ID``: Azure Active Directory tenant ID
+- ``AZURE_CLIENT_ID``: service principal client ID (needs *Code Signing Certificate Profile Signer* role)
+- ``AZURE_CLIENT_SECRET``: service principal secret
+- ``AZURE_SIGNING_ENDPOINT``: Trusted Signing account endpoint URL (e.g. ``https://eus.codesigning.azure.net``)
+- ``AZURE_SIGNING_ACCOUNT``: Trusted Signing account name
+- ``AZURE_SIGNING_CERT_PROFILE``: certificate profile name
+
+To provision: create an Azure Trusted Signing account and certificate profile in
+the Azure portal, create a service principal, and assign it the *Code Signing
+Certificate Profile Signer* role on the certificate profile.
+
+**Both paths sign the same artifacts:**
 
 1. The main executable and NSIS installer (``.exe``) — signed by the Tauri CLI
-   via ``signtool`` using the ``bundle.windows.certificateThumbprint`` override.
+   via ``signtool`` (Path A: ``certificateThumbprint`` override; Path B: ``signCommand`` wrapper).
 2. The PyInstaller sidecar binary (``gptme-server-*.exe``) — signed separately
    before Tauri bundles it; Tauri does not sign external sidecars.
 
-Unless both secrets are present the workflow uses the unsigned path. A signing
-or verification failure in the enabled sidecar step stops the release rather
-than falling back to unsigned output. From a Windows SDK command prompt, verify
-an embedded signature (trust-chain checks may require network access)::
+If neither set of secrets is present the workflow uses the unsigned path.  A
+signing or verification failure stops the release rather than falling back to
+unsigned output.  From a Windows SDK command prompt, verify an embedded
+signature (trust-chain checks may require network access)::
 
    signtool verify /pa gptme_X.Y.Z_x64-setup.exe
 
