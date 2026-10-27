@@ -24,8 +24,20 @@ if [[ "${#appimages[@]}" -ne 1 ]]; then
     echo "Expected exactly one final AppImage to sign" >&2
     exit 1
 fi
+appimage="${appimages[0]}"
+# `tauri build` binds its signatures to the app version (trusted comment
+# `version:`), as on the .deb/.rpm. Carry the bundler's binding forward from its
+# own signature, so `--config` overrides resolve exactly as they did for it.
+version=""
+if [[ -s "$appimage.sig" ]]; then
+    version="$(base64 -d < "$appimage.sig" | sed -n 's/^trusted comment: .*\tversion:\([^\t]*\)$/\1/p')"
+fi
+sign_args=()
+if [[ -n "$version" ]]; then
+    sign_args=(--app-version "$version")
+fi
 # The bundled signature covers pre-patch bytes. Never let it survive a failed
 # signing attempt. The CLI reads the key/password from the action's environment.
-rm -f -- "${appimages[0]}.sig"
-npm run tauri -- signer sign "${appimages[0]}"
-test -s "${appimages[0]}.sig"
+rm -f -- "$appimage.sig"
+npm run tauri -- signer sign "${sign_args[@]}" "$appimage"
+test -s "$appimage.sig"
