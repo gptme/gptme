@@ -57,9 +57,9 @@ jest.mock('@/components/WorkspaceSelector', () => ({ WorkspaceSelector: () => nu
 jest.mock('@/components/FileAutocomplete', () => ({ FileAutocomplete: () => null }));
 jest.mock('@/components/VoiceButton', () => ({ VoiceButton: () => null }));
 jest.mock('@/components/SpeechInputButton', () => ({ SpeechInputButton: () => null }));
-jest.mock('@/utils/audio', () => ({ playChime: jest.fn() }));
+jest.mock('@/utils/audio', () => ({ playChime: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/utils/notifications', () => ({
-  notifyGenerationComplete: jest.fn(),
+  notifyGenerationComplete: jest.fn().mockResolvedValue(undefined),
   notifyToolConfirmation: jest.fn(),
 }));
 
@@ -1654,6 +1654,84 @@ it('blocks positional mutations while the initial attachment upload is pending',
     resolveUpload({ files: [{ path: 'attachments/one.txt' }] });
     await creation;
   });
+});
+
+it('keeps live content when an order snapshot has the same assistant identity', async () => {
+  const state = conversations$.get('upload-existing')!;
+  const assistant = {
+    role: 'assistant' as const,
+    content: 'first second',
+    timestamp: '2026-10-27T12:00:00Z',
+    isComplete: false,
+  };
+  replaceLog('upload-existing', [assistant]);
+  jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...state.data.get(),
+    log: [{ ...assistant, content: 'first' }],
+  });
+  await mockClient.reconcileLateUploadOrder('upload-existing');
+  expect(state.data.log.get()[0].content).toBe('first second');
+  expect(state.historyOrderUncertain.get()).toBe(false);
+});
+
+it('keeps timestamp-less rows unchanged and positional mutations blocked', async () => {
+  const state = conversations$.get('upload-existing')!;
+  const instruction = { role: 'system' as const, content: 'Instructions' };
+  replaceLog('upload-existing', [instruction]);
+  jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...state.data.get(),
+    log: [instruction],
+  });
+  await mockClient.reconcileLateUploadOrder('upload-existing');
+  expect(state.data.log.get()).toEqual([instruction]);
+  expect(state.historyOrderUncertain.get()).toBe(true);
+});
+
+it('defers order reconciliation when the live assistant has a different server identity', async () => {
+  const { renderHook } = await import('@testing-library/react');
+  let handlers: any;
+  jest.spyOn(mockClient, 'subscribeToEvents').mockImplementation(async (_id, callbacks) => {
+    handlers = callbacks;
+    callbacks.onConnected?.();
+  });
+  renderHook(() => useConversation('upload-existing'));
+  await waitFor(() => expect(handlers).toBeDefined());
+  await act(async () => {
+    handlers.onMessageStart();
+    handlers.onToken('first');
+  });
+  const state = conversations$.get('upload-existing')!;
+  const assistant = state.data.log.get()[0];
+  const serverAssistant = {
+    ...assistant,
+    timestamp: new Date(Date.parse(assistant.timestamp!) - 3).toISOString(),
+    content: 'stale snapshot',
+  };
+  const get = jest.spyOn(mockClient, 'getConversation').mockResolvedValue({
+    ...state.data.get(),
+    log: [serverAssistant],
+  });
+  await act(async () => {
+    await mockClient.reconcileLateUploadOrder('upload-existing');
+    handlers.onToken(' second');
+  });
+  expect(state.data.log.get()).toHaveLength(1);
+  expect(state.data.log.get()[0].content).toBe('first second');
+  expect(state.historyOrderUncertain.get()).toBe(true);
+  await act(async () => {
+    handlers.onMessageComplete({ ...serverAssistant, content: 'final response' });
+    handlers.onStepComplete();
+  });
+  get.mockResolvedValue({
+    ...state.data.get(),
+    log: [{ ...serverAssistant, content: 'final response' }],
+  });
+  await act(async () => {
+    await mockClient.reconcileLateUploadOrder('upload-existing');
+  });
+  expect(state.data.log.get()).toHaveLength(1);
+  expect(state.data.log.get()[0].content).toBe('final response');
+  expect(state.historyOrderUncertain.get()).toBe(false);
 });
 
 it('keeps streaming tokens and completion on their assistant after late upload reorder', async () => {

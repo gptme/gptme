@@ -213,6 +213,7 @@ const ChatMessageComponent: FC<Props> = ({
   const isSpeakingThis = ttsKey !== null && speakingKey === ttsKey;
   // Use observables (not useState) because these are read inside <Memo>
   const isEditing$ = useObservable(false);
+  const editSession = useRef(0);
   const editContent$ = useObservable('');
   const editAutoFocus$ = useObservable(true);
 
@@ -644,6 +645,7 @@ const ChatMessageComponent: FC<Props> = ({
                             variant="ghost"
                             size="sm"
                             onClick={() => {
+                              editSession.current += 1;
                               editContent$.set(message$.content.get());
                               editAutoFocus$.set(true);
                               isEditing$.set(true);
@@ -756,6 +758,7 @@ const ChatMessageComponent: FC<Props> = ({
                           editMode
                           editFiles={message$.files?.get()?.map(String)}
                           onEditSave={async (content, files, pendingFiles, truncate) => {
+                            const owner = editSession.current;
                             const saved = await onEdit?.(
                               messageIndex!,
                               content,
@@ -763,9 +766,14 @@ const ChatMessageComponent: FC<Props> = ({
                               files,
                               pendingFiles
                             );
-                            if (saved !== false) isEditing$.set(false);
+                            if (saved !== false && owner === editSession.current) {
+                              isEditing$.set(false);
+                            }
                           }}
-                          onEditCancel={() => isEditing$.set(false)}
+                          onEditCancel={() => {
+                            editSession.current += 1;
+                            isEditing$.set(false);
+                          }}
                         />
                       ) : (
                         <>

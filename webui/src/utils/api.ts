@@ -128,6 +128,9 @@ function mergeAuthoritativeLogPrefix(conversationId: string, snapshot: Message[]
             ...entry,
             timestamp: previous.timestamp,
             ...(previous._status ? { _status: previous._status } : {}),
+            ...('isComplete' in previous && previous.isComplete === false
+              ? { content: previous.content, isComplete: false }
+              : {}),
           }
         : entry;
     }),
@@ -1755,6 +1758,22 @@ export class ApiClient {
     const applyIfUnchanged = async (revision: number): Promise<boolean> => {
       const data = await this.getConversation(conversationId);
       if (currentLogRevision(conversationId) !== revision) {
+        return false;
+      }
+      const local = state?.data.log.get() ?? [];
+      // A live assistant has a client-generated timestamp until completion.
+      // Do not guess its server identity or publish duplicate positional rows.
+      // Timestamp-less local rows are similarly ambiguous; an authoritative
+      // history reload remains the safe recovery path in that case.
+      if (
+        local.some(
+          (entry) =>
+            !entry.timestamp ||
+            ('isComplete' in entry &&
+              entry.isComplete === false &&
+              !data.log.some((saved) => sameLogMessage(entry, saved)))
+        )
+      ) {
         return false;
       }
       // Keep Retry metadata and append entries absent from this snapshot in
