@@ -432,16 +432,24 @@ Encode an existing PFX:
 
    base64 -w0 your-certificate.pfx
 
-**Path B — Azure Trusted Signing (EV certificate)**
+**Path B — Azure Trusted Signing (managed signing)**
 
-Uses `Azure Trusted Signing
-<https://learn.microsoft.com/en-us/azure/trusted-signing/>`_ to sign with an
-EV (Extended Validation) certificate whose private key never leaves Azure HSM.
-EV certificates give *immediate* SmartScreen reputation and satisfy enterprise
-AppLocker policies that require EV.  The CI workflow installs the
-``Microsoft.Trusted.Signing.Client`` NuGet package (which provides the DLIB),
-authenticates via a service principal, and calls ``signtool`` with the DLIB for
-both the sidecar and the installer (via Tauri's ``signCommand``).
+Uses `Azure Trusted Signing (now Artifact Signing)
+<https://learn.microsoft.com/en-us/azure/artifact-signing/>`_ with a public-trust
+certificate profile whose private key stays in Azure HSM. The service
+`does not issue EV certificates
+<https://learn.microsoft.com/en-us/azure/artifact-signing/faq>`_. Neither this
+service nor an EV certificate guarantees an immediate SmartScreen reputation
+bypass; newly signed downloads can still show warnings. See Microsoft's
+`SmartScreen reputation guidance
+<https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation>`_.
+Enterprise policy requirements must be checked separately.
+
+The CI workflow installs ``Microsoft.Trusted.Signing.Client`` version 1.0.95
+(which provides the DLIB), authenticates via the service principal environment
+variables consumed by ``DefaultAzureCredential``, and calls ``signtool`` with
+the DLIB for the sidecar, main executable and installer (via Tauri's
+``signCommand``). No Azure CLI login or OIDC permission is needed.
 
 Configure six secrets:
 
@@ -452,9 +460,10 @@ Configure six secrets:
 - ``AZURE_SIGNING_ACCOUNT``: Trusted Signing account name
 - ``AZURE_SIGNING_CERT_PROFILE``: certificate profile name
 
-To provision: create an Azure Trusted Signing account and certificate profile in
-the Azure portal, create a service principal, and assign it the *Code Signing
-Certificate Profile Signer* role on the certificate profile.
+To provision: create an Azure Trusted Signing account, complete identity
+validation, and create a public-trust certificate profile in the Azure portal.
+Create a service principal and assign it the *Code Signing Certificate Profile
+Signer* role on the certificate profile.
 
 **Both paths sign the same artifacts:**
 
@@ -463,8 +472,10 @@ Certificate Profile Signer* role on the certificate profile.
 2. The PyInstaller sidecar binary (``gptme-server-*.exe``) — signed separately
    before Tauri bundles it; Tauri does not sign external sidecars.
 
-If neither set of secrets is present the workflow uses the unsigned path.  A
-signing or verification failure stops the release rather than falling back to
+When both complete secret sets are present, Azure takes precedence for all
+signing and publication steps; the PFX steps are skipped. If neither complete
+set is present the workflow uses the unsigned path. A signing or verification
+failure stops the release rather than falling back to
 unsigned output.  From a Windows SDK command prompt, verify an embedded
 signature (trust-chain checks may require network access)::
 

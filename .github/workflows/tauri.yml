@@ -642,7 +642,7 @@ jobs:
 
       # Windows Authenticode signing setup
       - name: Import Windows code-signing certificate
-        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true' && env.HAS_AZURE_SIGNING != 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -657,7 +657,7 @@ jobs:
           Remove-Item $certPath -Force
 
       - name: Sign Windows sidecar binary
-        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true' && env.HAS_AZURE_SIGNING != 'true'
         shell: pwsh
         run: |
           # Tauri signs the main executable and installer, not external sidecars.
@@ -684,9 +684,8 @@ jobs:
             Get-ChildItem tauri/bins/ -ErrorAction SilentlyContinue
           }
 
-      # Azure Trusted Signing (for EV code-signing certificates)
-      # EV certificates require hardware-backed HSM keys and cannot be exported to PFX.
       # Azure Trusted Signing holds the key in Azure HSM and signs via the DLIB.
+      # Prefer Azure when both providers are configured; it does not issue EV certs.
       # Configure six secrets: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
       # AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_CERT_PROFILE.
       - name: Install Azure Code Signing DLIB
@@ -695,9 +694,10 @@ jobs:
         run: |
           $clientDir = Join-Path $env:RUNNER_TEMP "AzureCodeSigning"
           New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
-          nuget install Microsoft.Trusted.Signing.Client `
+          nuget install Microsoft.Trusted.Signing.Client -Version 1.0.95 `
             -OutputDirectory "$clientDir\packages" `
             -NonInteractive -ExcludeVersion 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "Signing client installation failed: $LASTEXITCODE" }
           $dlib = Get-ChildItem "$clientDir\packages" -Recurse `
             -Filter "Azure.CodeSigning.Dlib.dll" |
             Where-Object { $_.Directory.Name -eq "x64" } |
@@ -724,17 +724,14 @@ jobs:
           $meta | Out-File $path -Encoding utf8
           "AZURE_CODESIGNING_METADATA=$path" | Out-File $env:GITHUB_ENV -Append
 
-      - name: Azure login for Trusted Signing
-        if: runner.os == 'Windows' && env.HAS_AZURE_SIGNING == 'true'
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-
       - name: Sign Windows sidecar binary (Azure Trusted Signing)
         if: runner.os == 'Windows' && env.HAS_AZURE_SIGNING == 'true'
         shell: pwsh
+        # The DLIB's DefaultAzureCredential uses EnvironmentCredential directly.
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
           # Tauri does not sign external sidecar binaries; sign before bundling.
           # Hosted runners install SignTool in the SDK, not on PATH.
@@ -776,15 +773,20 @@ jobs:
           # would break YAML strict-parser validation of this workflow file.
           $wrapPath = Join-Path $env:RUNNER_TEMP "azure-sign.ps1"
           $wrapLines = @(
-            'param([Parameter(ValueFromRemainingArguments)]$files)',
+            'param([Parameter(ValueFromRemainingArguments)][string[]]$files)',
+            '$ErrorActionPreference = "Stop"',
+            'if (-not $files) { throw "No artifacts supplied for signing" }',
             'foreach ($file in $files) {',
             "    & '$signtool' sign /fd sha256 /tr http://timestamp.acs.microsoft.com /td sha256 /dlib '$($env:AZURE_CODESIGNING_DLIB)' /dmdf '$($env:AZURE_CODESIGNING_METADATA)' `$file",
+            '    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+            "    & '$signtool' verify /pa `$file",
             '    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
             '}'
           )
           ($wrapLines -join [Environment]::NewLine) | Out-File $wrapPath -Encoding utf8
-          $signCmd = "pwsh -NoProfile -File `"$wrapPath`""
-          $config = @{bundle=@{windows=@{signCommand=$signCmd}}} | ConvertTo-Json -Compress
+          # Object form preserves paths with spaces; Tauri replaces only %1.
+          $signCmd = @{cmd='pwsh'; args=@('-NoProfile', '-File', $wrapPath, '%1')}
+          $config = @{bundle=@{windows=@{signCommand=$signCmd}}} | ConvertTo-Json -Depth 6 -Compress
           $cfgPath = Join-Path $env:RUNNER_TEMP "azure-winsign.json"
           $config | Out-File $cfgPath -Encoding utf8 -NoNewline
           "path=$cfgPath" | Out-File $env:GITHUB_OUTPUT -Append
@@ -899,7 +901,7 @@ jobs:
 
       - name: Write Windows signing --config override
         id: winsign
-        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true' && env.HAS_AZURE_SIGNING != 'true'
         shell: pwsh
         run: |
           # Write the certificateThumbprint override as a Tauri --config JSON file.
@@ -911,7 +913,7 @@ jobs:
           "path=$path" | Out-File $env:GITHUB_OUTPUT -Append
 
       - name: Build and publish release (signed Windows)
-        if: matrix.platform == 'windows-latest' && env.HAS_WINDOWS_SIGNING == 'true'
+        if: matrix.platform == 'windows-latest' && env.HAS_WINDOWS_SIGNING == 'true' && env.HAS_AZURE_SIGNING != 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

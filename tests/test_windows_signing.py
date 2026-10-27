@@ -25,7 +25,10 @@ def test_windows_sidecar_signing(tmp_path: Path, failure: str) -> None:
         for step in workflow["jobs"]["release"]["steps"]
         if step.get("name") == "Sign Windows sidecar binary"
     )
-    assert step["if"] == "runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'"
+    assert step["if"] == (
+        "runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'"
+        " && env.HAS_AZURE_SIGNING != 'true'"
+    )
     program_files = tmp_path / "Program Files (x86)"
     sdk = program_files / "Windows Kits/10/bin"
     ledger = tmp_path / "ledger"
@@ -98,6 +101,7 @@ def _make_sdk_fixture(tmp_path: Path, versions: list[str]) -> Path:
         tool.write_text(
             "#!/bin/sh\n"
             'printf "%s %s\\n" "$0" "$*" >> "$LEDGER"\n'
+            'printf "%s\\n" "$@" >> "$ARG_LEDGER"\n'
             'if [ "$1" = "$FAILURE" ]; then exit 7; fi\n'
         )
         tool.chmod(0o755)
@@ -145,6 +149,7 @@ def test_azure_sidecar_signing(tmp_path: Path, failure: str) -> None:
             "AZURE_CODESIGNING_DLIB": str(dlib),
             "AZURE_CODESIGNING_METADATA": str(metadata),
             "LEDGER": str(ledger),
+            "ARG_LEDGER": str(tmp_path / "arguments"),
             "FAILURE": failure,
         },
         capture_output=True,
@@ -177,7 +182,8 @@ def test_azure_sidecar_signing(tmp_path: Path, failure: str) -> None:
         )
 
 
-def test_azure_winsign_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize("failure", ["", "sign", "verify", "no-artifact"])
+def test_azure_winsign_config(tmp_path: Path, failure: str) -> None:
     """Write Azure Trusted Signing Tauri config step emits a valid signCommand JSON."""
     workflow = yaml.safe_load((ROOT / ".github/workflows/tauri.yml").read_text())
     step = next(
@@ -203,7 +209,7 @@ def test_azure_winsign_config(tmp_path: Path) -> None:
     github_output = tmp_path / "github_output"
     github_output.write_text("")
 
-    runner_temp = tmp_path / "runner_temp"
+    runner_temp = tmp_path / "runner temp"
     runner_temp.mkdir()
 
     script = tmp_path / "azwinsign.ps1"
@@ -237,8 +243,8 @@ def test_azure_winsign_config(tmp_path: Path) -> None:
     assert "bundle" in config
     assert "windows" in config["bundle"]
     sign_cmd = config["bundle"]["windows"]["signCommand"]
-    assert "pwsh" in sign_cmd.lower()
-    assert "azure-sign.ps1" in sign_cmd
+    assert sign_cmd["cmd"] == "pwsh"
+    assert "azure-sign.ps1" in sign_cmd["args"][2]
 
     # The wrapper script must embed the signtool path and dlib/metadata paths
     wrap_path = runner_temp / "azure-sign.ps1"
@@ -247,3 +253,81 @@ def test_azure_winsign_config(tmp_path: Path) -> None:
     assert "10.0.26100.0/x64/signtool.exe" in wrap_text.replace("\\", "/")
     assert "/dlib" in wrap_text
     assert "/dmdf" in wrap_text
+
+    # Match Tauri's argument substitution: the artifact is one argument even
+    # when its path contains spaces. Execute the actual generated command.
+    artifact = tmp_path / "release artifacts/gptme setup.exe"
+    artifact.parent.mkdir()
+    artifact.write_text("fixture")
+    command = [sign_cmd["cmd"], *sign_cmd["args"]]
+    assert command.count("%1") == 1
+    command = [str(artifact) if arg == "%1" else arg for arg in command]
+    command[0] = str(PWSH)
+    if failure == "no-artifact":
+        command.remove(str(artifact))
+    ledger = tmp_path / "ledger"
+    arg_ledger = tmp_path / "arguments"
+    result = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "LEDGER": str(ledger),
+            "ARG_LEDGER": str(arg_ledger),
+            "FAILURE": failure,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if failure == "no-artifact":
+        assert result.returncode != 0
+        assert not ledger.exists()
+        return
+    assert result.returncode == (7 if failure else 0), result.stderr
+    args = arg_ledger.read_text().splitlines()
+    signing_args = [
+        "sign",
+        "/fd",
+        "sha256",
+        "/tr",
+        "http://timestamp.acs.microsoft.com",
+        "/td",
+        "sha256",
+        "/dlib",
+        str(dlib),
+        "/dmdf",
+        str(metadata),
+        str(artifact),
+    ]
+    assert args == signing_args + (
+        [] if failure == "sign" else ["verify", "/pa", str(artifact)]
+    )
+
+
+def test_windows_signing_provider_selection() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tauri.yml").read_text())
+    steps = workflow["jobs"]["release"]["steps"]
+    pfx_names = {
+        "Import Windows code-signing certificate",
+        "Sign Windows sidecar binary",
+        "Write Windows signing --config override",
+        "Build and publish release (signed Windows)",
+    }
+    pfx_steps = [step for step in steps if step.get("name") in pfx_names]
+    assert len(pfx_steps) == len(pfx_names)
+    for step in pfx_steps:
+        assert "env.HAS_WINDOWS_SIGNING == 'true'" in step["if"]
+        assert "env.HAS_AZURE_SIGNING != 'true'" in step["if"]
+    azure_sidecar = next(
+        step
+        for step in steps
+        if step.get("name") == "Sign Windows sidecar binary (Azure Trusted Signing)"
+    )
+    for key in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"):
+        assert azure_sidecar["env"][key] == "${{ secrets." + key + " }}"
+    assert not any(step.get("uses", "").startswith("azure/login@") for step in steps)
+    install = next(
+        step for step in steps if step.get("name") == "Install Azure Code Signing DLIB"
+    )
+    assert "-Version 1.0.95" in install["run"]
