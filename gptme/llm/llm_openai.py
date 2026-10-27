@@ -651,6 +651,14 @@ def init(provider: Provider, config: Config):
             base_url=proxy_url or "https://openrouter.ai/api/v1",
             timeout=timeout,
         )
+    elif provider == "opencode-go":
+        api_key = _get_provider_api_key(config, provider, "OPENCODE_API_KEY")
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url="https://opencode.ai/inference/go/openai/v1",
+            timeout=timeout,
+        )
     elif provider == "requesty":
         api_key = proxy_key or _get_provider_api_key(
             config, provider, "REQUESTY_API_KEY"
@@ -1439,7 +1447,34 @@ def extra_headers(provider: Provider) -> dict[str, str]:
     if provider == "openrouter":
         # Shows in rankings on openrouter.ai
         headers |= OPENROUTER_APP_HEADERS
+    elif provider == "opencode-go":
+        from uuid import NAMESPACE_URL, uuid5
+
+        from .. import __version__
+        from ..hooks.server_confirm import current_conversation_id
+        from ..telemetry import get_conversation_context
+
+        # Compute per request, not on the cached client: server clients serve
+        # multiple conversations. Hash identifiers to avoid disclosing log paths.
+        conversation = current_conversation_id.get() or get_conversation_context()[0]
+        session = (
+            str(uuid5(NAMESPACE_URL, f"gptme:opencode-go:{conversation}"))
+            if conversation
+            else _opencode_go_fallback_session()
+        )
+        headers |= {
+            "User-Agent": f"gptme/{__version__}",
+            "x-opencode-session": session,
+        }
     return headers
+
+
+@lru_cache(maxsize=1)
+def _opencode_go_fallback_session() -> str:
+    """Process-stable identity for one-shot callers without conversation context."""
+    from uuid import uuid4
+
+    return str(uuid4())
 
 
 ENV_THINKING_EFFORT = "GPTME_THINKING_EFFORT"
@@ -2677,13 +2712,15 @@ def _transform_msgs_for_special_provider(
     # representation before historical messages go back to the provider.
     # OpenRouter requires it on tool-call turns; K3 requires it on every turn.
     preserve_all_reasoning = model.provider == "moonshot" and model.model == "kimi-k3"
-    if (model.provider == "openrouter" and model.supports_reasoning) or (
-        preserve_all_reasoning
-    ):
+    if (
+        model.provider in ("openrouter", "opencode-go") and model.supports_reasoning
+    ) or (preserve_all_reasoning):
         # DeepSeek models routed through OpenRouter also require string (not
         # array) content on tool-result messages — same strictness as direct
         # deepseek provider.  Detected by the OpenRouter model namespace prefix.
-        needs_string_tool_content = model.model.startswith("deepseek/")
+        needs_string_tool_content = model.model.startswith("deepseek/") or (
+            model.provider == "opencode-go" and model.model.startswith("deepseek-")
+        )
 
         openrouter_result: list[MessageDict] = []
         for msg in messages_dicts:

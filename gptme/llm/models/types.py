@@ -49,6 +49,7 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
 
 # Built-in providers (static list)
 BuiltinProvider = Literal[
+    "opencode-go",
     "openai",
     "openai-subscription",
     "anthropic",
@@ -101,6 +102,7 @@ Provider = BuiltinProvider | CustomProvider
 
 PROVIDERS_OPENAI: list[BuiltinProvider]
 PROVIDERS_OPENAI = [
+    "opencode-go",
     "openai",
     "azure",
     "openrouter",
