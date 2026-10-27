@@ -7,6 +7,14 @@ import type { Task } from '@/types/task';
 const mockNavigate = jest.fn();
 const mockArchiveTask = jest.fn();
 const mockUnarchiveTask = jest.fn();
+const mockApi = {
+  baseUrl: 'https://tasks.invalid',
+  authHeader: 'Bearer test-task-owner',
+};
+
+jest.mock('@/contexts/ApiContext', () => ({
+  useApi: () => ({ api: mockApi }),
+}));
 
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
@@ -292,17 +300,17 @@ describe('SuggestedActionsPanel', () => {
   });
 
   describe('archive and unarchive', () => {
-    it('Archive Task calls the archive API with the task id', async () => {
+    it('Archive Task calls the archive API with the task id and API owner', async () => {
       renderPanel(makeTask());
       fireEvent.click(buttonFor('Archive Task'));
-      await waitFor(() => expect(mockArchiveTask).toHaveBeenCalledWith('task-1'));
+      await waitFor(() => expect(mockArchiveTask).toHaveBeenCalledWith('task-1', mockApi));
       expect(mockUnarchiveTask).not.toHaveBeenCalled();
     });
 
-    it('Unarchive Task calls the unarchive API with the task id', async () => {
+    it('Unarchive Task calls the unarchive API with the task id and API owner', async () => {
       renderPanel(FIXTURES[2].task);
       fireEvent.click(buttonFor('Unarchive Task'));
-      await waitFor(() => expect(mockUnarchiveTask).toHaveBeenCalledWith('task-1'));
+      await waitFor(() => expect(mockUnarchiveTask).toHaveBeenCalledWith('task-1', mockApi));
       expect(mockArchiveTask).not.toHaveBeenCalled();
     });
   });
