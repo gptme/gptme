@@ -389,7 +389,7 @@ def _line_fence_states(
         (
             i
             for i in range(len(lines) - 1, -1, -1)
-            if re.match(r"^`{3,}", lines[i]) and len(lines[i].strip()) > 3
+            if re.match(r"^`{3,}\s*[^`\s]", lines[i])
         ),
         -1,
     )

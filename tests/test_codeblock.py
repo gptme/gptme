@@ -2972,6 +2972,20 @@ def test_nested_thinking_example_with_introductory_prose_preserves_save(
 
 @pytest.mark.parametrize("tag", ["think", "thinking"])
 @pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("bare_fence", ["````", "`````", "``````", "````  "])
+def test_bare_long_fence_after_thinking_example_preserves_save(
+    tag: str, streaming: bool, bare_fence: str
+) -> None:
+    """Long bare fences are literal content, not evidence of a later tool call."""
+    content = f"intro\n```\n<{tag}>\nexample\n```\nDone\n{bare_fence}"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+        Codeblock("save a.md", content)
+    ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
 def test_output_before_unfinished_thinking_does_not_expose_draft(
     tag: str, streaming: bool
 ) -> None:
