@@ -1,6 +1,7 @@
 """Tests for gptme.memory: schema round-trip, layered roots, store, index, CLI."""
 
 import importlib
+import json
 import multiprocessing
 import os
 import stat
@@ -97,6 +98,13 @@ class TestSchema:
         assert (
             "metadata:\n  type: feedback\n  originSessionId: abc-123" in e.to_markdown()
         )
+
+    @pytest.mark.parametrize("name", ["on", "yes", "off", "null", "2026", "normal"])
+    def test_scalar_like_name_strict_round_trip(self, name):
+        entry = MemoryEntry(name=name, description="description")
+
+        rendered = entry.to_markdown()
+        assert entry_from_text(rendered, strict=True).name == name
 
     def test_optional_fields_round_trip(self):
         e = MemoryEntry(
@@ -822,6 +830,40 @@ class TestCli:
         r = runner.invoke(util_main, ["memory", "index", "--check"])
         assert r.exit_code == 0, r.output
 
+    @pytest.mark.parametrize("name", ["on", "yes", "off", "null", "2026", "normal"])
+    def test_save_show_index_scalar_like_names(self, env, name):
+        runner = CliRunner()
+        result = runner.invoke(
+            util_main,
+            ["memory", "save", name, "Description."],
+            input="Body text.\n",
+        )
+        assert result.exit_code == 0, result.output
+        assert (env / f"{name}.md").exists()
+
+        result = runner.invoke(
+            util_main,
+            ["memory", "save", name, "Updated description."],
+            input="Updated body.\n",
+        )
+        assert result.exit_code == 0, result.output
+
+        result = runner.invoke(util_main, ["memory", "show", name, "--json"])
+        assert result.exit_code == 0, result.output
+        shown = json.loads(result.output)
+        assert shown["name"] == name
+        assert shown["description"] == "Updated description."
+        assert shown["body"] == "Updated body."
+
+        index = (env / "MEMORY.md").read_text()
+        assert index.count(f"]({name}.md)") == 1
+        assert "Updated description." in index
+
+        result = runner.invoke(util_main, ["memory", "index", "--write"])
+        assert result.exit_code == 0, result.output
+        result = runner.invoke(util_main, ["memory", "index", "--check"])
+        assert result.exit_code == 0, result.output
+
     @pytest.mark.parametrize(
         ("option", "value"),
         [
@@ -1101,7 +1143,7 @@ class TestCodexAgentsMdPattern:
         # File written to the explicit root
         assert (mem_env / "codex-pref.md").exists()
         content = (mem_env / "codex-pref.md").read_text()
-        assert "name: codex-pref" in content
+        assert 'name: "codex-pref"' in content
         assert "Prefer succinct responses." in content
         assert "Keep answers short and code-first." in content
 
