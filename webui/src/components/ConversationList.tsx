@@ -195,10 +195,12 @@ export const ConversationList: FC<Props> = ({
       const servers = serverRegistry$.get().servers;
       const storeConv = conversations$.get(conv.id);
       const cachedGeneration = storeConv?.streamClientGeneration?.peek();
-      // Store-only rows have no serverId yet. Recover their owner only from
-      // the live client's generation, never by assuming they are primary.
+      const cachedOwnerId = storeConv?.serverId?.peek();
+      // Prefer the stable owner recorded by useConversation. Legacy entries
+      // without it can still recover ownership from the live client identity.
       const ownerId =
         conv.serverId ??
+        cachedOwnerId ??
         (typeof cachedGeneration === 'number'
           ? servers.find((server) => getClientGeneration(getClient(server.id)) === cachedGeneration)
               ?.id
@@ -211,11 +213,13 @@ export const ConversationList: FC<Props> = ({
 
       const client = getClient(ownerId);
       // Snapshot the selected branch before awaiting. The store is shared by
-      // conversation ID, so only trust its branch selector when the live stream
-      // was created on this row's client; otherwise that cache may belong to a
-      // same-ID conversation on another server.
+      // conversation ID, so verify the owner before trusting its branch. Client
+      // replacement (e.g. token refresh) changes generation, not server identity.
       const cacheBelongsToRow =
-        typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
+        cachedOwnerId !== undefined
+          ? cachedOwnerId === ownerId
+          : typeof cachedGeneration === 'number' &&
+            cachedGeneration === getClientGeneration(client);
       const selectedBranch = cacheBelongsToRow
         ? (storeConv?.currentBranch?.peek() ?? 'main')
         : 'main';

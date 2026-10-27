@@ -466,6 +466,35 @@ describe('ConversationList exports', () => {
     ]);
   });
 
+  it.each(['Markdown', 'JSON'] as const)(
+    'preserves the selected branch for %s after the owning client is replaced',
+    async (format) => {
+      const oldClient = { getConversation: jest.fn() };
+      const ownerClient = { getConversation: mockGetConversation };
+      const featureLog: Message[] = [{ role: 'user', content: 'FEATURE-AFTER-REFRESH' }];
+      mockGetClient.mockReturnValue(ownerClient);
+      setLoadedConversation(fullMessages().slice(70), {
+        currentBranch: 'feature',
+        streamClientGeneration: getClientGeneration(oldClient),
+      });
+      conversations$.get('conv-1').serverId.set(SERVER_ID);
+      mockGetConversation.mockResolvedValue({
+        log: fullMessages(),
+        name: 'Owner title',
+        branches: { feature: featureLog },
+      });
+
+      renderList();
+      await openExport(format);
+
+      const exporter = format === 'JSON' ? mockExportJSON : mockExportMarkdown;
+      await waitFor(() => expect(exporter).toHaveBeenCalledTimes(1));
+      expect(exporter.mock.calls[0][2]).toEqual(featureLog);
+      expect(mockGetConversation).toHaveBeenCalledWith('conv-1');
+      expect(oldClient.getConversation).not.toHaveBeenCalled();
+    }
+  );
+
   it('fails closed when the verified selected branch is missing from the response', async () => {
     const ownerClient = { getConversation: mockGetConversation };
     const mainLog = fullMessages();
@@ -529,12 +558,13 @@ describe('ConversationList exports', () => {
       activeServerId: SERVER_ID,
       connectedServerIds: [SERVER_ID, secondaryServerId],
     });
-    // Complete primary cache for the same conv id, with a selected branch. The
-    // stream generation proves it belongs to the primary client, not the row.
+    // Explicit foreign ownership outranks even a matching client generation.
+    // Never carry a foreign branch selector into this row's owner response.
     setLoadedConversation(fullMessages().slice(70), {
       currentBranch: 'feature',
-      streamClientGeneration: getClientGeneration(foreignClient),
+      streamClientGeneration: getClientGeneration(ownerClient),
     });
+    conversations$.get('conv-1').serverId.set(SERVER_ID);
     ownerClient.getConversation.mockResolvedValue({
       id: 'conv-1',
       name: 'Secondary server title',

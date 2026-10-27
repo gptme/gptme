@@ -271,6 +271,8 @@ describe('ConversationSettings JSON export', () => {
       };
       mockGetClient.mockReturnValue(ownerClient);
       setLoadedConversation([{ role: 'user', content: 'PRIMARY-SECRET' }], false);
+      conversations$.get('conv-1').serverId.set(SERVER_ID);
+      conversations$.get('conv-1').currentBranch.set('feature');
       conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(foreignClient));
 
       render(<ConversationSettings conversationId="conv-1" serverId={SECONDARY_SERVER_ID} />);
@@ -352,6 +354,37 @@ describe('ConversationSettings JSON export', () => {
       'FEATURE-NEWEST',
     ]);
   });
+
+  it.each([
+    ['JSON', /Download \.json/, mockExportJSON],
+    ['Markdown', /Download \.md/, mockExportMarkdown],
+    ['Copy', /^Copy$/, mockCopyToClipboard],
+  ])(
+    'preserves the selected branch for %s after client replacement',
+    async (format, button, exporter) => {
+      const oldClient = { getConversation: jest.fn() };
+      const ownerClient = { getConversation: mockGetConversation };
+      const featureLog: Message[] = [{ role: 'user', content: 'FEATURE-AFTER-REFRESH' }];
+      mockGetClient.mockReturnValue(ownerClient);
+      setLoadedConversation([{ role: 'user', content: 'CACHED-FEATURE' }], false);
+      conversations$.get('conv-1').serverId.set(SERVER_ID);
+      conversations$.get('conv-1').currentBranch.set('feature');
+      conversations$.get('conv-1').streamClientGeneration.set(getClientGeneration(oldClient));
+      mockGetConversation.mockResolvedValue({
+        log: fullMessages(),
+        name: 'Owner title',
+        branches: { feature: featureLog },
+      });
+
+      render(<ConversationSettings conversationId="conv-1" serverId={SERVER_ID} />);
+      fireEvent.click(screen.getByRole('button', { name: button }));
+
+      await waitFor(() => expect(exporter).toHaveBeenCalledTimes(1));
+      expect(exporter.mock.calls[0][format === 'Copy' ? 1 : 2]).toEqual(featureLog);
+      expect(mockGetConversation).toHaveBeenCalledWith('conv-1');
+      expect(oldClient.getConversation).not.toHaveBeenCalled();
+    }
+  );
 
   it('does not download and reports an error when JSON full-history fetch fails', async () => {
     setLoadedConversation(fullMessages().slice(70), true);

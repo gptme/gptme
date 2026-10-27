@@ -149,11 +149,17 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
 
       const storeConv = conversations$.get(conversationId);
       const cachedGeneration = storeConv?.streamClientGeneration?.peek();
-      const cacheBelongsToOwner =
+      const cachedOwnerId = storeConv?.serverId?.peek();
+      const ownerId = serverId ?? serverRegistry$.peek().activeServerId;
+      const sameClient =
         typeof cachedGeneration === 'number' && cachedGeneration === getClientGeneration(client);
+      // The selected branch belongs to the server, not a particular token's
+      // client instance. Prefer stable ownership; generations cover legacy entries.
+      const cacheBelongsToOwner =
+        cachedOwnerId !== undefined ? cachedOwnerId === ownerId : sameClient;
       // Completeness is not ownership: the ID-keyed cache can still contain
       // another server's full transcript while the new owner's fetch is pending.
-      if (!hasMoreBefore && cacheBelongsToOwner) {
+      if (!hasMoreBefore && cacheBelongsToOwner && sameClient) {
         return { messages: loadedLog, name: loadedName };
       }
       const selectedBranch = cacheBelongsToOwner
@@ -176,7 +182,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
         return null;
       }
     },
-    [conversationId, isDemo]
+    [conversationId, isDemo, serverId]
   );
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

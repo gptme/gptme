@@ -63,6 +63,7 @@ jest.mock('@/democonversations', () => ({
 }));
 
 jest.mock('@/utils/connectionConfig', () => ({
+  ...jest.requireActual('@/utils/connectionConfig'),
   shouldShowDemoContent: () => false,
 }));
 
