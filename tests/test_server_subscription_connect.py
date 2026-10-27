@@ -16,6 +16,8 @@ pytest.importorskip(
 
 from flask.testing import FlaskClient  # fmt: skip
 
+from gptme.llm.models import get_recommended_model
+
 pytestmark = [pytest.mark.timeout(15)]
 
 TOKEN = "test-sub-connect-token"
@@ -345,9 +347,10 @@ def test_subscription_connect_persists_default_model(
 
     assert data is not None
     assert data["status"] == "connected"
-    assert data["model"] == "openai-subscription/gpt-5.2"
+    expected = f"openai-subscription/{get_recommended_model('openai-subscription')}"
+    assert data["model"] == expected
     saved = tomlkit.parse(isolate_user_config.read_text(encoding="utf-8"))
-    assert saved["models"]["default"] == data["model"]
+    assert saved["models"]["default"] == expected
     load_tokens.assert_not_called()
 
 
