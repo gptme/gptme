@@ -7,12 +7,14 @@ on:
       - 'tauri/**'
       - 'webui/**'
       - '.github/workflows/tauri.yml'
+      - '.github/actions/setup-tauri-apt/**'
   pull_request:
     branches: [ master ]
     paths:
       - 'tauri/**'
       - 'webui/**'
       - '.github/workflows/tauri.yml'
+      - '.github/actions/setup-tauri-apt/**'
   workflow_dispatch:
     inputs:
       tag:
@@ -43,7 +45,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      tauri: ${{ steps.filter.outputs.tauri == 'true' || steps.filter.outputs.workflow == 'true' }}
+      tauri: ${{ steps.filter.outputs.tauri == 'true' || steps.filter.outputs.workflow == 'true' || steps.filter.outputs.apt == 'true' }}
     steps:
     - uses: actions/checkout@v7
     - uses: dorny/paths-filter@v4
@@ -59,6 +61,8 @@ jobs:
             - '!tauri/e2e/**'
           workflow:
             - '.github/workflows/tauri.yml'
+          apt:
+            - '.github/actions/setup-tauri-apt/**'
 
   lint:
     name: Lint (format + clippy)
@@ -83,15 +87,18 @@ jobs:
       - name: Check formatting
         run: cd tauri/src-tauri && cargo fmt -- --check
 
+      # Build source can be an older tag; CI actions follow the workflow revision.
+      - name: Check out workflow actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
-        run: |
-          # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
-          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-          # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
+        timeout-minutes: 8
 
       - name: Create placeholder sidecar for tauri-build
         run: |
@@ -123,15 +130,17 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
-        run: |
-          # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
-          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-          # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
+        timeout-minutes: 8
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -172,16 +181,19 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
-        run: |
-          # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
-          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-          # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf \
-            xvfb webkit2gtk-driver
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
+        timeout-minutes: 8
+        with:
+          extra-packages: xvfb webkit2gtk-driver
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -279,16 +291,21 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
-          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-          # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf libglib2.0-bin
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
+        timeout-minutes: 8
+        with:
+          extra-packages: libglib2.0-bin
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -407,15 +424,21 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        if: runner.os == 'Linux'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: |
-          # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
-          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-          # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y python3-dev build-essential libffi-dev
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
+        timeout-minutes: 8
+        with:
+          packages: python3-dev build-essential libffi-dev
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -489,16 +512,19 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Check out workflow actions
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-actions
+          sparse-checkout: .github/actions/setup-tauri-apt
+          persist-credentials: false
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
-          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
-          # Also clean from /etc/apt/sources.list when configured directly
-          sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+        uses: ./.workflow-actions/.github/actions/setup-tauri-apt
+        timeout-minutes: 8
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

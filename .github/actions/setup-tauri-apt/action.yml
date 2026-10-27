@@ -1,0 +1,57 @@
+name: Set up Tauri apt dependencies
+description: Cache downloaded Linux packages and bound mirror retries for Tauri jobs
+inputs:
+  packages:
+    description: Base packages to install (whitespace-separated)
+    default: >-
+      libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+      librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
+  extra-packages:
+    description: Additional packages for this job (whitespace-separated)
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Prepare package cache
+      id: packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+      run: |
+        . /etc/os-release
+        echo "distro=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
+        read -r -a packages <<< "$(printf '%s %s' "$PACKAGES" "$EXTRA_PACKAGES" | tr '[:space:]' ' ')"
+        hash=$(printf '%s\n' "${packages[@]}" | sort -u | sha256sum | cut -d' ' -f1)
+        echo "hash=$hash" >> "$GITHUB_OUTPUT"
+        echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+        # actions/cache restores as the runner user, before apt runs as root.
+        sudo mkdir -p /var/cache/apt/archives
+        sudo chown "$(id -u):$(id -g)" /var/cache/apt/archives
+        # Container images may delete downloaded debs after each apt invocation.
+        sudo rm -f /etc/apt/apt.conf.d/docker-clean
+
+    - name: Cache apt archives
+      uses: actions/cache@v6
+      with:
+        # Exclude root-owned lock/partial entries; only debs are reusable.
+        path: /var/cache/apt/archives/*.deb
+        # Cache entries are immutable: rotate daily so newer debs can be saved.
+        key: ${{ runner.os }}-${{ runner.arch }}-apt-v1-${{ steps.packages.outputs.distro }}-${{ steps.packages.outputs.hash }}-${{ steps.packages.outputs.day }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-apt-v1-${{ steps.packages.outputs.distro }}-${{ steps.packages.outputs.hash }}-
+
+    - name: Install packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        # GitHub's Ubuntu runner image can ship Microsoft-hosted apt sources that 403.
+        sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/azure-cli*.list
+        # Also clean from /etc/apt/sources.list when configured directly.
+        sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
+        sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o APT::Update::Error-Mode=any update
+        read -r -a packages <<< "$(printf '%s %s' "$PACKAGES" "$EXTRA_PACKAGES" | tr '[:space:]' ' ')"
+        sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Binary::apt::APT::Keep-Downloaded-Packages=true install -y "${packages[@]}"
