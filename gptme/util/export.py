@@ -1,9 +1,12 @@
+import base64
 import hashlib
 import html
 import json
 import os
 import re
+import tempfile
 import urllib.request
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -19,19 +22,43 @@ def _cdn_cache_dir() -> Path:
     return cache_dir
 
 
-def _fetch_cdn_resource(url: str) -> str:
-    """Fetch content from a CDN URL, caching to disk under ~/.cache/gptme/cdn/."""
+def _verify_cdn_integrity(content: bytes, integrity: str, url: str) -> None:
+    """Check SRI metadata on the original bytes, including cached resources."""
+    if not integrity:
+        return
+    hashes: dict[str, list[str]] = {"sha256": [], "sha384": [], "sha512": []}
+    for token in integrity.split():
+        algorithm, _, digest = token.partition("-")
+        if algorithm in hashes:
+            hashes[algorithm].append(digest)
+    # SRI uses only the strongest algorithm present, not any weaker match.
+    for algorithm in ("sha512", "sha384", "sha256"):
+        if hashes[algorithm]:
+            actual = base64.b64encode(hashlib.new(algorithm, content).digest()).decode()
+            if actual in hashes[algorithm]:
+                return
+            break
+    raise RuntimeError(f"CDN resource integrity check failed: {url}")
+
+
+def _fetch_cdn_resource(url: str, integrity: str = "") -> str:
+    """Fetch and verify a CDN resource, using a best-effort atomic disk cache."""
     url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
     suffix = Path(url.split("?")[0].split("/")[-1]).suffix or ".js"
-    cache_path = _cdn_cache_dir() / f"{url_hash}{suffix}"
-
-    if cache_path.exists():
-        return cache_path.read_text(encoding="utf-8")
+    cache_path = None
+    try:
+        cache_path = _cdn_cache_dir() / f"{url_hash}{suffix}"
+        cached = cache_path.read_bytes()
+    except OSError:
+        pass  # An absent or inaccessible cache must not prevent downloading.
+    else:
+        _verify_cdn_integrity(cached, integrity, url)
+        return cached.decode("utf-8")
 
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "gptme/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
-            content = resp.read().decode("utf-8")
+            content = resp.read()
     except Exception as e:
         raise RuntimeError(
             f"Failed to fetch CDN resource for offline embedding.\n"
@@ -41,8 +68,22 @@ def _fetch_cdn_resource(url: str) -> str:
             "Subsequent exports will use the cached copy."
         ) from e
 
-    cache_path.write_text(content, encoding="utf-8")
-    return content
+    _verify_cdn_integrity(content, integrity, url)
+    decoded = content.decode("utf-8")
+    if cache_path is not None:
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=cache_path.parent, delete=False) as f:
+                temp_path = Path(f.name)
+                f.write(content)
+            temp_path.replace(cache_path)
+        except OSError:
+            pass  # Caching is optional; the verified download is still usable.
+        finally:
+            if temp_path is not None:
+                with suppress(OSError):
+                    temp_path.unlink(missing_ok=True)
+    return decoded
 
 
 def _embed_cdn_resources(html_content: str) -> str:
@@ -52,12 +93,16 @@ def _embed_cdn_resources(html_content: str) -> str:
     Fetched resources are cached to ~/.cache/gptme/cdn/ to avoid re-downloading.
     """
 
+    def fetch_tag(m: re.Match) -> str:
+        integrity = re.search(r'\bintegrity="([^"]*)"', m.group(0))
+        return _fetch_cdn_resource(m.group(1), integrity.group(1) if integrity else "")
+
     def inline_script(m: re.Match) -> str:
-        content = _fetch_cdn_resource(m.group(1))
+        content = fetch_tag(m)
         return f"<script>{content}</script>"
 
     def inline_stylesheet(m: re.Match) -> str:
-        content = _fetch_cdn_resource(m.group(1))
+        content = fetch_tag(m)
         return f"<style>{content}</style>"
 
     html_content = re.sub(

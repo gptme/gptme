@@ -1,5 +1,8 @@
 """Tests for util/export.py — replace_or_fail utility and HTML export."""
 
+import base64
+import hashlib
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -9,6 +12,7 @@ from gptme.message import Message
 from gptme.util.export import (
     _embed_cdn_resources,
     _fetch_cdn_resource,
+    _verify_cdn_integrity,
     export_chat_to_html,
     replace_or_fail,
 )
@@ -159,6 +163,90 @@ def test_embed_cdn_resources_integrity_attrs_stripped():
     assert "integrity=" not in result
 
 
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("valid", [False, True])
+def test_fetch_cdn_resource_verifies_integrity(tmp_path, cached, valid):
+    content = b"// verified\r\nconst name = '\xc3\xa5';"
+    expected = content if valid else b"different script"
+    integrity = "sha256-" + base64.b64encode(hashlib.sha256(expected).digest()).decode()
+    url = "https://example.com/lib.js"
+    cache_path = tmp_path / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.js"
+    if cached:
+        cache_path.write_bytes(content)
+    with (
+        patch("gptme.util.export._cdn_cache_dir", return_value=tmp_path),
+        patch("urllib.request.urlopen") as network,
+    ):
+        network.return_value.__enter__.return_value.read.return_value = content
+        if valid:
+            assert _fetch_cdn_resource(url, integrity) == content.decode()
+        else:
+            with pytest.raises(RuntimeError, match="integrity"):
+                _fetch_cdn_resource(url, integrity)
+            if not cached:
+                assert not cache_path.exists()
+        assert network.call_count == (0 if cached else 1)
+
+
+def test_embed_cdn_resources_passes_integrity():
+    with patch(CDN_PATCH, return_value=CDN_STUB) as fetch:
+        _embed_cdn_resources(
+            '<script src="https://example.com/lib.js" integrity="sha256-abc"></script>'
+            '<link rel="stylesheet" href="https://example.com/lib.css" integrity="sha384-def">'
+        )
+    assert fetch.call_args_list[0].args == ("https://example.com/lib.js", "sha256-abc")
+    assert fetch.call_args_list[1].args == ("https://example.com/lib.css", "sha384-def")
+
+
+@pytest.mark.parametrize("failure", ["mkdir", "read", "write"])
+def test_fetch_cdn_resource_cache_is_optional(tmp_path, failure):
+    url = "https://example.com/lib.js"
+    content = b"// downloaded"
+    target = {
+        "mkdir": "gptme.util.export._cdn_cache_dir",
+        "read": "pathlib.Path.read_bytes",
+        "write": "tempfile.NamedTemporaryFile",
+    }[failure]
+    cache_path = tmp_path / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.js"
+    if failure == "read":
+        cache_path.write_bytes(b"// unreadable cached copy")
+    with (
+        patch("gptme.util.export._cdn_cache_dir", return_value=tmp_path),
+        patch("urllib.request.urlopen") as network,
+        patch(target, side_effect=PermissionError("read-only cache")) as fail,
+    ):
+        network.return_value.__enter__.return_value.read.return_value = content
+        assert _fetch_cdn_resource(url) == content.decode()
+        fail.assert_called_once()
+        network.assert_called_once()
+
+
+def test_fetch_cdn_resource_publishes_complete_cache_atomically(tmp_path):
+    url = "https://example.com/lib.js"
+    content = b"// complete script"
+    cache_path = tmp_path / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.js"
+    replace = Path.replace
+    published = []
+
+    def check_replace(source, destination):
+        assert source.parent == cache_path.parent
+        assert source.read_bytes() == content
+        assert not cache_path.exists()
+        published.append(destination)
+        return replace(source, destination)
+
+    with (
+        patch("gptme.util.export._cdn_cache_dir", return_value=tmp_path),
+        patch("urllib.request.urlopen") as network,
+        patch.object(Path, "replace", check_replace),
+    ):
+        network.return_value.__enter__.return_value.read.return_value = content
+        assert _fetch_cdn_resource(url) == content.decode()
+    assert published == [cache_path]
+    assert list(tmp_path.iterdir()) == [cache_path]
+    assert cache_path.read_bytes() == content
+
+
 def test_fetch_cdn_resource_uses_cache(tmp_path):
     """Second fetch reads from disk cache without calling urlopen."""
     url = "https://example.com/lib.js"
@@ -186,3 +274,28 @@ def test_fetch_cdn_resource_raises_on_network_error(tmp_path):
         pytest.raises(RuntimeError, match="Failed to fetch CDN resource"),
     ):
         _fetch_cdn_resource(url)
+
+
+@pytest.mark.parametrize("algorithm", ["sha256", "sha384", "sha512"])
+def test_cdn_integrity_supported_algorithms(algorithm):
+    content = b"// script"
+    digest = base64.b64encode(hashlib.new(algorithm, content).digest()).decode()
+    _verify_cdn_integrity(content, f"{algorithm}-invalid {algorithm}-{digest}", "test")
+
+
+def test_cdn_integrity_uses_strongest_algorithm():
+    content = b"// script"
+    weak = base64.b64encode(hashlib.sha256(content).digest()).decode()
+    with pytest.raises(RuntimeError, match="integrity"):
+        _verify_cdn_integrity(content, f"sha256-{weak} sha512-wrong", "test")
+
+
+def test_fetch_cdn_resource_cleans_failed_cache_publication(tmp_path):
+    with (
+        patch("gptme.util.export._cdn_cache_dir", return_value=tmp_path),
+        patch("urllib.request.urlopen") as network,
+        patch.object(Path, "replace", side_effect=PermissionError("read-only")),
+    ):
+        network.return_value.__enter__.return_value.read.return_value = b"// script"
+        assert _fetch_cdn_resource("https://example.com/lib.js") == "// script"
+    assert not list(tmp_path.iterdir())
