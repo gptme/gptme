@@ -45,6 +45,10 @@
     "macOS": {
       "infoPlist": "./Info.plist"
     },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.sectigo.com"
+    },
     "createUpdaterArtifacts": false
   },
   "plugins": {

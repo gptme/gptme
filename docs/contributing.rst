@@ -402,6 +402,41 @@ the build. Signing deliberately happens in the tag-gated release job rather
 than via a Gradle ``signingConfig`` or Tauri's keystore hooks in the build job,
 so signing secrets are never exposed to PR-triggered builds.
 
+Windows Authenticode signing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Windows releases are signed with an Authenticode certificate in the
+``tauri-autoupdater-signing`` GitHub environment. This eliminates the SmartScreen
+"Unknown publisher" warning and satisfies enterprise AppLocker policies.
+Configure these secrets before running a tagged release:
+
+- ``WINDOWS_CERTIFICATE``: base64-encoded PFX/PKCS12 certificate (EV OV preferred)
+- ``WINDOWS_CERTIFICATE_PASSWORD``: password for the PFX file
+
+To obtain a certificate, purchase an EV OV code-signing certificate from a
+Microsoft-trusted CA (DigiCert, Sectigo, etc.). Export it as a ``.pfx`` file and
+encode it:
+
+.. code-block:: bash
+
+   base64 -w0 your-certificate.pfx
+
+Store the PFX and password in the project's offline recovery vault before
+provisioning GitHub. The certificate is referenced by its thumbprint, which the
+CI workflow extracts automatically at build time.
+
+The release workflow signs two Windows artifacts before packaging:
+
+1. The NSIS installer (``.exe``) — signed by the Tauri CLI via ``signtool``
+   using the ``bundle.windows.certificateThumbprint`` config override.
+2. The PyInstaller sidecar binary (``gptme-server-*.exe``) — signed with
+   ``signtool`` before Tauri bundles it, since Tauri only signs the installer.
+
+When ``WINDOWS_CERTIFICATE`` is absent the workflow falls back to the unsigned
+path (SmartScreen warning present). To verify an embedded signature offline::
+
+   signtool verify /pa gptme_X.Y.Z_x64-setup.exe
+
 Issue Labels
 ------------
 

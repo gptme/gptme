@@ -466,6 +466,7 @@ jobs:
     environment: tauri-autoupdater-signing
     env:
       HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      HAS_WINDOWS_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
       HAS_TAURI_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     strategy:
       fail-fast: false
@@ -612,6 +613,40 @@ jobs:
             ls -la tauri/bins/ || true
           fi
 
+      # Windows Authenticode signing setup
+      - name: Import Windows code-signing certificate
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $certBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          $certPath = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, $certBytes)
+          $securePassword = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+          "WINDOWS_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Remove-Item $certPath -Force
+
+      - name: Sign Windows sidecar binary
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        run: |
+          # Tauri only signs the NSIS installer, not sidecar binaries.
+          # SmartScreen and AppLocker inspect the sidecar independently, so sign it
+          # before bundling — mirrors the macOS codesign-sidecar step above.
+          $triple = (rustc -Vv | Select-String "host: (\S+)").Matches[0].Groups[1].Value.Trim()
+          $sidecar = "tauri/bins/gptme-server-$triple.exe"
+          if (Test-Path $sidecar) {
+            Write-Host "Signing sidecar: $sidecar"
+            signtool sign /sha1 $env:WINDOWS_SIGNING_THUMBPRINT /fd sha256 /tr http://timestamp.sectigo.com /td sha256 $sidecar
+            signtool verify /pa $sidecar
+          } else {
+            Write-Warning "Sidecar not found at $sidecar, skipping sign"
+            Get-ChildItem tauri/bins/ -ErrorAction SilentlyContinue
+          }
+
       - name: Set Tauri bundle version from release tag
         shell: bash
         env:
@@ -720,8 +755,33 @@ jobs:
           releaseId: ${{ steps.release.outputs.id }}
           args: ${{ matrix.args }} ${{ steps.updater.outputs.extra }}
 
+      - name: Write Windows signing --config override
+        id: winsign
+        if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        run: |
+          # Write the certificateThumbprint override as a Tauri --config JSON file.
+          # Shell quoting of JSON literals in args is fragile across Windows shells,
+          # so we emit a file and pass the path instead.
+          $config = @{bundle=@{windows=@{certificateThumbprint=$env:WINDOWS_SIGNING_THUMBPRINT}}} | ConvertTo-Json -Compress
+          $path = Join-Path $env:RUNNER_TEMP "winsign.json"
+          $config | Out-File $path -Encoding utf8 -NoNewline
+          "path=$path" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Build and publish release (signed Windows)
+        if: matrix.platform == 'windows-latest' && env.HAS_WINDOWS_SIGNING == 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: tauri
+          releaseId: ${{ steps.release.outputs.id }}
+          args: ${{ matrix.args }} ${{ steps.updater.outputs.extra }} --config "${{ steps.winsign.outputs.path }}"
+
       - name: Build and publish release (unsigned/fallback)
-        if: matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING != 'true'
+        if: (matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING != 'true') && (matrix.platform != 'windows-latest' || env.HAS_WINDOWS_SIGNING != 'true')
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
