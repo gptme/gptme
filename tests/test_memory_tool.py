@@ -80,7 +80,7 @@ class TestSaveMemory:
         memory_dir = get_cc_memory_dir(workspace)
         content = (memory_dir / "my-fact.md").read_text()
         assert "---" in content
-        assert "name: my-fact" in content
+        assert 'name: "my-fact"' in content
         assert "description:" in content
         assert "type: general" in content
 

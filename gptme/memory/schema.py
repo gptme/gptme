@@ -85,7 +85,7 @@ class MemoryEntry:
 
     def to_markdown(self) -> str:
         """Render frontmatter + body. Field order is fixed so diffs stay small."""
-        lines = ["---", f"name: {self.name}"]
+        lines = ["---", f"name: {_quote(self.name)}"]
         if self.title:
             lines.append(f"title: {_quote(self.title)}")
         lines.append(f"description: {_quote(self.description)}")
