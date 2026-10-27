@@ -136,6 +136,30 @@ class TestSchema:
         assert slugify("My Cool Fact!") == "my-cool-fact"
         assert slugify("") == "memory"
 
+    @pytest.mark.parametrize(
+        "name", ["on", "off", "yes", "no", "null", "true", "false", "2026"]
+    )
+    def test_yaml_scalar_name_round_trips(self, name):
+        """Names that YAML parses as non-string scalars must survive a to_markdown round-trip."""
+        e = MemoryEntry(name=name, description="desc")
+        md = e.to_markdown()
+        # The name must be quoted in the serialised output so YAML re-reads it as a string.
+        assert f'name: "{name}"' in md
+        again = entry_from_text(md)
+        assert again.name == name
+
+    def test_yaml_scalar_name_save_rejects_used_to_fail(self, tmp_path, monkeypatch):
+        """MemoryStore.save must not reject YAML-scalar names (regression for issue #4511)."""
+        from gptme.memory import MemoryStore
+        from gptme.memory.roots import MemoryRoot
+
+        store = MemoryStore([MemoryRoot("project", tmp_path / "project")])
+        # These all used to raise "invalid name: expected non-empty string"
+        for name in ("on", "yes", "null", "2026"):
+            path = store.save(name, f"description for {name}")
+            assert path.exists(), f"save({name!r}) did not create a file"
+            assert entry_from_text(path.read_text()).name == name
+
 
 class TestRoots:
     def test_explicit_env_overrides_everything(self, tmp_path):
@@ -1101,7 +1125,7 @@ class TestCodexAgentsMdPattern:
         # File written to the explicit root
         assert (mem_env / "codex-pref.md").exists()
         content = (mem_env / "codex-pref.md").read_text()
-        assert "name: codex-pref" in content
+        assert 'name: "codex-pref"' in content
         assert "Prefer succinct responses." in content
         assert "Keep answers short and code-first." in content
 
