@@ -101,6 +101,8 @@ def _embed_cdn_resources(html_content: str) -> str:
             # HTML closes raw-text elements even inside JavaScript string literals.
             content = re.sub(r"</(?=script\b)", r"<\\/", content, flags=re.IGNORECASE)
             return f"<script>{content}</script>"
+        # CSS escapes, unlike HTML entities, retain the literal in CSS strings.
+        content = re.sub(r"<(?=/style\b)", r"\\3c ", content, flags=re.IGNORECASE)
         return f"<style>{content}</style>"
 
     # One pass over the template: never scan downloaded source as HTML markup.

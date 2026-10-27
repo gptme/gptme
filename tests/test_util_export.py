@@ -189,6 +189,18 @@ def test_embed_cdn_resources_inlines_stylesheets():
     assert "cdnjs.cloudflare.com" not in result
 
 
+@pytest.mark.parametrize("closing_tag", ["</style>", "</StYlE>"])
+def test_embed_cdn_resources_escapes_stylesheet_closing_delimiters(closing_tag):
+    source = f'body::before {{ content: "{closing_tag}"; }} body {{ color: red; }}'
+    with patch(CDN_PATCH, return_value=source):
+        result = _embed_cdn_resources(
+            '<link rel="stylesheet" href="https://example.com/theme.css">'
+        )
+    # CSS hex escapes preserve the literal '<' without ending HTML raw text.
+    expected = source.replace("<", r"\3c ")
+    assert result == f"<style>{expected}</style>"
+
+
 def test_embed_cdn_resources_ignores_local_links():
     """Local <link> and <script> tags are not touched."""
     html_in = (
