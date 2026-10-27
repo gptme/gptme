@@ -405,17 +405,32 @@ so signing secrets are never exposed to PR-triggered builds.
 Windows Authenticode signing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Windows releases are signed with an Authenticode certificate in the
-``tauri-autoupdater-signing`` GitHub environment. This eliminates the SmartScreen
-"Unknown publisher" warning and satisfies enterprise AppLocker policies.
-Configure these secrets before running a tagged release:
+Windows releases can optionally use a PFX/PKCS12 Authenticode certificate from
+the ``tauri-autoupdater-signing`` GitHub environment. A trusted signature
+identifies the publisher, but does not guarantee SmartScreen reputation or
+acceptance by an enterprise's AppLocker policy.
 
-- ``WINDOWS_CERTIFICATE``: base64-encoded PFX/PKCS12 certificate (EV OV preferred)
+This workflow supports only an **existing exportable private key** with a valid
+code-signing certificate. Newly issued publicly trusted OV/EV code-signing
+certificates require hardware-backed keys and cannot simply be exported as PFX;
+see `DigiCert's PFX export limitations
+<https://knowledge.digicert.com/general-information/export-a-code-signing-certificate-as-a-pfx-file>`_.
+Do not purchase a new certificate expecting to enable this PFX-only path.
+
+For new publicly trusted signing, use a hardware-backed or cloud signing service,
+for example `Azure Artifact Signing
+<https://learn.microsoft.com/en-us/azure/artifact-signing/>`_. Its signing client
+must be integrated into both the sidecar step and Tauri's
+``bundle.windows.signCommand`` before enabling signed releases. That integration
+and its provider credentials are **not implemented by this workflow**; do not
+put a public certificate without its private key into ``WINDOWS_CERTIFICATE``.
+
+If an appropriate exportable key is already available, configure both secrets:
+
+- ``WINDOWS_CERTIFICATE``: base64-encoded PFX/PKCS12 containing the private key
 - ``WINDOWS_CERTIFICATE_PASSWORD``: password for the PFX file
 
-To obtain a certificate, purchase an EV OV code-signing certificate from a
-Microsoft-trusted CA (DigiCert, Sectigo, etc.). Export it as a ``.pfx`` file and
-encode it:
+Encode the existing PFX:
 
 .. code-block:: bash
 
@@ -425,15 +440,17 @@ Store the PFX and password in the project's offline recovery vault before
 provisioning GitHub. The certificate is referenced by its thumbprint, which the
 CI workflow extracts automatically at build time.
 
-The release workflow signs two Windows artifacts before packaging:
+The release workflow signs these Windows artifacts:
 
-1. The NSIS installer (``.exe``) — signed by the Tauri CLI via ``signtool``
-   using the ``bundle.windows.certificateThumbprint`` config override.
-2. The PyInstaller sidecar binary (``gptme-server-*.exe``) — signed with
-   ``signtool`` before Tauri bundles it, since Tauri only signs the installer.
+1. The main executable and NSIS installer (``.exe``) — signed by the Tauri CLI
+   via ``signtool`` using the ``bundle.windows.certificateThumbprint`` override.
+2. The PyInstaller sidecar binary (``gptme-server-*.exe``) — signed separately
+   before Tauri bundles it; Tauri does not sign external sidecars.
 
-When ``WINDOWS_CERTIFICATE`` is absent the workflow falls back to the unsigned
-path (SmartScreen warning present). To verify an embedded signature offline::
+Unless both secrets are present the workflow uses the unsigned path. A signing
+or verification failure in the enabled sidecar step stops the release rather
+than falling back to unsigned output. From a Windows SDK command prompt, verify
+an embedded signature (trust-chain checks may require network access)::
 
    signtool verify /pa gptme_X.Y.Z_x64-setup.exe
 

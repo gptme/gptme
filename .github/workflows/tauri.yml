@@ -633,15 +633,25 @@ jobs:
         if: runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING == 'true'
         shell: pwsh
         run: |
-          # Tauri only signs the NSIS installer, not sidecar binaries.
+          # Tauri signs the main executable and installer, not external sidecars.
           # SmartScreen and AppLocker inspect the sidecar independently, so sign it
           # before bundling — mirrors the macOS codesign-sidecar step above.
+          # Hosted runners install SignTool in the SDK, not on the default PATH.
+          $sdkBin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $signtool = Get-ChildItem "$sdkBin\*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) {
+            throw "Windows SDK signtool.exe not found under $sdkBin"
+          }
           $triple = (rustc -Vv | Select-String "host: (\S+)").Matches[0].Groups[1].Value.Trim()
           $sidecar = "tauri/bins/gptme-server-$triple.exe"
           if (Test-Path $sidecar) {
             Write-Host "Signing sidecar: $sidecar"
-            signtool sign /sha1 $env:WINDOWS_SIGNING_THUMBPRINT /fd sha256 /tr http://timestamp.sectigo.com /td sha256 $sidecar
-            signtool verify /pa $sidecar
+            & $signtool sign /sha1 $env:WINDOWS_SIGNING_THUMBPRINT /fd sha256 /tr http://timestamp.sectigo.com /td sha256 $sidecar
+            if ($LASTEXITCODE -ne 0) { throw "SignTool signing failed: $LASTEXITCODE" }
+            & $signtool verify /pa $sidecar
+            if ($LASTEXITCODE -ne 0) { throw "SignTool verification failed: $LASTEXITCODE" }
           } else {
             Write-Warning "Sidecar not found at $sidecar, skipping sign"
             Get-ChildItem tauri/bins/ -ErrorAction SilentlyContinue
