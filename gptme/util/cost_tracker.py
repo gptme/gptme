@@ -299,15 +299,21 @@ class CostTracker:
         costs = cls._session_costs_var.get()
         if not costs:
             return None
+        # Keep every field on the same population while other threads record.
+        entries = costs.snapshot_entries()
+        input_tokens = sum(e.input_tokens for e in entries)
+        cache_read_tokens = sum(e.cache_read_tokens for e in entries)
+        cache_creation_tokens = sum(e.cache_creation_tokens for e in entries)
+        total_input = input_tokens + cache_read_tokens + cache_creation_tokens
         return CostSummary(
             session_id=costs.session_id,
-            total_cost=costs.total_cost,
-            total_input_tokens=costs.total_input_tokens,
-            total_output_tokens=costs.total_output_tokens,
-            cache_read_tokens=costs.total_cache_read_tokens,
-            cache_creation_tokens=costs.total_cache_creation_tokens,
-            cache_hit_rate=costs.cache_hit_rate,
-            request_count=costs.request_count,
+            total_cost=sum(e.cost for e in entries),
+            total_input_tokens=input_tokens,
+            total_output_tokens=sum(e.output_tokens for e in entries),
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_hit_rate=cache_read_tokens / total_input if total_input else 0.0,
+            request_count=len(entries),
         )
 
     @classmethod

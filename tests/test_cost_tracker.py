@@ -1,12 +1,15 @@
 """Tests for the cost tracking system."""
 
+import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from gptme.util.cost_tracker import (
     CostEntry,
+    CostSummary,
     CostTracker,
     SessionCosts,
     session_id_for_logdir,
@@ -233,6 +236,73 @@ class TestCostTracker:
         from gptme.util.cost_tracker import CostSummary
 
         assert isinstance(summary, CostSummary)
+
+    def test_summary_totals_and_cache_rate(self) -> None:
+        CostTracker.start_session("summary-controls")
+        assert CostTracker.get_summary() == CostSummary(
+            "summary-controls", 0.0, 0, 0, 0, 0, 0.0, 0
+        )
+        CostTracker.record(CostEntry(1.0, "test", 200, 100, 800, 200, 0.5))
+        CostTracker.record(CostEntry(2.0, "test", 100, 50, 100, 50, 0.25))
+
+        assert CostTracker.get_summary() == CostSummary(
+            "summary-controls", 0.75, 300, 150, 900, 250, 900 / 1450, 2
+        )
+
+    def test_summary_is_coherent_during_concurrent_record(self) -> None:
+        """One returned summary must describe one population of entries."""
+        session_id = "concurrent-summary"
+        owner = CostTracker.ensure_session(session_id)
+        entry = CostEntry(0.0, "test", 1, 1, 1, 1, 1.0)
+        for _ in range(10_000):
+            CostTracker.record(entry)
+
+        ready, go, stop = threading.Event(), threading.Event(), threading.Event()
+        errors: list[BaseException] = []
+
+        def writer() -> None:
+            try:
+                assert CostTracker.ensure_session(session_id) is owner
+                ready.set()
+                assert go.wait(2)
+                for _ in range(100_000):
+                    if stop.is_set():
+                        break
+                    CostTracker.record(entry)
+            except BaseException as exc:
+                errors.append(exc)
+                ready.set()
+
+        old_interval = sys.getswitchinterval()
+        thread = threading.Thread(target=writer)
+        try:
+            sys.setswitchinterval(0.000001)
+            thread.start()
+            assert ready.wait(2)
+            go.set()
+            deadline = time.monotonic() + 5
+            for _ in range(100):
+                if time.monotonic() >= deadline:
+                    break
+                summary = CostTracker.get_summary()
+                assert summary is not None
+                fields = (
+                    summary.total_cost,
+                    summary.total_input_tokens,
+                    summary.total_output_tokens,
+                    summary.cache_read_tokens,
+                    summary.cache_creation_tokens,
+                    summary.request_count,
+                )
+                assert len(set(fields)) == 1, fields
+                assert summary.cache_hit_rate == pytest.approx(1 / 3)
+        finally:
+            stop.set()
+            go.set()
+            thread.join(2)
+            sys.setswitchinterval(old_interval)
+            assert not thread.is_alive()
+            assert not errors, errors
 
     def test_ensure_session_rebinds_without_reset(self):
         CostTracker.start_session("conv-a")
