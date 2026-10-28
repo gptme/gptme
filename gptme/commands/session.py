@@ -3,7 +3,6 @@ Session management commands: log, undo, edit, rename, fork, delete, exit, restar
 """
 
 import sys
-from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -155,9 +154,9 @@ def cmd_delete(ctx: CommandContext) -> None:
 
 
 @command("edit")
-def cmd_edit(ctx: CommandContext) -> Generator["Message", None, None]:
+def cmd_edit(ctx: CommandContext) -> None:
     """Edit previous messages."""
-    yield from _edit(ctx.manager)
+    _edit(ctx.manager)
 
 
 @command("undo")
@@ -274,16 +273,14 @@ def cmd_restart(ctx: CommandContext) -> None:
         print(e)
 
 
-def _edit(
-    manager: "LogManager",
-) -> Generator["Message", None, None]:  # pragma: no cover
+def _edit(manager: "LogManager") -> None:
     """Edit messages in editor."""
-    from ..message import Message, msgs_to_toml  # fmt: skip
+    from ..message import msgs_to_toml  # fmt: skip
 
     # generate editable toml of all messages
     res = _edit_until_valid(msgs_to_toml(reversed(manager.log)))
     if res is None:
-        yield Message("system", "Edit discarded; conversation unchanged.")
+        print("Edit discarded; conversation unchanged.")
         return
     manager.edit(list(reversed(res)))
     print("Applied edited messages, write /log to see the result")

@@ -766,15 +766,15 @@ class TestEditRecovery:
                 prompt.side_effect = response
             else:
                 prompt.return_value = response
-            result = list(_edit(mock_manager))
+            _edit(mock_manager)
 
         editor.assert_called_once()
         prompt.assert_called_once_with("Retry edit? [Y/n]")
         mock_manager.edit.assert_not_called()
         assert mock_manager.log == original
-        assert len(result) == 1
-        assert "discarded" in result[0].content.lower()
-        assert "TOML document has no [[messages]] table" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        assert "Edit discarded; conversation unchanged." in output
+        assert "TOML document has no [[messages]] table" in output
 
     @pytest.mark.parametrize("invalid", ["", "# no messages", "title = 'example'"])
     def test_missing_messages_table_has_reason(self, invalid):
@@ -802,7 +802,7 @@ class TestEditRecovery:
             ) as editor,
             patch("gptme.util.prompt.prompt_alert", return_value=retry) as prompt,
         ):
-            assert list(_edit(mock_manager)) == []
+            _edit(mock_manager)
 
         assert editor.call_count == 2
         assert editor.call_args_list[1].args == (invalid, "toml")
@@ -822,7 +822,7 @@ class TestEditRecovery:
             patch("gptme.util.useredit.edit_text_with_editor", return_value=valid),
             patch("gptme.util.prompt.prompt_alert") as prompt,
         ):
-            assert list(_edit(mock_manager)) == []
+            _edit(mock_manager)
 
         prompt.assert_not_called()
         assert mock_manager.edit.call_args.args[0][0].content == "after"
@@ -844,23 +844,34 @@ class TestEditRecovery:
         with pytest.raises(ValueError, match="must be an array"):
             toml_to_msgs('[messages]\nrole = "user"')
 
-    def test_abort_preserves_persisted_conversation(self, tmp_path):
-        from gptme.commands.session import _edit
+    @pytest.mark.parametrize("response", ["n", EOFError(), KeyboardInterrupt()])
+    def test_abort_preserves_persisted_conversation(self, tmp_path, capsys, response):
+        from gptme.chat import _should_prompt_for_input
         from gptme.logmanager import LogManager
 
-        manager = LogManager(
-            [Message("user", "persisted conversation")],
-            logdir=tmp_path / "conversation",
-            lock=False,
-        )
+        original = [
+            Message("user", "persisted conversation"),
+            Message("assistant", "completed reply"),
+        ]
+        manager = LogManager(original, logdir=tmp_path / "conversation", lock=False)
         manager.write()
         before = manager.logfile.read_bytes()
+        assert _should_prompt_for_input(manager.log)
+        # The CLI appends a user command before dispatch; /edit auto-undoes it.
+        cmd = Message("user", "/edit")
+        manager.append(cmd)
         with (
             patch("gptme.util.useredit.edit_text_with_editor", return_value="role = ["),
-            patch("gptme.util.prompt.prompt_alert", return_value="n"),
+            patch("gptme.util.prompt.prompt_alert") as prompt,
         ):
-            result = list(_edit(manager))
+            if isinstance(response, BaseException):
+                prompt.side_effect = response
+            else:
+                prompt.return_value = response
+            assert execute_cmd(cmd, manager)
 
-        assert "discarded" in result[0].content.lower()
+        assert _should_prompt_for_input(manager.log)
+        assert manager.log.messages == original
+        manager.write()
         assert manager.logfile.read_bytes() == before
-        assert manager.log.messages[0].content == "persisted conversation"
+        assert "Edit discarded; conversation unchanged." in capsys.readouterr().out
