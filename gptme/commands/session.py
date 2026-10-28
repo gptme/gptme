@@ -4,7 +4,6 @@ Session management commands: log, undo, edit, rename, fork, delete, exit, restar
 
 import sys
 from collections.abc import Generator
-from time import sleep
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -279,26 +278,37 @@ def _edit(
     manager: "LogManager",
 ) -> Generator["Message", None, None]:  # pragma: no cover
     """Edit messages in editor."""
-    from ..constants import INTERRUPT_CONTENT  # fmt: skip
-    from ..message import Message, msgs_to_toml, toml_to_msgs  # fmt: skip
-    from ..util.useredit import edit_text_with_editor  # fmt: skip
+    from ..message import Message, msgs_to_toml  # fmt: skip
 
     # generate editable toml of all messages
-    t = msgs_to_toml(reversed(manager.log))
-    res = None
-    while not res:
-        t = edit_text_with_editor(t, "toml")
-        try:
-            res = toml_to_msgs(t)
-        except Exception as e:
-            print(f"\nFailed to parse TOML: {e}")
-            try:
-                sleep(1)
-            except KeyboardInterrupt:
-                yield Message("system", INTERRUPT_CONTENT)
-                return
+    res = _edit_until_valid(msgs_to_toml(reversed(manager.log)))
+    if res is None:
+        yield Message("system", "Edit discarded; conversation unchanged.")
+        return
     manager.edit(list(reversed(res)))
     print("Applied edited messages, write /log to see the result")
+
+
+def _edit_until_valid(text: str) -> list["Message"] | None:
+    """Edit TOML until it parses, or discard the edit on cancellation."""
+    from ..message import toml_to_msgs
+    from ..util.prompt import prompt_alert
+    from ..util.useredit import edit_text_with_editor
+
+    while True:
+        try:
+            text = edit_text_with_editor(text, "toml")
+        except (KeyboardInterrupt, EOFError):
+            return None
+        try:
+            return toml_to_msgs(text)
+        except Exception as e:
+            print(f"\nFailed to parse TOML: {e}")
+        try:
+            if prompt_alert("Retry edit? [Y/n]") not in ("", "y", "yes"):
+                return None
+        except (KeyboardInterrupt, EOFError):
+            return None
 
 
 def _rename(manager: "LogManager", new_name: str) -> None:

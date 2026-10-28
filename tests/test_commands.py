@@ -746,3 +746,121 @@ class TestBuiltinCommands:
 
         captured = capsys.readouterr()
         assert "checkpoint: permission denied" in captured.out
+
+
+class TestEditRecovery:
+    @pytest.mark.parametrize("response", ["n", EOFError(), KeyboardInterrupt()])
+    def test_parse_failure_can_be_discarded(self, mock_manager, capsys, response):
+        from gptme.commands.session import _edit
+
+        original = [Message("user", "Keep this conversation")]
+        mock_manager.log = original
+        with (
+            patch(
+                "gptme.util.useredit.edit_text_with_editor",
+                side_effect=["# deleted messages", RuntimeError("Editor reopened")],
+            ) as editor,
+            patch("gptme.util.prompt.prompt_alert") as prompt,
+        ):
+            if isinstance(response, BaseException):
+                prompt.side_effect = response
+            else:
+                prompt.return_value = response
+            result = list(_edit(mock_manager))
+
+        editor.assert_called_once()
+        prompt.assert_called_once_with("Retry edit? [Y/n]")
+        mock_manager.edit.assert_not_called()
+        assert mock_manager.log == original
+        assert len(result) == 1
+        assert "discarded" in result[0].content.lower()
+        assert "TOML document has no [[messages]] table" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("invalid", ["", "# no messages", "title = 'example'"])
+    def test_missing_messages_table_has_reason(self, invalid):
+        from gptme.message import toml_to_msgs
+
+        with pytest.raises(ValueError, match=r"no \[\[messages\]\] table"):
+            toml_to_msgs(invalid)
+
+    @pytest.mark.parametrize("retry", ["", "y", "yes"])
+    def test_retry_keeps_invalid_text_and_applies_fixed_messages(
+        self, mock_manager, retry
+    ):
+        from gptme.commands.session import _edit
+        from gptme.message import msgs_to_toml
+
+        original = [Message("user", "first"), Message("assistant", "second")]
+        edited = [Message("user", "changed"), Message("assistant", "fixed")]
+        mock_manager.log = original
+        invalid = "role = ["
+        valid = msgs_to_toml(reversed(edited))
+        with (
+            patch(
+                "gptme.util.useredit.edit_text_with_editor",
+                side_effect=[invalid, valid],
+            ) as editor,
+            patch("gptme.util.prompt.prompt_alert", return_value=retry) as prompt,
+        ):
+            assert list(_edit(mock_manager)) == []
+
+        assert editor.call_count == 2
+        assert editor.call_args_list[1].args == (invalid, "toml")
+        prompt.assert_called_once_with("Retry edit? [Y/n]")
+        applied = mock_manager.edit.call_args.args[0]
+        assert [(m.role, m.content) for m in applied] == [
+            (m.role, m.content) for m in edited
+        ]
+
+    def test_valid_edit_needs_no_retry_prompt(self, mock_manager):
+        from gptme.commands.session import _edit
+        from gptme.message import msgs_to_toml
+
+        mock_manager.log = [Message("user", "before")]
+        valid = msgs_to_toml([Message("user", "after")])
+        with (
+            patch("gptme.util.useredit.edit_text_with_editor", return_value=valid),
+            patch("gptme.util.prompt.prompt_alert") as prompt,
+        ):
+            assert list(_edit(mock_manager)) == []
+
+        prompt.assert_not_called()
+        assert mock_manager.edit.call_args.args[0][0].content == "after"
+
+    @pytest.mark.parametrize("interrupt", [EOFError, KeyboardInterrupt])
+    def test_editor_cancellation_returns_without_applying(self, interrupt):
+        from gptme.commands.session import _edit_until_valid
+
+        with (
+            patch("gptme.util.useredit.edit_text_with_editor", side_effect=interrupt),
+            patch("gptme.util.prompt.prompt_alert") as prompt,
+        ):
+            assert _edit_until_valid("# original") is None
+        prompt.assert_not_called()
+
+    def test_wrong_messages_shape_has_reason(self):
+        from gptme.message import toml_to_msgs
+
+        with pytest.raises(ValueError, match="must be an array"):
+            toml_to_msgs('[messages]\nrole = "user"')
+
+    def test_abort_preserves_persisted_conversation(self, tmp_path):
+        from gptme.commands.session import _edit
+        from gptme.logmanager import LogManager
+
+        manager = LogManager(
+            [Message("user", "persisted conversation")],
+            logdir=tmp_path / "conversation",
+            lock=False,
+        )
+        manager.write()
+        before = manager.logfile.read_bytes()
+        with (
+            patch("gptme.util.useredit.edit_text_with_editor", return_value="role = ["),
+            patch("gptme.util.prompt.prompt_alert", return_value="n"),
+        ):
+            result = list(_edit(manager))
+
+        assert "discarded" in result[0].content.lower()
+        assert manager.logfile.read_bytes() == before
+        assert manager.log.messages[0].content == "persisted conversation"
