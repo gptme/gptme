@@ -122,6 +122,19 @@ def get_git_root(path: Path | None = None) -> Path | None:
     return None
 
 
+def _worktree_branch_marker(worktree_path: Path) -> Path:
+    """Locate gptme's ownership marker in the worktree's Git admin directory."""
+    result = subprocess.run(
+        [GIT_CMD, "rev-parse", "--absolute-git-dir"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    return Path(result.stdout.strip()) / "gptme-created-branch"
+
+
 def create_worktree(
     repo_path: Path,
     branch_name: str | None = None,
@@ -160,6 +173,11 @@ def create_worktree(
         timeout=30,
     )
 
+    try:
+        _worktree_branch_marker(worktree_path).write_text(branch_name, encoding="utf-8")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        logger.warning(f"Could not record worktree branch ownership: {e}")
+
     logger.info(f"Created git worktree at {worktree_path} (branch: {branch_name})")
     return worktree_path
 
@@ -172,7 +190,7 @@ def cleanup_worktree(
     """Clean up a git worktree and its associated branch.
 
     Attempts git worktree remove first, falls back to directory removal.
-    Always attempts to delete the branch named after the worktree directory,
+    Attempts to delete the branch recorded when gptme created the worktree,
     since ``git worktree remove`` only removes the working tree, not the branch.
 
     Args:
@@ -191,8 +209,18 @@ def cleanup_worktree(
         logger.debug(f"Worktree already removed: {worktree_path}")
         return None
 
-    # Branch name matches the last path component (as created by create_worktree)
-    branch_name = worktree_path.name
+    # Read ownership before removing the worktree. Neither the directory
+    # basename nor the current HEAD identifies the branch gptme created.
+    branch_name: str | None = None
+    try:
+        branch_name = (
+            _worktree_branch_marker(worktree_path).read_text(encoding="utf-8").strip()
+            or None
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        logger.debug(
+            f"Worktree branch ownership unavailable; leaving branch refs alone: {e}"
+        )
 
     # Try to find repo_path if not given
     if repo_path is None:
@@ -201,7 +229,7 @@ def cleanup_worktree(
     # Smart cleanup: preserve the branch when the worktree has local changes.
     # The working-tree directory is always removed; only the branch ref is kept.
     preserved_branch: str | None = None
-    if keep_branch_if_changed and has_changes(worktree_path):
+    if branch_name and keep_branch_if_changed and has_changes(worktree_path):
         preserved_branch = branch_name
         logger.info(
             f"Worktree {worktree_path} has changes — preserving branch {branch_name!r} "
@@ -235,23 +263,25 @@ def cleanup_worktree(
 
         # Delete the branch that was created for this worktree.
         # git worktree remove only removes the working tree, not the branch.
-        try:
-            result = subprocess.run(
-                [GIT_CMD, "branch", "-D", branch_name],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                logger.info(f"Deleted worktree branch: {branch_name}")
-            else:
-                logger.debug(
-                    f"Could not delete branch {branch_name!r}: {result.stderr.strip()}"
+        # Without ownership metadata, leave legacy or external branch refs alone.
+        if branch_name is not None:
+            try:
+                result = subprocess.run(
+                    [GIT_CMD, "branch", "-D", "--", branch_name],
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
                 )
-        except (subprocess.TimeoutExpired, OSError) as e:
-            logger.debug(f"Branch deletion skipped for {branch_name!r}: {e}")
+                if result.returncode == 0:
+                    logger.info(f"Deleted worktree branch: {branch_name}")
+                else:
+                    logger.debug(
+                        f"Could not delete branch {branch_name!r}: {result.stderr.strip()}"
+                    )
+            except (subprocess.TimeoutExpired, OSError) as e:
+                logger.debug(f"Branch deletion skipped for {branch_name!r}: {e}")
 
         # Prune stale worktree entries
         try:
