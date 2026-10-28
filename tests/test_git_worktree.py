@@ -164,6 +164,93 @@ def test_cleanup_nonexistent_worktree(tmp_path: Path):
     cleanup_worktree(fake_path)
 
 
+def test_cleanup_worktree_slash_branch(git_repo: Path, tmp_path: Path) -> None:
+    """Cleanup must not delete an unrelated branch matching the directory name."""
+    subprocess.run(
+        ["git", "branch", "task"], cwd=git_repo, capture_output=True, check=True
+    )
+    wt = create_worktree(
+        git_repo, branch_name="feature/task", worktree_base=tmp_path / "worktrees"
+    )
+
+    cleanup_worktree(wt, git_repo)
+
+    assert not wt.exists()
+    branches = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert "task" in branches, "Unrelated branch must survive cleanup"
+    assert "feature/task" not in branches, "Worktree branch should be removed"
+
+
+def test_cleanup_preserves_full_branch_name(git_repo: Path, tmp_path: Path) -> None:
+    """Smart cleanup returns the full name of a preserved worktree branch."""
+    wt = create_worktree(
+        git_repo, branch_name="feature/task", worktree_base=tmp_path / "worktrees"
+    )
+    (wt / "README.md").write_text("changed\n")
+
+    preserved = cleanup_worktree(wt, git_repo, keep_branch_if_changed=True)
+
+    assert preserved == "feature/task"
+    assert not wt.exists()
+
+
+def test_cleanup_does_not_delete_switched_branch(
+    git_repo: Path, tmp_path: Path
+) -> None:
+    """Switching HEAD must not transfer branch ownership to gptme."""
+    subprocess.run(
+        ["git", "branch", "user-saved"], cwd=git_repo, capture_output=True, check=True
+    )
+    wt = create_worktree(
+        git_repo, branch_name="subagent-owned", worktree_base=tmp_path / "worktrees"
+    )
+    subprocess.run(
+        ["git", "checkout", "user-saved"], cwd=wt, capture_output=True, check=True
+    )
+
+    cleanup_worktree(wt, git_repo)
+
+    branches = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert "user-saved" in branches
+    assert "subagent-owned" not in branches
+
+
+def test_cleanup_without_ownership_retains_branch(
+    git_repo: Path, tmp_path: Path
+) -> None:
+    """Legacy and external worktrees must not have their branch names guessed."""
+    wt = tmp_path / "external"
+    subprocess.run(
+        ["git", "worktree", "add", str(wt), "-b", "external"],
+        cwd=git_repo,
+        capture_output=True,
+        check=True,
+    )
+
+    cleanup_worktree(wt, git_repo)
+
+    assert not wt.exists()
+    result = subprocess.run(
+        ["git", "show-ref", "--verify", "refs/heads/external"],
+        cwd=git_repo,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+
+
 def test_worktree_isolation(git_repo: Path, tmp_path: Path):
     """Test that changes in worktree don't affect main repo."""
     worktree_base = tmp_path / "worktrees"
