@@ -2652,6 +2652,40 @@ async def test_long_one_line_system_message_collapses(
         assert manager.log[0].content == content
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("width", [32, 100])
+@pytest.mark.parametrize("multiline", [False, True])
+async def test_new_system_messages_inherit_display_outputs(
+    tmp_path: Path, long_single_line_json: str, width: int, multiline: bool
+) -> None:
+    """Outputs arriving after a toggle must inherit its current setting."""
+    content = (
+        "```stdout\nfirst line\nsecond line\n```"
+        if multiline
+        else long_single_line_json
+    )
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    async with app.run_test(size=(width, 30)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#input", ChatInput)
+        for expanded in (True, False):
+            inp.text = f"/display outputs {'on' if expanded else 'off'}"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._outputs_expanded is expanded
+
+            msg = Message("system", content)
+            app._on_step_message(msg)
+            await app.wait_rendered()
+            await pilot.pause()
+            widget = list(app.query(SystemMessage))[-1]
+            assert widget.query_one(Collapsible).collapsed is not expanded
+            assert widget.query_one(ChatMarkdown)._markdown == content
+            assert msg.content == content
+            # Existing outputs must continue following the same toggle.
+            assert all(c.collapsed is not expanded for c in app.query(Collapsible))
+
+
 @pytest.mark.parametrize("width", [32, 100])
 @pytest.mark.parametrize("expanded", [False, True])
 def test_renderables_long_one_line_system_message(
