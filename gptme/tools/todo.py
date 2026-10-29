@@ -14,6 +14,7 @@ Key principles:
 """
 
 import logging
+import re
 import shlex
 from collections import Counter
 from collections.abc import Generator
@@ -239,9 +240,35 @@ def _restore_todos(
             )
             is not None
         )
+        # An inline XML example must not override actual markdown/native calls.
+        # Ignore apparent calls inside XML bodies: those can themselves contain
+        # fenced examples (e.g. a shell heredoc), not independent invocations.
+        xml_ranges = [
+            match.span()
+            for match in re.finditer(
+                r"<(tool-use|function_calls)>.*?</\1>", xml_content, re.DOTALL
+            )
+        ]
+        line_offsets = [0]
+        for line in msg.content.splitlines(keepends=True):
+            line_offsets.append(line_offsets[-1] + len(line))
+        has_non_xml_call = any(
+            call.start is not None
+            and not any(
+                start
+                <= (
+                    line_offsets[call.start]
+                    if call._format == "markdown"
+                    else call.start
+                )
+                < end
+                for start, end in xml_ranges
+            )
+            for call in native_calls
+        )
         calls = (
             list(ToolUse.iter_from_content(msg.content, tool_format_override="xml"))
-            if xml
+            if xml and not has_non_xml_call
             else native_calls
         )
         for tooluse in calls:

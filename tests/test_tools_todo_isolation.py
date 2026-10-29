@@ -734,6 +734,56 @@ def test_restore_ignores_ordinary_xml_mentions(
     assert "Summary: 1 total" in _todoread()
 
 
+@pytest.mark.parametrize("tool_format", ["markdown", "tool"])
+@pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
+@pytest.mark.parametrize("lxml", [False, True])
+@pytest.mark.parametrize("pending", [False, True])
+def test_restore_prefers_executed_calls_over_inline_xml_example(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_format: Literal["markdown", "tool"],
+    wrapper: str,
+    lxml: bool,
+    pending: bool,
+) -> None:
+    from gptme.tools import base
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    if lxml and not base._LXML_AVAILABLE:
+        pytest.skip("lxml is not installed")
+    monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml)
+    base.set_tool_format(tool_format)
+    example = (
+        '<todo args="write">clear</todo>'
+        if wrapper == "tool-use"
+        else '<invoke name="todo" args="write">clear</invoke>'
+    )
+    operation = (
+        "```todo write\nadd Real\n```"
+        if tool_format == "markdown"
+        else '@todo(real): {"command": "write add Real"}'
+    )
+    content = f"For example, `<{wrapper}>{example}</{wrapper}>`.\n{operation}"
+    calls = list(base.ToolUse.iter_from_content(content))
+    assert len(calls) == 1
+    manager = start(
+        tmp_path / "inline-example",
+        [
+            Message("assistant", "```todo write\nadd Saved\n```"),
+            Message("assistant", content),
+        ],
+    )
+    list(clear_todo_state(manager))
+    if pending:
+        call = list(base.ToolUse.iter_from_content(manager.log.messages[-1].content))[0]
+        list(call.execute(log=manager.log))
+    else:
+        list(ensure_todo_state(manager))
+    assert "1. 🔲 Saved" in _todoread()
+    assert "2. 🔲 Real" in _todoread()
+    assert "Summary: 2 total" in _todoread()
+
+
 @pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
 @pytest.mark.parametrize("lxml", [False, True])
 @pytest.mark.parametrize("pending", [False, True])
