@@ -420,6 +420,7 @@ def notify_progress(
     message: str,
     *,
     parent_logdir: Path | None = None,
+    parent_branch: str | None = None,
 ) -> None:
     """Queue progress for delivery to its owning parent conversation."""
     parent_logdir = _notification_parent(agent_id, parent_logdir=parent_logdir)
@@ -433,7 +434,7 @@ def notify_progress(
                 parent_logdir,
                 agent_id,
                 message,
-                _notification_branch(agent_id, parent_logdir),
+                _notification_branch(agent_id, parent_logdir, parent_branch),
             )
         )
     from ...util.notification_ready import signal
