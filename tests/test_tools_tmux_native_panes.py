@@ -5,6 +5,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,9 +14,15 @@ from gptme.tools import tmux
 
 
 @pytest.fixture
-def panes(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
+def panes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, str]]:
     if not shutil.which("tmux"):
         pytest.skip("tmux not installed")
+    # Developer configuration must not change the fixture's zero-based targets.
+    (tmp_path / ".tmux.conf").write_text(
+        "set -g base-index 1\nset -g pane-base-index 1\n"
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
     socket = f"gptme-panes-{uuid.uuid4().hex}"
     run = subprocess.run
 
@@ -23,7 +30,7 @@ def panes(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
         cmd: list[str], *args: Any, **kwargs: Any
     ) -> subprocess.CompletedProcess:
         if cmd[0] == "tmux":
-            cmd = ["tmux", "-L", socket, *cmd[1:]]
+            cmd = ["tmux", "-L", socket, "-f", "/dev/null", *cmd[1:]]
         return run(cmd, *args, **kwargs)
 
     monkeypatch.setattr(tmux.subprocess, "run", isolated_run)
