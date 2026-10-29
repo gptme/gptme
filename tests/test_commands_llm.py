@@ -7,6 +7,7 @@ import pytest
 from gptme.commands.base import CommandContext
 from gptme.commands.llm import cmd_context, cmd_model, cmd_tools
 from gptme.message import Message
+from gptme.tools import ToolFormat
 from gptme.util.context_savings import record_context_savings
 
 
@@ -21,22 +22,41 @@ def _make_manager(logdir: Path) -> MagicMock:
     return manager
 
 
-def test_cmd_model_appends_replacement_prompt_and_persists_generation(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("current_tool_format", "model_tool_format"),
+    [
+        ("tool", "tool"),
+        ("markdown", "markdown"),
+        ("markdown", "tool"),
+        ("tool", "markdown"),
+        ("tool", None),
+        ("markdown", None),
+    ],
+)
+def test_cmd_model_appends_replacement_prompt_and_persists_generation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    current_tool_format: ToolFormat,
+    model_tool_format: ToolFormat | None,
+) -> None:
     manager = _make_manager(tmp_path)
-    ctx = CommandContext(args=["new-model"], full_args="new-model", manager=manager)
+    new_model = "openai-subscription/gpt-6.1-sol:xhigh"
+    ctx = CommandContext(args=[new_model], full_args=new_model, manager=manager)
     replacement = Message(
         "system",
         "replacement",
         metadata={"prompt_generation": "replacement-id"},
     )
-    model_meta = MagicMock(full="provider/new-model", default_tool_format="tool")
+    model_meta = MagicMock(full=new_model, default_tool_format=model_tool_format)
+    expected_tool_format = model_tool_format or current_tool_format
 
     with (
         patch("gptme.config.ChatConfig.from_logdir") as from_logdir,
         patch("gptme.llm.models.set_default_model"),
         patch("gptme.llm.models.get_default_model", return_value=model_meta),
         patch("gptme.commands.llm._replacement_prompt", return_value=[replacement]),
-        patch("gptme.tools.base.set_tool_format"),
+        patch("gptme.tools.base.get_tool_format", return_value=current_tool_format),
+        patch("gptme.tools.base.set_tool_format") as set_tool_format,
     ):
         chat_config = from_logdir.return_value
         chat_config.interactive = True
@@ -46,9 +66,14 @@ def test_cmd_model_appends_replacement_prompt_and_persists_generation(tmp_path: 
         yielded = list(cmd_model(ctx))
 
     assert yielded == [replacement]
-    assert chat_config.model == "new-model"
-    assert chat_config.tool_format == "tool"
+    assert chat_config.model == new_model
+    assert chat_config.tool_format == expected_tool_format
     chat_config.save.assert_called_once_with()
+    set_tool_format.assert_called_once_with(expected_tool_format)
+    expected_output = [f"Set model to {new_model}"]
+    if current_tool_format != expected_tool_format:
+        expected_output.append(f"Switched tool format to '{expected_tool_format}'")
+    assert capsys.readouterr().out.splitlines() == expected_output
 
 
 def test_cmd_tools_load_appends_replacement_prompt(tmp_path: Path):
