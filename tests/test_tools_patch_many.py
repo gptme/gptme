@@ -1122,3 +1122,93 @@ def test_cleanup_failure_does_not_hide_restore_failure(tmp_path, monkeypatch):
     assert "original retained at" in messages[0].content
     assert "cleanup" in messages[0].content.lower()
     assert len(cleanup_attempts) == 3
+
+
+@pytest.mark.parametrize(
+    "publication_error_type", [KeyboardInterrupt, SystemExit, RuntimeError]
+)
+def test_publication_exception_reports_cleanup_failures(
+    tmp_path, monkeypatch, publication_error_type
+):
+    target = tmp_path / "target"
+    target.write_text("alpha")
+    replace, unlink = os.replace, Path.unlink
+    error = publication_error_type("publication interrupted")
+    failed = False
+    leftovers = []
+
+    def fail_replace(source, destination):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise error
+        return replace(source, destination)
+
+    def fail_cleanup(path, *args, **kwargs):
+        if path.exists():
+            leftovers.append(path)
+            raise PermissionError("cleanup denied")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_cleanup)
+    with pytest.raises(publication_error_type) as caught:
+        list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert caught.value is error
+    assert target.read_text() == "alpha"
+    notes = "\n".join(caught.value.__notes__)
+    assert "Original contents restored" in notes
+    assert "cleanup denied" in notes
+    assert len(leftovers) == 1
+    assert str(leftovers[0]) in notes
+
+
+@pytest.mark.parametrize("publication_error_type", [OSError, KeyboardInterrupt])
+def test_cleanup_interrupt_preserves_recovery_diagnostics(
+    tmp_path, monkeypatch, publication_error_type
+):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_text("alpha")
+    second.write_text("beta")
+    replace, unlink = os.replace, Path.unlink
+    error = publication_error_type("publication failed")
+    cleanup_interrupt = KeyboardInterrupt("cleanup interrupted")
+    failed = False
+    retained = []
+    cleanup_attempts = []
+
+    def fail_replace(source, destination):
+        nonlocal failed
+        if destination == second and not failed:
+            failed = True
+            raise error
+        if failed and destination == first:
+            retained.append(Path(source))
+            raise OSError("restoration failed")
+        return replace(source, destination)
+
+    def fail_cleanup(path, *args, **kwargs):
+        cleanup_attempts.append(path)
+        if len(cleanup_attempts) == 1:
+            raise cleanup_interrupt
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_cleanup)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        list(
+            execute_patch_many_impl(
+                [(first, Patch("alpha", "ALPHA")), (second, Patch("beta", "BETA"))]
+            )
+        )
+    expected = cleanup_interrupt if publication_error_type is OSError else error
+    assert caught.value is expected
+    notes = "\n".join(getattr(caught.value, "__notes__", []))
+    assert "Restoration incomplete" in notes
+    assert "cleanup interrupted" in notes
+    assert len(retained) == 1
+    assert str(retained[0]) in notes
+    assert retained[0].read_text() == "alpha"
+    assert first.read_text() == "ALPHA"
+    assert second.read_text() == "beta"
+    assert len(cleanup_attempts) == 3

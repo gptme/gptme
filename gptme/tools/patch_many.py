@@ -238,13 +238,16 @@ def _publish_patches(
     backups: dict[Path, Path] = {}
     retained: set[Path] = set()
     attempted: list[Path] = []
+    result: str | None = None
+    pending_error: BaseException | None = None
     try:
         try:
             for path in order:
                 backups[path] = _stage_patch_content(path, originals[path], modes[path])
                 staged[path] = _stage_patch_content(path, contents[path], modes[path])
         except OSError as error:
-            return f"Atomic patch failed: staging write error: {error}. No files were written."
+            result = f"Atomic patch failed: staging write error: {error}. No files were written."
+            return result
 
         try:
             for path in order:
@@ -279,13 +282,35 @@ def _publish_patches(
                 error.add_note(result)
                 raise
             return result
+    except BaseException as error:
+        pending_error = error
+        raise
     finally:
+        cleanup_interrupt: BaseException | None = None
         for temporary in [*staged.values(), *backups.values()]:
             if temporary not in retained:
                 try:
                     temporary.unlink(missing_ok=True)
-                except OSError as cleanup_error:
+                except BaseException as cleanup_error:
                     cleanup_errors.append(f"`{temporary}`: {cleanup_error}")
+                    if (
+                        not isinstance(cleanup_error, OSError)
+                        and cleanup_interrupt is None
+                    ):
+                        cleanup_interrupt = cleanup_error
+        # Exceptional exits bypass the caller's normal cleanup report. Keep
+        # their diagnostics on the original exception, even if cleanup is
+        # itself interrupted, and finish attempting the remaining removals.
+        escaping_error = pending_error or cleanup_interrupt
+        if escaping_error is not None:
+            if pending_error is None and result:
+                escaping_error.add_note(result)
+            if cleanup_errors:
+                escaping_error.add_note(
+                    "Temporary-file cleanup incomplete:\n" + "\n".join(cleanup_errors)
+                )
+            if pending_error is None:
+                raise escaping_error
     return None
 
 
