@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,6 +24,7 @@ from gptme.checkpoint import (
     restore_checkpoint,
 )
 from gptme.cli.checkpoint import main as checkpoint_main
+from gptme.commands.base import handle_cmd
 
 # --- Fixtures ---
 
@@ -41,8 +43,10 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def clean_repo(tmp_path):
+def clean_repo(tmp_path, monkeypatch):
     """Single-root git repo with one committed file, no dirty state."""
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2026-01-01T00:00:00+00:00")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00")
     repo = tmp_path / "clean-repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "test-branch")
@@ -205,6 +209,43 @@ def test_restore_at_same_head_is_noop(clean_repo):
     assert "Already at checkpoint" in msg
 
 
+@pytest.mark.parametrize("dirty_kind", ["unstaged", "staged", "untracked"])
+@pytest.mark.parametrize("include_dirty", [False, True])
+def test_restore_dirty_at_same_head(clean_repo, dirty_kind, include_dirty):
+    first, _ = create_checkpoint(clean_repo)
+    assert first is not None
+    if dirty_kind != "untracked":
+        (clean_repo / "README.md").write_text("changed\n")
+        if dirty_kind == "staged":
+            _git(clean_repo, "add", "README.md")
+    scratch = clean_repo / "scratch"
+    scratch.mkdir()
+    (scratch / "new.txt").write_text("scratch\n")
+    # Ignored data is outside git clean -fd's discard contract.
+    _git(clean_repo, "config", "core.excludesFile", str(clean_repo / ".git" / "ignore"))
+    (clean_repo / ".git" / "ignore").write_text("ignored.txt\n")
+    ignored = clean_repo / "ignored.txt"
+    ignored.write_text("keep\n")
+    before = _git(clean_repo, "status", "--porcelain")
+
+    if include_dirty:
+        msg = restore_checkpoint(clean_repo, "1", include_dirty=True)
+        assert "Restored to checkpoint" in msg
+        assert (clean_repo / "README.md").read_text() == "hello\n"
+        assert not scratch.exists()
+        assert _git(clean_repo, "status", "--porcelain") == ""
+    else:
+        with pytest.raises(CheckpointError, match="--include-dirty"):
+            restore_checkpoint(clean_repo, "1")
+        assert _git(clean_repo, "status", "--porcelain") == before
+        assert (scratch / "new.txt").read_text() == "scratch\n"
+        assert (clean_repo / "README.md").read_text() == (
+            "hello\n" if dirty_kind == "untracked" else "changed\n"
+        )
+    assert _git(clean_repo, "rev-parse", "HEAD") == first.head_sha
+    assert ignored.read_text() == "keep\n"
+
+
 def test_restore_dirty_refused_without_flag(clean_repo):
     create_checkpoint(clean_repo)
     (clean_repo / "added.txt").write_text("added\n")
@@ -310,6 +351,51 @@ def test_cli_restore_roundtrip(clean_repo):
     assert result.exit_code == 0, result.output
     assert "Restored" in result.output
     assert _git(clean_repo, "rev-parse", "HEAD") == first_head
+
+
+def test_cli_restore_dirty_at_same_head(clean_repo):
+    first, _ = create_checkpoint(clean_repo)
+    assert first is not None
+    (clean_repo / "README.md").write_text("changed\n")
+    scratch = clean_repo / "scratch.txt"
+    scratch.write_text("scratch\n")
+    sha_prefix = first.head_sha[:12]
+    # Decimal identifiers select checkpoint indices, not SHA prefixes.
+    assert not sha_prefix.isdigit()
+    result = CliRunner().invoke(
+        checkpoint_main,
+        ["restore", sha_prefix, str(clean_repo), "--include-dirty"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Restored to checkpoint" in result.output
+    assert (clean_repo / "README.md").read_text() == "hello\n"
+    assert not scratch.exists()
+    assert _git(clean_repo, "rev-parse", "HEAD") == first.head_sha
+
+
+@pytest.mark.parametrize("include_dirty", [False, True])
+def test_slash_restore_dirty_at_same_head(clean_repo, capsys, include_dirty):
+    first, _ = create_checkpoint(clean_repo)
+    assert first is not None
+    (clean_repo / "README.md").write_text("changed\n")
+    scratch = clean_repo / "scratch.txt"
+    scratch.write_text("scratch\n")
+    manager = MagicMock()
+    manager.workspace = str(clean_repo)
+    command = "/checkpoint restore 1" + (" --include-dirty" if include_dirty else "")
+
+    list(handle_cmd(command, manager))
+
+    output = capsys.readouterr().out
+    if include_dirty:
+        assert "Restored to checkpoint" in output
+        assert (clean_repo / "README.md").read_text() == "hello\n"
+        assert not scratch.exists()
+    else:
+        assert "not safe to restore" in output
+        assert (clean_repo / "README.md").read_text() == "changed\n"
+        assert scratch.read_text() == "scratch\n"
+    assert _git(clean_repo, "rev-parse", "HEAD") == first.head_sha
 
 
 def test_cli_list_empty_repo(clean_repo):
