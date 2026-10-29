@@ -231,32 +231,39 @@ def _publish_patches(
         except OSError as error:
             return f"Atomic patch failed: staging write error: {error}. No files were written."
 
-        for path in order:
-            # Include the failing target: a publication wrapper can mutate then
-            # raise. Restore from a fully prepared original, not another write.
-            attempted.append(path)
-            try:
+        try:
+            for path in order:
+                # Include the failing target: a publication wrapper can mutate then
+                # raise. Restore from a fully prepared original, not another write.
+                attempted.append(path)
                 os.replace(staged[path], path)
-            except OSError as error:
-                failures: list[str] = []
-                for target in reversed(attempted):
-                    try:
-                        os.replace(backups[target], target)
-                    except OSError as restore_error:
-                        retained.add(backups[target])
-                        failures.append(
-                            f"`{target}`: {restore_error}; original retained at `{backups[target]}`"
-                        )
-                if failures:
-                    return (
-                        f"Atomic patch failed: write error on `{path}`: {error}. "
-                        "Restoration incomplete; files may be modified:\n"
-                        + "\n".join(failures)
+        except BaseException as error:
+            # Protect originals even if rollback itself is interrupted. Only a
+            # successful restoration makes its recovery copy safe to clean up.
+            retained.update(backups[target] for target in attempted)
+            failures: list[str] = []
+            for target in reversed(attempted):
+                try:
+                    os.replace(backups[target], target)
+                    retained.discard(backups[target])
+                except BaseException as restore_error:
+                    failures.append(
+                        f"`{target}`: {restore_error}; original retained at `{backups[target]}`"
                     )
-                return (
-                    f"Atomic patch failed: write error on `{path}`: {error}. "
+            result = f"Atomic patch failed: write error on `{path}`: {error}. "
+            if failures:
+                result += (
+                    "Restoration incomplete; files may be modified:\n"
+                    + "\n".join(failures)
+                )
+            else:
+                result += (
                     f"Rolled back {len(attempted)} file(s). Original contents restored."
                 )
+            if not isinstance(error, OSError):
+                error.add_note(result)
+                raise
+            return result
     finally:
         for temporary in [*staged.values(), *backups.values()]:
             if temporary not in retained:

@@ -550,6 +550,80 @@ def test_atomic_write_failure_rollback(tmp_path, monkeypatch):
     assert f2.read_text() == "original b"
 
 
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, SystemExit, RuntimeError])
+@pytest.mark.parametrize("after_replace", [False, True])
+def test_publication_exception_restores_originals(
+    tmp_path, monkeypatch, error_type, after_replace
+):
+    first, second = tmp_path / "first.txt", tmp_path / "second.txt"
+    first.write_bytes(b"alpha\r\n")
+    second.write_bytes(b"beta\r\n")
+    original_replace = os.replace
+    error = error_type("publication interrupted")
+    failed = False
+
+    def interrupted_replace(source, destination):
+        nonlocal failed
+        if destination == second and not failed:
+            failed = True
+            if after_replace:
+                original_replace(source, destination)
+            raise error
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", interrupted_replace)
+    with pytest.raises(error_type) as caught:
+        list(
+            execute_patch_many_impl(
+                [(first, Patch("alpha", "ALPHA")), (second, Patch("beta", "BETA"))]
+            )
+        )
+    assert caught.value is error
+    assert first.read_bytes() == b"alpha\r\n"
+    assert second.read_bytes() == b"beta\r\n"
+    assert not list(tmp_path.glob(".patch-many-*"))
+
+
+@pytest.mark.parametrize("restore_error_type", [OSError, KeyboardInterrupt])
+def test_interrupted_rollback_retains_original_and_reports_path(
+    tmp_path, monkeypatch, restore_error_type
+):
+    first, second = tmp_path / "first.txt", tmp_path / "second.txt"
+    first.write_bytes(b"alpha\n")
+    second.write_bytes(b"beta\n")
+    original_replace = os.replace
+    error = KeyboardInterrupt("publication interrupted")
+    failed = False
+    retained = []
+
+    def interrupted_replace(source, destination):
+        nonlocal failed
+        if destination == second and not failed:
+            failed = True
+            raise error
+        if failed and destination == first:
+            retained.append(Path(source))
+            raise restore_error_type("restoration interrupted")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", interrupted_replace)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        list(
+            execute_patch_many_impl(
+                [(first, Patch("alpha", "ALPHA")), (second, Patch("beta", "BETA"))]
+            )
+        )
+    assert caught.value is error
+    assert first.read_bytes() == b"ALPHA\n"
+    assert second.read_bytes() == b"beta\n"
+    assert len(retained) == 1
+    assert retained[0].read_bytes() == b"alpha\n"
+    notes = "\n".join(caught.value.__notes__)
+    assert "Restoration incomplete" in notes
+    assert str(retained[0]) in notes
+    assert set(tmp_path.glob(".patch-many-*")) == set(retained)
+
+
 def test_simple_format_not_misrouted_when_content_contains_path_header(tmp_path):
     """Simple-format patch whose content contains '=== PATH: ' must not be misrouted."""
     f = tmp_path / "Makefile"
