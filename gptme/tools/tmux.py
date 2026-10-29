@@ -440,8 +440,18 @@ def execute_tmux(
     current = []
     in_quotes = False
     quote_char = None
+    escaped = False
 
     for char in cmd:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\" and quote_char != "'":
+            # Preserve escapes for send_keys' shlex parsing or new_session's shell.
+            current.append(char)
+            escaped = True
+            continue
         if char in ["'", '"']:
             if not in_quotes:
                 in_quotes = True
@@ -460,6 +470,12 @@ def execute_tmux(
                 current = []
         else:
             current.append(char)
+
+    if in_quotes or escaped:
+        yield Message(
+            "system", "Error: Unclosed quote or trailing escape in tmux command"
+        )
+        return
 
     if current:
         commands.append("".join(current).strip())
