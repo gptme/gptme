@@ -486,6 +486,17 @@ files.
    /backtrack <label|N>                # Rewind to checkpoint label or message index N
    /backtrack <label|N> --reason TEXT  # Rewind and inject a corrective context message
 
+Named markers verify the saved conversation prefix before rewinding. A marker
+from a divergent branch, edited history or different compacted view is refused;
+an inherited branch with identical prefix content can use it. Markers retain this
+identity after reload. Duplicate labels resolve to the most recent marker, even
+when an older one would match.
+
+Older markers without content identity cannot be verified. Re-mark the intended
+position, or deliberately use a numeric index to rewind the active log without a
+named-content check. A refused named rewind leaves messages unchanged and does
+not emit a successful backtrack summary.
+
 **Example**:
 
 .. code-block:: text

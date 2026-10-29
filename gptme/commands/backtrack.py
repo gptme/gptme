@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..message import Message
 
 from ..logmanager.conv_checkpoints import (
+    conversation_prefix_hash,
     list_conv_checkpoints,
     resolve_conv_checkpoint,
     save_conv_checkpoint,
@@ -94,7 +95,12 @@ def cmd_backtrack(ctx: CommandContext) -> Generator[Message, None, None]:
                 f"Warning: checkpoint '{label}' already exists at index {prev.index}; "
                 f"creating a new one at index {index}."
             )
-        record = save_conv_checkpoint(ctx.manager.logdir, index, label)
+        record = save_conv_checkpoint(
+            ctx.manager.logdir,
+            index,
+            label,
+            prefix_hash=conversation_prefix_hash(ctx.manager.log.messages),
+        )
         print(f"Checkpoint '{record.label}' saved at message index {record.index}.")
         return
 
@@ -149,6 +155,21 @@ def cmd_backtrack(ctx: CommandContext) -> Generator[Message, None, None]:
             f"conversation length ({current_len} messages)"
         )
         return
+    is_numeric_target = target.lstrip("-").isdigit()
+    if not is_numeric_target:
+        if not record.prefix_hash:
+            print(
+                f"backtrack: checkpoint '{record.label}' has no content identity; "
+                "re-mark it on the intended conversation or use an explicit numeric index."
+            )
+            return
+        prefix = ctx.manager.log.messages[:rewind_to]
+        if conversation_prefix_hash(prefix) != record.prefix_hash:
+            print(
+                f"backtrack: checkpoint '{record.label}' does not match the active "
+                "conversation prefix; switch to the original branch/view or re-mark it."
+            )
+            return
     if rewind_to == current_len:
         print(f"backtrack: already at message index {current_len} — nothing to rewind.")
         return
@@ -166,7 +187,7 @@ def cmd_backtrack(ctx: CommandContext) -> Generator[Message, None, None]:
 
     summary_parts = [
         f"[Backtracked {removed} message(s) to index {rewind_to}",
-        f" (checkpoint: '{record.label}')" if not record.label.startswith("@") else "",
+        f" (checkpoint: '{record.label}')" if not is_numeric_target else "",
         "]",
     ]
     if reason:
