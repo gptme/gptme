@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -413,7 +414,9 @@ class Subagent:
         # stays held until interpreter exit (atexit keeps the manager alive),
         # so a resumed subprocess child would see the parent's live PID and
         # refuse to start.
-        return LogManager.load(self.logdir, lock=False)
+        # Loading publishes a current manager for tools. Inspect the child in
+        # a copied context so neither success nor failure replaces the parent's.
+        return copy_context().run(LogManager.load, self.logdir, lock=False)
 
     def _read_token_stats(self) -> tuple[int | None, int | None]:
         """Return (input_tokens, output_tokens) from the subagent's conversation log.
