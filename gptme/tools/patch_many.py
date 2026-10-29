@@ -134,7 +134,7 @@ def _parse_patches_from_kwargs(kwargs: Mapping[str, object]) -> list[tuple[Path,
 
 _CONFIRM_HEADER = "=== PATH: "
 _CONFIRM_HEADER_RE = re.compile(
-    rf"(?m)^{re.escape(_CONFIRM_HEADER)}(?P<path>[^\n]+) ===$"
+    rf"(?s)^{re.escape(_CONFIRM_HEADER)}(?P<path>.+?) ===(?=\n|\Z)"
 )
 
 
@@ -162,7 +162,8 @@ def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
     sections: list[tuple[Path, list[str]]] = []
     end_marker: str | None = None
     first_original_line = False
-    for line in content.strip().split("\n"):
+    lines = iter(content.strip().split("\n"))
+    for line in lines:
         if end_marker is not None:
             sections[-1][1].append(line)
             # DIVIDER includes a leading newline within ORIGINAL's content.
@@ -170,7 +171,20 @@ def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
             if line == end_marker and not first_original_line:
                 end_marker = UPDATED.strip() if end_marker == DIVIDER.strip() else None
             first_original_line = False
-        elif match := _CONFIRM_HEADER_RE.fullmatch(line):
+        elif line.startswith(_CONFIRM_HEADER):
+            # POSIX paths can contain newlines; consume their whole header only
+            # outside hunks, where header-looking content remains literal.
+            header = [line]
+            while not header[-1].endswith(" ==="):
+                try:
+                    header.append(next(lines))
+                except StopIteration as err:
+                    raise ValueError(
+                        "Invalid patch_many payload: incomplete path header"
+                    ) from err
+            match = _CONFIRM_HEADER_RE.fullmatch("\n".join(header))
+            if match is None:
+                raise ValueError("Invalid patch_many payload: empty path header")
             sections.append((_resolve_path(match.group("path")), []))
         elif sections and line == ORIGINAL.strip():
             sections[-1][1].append(line)

@@ -261,3 +261,33 @@ def test_empty_patch_content_round_trip(
     messages = _execute([(target, patch)], form)
 
     assert target.read_bytes() == expected, messages
+
+
+@pytest.mark.parametrize("form", ["kwargs", "sections"])
+@pytest.mark.parametrize("repeat_path", [False, True])
+def test_newline_filename_survives_confirmation(
+    tmp_path: Path,
+    decisions: Callable[[list[ConfirmationResult]], list[str]],
+    form: str,
+    repeat_path: bool,
+) -> None:
+    target = tmp_path / "first\nsecond.txt"
+    other = tmp_path / "other.txt"
+    decoys = [tmp_path / "first", tmp_path / "second.txt"]
+    target.write_text("old\n")
+    other.write_text("other\n")
+    for decoy in decoys:
+        decoy.write_text("untouched\n")
+    entries = [(target, _patch("old", "new")), (other, _patch("other", "OTHER"))]
+    if repeat_path:
+        entries.reverse()
+        entries.append((target, _patch("new", "final")))
+    previews = decisions([ConfirmationResult.confirm()])
+
+    messages = _execute(entries, form)
+
+    assert target.read_text() == ("final\n" if repeat_path else "new\n"), messages
+    assert other.read_text() == "OTHER\n", messages
+    assert all(decoy.read_text() == "untouched\n" for decoy in decoys)
+    assert len(previews) == 1
+    assert f"=== PATH: {target} ===" in previews[0]
