@@ -283,6 +283,7 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             for line in lines:
                 offsets.append(offsets[-1] + len(line) + 1)
             recovered: dict[int, int] = {}
+            prefix_start = 0
             for i, line in enumerate(lines):
                 if not re.fullmatch(r"`{3,}[ \t]*", line):
                     continue
@@ -292,17 +293,29 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                 prefix = re.sub(
                     r"</?(?:think|thinking)>",
                     lambda m: " " * len(m.group()),
-                    "\n".join(lines[: i + 1]),
+                    "\n".join(lines[prefix_start : i + 1]),
                 )
+                next_prefix_start = prefix_start
                 for block in Codeblock.iter_from_markdown(prefix):
                     if block.start is not None:
                         body_lines = (
                             block.content.count("\n") + 1 if block.content else 0
                         )
-                        close_line = block.start + body_lines + 1
-                        start = offsets[block.start]
+                        start_line = prefix_start + block.start
+                        close_line = start_line + body_lines + 1
+                        start = offsets[start_line]
                         end = min(offsets[close_line + 1], len(text))
                         recovered[start] = max(recovered.get(start, end), end)
+                        # Executable blocks close unambiguously outside their
+                        # heredocs/strings. Later prose cannot extend them, so
+                        # do not replay them at every subsequent closing fence.
+                        if (
+                            block.lang in {"shell", "ipython"}
+                            and "<<" not in block.content
+                            and not any(quote in block.content for quote in ("'", '"'))
+                        ):
+                            next_prefix_start = close_line + 1
+                prefix_start = next_prefix_start
             # A recovered block owns its literal fences, including apparent
             # openers whose basic range extends beyond the real closing fence.
             # Rescan the suffix instead of merging those false overlapping

@@ -458,6 +458,29 @@ def test_extract_tool_call_counts_empty_fence(lang: str, suffix: str) -> None:
     )
 
 
+def test_extract_tool_call_counts_fence_scan_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gptme.codeblock import Codeblock
+
+    original = Codeblock.iter_from_markdown
+    scanned_chars = 0
+
+    def measured(markdown: str, streaming: bool = False) -> list[Codeblock]:
+        nonlocal scanned_chars
+        scanned_chars += len(markdown)
+        return original(markdown, streaming=streaming)
+
+    monkeypatch.setattr(Codeblock, "iter_from_markdown", measured)
+    content = "```shell\necho hi\n```\n" * 100
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "shell": 100
+    }
+    # Bound work, not wall-clock time: completed blocks must not be reparsed
+    # at every later closer. Allow the ownership and format parsing passes.
+    assert scanned_chars <= 10 * len(content)
+
+
 def test_extract_tool_call_counts_unterminated_xml_is_bounded() -> None:
     # A subprocess deadline makes exponential regex backtracking fail safely,
     # rather than hanging the test runner on this malformed persisted message.
