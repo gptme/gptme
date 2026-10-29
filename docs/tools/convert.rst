@@ -6,7 +6,9 @@ Convert
 The ``convert`` tool reformats files offline using system converters, falling
 back gracefully when a specific one is unavailable. Choose the destination
 format by the ``output_path`` extension (``.png``, ``.jpg``, ``.txt``, ``.md``),
-and pass ``dry_run`` to see the converter plan without executing. It has no
+and pass ``dry_run`` to see the converter plan without executing. Image-to-image
+output paths are literal filenames: ``asset%03d.jpg`` writes that exact name,
+not a numbered image sequence. It has no
 markdown-fence block type, so ask for it in natural language and let the model
 call it with structured arguments:
 
