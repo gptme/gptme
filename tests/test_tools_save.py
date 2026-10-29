@@ -187,6 +187,44 @@ def test_empty_save_through_tool_use(tmp_path: Path, native: bool) -> None:
     assert path.read_bytes() == b""
 
 
+@pytest.mark.parametrize("original", [None, b"original\n"])
+def test_empty_save_markdown_parsing(tmp_path: Path, original: bytes | None) -> None:
+    path = tmp_path / "parsed.txt"
+    if original is not None:
+        path.write_bytes(original)
+    calls = list(
+        ToolUse.iter_from_content(
+            f"```save {path}\n\n```", tool_format_override="markdown"
+        )
+    )
+    assert len(calls) == 1
+    assert calls[0].content == ""
+
+    messages = list(calls[0].execute())
+
+    assert any("Saved to" in message.content for message in messages)
+    assert path.read_bytes() == b""
+
+
+def test_empty_save_edited_replacement_can_be_declined(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "declined-edit.txt"
+    path.write_bytes(b"original\n")
+    results = iter(
+        [
+            ConfirmationResult.edit("replacement"),
+            ConfirmationResult.skip("declined edit"),
+        ]
+    )
+    monkeypatch.setattr("gptme.hooks.get_confirmation", lambda **_: next(results))
+
+    messages = list(execute_save(None, None, {"path": str(path), "content": ""}))
+
+    assert [m.content for m in messages] == ["declined edit"]
+    assert path.read_bytes() == b"original\n"
+
+
 @pytest.mark.parametrize("edited", ["replacement", ""])
 def test_empty_save_confirmation_edits(
     tmp_path: Path, monkeypatch, edited: str
