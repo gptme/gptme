@@ -651,6 +651,14 @@ def init(provider: Provider, config: Config):
             base_url=proxy_url or "https://openrouter.ai/api/v1",
             timeout=timeout,
         )
+    elif provider == "opencode-go":
+        api_key = _get_provider_api_key(config, provider, "OPENCODE_API_KEY")
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url="https://opencode.ai/inference/go/openai/v1",
+            timeout=timeout,
+        )
     elif provider == "requesty":
         api_key = proxy_key or _get_provider_api_key(
             config, provider, "REQUESTY_API_KEY"
@@ -1439,7 +1447,34 @@ def extra_headers(provider: Provider) -> dict[str, str]:
     if provider == "openrouter":
         # Shows in rankings on openrouter.ai
         headers |= OPENROUTER_APP_HEADERS
+    elif provider == "opencode-go":
+        from uuid import NAMESPACE_URL, uuid5
+
+        from .. import __version__
+        from ..hooks.server_confirm import current_conversation_id
+        from ..telemetry import get_conversation_context
+
+        # Compute per request, not on the cached client: server clients serve
+        # multiple conversations. Hash identifiers to avoid disclosing log paths.
+        conversation = current_conversation_id.get() or get_conversation_context()[0]
+        session = (
+            str(uuid5(NAMESPACE_URL, f"gptme:opencode-go:{conversation}"))
+            if conversation
+            else _opencode_go_fallback_session()
+        )
+        headers |= {
+            "User-Agent": f"gptme/{__version__}",
+            "x-opencode-session": session,
+        }
     return headers
+
+
+@lru_cache(maxsize=1)
+def _opencode_go_fallback_session() -> str:
+    """Process-stable identity for one-shot callers without conversation context."""
+    from uuid import uuid4
+
+    return str(uuid4())
 
 
 ENV_THINKING_EFFORT = "GPTME_THINKING_EFFORT"
@@ -2611,13 +2646,13 @@ def _transform_msgs_for_special_provider(
     Returns:
         Transformed message dicts conforming to MessageDict type
     """
-    # groq and deepseek needs message.content to be a string
-    if model.provider == "groq" or model.provider == "deepseek":
+    # Groq and DeepSeek (including OpenCode Go) require string message content.
+    if model.provider in ("groq", "deepseek", "opencode-go"):
         result: list[MessageDict] = []
         for msg in messages_dicts:
             content = msg.get("content")
             is_assistant_tool_call = (
-                model.provider == "deepseek"
+                model.provider in ("deepseek", "opencode-go")
                 and msg.get("role") == "assistant"
                 and msg.get("tool_calls")
             )
@@ -2657,11 +2692,7 @@ def _transform_msgs_for_special_provider(
             else:
                 # content is a string
                 # For DeepSeek reasoner with tool calls: extract <think> into reasoning_content
-                if (
-                    is_assistant_tool_call
-                    and model.supports_reasoning
-                    and ("<think>" in content or "<thinking>" in content)
-                ):
+                if is_assistant_tool_call and model.supports_reasoning:
                     reasoning, cleaned = _extract_and_strip_reasoning(content)
                     result_msg = {**msg, "reasoning_content": reasoning}
                     if cleaned:

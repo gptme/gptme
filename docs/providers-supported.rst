@@ -266,6 +266,40 @@ Requesty
 
 Get an API key at https://app.requesty.ai/ (navigate to API Keys). See https://docs.requesty.ai for details.
 
+.. _opencode-go:
+
+OpenCode Go
+~~~~~~~~~~~
+
+`OpenCode Go <https://opencode.ai/go>`__ offers Go ($10/month) and Go Plus
+($40/month) plans usable with other coding agents, including gptme.
+Subscribe in the OpenCode Console and copy your API key into your user config:
+
+.. code-block:: toml
+
+    [env]
+    OPENCODE_API_KEY = "your-opencode-api-key"
+
+Then select one of the supported DeepSeek models:
+
+.. code-block:: sh
+
+    gptme "inspect this repository" -m opencode-go/deepseek-v4.1-flash
+    gptme "inspect this repository" -m opencode-go/deepseek-v4-pro
+
+The provider uses Go's OpenAI-compatible Chat Completions endpoint and sends
+a gptme user agent plus a stable conversation-session header. This initial
+integration registers the DeepSeek models, not the entire Go catalog; some
+other Go models require different API protocols.
+
+DeepSeek access requires **Global** to be enabled in the OpenCode workspace's
+**Settings > Privacy > Regions**. Consult the current
+`Go documentation <https://opencode.ai/docs/go/>`__ for limits, model availability,
+and data policies. Allowances have rolling five-hour, weekly, and monthly limits;
+"8x" credit is not a guaranteed output-token multiplier. Optional **Extra Usage**
+can charge your pay-as-you-go balance after the allowance is exhausted.
+gptme displays conservative peak token rates, not remaining subscription quota.
+
 .. _groq:
 
 Groq

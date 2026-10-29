@@ -81,6 +81,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "grok-subscription",
         "moonshot",
         "requesty",
+        "opencode-go",
         "openrouter",
         "nvidia",
         "azure",
@@ -419,6 +420,31 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 10,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
+    },
+    # https://opencode.ai/docs/go/#endpoints — Go uses distinct model IDs.
+    # Allowance accounting is not $0 inference: optional Extra Usage draws
+    # from PAYG credit. Peak rates are conservative (off-peak rates are half).
+    "opencode-go": {
+        "deepseek-v4.1-flash": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 0.30,
+            "price_output": 1.20,
+            "price_cache_read": 0.006,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+        },
+        "deepseek-v4-pro": {
+            "context": 1_000_000,
+            "max_output": 384_000,
+            "price_input": 1.32,
+            "price_output": 3.96,
+            "price_cache_read": 0.044,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
     },

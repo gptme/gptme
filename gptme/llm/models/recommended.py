@@ -40,6 +40,7 @@ RECOMMENDED_MODELS: dict[str, str] = {
     # million tokens for this path. Smoke test (streaming + tool call) passed.
     "gptme": "openrouter/anthropic/claude-sonnet-5.5",
     "deepseek": "deepseek-v4-flash",
+    "opencode-go": "deepseek-v4.1-flash",
     "groq": "llama-3.3-70b-versatile",
 }
 
