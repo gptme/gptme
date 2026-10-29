@@ -999,7 +999,7 @@ def _system_display_text(content: str) -> str:
 class SystemMessage(Vertical):
     """A system/tool-output message, collapsed by default (like <details>).
 
-    One-line messages are shown as-is: there is nothing to expand.
+    Short one-line messages are shown as-is; long lines get a bounded summary.
     """
 
     def __init__(self, content: str, highlight: bool = True):
@@ -1008,7 +1008,7 @@ class SystemMessage(Vertical):
         self.highlight = highlight
 
     def compose(self) -> ComposeResult:
-        if "\n" not in self.content:
+        if "\n" not in self.content and len(self.content) <= SUMMARY_MAXLEN:
             yield Static(
                 _summary_title(self.content, self.highlight), classes="system-line"
             )
@@ -1484,7 +1484,7 @@ def renderables_for_message(
         return items
     # system/tool output: compact summary line, optionally expanded
     content = _system_display_text(content)
-    if "\n" not in content:
+    if "\n" not in content and len(content) <= SUMMARY_MAXLEN:
         line = _summary_title(content, highlight)
         line.stylize("dim")
         return [line, Text()]
