@@ -153,6 +153,34 @@ def test_new_session_preserves_shell_comments(private_tmux: None, comment: str) 
     pytest.fail("new-session did not execute the shell command before its comment")
 
 
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ('"$(printf \'"\')"', 'substitution-"'),
+        ('"$(printf "\'")"', "substitution-'"),
+        ('"$(printf "%s" "$(printf \'"\')")"', 'substitution-"'),
+    ],
+)
+def test_new_session_preserves_nested_shell_quotes(
+    private_tmux: None, expression: str, expected: str
+) -> None:
+    # Bash has independent quoting scopes inside command substitutions. The
+    # dispatcher's simpler quote tracker must not reject valid shell syntax.
+    command = f"printf 'substitution-%s\\n' {expression}"
+    assert expected not in command
+    messages = list(
+        tmux.execute_tmux(None, None, {"command": f"new-session {command}"})
+    )
+    assert len(messages) == 1
+    assert not messages[0].content.startswith("Error:")
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if expected in tmux._capture_pane("gptme_2"):
+            return
+        time.sleep(0.01)
+    pytest.fail("new-session did not execute the nested shell quotes")
+
+
 def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
     # The completed output is absent from the submitted command, so terminal echo
     # cannot satisfy the assertion before the shell executes printf.
