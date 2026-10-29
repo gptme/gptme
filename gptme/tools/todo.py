@@ -24,6 +24,7 @@ from threading import RLock
 from dateutil.parser import isoparse
 
 from ..hooks import HookType
+from ..hooks.types import ToolExecutePreData
 from ..logmanager import LogManager
 from ..message import Message
 from .base import Parameter, ToolSpec, ToolUse
@@ -227,7 +228,7 @@ def replay_todo_on_session_start(
     logdir: Path | None,
     workspace: Path | None,
     initial_msgs: list[Message],
-    branch: str = "main",
+    branch: str | None = None,
     **kwargs: object,
 ) -> Generator[Message, None, None]:
     """Restore only the named conversation, even before its manager is loaded."""
@@ -235,8 +236,12 @@ def replay_todo_on_session_start(
         return
     path = Path(logdir).resolve()
     manager = LogManager.get_current_log()
-    if manager is not None and manager.logdir.resolve() == path:
-        branch = manager.current_branch
+    if branch is None:
+        branch = (
+            manager.current_branch
+            if manager is not None and manager.logdir.resolve() == path
+            else "main"
+        )
     with _todo_lock:
         todos, restored = _restore_todos(initial_msgs)
         if restored:
@@ -267,15 +272,54 @@ def ensure_todo_state(
     yield from ()
 
 
-def clear_todo_state(
-    manager: LogManager, **kwargs: object
+def restore_todos_before_tool(
+    data: ToolExecutePreData,
 ) -> Generator[Message, None, None]:
-    """Release this conversation's stores when its session ends."""
-    path = manager.logdir.resolve()
+    """Restore direct/rerun calls without replaying their pending message."""
+    manager = LogManager.get_current_log()
+    if manager is None or data.tool_use is None or data.tool_use.tool != "todo":
+        return
+    key = (manager.logdir.resolve(), manager.current_branch)
+    with _todo_lock:
+        if key in _todo_stores:
+            return
+        log = manager.master_log if manager.current_branch == "main" else manager.log
+        messages = log.messages
+
+        # The assistant message is already persisted by the server tool worker.
+        # Rebuild only the history preceding it; this execution applies its calls.
+        def identity(call: ToolUse) -> tuple:
+            return call.tool, call.args, call.content, call.kwargs, call.call_id
+
+        for index in range(len(messages) - 1, -1, -1):
+            msg = messages[index]
+            if msg.role != "assistant":
+                continue
+            if any(
+                identity(call) == identity(data.tool_use)
+                for call in ToolUse.iter_from_content(msg.content)
+            ):
+                messages = messages[:index]
+            break
+        _todo_stores[key], _ = _restore_todos(messages)
+    yield from ()
+
+
+def clear_conversation_todos(logdir: Path) -> None:
+    """Release stores after the owner has established the conversation is idle."""
+    path = logdir.resolve()
     with _todo_lock:
         for key in list(_todo_stores):
             if key[0] == path:
                 del _todo_stores[key]
+
+
+def clear_todo_state(
+    manager: LogManager, server_managed: bool = False, **kwargs: object
+) -> Generator[Message, None, None]:
+    """Release CLI stores; server eviction must synchronize with reconnects."""
+    if not server_managed:
+        clear_conversation_todos(manager.logdir)
     yield from ()
 
 
@@ -558,6 +602,11 @@ Todo state is auto-replayed when resuming the conversation.
             10,  # High priority: run early in session start
         ),
         "ensure_todos": (HookType.STEP_PRE.value, ensure_todo_state, 10),
+        "restore_todos_before_tool": (
+            HookType.TOOL_EXECUTE_PRE.value,
+            restore_todos_before_tool,
+            10,
+        ),
         "clear_todos": (HookType.SESSION_END.value, clear_todo_state, 10),
     },
 )

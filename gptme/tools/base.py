@@ -986,12 +986,17 @@ class ToolUse:
                     # via get_current_tool_use() or implicitly in get_confirmation()
                     token = _current_tool_use.set(self)
                     try:
-                        ex = tool.execute(
-                            self.content,
-                            self.args,
-                            self.kwargs,
+                        with LogManager.preserve_current():
+                            ex = tool.execute(
+                                self.content,
+                                self.args,
+                                self.kwargs,
+                            )
+                        generator_result = (
+                            preserve_generator_owner(ex)
+                            if isinstance(ex, Generator)
+                            else None
                         )
-                        generator_result = ex if isinstance(ex, Generator) else None
                         single_result = (
                             None
                             if generator_result is not None
@@ -1139,6 +1144,23 @@ class ToolUse:
                     )
 
         from ..logmanager import LogManager
+
+        def preserve_generator_owner(
+            generator: Generator[Message, None, None],
+        ) -> Generator[Message, None, None]:
+            # Restore before yielding to callbacks/the caller, not only when
+            # the whole tool finishes. A tool can load other conversations.
+            try:
+                while True:
+                    with LogManager.preserve_current():
+                        try:
+                            msg = next(generator)
+                        except StopIteration:
+                            return
+                    yield msg
+            finally:
+                with LogManager.preserve_current():
+                    generator.close()
 
         with LogManager.preserve_current():
             yield from _execute_tool()

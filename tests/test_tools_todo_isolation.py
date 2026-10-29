@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import Context
 from pathlib import Path
 from threading import Barrier
+from typing import Literal
 
 import pytest
 
@@ -16,6 +17,18 @@ from gptme.tools.todo import (
     replay_todo_on_session_start,
     todo,
 )
+
+
+@pytest.fixture(autouse=True)
+def literal_history_format():
+    from gptme.tools.base import get_tool_format, set_tool_format
+
+    previous = get_tool_format()
+    set_tool_format("tool")  # Native plus markdown histories used by these tests.
+    try:
+        yield
+    finally:
+        set_tool_format(previous)
 
 
 def start(path: Path, messages: list[Message] | None = None) -> LogManager:
@@ -236,3 +249,167 @@ def test_tool_restores_conversation_on_all_exit_paths(
         list(execution)
     assert LogManager.get_current_log() is a
     assert "A plan" in _todoread()
+
+
+@pytest.mark.parametrize("operation", ["update 1 completed", 'add "New plan"', "read"])
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_direct_tool_resume_restores_before_pending_call(
+    tmp_path: Path, operation: str, tool_format: Literal["markdown", "xml", "tool"]
+) -> None:
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    set_tool_format(tool_format)
+    saved = (
+        ToolUse("todo", None, None, kwargs={"command": 'write add "Saved plan"'})
+        if tool_format == "tool"
+        else ToolUse("todo", ["write"], 'add "Saved plan"')
+    )
+    saved_content = saved.to_output(tool_format)
+    if tool_format == "tool":
+        saved_content = saved_content.replace("@todo:", "@todo(saved):", 1)
+    messages = [Message("assistant", saved_content)]
+    manager = start(tmp_path / "direct", messages)
+    list(clear_todo_state(manager))
+    pending = (
+        ToolUse("todo", ["read"], "")
+        if operation == "read"
+        else ToolUse("todo", ["write"], operation)
+    )
+    if tool_format == "tool":
+        command = "read" if operation == "read" else f"write {operation}"
+        pending = ToolUse("todo", None, None, kwargs={"command": command})
+    pending_content = pending.to_output(tool_format)
+    if tool_format == "tool":
+        pending = ToolUse("todo", None, None, kwargs=pending.kwargs, call_id="pending")
+        pending_content = pending_content.replace("@todo:", "@todo(pending):", 1)
+    manager.append(Message("assistant", pending_content))
+    manager.write()
+    resumed = LogManager.load(manager.logdir, lock=False)
+    result = list(pending.execute(log=resumed.log))
+    assert all("not found" not in msg.content for msg in result)
+    assert "Saved plan" in _todoread()
+    if operation.startswith("add"):
+        assert "Summary: 2 total" in _todoread()
+        assert "2. 🔲 New plan" in _todoread()
+    elif operation.startswith("update"):
+        assert "1. ✅ Saved plan" in _todoread()
+    else:
+        assert any("Saved plan" in msg.content for msg in result)
+    list(ensure_todo_state(resumed))
+    assert "Saved plan" in _todoread()
+
+
+@pytest.mark.parametrize("cleanup", ["remove", "inactive"])
+def test_delayed_server_cleanup_preserves_reconnected_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cleanup: str
+) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+    from gptme.tools.todo import ensure_todo_state
+
+    manager = start(tmp_path / "reconnect")
+    _todowrite("add", "Existing plan")
+    session = SessionManager.create_session(str(manager.logdir))
+    session.last_activity = datetime.now(timezone.utc) - timedelta(hours=2)
+    replacements = []
+
+    def reconnect(*args, **kwargs):
+        replacement = SessionManager.create_session(str(manager.logdir))
+        replacements.append(replacement)
+        list(ensure_todo_state(manager))
+        _todowrite("add", "Replacement plan")
+        return manager
+
+    monkeypatch.setattr(LogManager, "load", reconnect)
+    try:
+        if cleanup == "remove":
+            SessionManager.remove_session(session.id)
+        else:
+            SessionManager.clean_inactive_sessions()
+        assert replacements
+        assert "Existing plan" in _todoread()
+        assert "Replacement plan" in _todoread()
+    finally:
+        # Do not trigger another SESSION_END through the reconnect stub.
+        with SessionManager._lock:
+            for replacement in replacements:
+                SessionManager._sessions.pop(replacement.id, None)
+            SessionManager._conversation_sessions.pop(str(manager.logdir), None)
+
+
+def test_server_evicts_todos_only_after_last_session_and_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+    from gptme.tools.todo import _todo_stores
+
+    manager = start(tmp_path / "idle")
+    _todowrite("add", "Keep until idle")
+    conversation = str(manager.logdir)
+    session = SessionManager.create_session(conversation)
+    monkeypatch.setattr(LogManager, "load", lambda *a, **kw: manager)
+    SessionManager.start_command(conversation)
+    try:
+        SessionManager.remove_session(session.id)
+        assert "Keep until idle" in _todoread()
+    finally:
+        SessionManager.finish_command(conversation)
+    assert not any(key[0] == manager.logdir.resolve() for key in _todo_stores)
+
+
+@pytest.mark.parametrize("call_id", [None, "reader-call"])
+def test_tool_callbacks_and_yield_consumers_keep_caller(
+    tmp_path: Path, call_id: str | None
+) -> None:
+    from collections.abc import Generator
+
+    from gptme.hooks import HookType, clear_hooks, register_hook
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    b_context = Context()
+    b_context.run(start, tmp_path / "b")
+    b_context.run(_todowrite, "add", "Keep B")
+    a = start(tmp_path / "a")
+    _todowrite("add", "A plan")
+    clear_hooks()
+
+    def execute(code, args, kwargs) -> Generator[Message, None, None]:
+        LogManager(logdir=tmp_path / "b", lock=False)
+        yield Message("system", "Read B")
+
+    def post_hook(data):
+        assert LogManager.get_current_log() is a
+        yield from ()
+
+    set_tools([ToolSpec(name="reader", desc="Read another log", execute=execute)])
+    register_hook("check_owner", HookType.TOOL_EXECUTE_POST, post_hook)
+
+    def on_result(msg: Message) -> None:
+        assert LogManager.get_current_log() is a
+        _todowrite("clear")
+
+    execution = ToolUse("reader", None, None, call_id=call_id).execute(
+        log=a.log, on_result_message=on_result
+    )
+    for _ in execution:
+        assert LogManager.get_current_log() is a
+    assert not has_incomplete_todos()
+    assert "Keep B" in b_context.run(_todoread)
+
+
+def test_start_replay_respects_explicit_branch(tmp_path: Path) -> None:
+    manager = start(tmp_path / "branches")
+    _todowrite("add", "Keep main")
+    messages = [Message("assistant", '```todo write\nadd "Alternative"\n```')]
+    list(
+        replay_todo_on_session_start(
+            manager.logdir, tmp_path, messages, branch="alternative"
+        )
+    )
+    assert "Keep main" in _todoread()
+    manager.branch("alternative")
+    assert "Alternative" in _todoread()
