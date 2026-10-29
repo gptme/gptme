@@ -493,10 +493,10 @@ def execute_tmux(
     # (e.g. command substitutions) this lightweight splitter cannot validate.
     # Keep pre-dispatch rejection for our own command syntax, not shell syntax.
     is_shell_command = "".join(current).split(maxsplit=1)[0:1] == ["new-session"]
-    if (in_quotes or escaped) and not is_shell_command:
-        yield Message(
-            "system", "Error: Unclosed quote or trailing escape in tmux command"
-        )
+    # A trailing backslash can be a literal tmux key (e.g. C-\\); send_keys
+    # already preserves those through its shlex fallback.
+    if in_quotes and not is_shell_command:
+        yield Message("system", "Error: Unclosed quote in tmux command")
         return
 
     if current:

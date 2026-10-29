@@ -115,7 +115,27 @@ def test_intentional_command_separators_and_named_keys(
     assert "one; intact" in tmux._capture_pane("gptme_1")
 
 
-@pytest.mark.parametrize("suffix", ['"unclosed', "'unclosed", "trailing\\"])
+@pytest.mark.parametrize("keys", ["C-\\", "M-C-\\", "trailing\\"])
+def test_dispatcher_preserves_trailing_backslash_keys(
+    monkeypatch: pytest.MonkeyPatch, keys: str
+) -> None:
+    calls: list[list[str]] = []
+
+    def record_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tmux.subprocess, "run", record_run)
+    monkeypatch.setattr(tmux, "_capture_pane", lambda _: "")
+    monkeypatch.setattr(tmux, "sleep", lambda _: None)
+    monkeypatch.setattr(tmux, "get_confirmation", ConfirmationResult.confirm)
+    messages = list(tmux.execute_tmux(f"send-keys 1 {keys}", [], None))
+    assert len(messages) == 1
+    assert messages[0].content.startswith("Sent ")
+    assert calls == [["tmux", "send-keys", "-t", "gptme_1", keys]]
+
+
+@pytest.mark.parametrize("suffix", ['"unclosed', "'unclosed"])
 def test_malformed_input_has_no_partial_dispatch(
     monkeypatch: pytest.MonkeyPatch, suffix: str
 ) -> None:
