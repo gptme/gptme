@@ -234,6 +234,9 @@ def _restore_todos(
                         restored = True
                 except Exception as exc:
                     logger.warning("Failed to replay todo operation %r: %s", line, exc)
+                    # Execution aborts the rest of this call on a parse error.
+                    # Later calls remain independent and can still be replayed.
+                    break
     return todos, restored
 
 

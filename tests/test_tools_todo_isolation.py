@@ -503,3 +503,24 @@ def test_direct_resume_preserves_earlier_calls_in_pending_message(
     assert "1. ✅ Saved task" in _todoread()
     assert "Summary: 1 total" in _todoread()
     assert "Not yet executed" not in _todoread()
+
+
+def test_restore_aborts_malformed_call_but_replays_next_call(tmp_path: Path) -> None:
+    from gptme.tools.base import ToolUse
+    from gptme.tools.todo import _restore_todos, execute_todo
+
+    start(tmp_path / "malformed")
+    body = 'add "First"\nadd "unterminated\nadd "Never executed"'
+    with pytest.raises(ValueError, match="No closing quotation"):
+        list(execute_todo(body, ["write"], None))
+    assert "First" in _todoread()
+    assert "Never executed" not in _todoread()
+    messages = [
+        Message("assistant", ToolUse("todo", ["write"], body).to_output("markdown")),
+        Message("assistant", '```todo write\nadd "Next call"\n```'),
+    ]
+    restored, _ = _restore_todos(messages)
+    assert {key: value["text"] for key, value in restored.items()} == {
+        "1": "First",
+        "2": "Next call",
+    }
