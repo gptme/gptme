@@ -851,6 +851,42 @@ def test_staged_success_preserves_permissions_and_line_endings(tmp_path):
     assert list(tmp_path.iterdir()) == [target]
 
 
+@pytest.mark.parametrize("mode", [0o444, 0o400])
+def test_read_only_target_refused_before_any_publication(tmp_path, mode):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_bytes(b"alpha\r\n")
+    second.write_bytes(b"beta\r\n")
+    second.chmod(mode)
+    try:
+        # Privileged callers may legitimately write despite these mode bits.
+        try:
+            with second.open("r+b"):
+                pass
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("current credentials can write the read-only target")
+
+        before = {p: (p.read_bytes(), p.stat()) for p in (first, second)}
+        messages = list(
+            execute_patch_many_impl(
+                [
+                    (first, Patch("alpha", "ALPHA")),
+                    (second, Patch("beta", "BETA")),
+                ]
+            )
+        )
+        assert "No files were written" in messages[0].content
+        assert str(second) in messages[0].content
+        for path, (content, info) in before.items():
+            assert path.read_bytes() == content
+            assert path.stat().st_ino == info.st_ino
+            assert path.stat().st_mode == info.st_mode
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["first", "second"]
+    finally:
+        second.chmod(0o600)
+
+
 def test_long_target_basename_can_be_patched(tmp_path):
     target = tmp_path / ("x" * 255)
     target.write_text("alpha")

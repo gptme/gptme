@@ -346,6 +346,20 @@ def execute_patch_many_impl(
 
         current[path] = new_content
 
+    # Replacement needs directory permission, not target write permission. Preserve
+    # the old in-place writer's access check without truncating or changing bytes.
+    # Check every target before staging or publishing any of them.
+    for path in order:
+        try:
+            fd = os.open(path, os.O_WRONLY)
+            os.close(fd)
+        except OSError as access_error:
+            yield Message(
+                "system",
+                f"Atomic patch aborted: cannot write `{path}`: {access_error}. No files were written.",
+            )
+            return
+
     # Content was read in universal-newline mode; preserve each file's style.
     contents = {
         path: current[path]
