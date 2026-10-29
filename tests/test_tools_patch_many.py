@@ -849,3 +849,49 @@ def test_staged_success_preserves_permissions_and_line_endings(tmp_path):
     assert target.read_bytes() == b"ALPHA\r\nbeta\r\n"
     assert target.stat().st_mode & 0o777 == 0o751
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_long_target_basename_can_be_patched(tmp_path):
+    target = tmp_path / ("x" * 255)
+    target.write_text("alpha")
+    messages = list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert target.read_text() == "ALPHA", messages[0].content
+
+
+def test_cleanup_failure_does_not_hide_restore_failure(tmp_path, monkeypatch):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_text("alpha")
+    second.write_text("beta")
+    replace, unlink = os.replace, Path.unlink
+    failed = False
+    cleanup_attempts = []
+
+    def fail_replace(source, destination):
+        nonlocal failed
+        if destination == second and not failed:
+            failed = True
+            raise OSError("publication failed")
+        if failed and destination == first:
+            raise OSError("restoration failed")
+        return replace(source, destination)
+
+    def fail_cleanup(path, *args, **kwargs):
+        cleanup_attempts.append(path)
+        if path.exists():
+            raise PermissionError("cleanup denied")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_cleanup)
+    messages = list(
+        execute_patch_many_impl(
+            [
+                (first, Patch("alpha", "ALPHA")),
+                (second, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    assert "Restoration incomplete" in messages[0].content
+    assert "original retained at" in messages[0].content
+    assert "cleanup" in messages[0].content.lower()
+    assert len(cleanup_attempts) == 3

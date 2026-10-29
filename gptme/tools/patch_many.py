@@ -194,14 +194,19 @@ def _execute_patch_many_confirmed(
 
 def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
     """Prepare a same-directory replacement without touching its target."""
-    fd, name = tempfile.mkstemp(prefix=f".{path.name}.patch-many-", dir=path.parent)
+    fd, name = tempfile.mkstemp(prefix=".patch-many-", dir=path.parent)
     staged = Path(name)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(content)
         staged.chmod(mode)
-    except BaseException:
-        staged.unlink(missing_ok=True)
+    except BaseException as error:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            raise OSError(
+                f"{error}; staging cleanup failed for `{staged}`: {cleanup_error}"
+            ) from error
         raise
     return staged
 
@@ -211,6 +216,7 @@ def _publish_patches(
     contents: dict[Path, bytes],
     originals: dict[Path, bytes],
     modes: dict[Path, int],
+    cleanup_errors: list[str],
 ) -> str | None:
     """Stage every replacement and backup, then publish with best-effort rollback."""
     staged: dict[Path, Path] = {}
@@ -254,7 +260,10 @@ def _publish_patches(
     finally:
         for temporary in [*staged.values(), *backups.values()]:
             if temporary not in retained:
-                temporary.unlink(missing_ok=True)
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError as cleanup_error:
+                    cleanup_errors.append(f"`{temporary}`: {cleanup_error}")
     return None
 
 
@@ -345,16 +354,15 @@ def execute_patch_many_impl(
         .encode("utf-8")
         for path in order
     }
-    error = _publish_patches(order, contents, originals, modes)
-    if error:
-        yield Message("system", error)
-        return
-
-    yield Message(
-        "system",
+    cleanup_errors: list[str] = []
+    error = _publish_patches(order, contents, originals, modes, cleanup_errors)
+    result = error or (
         f"Applied {hunks} hunk(s) atomically to {len(order)} file(s):\n"
-        + "\n".join(f"  - {p}" for p in order),
+        + "\n".join(f"  - {p}" for p in order)
     )
+    if cleanup_errors:
+        result += "\nTemporary-file cleanup incomplete:\n" + "\n".join(cleanup_errors)
+    yield Message("system", result)
 
 
 def execute_patch_many(
