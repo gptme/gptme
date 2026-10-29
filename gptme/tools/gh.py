@@ -97,6 +97,32 @@ def _get_pr_check_runs(
         return None, None, f"Failed to parse check data: {e}"
 
 
+def _check_run_state(run: dict) -> str:
+    """Classify checks explicitly; unknown terminal conclusions fail closed."""
+    status = run.get("status")
+    if status == "completed":
+        conclusion = run.get("conclusion")
+        if conclusion in ("success", "cancelled", "skipped", "neutral"):
+            return conclusion
+        return "failure"
+    if status in ("queued", "pending", "in_progress", "waiting", "requested"):
+        return "in_progress"
+    return "failure"
+
+
+def _failed_check_reference(run: dict) -> str:
+    """Keep external check links; check-run IDs are not workflow run IDs."""
+    name = f"{run.get('name', 'Unknown')} ({run.get('conclusion')})"
+    url = run.get("html_url") or ""
+    match = re.fullmatch(
+        r"https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)(?:[/?#].*)?", url
+    )
+    if match:
+        run_id = match.group(1)
+        return f"{name} (run {run_id}) — gh run view {run_id} --log-failed"
+    return f"{name} — {url}" if url else name
+
+
 def _wait_for_checks(
     owner: str, repo: str, url: str, commit_sha: str | None = None
 ) -> Generator[Message, None, None]:
@@ -177,49 +203,30 @@ def _wait_for_checks(
             "failure": 0,
             "cancelled": 0,
             "skipped": 0,
+            "neutral": 0,
             "in_progress": 0,
-            "queued": 0,
-            "pending": 0,
         }
 
         failed_runs = []
 
         for run in check_runs:
-            status = run.get("status", "unknown")
-            conclusion = run.get("conclusion")
+            state = _check_run_state(run)
 
-            if status == "completed":
-                # Map conclusion to known states, default to success for unmapped
-                state = conclusion if conclusion in status_counts else "success"
+            # Preserve the original reason and the correct CI service reference.
+            if state == "failure":
+                failed_runs.append(_failed_check_reference(run))
 
-                # Track failed runs with their IDs
-                if state == "failure":
-                    run_id = run.get("id")
-                    run_name = run.get("name", "Unknown")
-                    html_url = run.get("html_url", "")
-                    # Extract run ID from URL if available, fallback to id field
-                    if html_url and "/runs/" in html_url:
-                        actual_run_id = html_url.split("/runs/")[-1].split("/")[0]
-                        failed_runs.append((run_name, actual_run_id))
-                    elif run_id:
-                        # Fallback to using the id field
-                        failed_runs.append((run_name, str(run_id)))
-            else:
-                state = status
-
-            if state in status_counts:
-                status_counts[state] += 1
+            status_counts[state] += 1
 
         # Create status summary
         current_status = {
             "total": len(check_runs),
-            "in_progress": status_counts["in_progress"]
-            + status_counts["queued"]
-            + status_counts["pending"],
+            "in_progress": status_counts["in_progress"],
             "success": status_counts["success"],
             "failure": status_counts["failure"],
             "cancelled": status_counts["cancelled"],
             "skipped": status_counts["skipped"],
+            "neutral": status_counts["neutral"],
         }
 
         # Show update if status changed
@@ -233,6 +240,8 @@ def _wait_for_checks(
                 status_parts.append(f"🚫 {current_status['cancelled']} cancelled")
             if current_status["skipped"] > 0:
                 status_parts.append(f"⏭️ {current_status['skipped']} skipped")
+            if current_status["neutral"] > 0:
+                status_parts.append(f"➖ {current_status['neutral']} neutral")
             if current_status["in_progress"] > 0:
                 status_parts.append(f"🔄 {current_status['in_progress']} in progress")
 
@@ -250,17 +259,20 @@ def _wait_for_checks(
 
                 if failed_runs:
                     failure_msg += "\nFailed runs:\n"
-                    for name, run_id in failed_runs:
-                        failure_msg += f"  - {name} (run {run_id})\n"
-                    failure_msg += (
-                        "\nView logs with: gh run view <run_id> --log-failed\n"
-                    )
+                    for reference in failed_runs:
+                        failure_msg += f"  - {reference}\n"
 
                 yield Message("system", failure_msg)
             elif current_status["cancelled"] > 0:
                 yield Message(
                     "system",
                     f"\n🚫 Checks cancelled: {current_status['cancelled']} cancelled, {current_status['success']} passed\n",
+                )
+            elif current_status["neutral"] > 0 or current_status["skipped"] > 0:
+                yield Message(
+                    "system",
+                    f"\nChecks complete: {current_status['success']} passed, "
+                    f"{current_status['neutral']} neutral, {current_status['skipped']} skipped\n",
                 )
             else:
                 yield Message(
@@ -280,40 +292,26 @@ def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> st
         "failure": 0,
         "cancelled": 0,
         "skipped": 0,
+        "neutral": 0,
         "in_progress": 0,
-        "queued": 0,
-        "pending": 0,
     }
 
-    failed_runs: list[tuple[str, str]] = []
+    failed_runs: list[str] = []
     in_progress_runs: list[str] = []
 
     for run in check_runs:
-        status = run.get("status", "unknown")
-        conclusion = run.get("conclusion")
+        state = _check_run_state(run)
         run_name = run.get("name", "Unknown")
 
-        if status == "completed":
-            state = conclusion if conclusion in status_counts else "success"
-            if state == "failure":
-                html_url = run.get("html_url", "")
-                if html_url and "/runs/" in html_url:
-                    actual_run_id = html_url.split("/runs/")[-1].split("/")[0]
-                    failed_runs.append((run_name, actual_run_id))
-        else:
-            state = status
-            if state in ("in_progress", "queued", "pending"):
-                in_progress_runs.append(run_name)
+        if state == "failure":
+            failed_runs.append(_failed_check_reference(run))
+        elif state == "in_progress":
+            in_progress_runs.append(run_name)
 
-        if state in status_counts:
-            status_counts[state] += 1
+        status_counts[state] += 1
 
     total = len(check_runs)
-    in_progress = (
-        status_counts["in_progress"]
-        + status_counts["queued"]
-        + status_counts["pending"]
-    )
+    in_progress = status_counts["in_progress"]
 
     output = f"PR #{pr_number} checks ({head_sha[:7]}):\n"
     output += f"Total: {total} checks\n"
@@ -326,14 +324,15 @@ def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> st
         output += f"🚫 {status_counts['cancelled']} cancelled\n"
     if status_counts["skipped"] > 0:
         output += f"⏭️ {status_counts['skipped']} skipped\n"
+    if status_counts["neutral"] > 0:
+        output += f"➖ {status_counts['neutral']} neutral\n"
     if in_progress > 0:
         output += f"🔄 {in_progress} in progress\n"
 
     if failed_runs:
         output += "\nFailed runs:\n"
-        for name, run_id in failed_runs:
-            output += f"  - {name} (run {run_id})\n"
-        output += "\nView logs: gh run view <run_id> --log-failed\n"
+        for reference in failed_runs:
+            output += f"  - {reference}\n"
 
     if in_progress_runs:
         output += f"\nIn progress: {', '.join(in_progress_runs[:3])}"
