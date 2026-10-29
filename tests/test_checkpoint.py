@@ -43,8 +43,10 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def clean_repo(tmp_path):
+def clean_repo(tmp_path, monkeypatch):
     """Single-root git repo with one committed file, no dirty state."""
+    monkeypatch.setenv("GIT_AUTHOR_DATE", "2026-01-01T00:00:00+00:00")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00")
     repo = tmp_path / "clean-repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "test-branch")
@@ -357,9 +359,12 @@ def test_cli_restore_dirty_at_same_head(clean_repo):
     (clean_repo / "README.md").write_text("changed\n")
     scratch = clean_repo / "scratch.txt"
     scratch.write_text("scratch\n")
+    sha_prefix = first.head_sha[:12]
+    # Decimal identifiers select checkpoint indices, not SHA prefixes.
+    assert not sha_prefix.isdigit()
     result = CliRunner().invoke(
         checkpoint_main,
-        ["restore", first.head_sha[:12], str(clean_repo), "--include-dirty"],
+        ["restore", sha_prefix, str(clean_repo), "--include-dirty"],
     )
     assert result.exit_code == 0, result.output
     assert "Restored to checkpoint" in result.output
