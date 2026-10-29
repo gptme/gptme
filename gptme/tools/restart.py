@@ -26,24 +26,6 @@ logger = logging.getLogger(__name__)
 _triggered_restart = False
 
 
-# Flags that take a value (next argument)
-_FLAGS_WITH_VALUES = {
-    "--name",
-    "-m",
-    "--model",
-    "-w",
-    "--workspace",
-    "--agent-path",
-    "--system",
-    "-t",
-    "--tools",
-    "--tool-format",
-    "--context-mode",
-    "--context-include",
-    "--output-schema",
-}
-
-
 # ── Interface switching (/restart cli|tui|web) ───────────────────────────
 
 Interface = Literal["cli", "tui"]
@@ -364,81 +346,83 @@ def _cleanup_before_handover() -> None:
         pass
 
 
-def _filter_same_interface_args(argv: list[str]) -> list[str]:
-    """Rebuild the current command line for a same-interface restart.
+def _filter_same_interface_args(
+    argv: list[str], source: Interface = "cli"
+) -> list[str]:
+    """Drop logged prompts and persisted options, preserving option/value groups."""
+    import click
 
-    Drops prompts and flags whose values are persisted in the conversation's
-    config.toml; keeps everything else.
-    """
-    # Filter out positional arguments (prompts) since they are already in the
-    # conversation log (Issue #1011).
-    # Use argv[0] (gptme script) not sys.executable (python interpreter)
-    filtered_args = [argv[0]]  # Keep script name
-    skip_next = False
-    i = 1
+    # Import lazily: loading the restart tool must not load either entry point.
+    command: click.Command
+    if source == "cli":
+        from ..cli.main import main as cli_main
 
-    skip_value = False  # True when we need to skip the next value (for --name)
-    while i < len(argv):
-        arg = argv[i]
+        command = cli_main
+    else:
+        from ..tui.main import main as tui_main
 
-        if skip_next:
-            # This arg is a value for the previous flag, keep it
-            filtered_args.append(arg)
-            skip_next = False
-            i += 1
-            continue
+        command = tui_main
 
-        if skip_value:
-            # This arg is a value for --name/--resume, skip it
-            skip_value = False
-            i += 1
-            continue
-
-        if arg.startswith("-"):
-            # This is a flag
-            # Flags that are persisted to the chat config and loaded on resume
-            # These should NOT be re-passed on restart since they're in the conversation config
-            _PERSISTED_FLAGS = {
-                "--name",  # we add explicitly with conversation name
-                "-r",
-                "--resume",  # boolean flags for resuming
-                "-m",
-                "--model",  # model is persisted
-                "-t",
-                "--tools",  # tools allowlist is persisted
-                "--tool-format",  # tool format is persisted
-                "--stream",
-                "--no-stream",  # streaming preference
-                "-n",
-                "--non-interactive",  # interactive mode
-                "--agent-path",  # agent path
-                "-w",
-                "--workspace",  # workspace path
-                "--context-mode",  # context mode
-                "--context-include",  # context includes
-            }
-            if arg in _PERSISTED_FLAGS:
-                # Skip flags that are persisted to chat config
-                if arg in _FLAGS_WITH_VALUES:
-                    skip_value = True  # Also skip the value
-                # Don't add to filtered_args
-            elif arg in _FLAGS_WITH_VALUES:
-                # Flag takes a value, keep flag and mark to keep next arg
-                filtered_args.append(arg)
-                skip_next = True
-            elif "=" in arg:
-                # Flag with inline value (--flag=value), keep it
-                # But skip if it's a persisted flag (loaded from chat config)
-                flag_name = arg.split("=")[0]
-                if flag_name not in _PERSISTED_FLAGS:
-                    filtered_args.append(arg)
-            else:
-                # Boolean flag (no value), keep it
-                filtered_args.append(arg)
-        # else: positional argument (prompt) - skip it (Issue #1011)
-
+    with click.Context(command) as ctx:
+        options = {
+            flag: param
+            for param in command.get_params(ctx)
+            if isinstance(param, click.Option)
+            for flag in (*param.opts, *param.secondary_opts)
+        }
+    # Match parameter names so aliases and both boolean spellings stay together.
+    # The selected conversation name is added explicitly by _do_restart.
+    persisted = {
+        "name",
+        "resume",
+        "model",
+        "tool_allowlist",
+        "tool_format",
+        "stream",
+        "non_interactive",
+        "agent_path",
+        "workspace",
+        "context_mode",
+        "context_include",
+    }
+    filtered_args = [argv[0]]
+    args = argv[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
         i += 1
+        if arg == "--":
+            break  # everything after the delimiter is a logged prompt (Issue #1011)
+        if not arg.startswith("-") or arg == "-":
+            continue
+        flag = arg.split("=", 1)[0]
+        option = options.get(flag)
 
+        if option is None and not arg.startswith("--") and len(arg) > 2:
+            # Click accepts short clusters (-vy) and attached values (-mMODEL).
+            # Expand one member at a time so persisted members can be removed.
+            flag = arg[:2]
+            option = options.get(flag)
+            if option is not None:
+                tail = arg[2:]
+                arg = flag
+                if option.is_flag:
+                    args.insert(i, "-" + tail)
+                else:
+                    args.insert(i, tail)
+
+        group = [arg]
+        if option is not None and not option.is_flag and "=" not in arg:
+            if flag in _OPTIONAL_VALUE_FLAGS[source]:
+                count = int(
+                    i < len(args) and (args[i] == "-" or not args[i].startswith("-"))
+                )
+            else:
+                count = option.nargs
+            group.extend(args[i : i + count])
+            i += count
+        if option is None or option.name not in persisted:
+            filtered_args.extend(group)
     return filtered_args
 
 
@@ -462,7 +446,7 @@ def _do_restart(
         source: The interface running now
     """
     if target is None or target == source:
-        restart_args = _filter_same_interface_args(sys.argv)
+        restart_args = _filter_same_interface_args(sys.argv, source)
         if conversation_name:
             # Add explicit --name to resume this conversation
             restart_args.extend(["--name", conversation_name])
