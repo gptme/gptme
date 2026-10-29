@@ -2672,6 +2672,9 @@ class GptmeApp(App):
                 _SequentialPrompt(prompt) if isinstance(prompt, str) else prompt
             )
         await self._submit_user_input(first)
+        # Local startup commands may finish without a worker release callback.
+        # Retry the mount-time inbox; busy/modal/shutdown guards still apply.
+        await self._deliver_notifications()
 
     async def on_event(self, event: events.Event) -> None:
         # A click can land on a widget removed since the last frame (e.g. the

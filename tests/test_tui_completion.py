@@ -465,3 +465,25 @@ async def test_initial_prompt_precedes_mount_time_completion(tmp_path, monkeypat
             assert not app.generating
     finally:
         release.set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_local_startup_command_retries_mount_time_completion(
+    tmp_path, monkeypatch, enabled
+):
+    """A synchronous startup command must release the initial inbox deferral."""
+    from gptme.config import ChatConfig, get_config
+
+    manager = LogManager([], logdir=tmp_path / "parent", lock=False)
+    get_config().chat = ChatConfig(watch_autowake=enabled)
+    seen: list[int] = []
+    monkeypatch.setattr("gptme.tui.app.step", lambda *a, **kw: record_step(seen))
+    notify_completion("child", "success", "ready", parent_logdir=manager.logdir)
+    app = GptmeApp(manager, workspace=tmp_path, initial_prompts=["/display outputs"])
+    async with app.run_test() as pilot:
+        await settle(app, pilot)
+        assert not app._initial_prompts
+        assert sum("Subagent 'child'" in m.content for m in manager.log) == 1
+        assert seen == ([1] if enabled else [])
+        assert not app.generating
