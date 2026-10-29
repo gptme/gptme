@@ -15,12 +15,16 @@ log.  Records are append-only; the sidecar file is never mutated after writing.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
+
+    from ..message import Message
 
 
 @dataclasses.dataclass(frozen=True)
@@ -30,18 +34,38 @@ class ConvCheckpoint:
     index: int  # message count at the time of the checkpoint
     label: str  # user-supplied label or auto-generated
     timestamp: str  # ISO 8601
+    prefix_hash: str | None = None  # absent on legacy records and numeric targets
 
 
 def _sidecar_path(logdir: Path) -> Path:
     return logdir / "conv-checkpoints.jsonl"
 
 
-def save_conv_checkpoint(logdir: Path, index: int, label: str) -> ConvCheckpoint:
+def conversation_prefix_hash(messages: Sequence[Message]) -> str:
+    """Hash persisted message content, including structured tool calls and files.
+
+    Ignore timestamps: identity is the conversation content, not branch ownership.
+    Canonical JSON keeps the digest stable across persistence and reload.
+    """
+    payload = []
+    for message in messages:
+        data = message.to_dict()
+        data.pop("timestamp", None)
+        payload.append(data)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def save_conv_checkpoint(
+    logdir: Path, index: int, label: str, *, prefix_hash: str | None = None
+) -> ConvCheckpoint:
     """Append a checkpoint to the sidecar.  Returns the new record."""
     record = ConvCheckpoint(
         index=index,
         label=label,
         timestamp=datetime.now(timezone.utc).isoformat(),
+        prefix_hash=prefix_hash,
     )
     path = _sidecar_path(logdir)
     with open(path, "a", encoding="utf-8") as f:
@@ -67,6 +91,7 @@ def list_conv_checkpoints(logdir: Path) -> list[ConvCheckpoint]:
                         index=data["index"],
                         label=data["label"],
                         timestamp=data["timestamp"],
+                        prefix_hash=data.get("prefix_hash"),
                     )
                 )
             except (json.JSONDecodeError, KeyError):

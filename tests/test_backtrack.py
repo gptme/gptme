@@ -8,6 +8,7 @@ import pytest
 import gptme.commands  # noqa: F401 – ensures all commands are registered
 from gptme.commands.base import handle_cmd
 from gptme.logmanager.conv_checkpoints import (
+    conversation_prefix_hash,
     list_conv_checkpoints,
     resolve_conv_checkpoint,
     save_conv_checkpoint,
@@ -156,8 +157,13 @@ class TestBacktrackCommand:
         assert any(m.role == "system" for m in msgs)
 
     def test_rewind_by_label(self, tmp_path):
-        save_conv_checkpoint(tmp_path, 2, "before-patch")
         manager = _make_manager(tmp_path, n_messages=6)
+        save_conv_checkpoint(
+            tmp_path,
+            2,
+            "before-patch",
+            prefix_hash=conversation_prefix_hash(manager.log.messages[:2]),
+        )
         msgs = list(handle_cmd("/backtrack before-patch", manager))
         assert len(manager.log.messages) == 2
         assert any("before-patch" in m.content for m in msgs if m.role == "system")
