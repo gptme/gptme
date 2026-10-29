@@ -692,7 +692,10 @@ def _alias_destination(tmp_path: Path, src: Path, alias: str) -> Path:
         except OSError as exc:
             pytest.skip(f"hard links unsupported: {exc}")
         return dest
-    dest.symlink_to(src)
+    try:
+        dest.symlink_to(src)
+    except OSError as exc:
+        pytest.skip(f"symlinks unsupported: {exc}")
     return dest
 
 
