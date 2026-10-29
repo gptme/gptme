@@ -579,6 +579,10 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
     Turn 0 keeps only pre-user messages (e.g. system prompt).
     Turn N includes through the Nth complete user+assistant exchange.
 
+    Saved tools, host allowlist and agent profile are retained (including empty
+    restrictions). The fork gets its own workspace and default model; agent
+    paths, environment, MCP configuration and confirmation overrides are not copied.
+
     Examples:
 
     \b
@@ -591,6 +595,7 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
     """
     from datetime import datetime, timezone  # fmt: skip
 
+    from ..config.chat import ChatConfig  # fmt: skip
     from ..logmanager import conversation_name_error  # fmt: skip
     from ..logmanager.fork import copy_messages_for_fork  # fmt: skip
     from ..logmanager.manager import Log  # fmt: skip
@@ -637,6 +642,20 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         ) from None
 
     try:
+        # Copy only explicit policy, never the entire config (which may contain
+        # credentials, source workspace/agent paths or confirmation overrides).
+        source_config = ChatConfig()
+        if (source_logdir / "config.toml").exists():
+            source_config = ChatConfig.from_logdir(source_logdir)
+            if source_config._logdir is None:
+                raise click.ClickException("Cannot fork unreadable source config.toml")
+        ChatConfig(
+            _logdir=new_logdir,
+            workspace=(new_logdir / "workspace").resolve(),
+            tools=source_config.tools,
+            allow_hosts=source_config.allow_hosts,
+            agent_profile=source_config.agent_profile,
+        ).save()
         for subdir in ("files", "attachments"):
             src = source_logdir / subdir
             if src.exists():
