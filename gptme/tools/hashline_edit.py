@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING, Literal
 from ..message import Message
 from ..util.git_cmd import GIT_CMD
 from ._hashline_snapshot import lookup_snapshot, store_snapshot
-from .base import Parameter, ToolSpec, ToolUse
+from .base import Parameter, ToolSpec, ToolUse, file_newline
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -955,12 +955,15 @@ def execute_hashline_edit(
     # (the check→write TOCTOU window above is inherent to file I/O without
     # OS-level locking and is not specific to this path).
     try:
+        newline = file_newline(resolved)
         tmp_fd, tmp_name = tempfile.mkstemp(
             dir=resolved.parent, prefix=".gptme_hashline_", suffix=".tmp"
         )
         try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
-                fh.write(updated)
+            # Keep the file's line endings: the content was read in
+            # universal-newline mode, so it is LF-only here.
+            with os.fdopen(tmp_fd, "w", encoding="utf-8", newline=newline) as fh:
+                fh.write(updated.replace("\r\n", "\n"))
         except Exception:
             os.unlink(tmp_name)
             raise

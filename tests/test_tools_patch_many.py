@@ -110,6 +110,24 @@ def test_atomicity(tmp_path):
     assert f2.read_text() == "original content"
 
 
+def test_atomic_preserves_line_endings(tmp_path):
+    """Each file keeps its own line endings (CRLF stays CRLF, LF stays LF)."""
+    crlf = tmp_path / "crlf.txt"
+    lf = tmp_path / "lf.txt"
+    crlf.write_bytes(b"a\r\nold\r\nz\r\n")
+    lf.write_bytes(b"a\nold\nz\n")
+
+    patches = [
+        (crlf, Patch("old\n", "new\n")),
+        (lf, Patch("old\n", "new\n")),
+    ]
+
+    messages = list(execute_patch_many_impl(patches))
+    assert "atomically" in messages[0].content.lower()
+    assert crlf.read_bytes() == b"a\r\nnew\r\nz\r\n"
+    assert lf.read_bytes() == b"a\nnew\nz\n"
+
+
 def test_atomic_success(tmp_path):
     """Test that all files are patched when all patches match."""
     f1 = tmp_path / "file1.py"
