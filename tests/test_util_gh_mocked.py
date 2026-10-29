@@ -5,6 +5,7 @@ of the code context and suggestion extraction functionality.
 """
 
 import json
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,6 +16,13 @@ from gptme.util.gh import (
     get_github_pr_content,
     get_github_pr_diff,
 )
+
+
+@pytest.fixture(autouse=True)
+def mock_gh_cli_available() -> Iterator[None]:
+    """Mock CLI discovery as well as subprocesses; no installed gh is needed."""
+    with patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh"):
+        yield
 
 
 @pytest.fixture
