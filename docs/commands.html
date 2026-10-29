@@ -1039,7 +1039,7 @@ the workspace to that state later — useful before letting the assistant make
 large-scale changes or when experimenting with destructive operations.</p>
 <p>Requires a git workspace to be configured for the session (<code class="docutils literal notranslate"><span class="pre">--workspace</span></code>).</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/checkpoint create                  # Record a checkpoint at current HEAD
-/checkpoint create --include-dirty  # Also snapshot uncommitted changes
+/checkpoint create --include-dirty  # Allow a dirty workspace; records HEAD only
 /checkpoint list                    # List all recorded checkpoints
 /checkpoint diff &lt;id&gt;               # Diff current state vs a checkpoint
 /checkpoint restore &lt;id&gt;                    # Restore workspace to a checkpoint
@@ -1097,6 +1097,15 @@ files.</p>
 /backtrack &lt;label|N&gt; --reason TEXT  # Rewind and inject a corrective context message
 </pre></div>
 </div>
+<p>Named markers verify the saved conversation prefix before rewinding. A marker
+from a divergent branch, edited history or different compacted view is refused;
+an inherited branch with identical prefix content can use it. Markers retain this
+identity after reload. Duplicate labels resolve to the most recent marker, even
+when an older one would match.</p>
+<p>Older markers without content identity cannot be verified. Re-mark the intended
+position, or deliberately use a numeric index to rewind the active log without a
+named-content check. A refused named rewind leaves messages unchanged and does
+not emit a successful backtrack summary.</p>
 <p><strong>Example</strong>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/backtrack mark before-tool-run     # save checkpoint
 # ... assistant makes a wrong tool call ...
