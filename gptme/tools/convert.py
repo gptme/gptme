@@ -403,6 +403,10 @@ class ImageConverter(Converter):
 
         if avail.ffmpeg:
             cmd = ["ffmpeg", "-y", "-i", _arg(src)]
+            if dest_ext != "gif":
+                # The image2 muxer otherwise expands %d/%03d into numbered files.
+                # GIF uses its own muxer, which already treats the path literally.
+                cmd += ["-update", "1"]
             if lossy:
                 if dest_ext == "webp":
                     # WebP uses -quality 0-100 (higher = better)
@@ -425,7 +429,7 @@ class ImageConverter(Converter):
             )
 
         if avail.imagemagick:
-            cmd = ["convert", _arg(src)]
+            cmd = ["convert", _arg(src), "-define", "filename:literal=true"]
             if lossy:
                 cmd += ["-quality", str(q)]
             cmd += [_arg(dest)]
