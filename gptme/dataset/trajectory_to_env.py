@@ -279,7 +279,10 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                     continue
                 for block in Codeblock.iter_from_markdown("\n".join(lines[: i + 1])):
                     if block.start is not None:
-                        close_line = block.start + block.content.count("\n") + 2
+                        body_lines = (
+                            block.content.count("\n") + 1 if block.content else 0
+                        )
+                        close_line = block.start + body_lines + 1
                         ranges.append(
                             (
                                 offsets[block.start],

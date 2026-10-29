@@ -386,6 +386,19 @@ def test_extract_tool_call_counts_literal_fences(
     }
 
 
+@pytest.mark.parametrize("lang", ["", "shell", "json"])
+@pytest.mark.parametrize("suffix", ["", '\n@read(real): {"path":"a"}'])
+def test_extract_tool_call_counts_empty_fence(lang: str, suffix: str) -> None:
+    content = f"```{lang}\n```{suffix}"
+    expected = {"shell": 1} if lang == "shell" else {}
+    if suffix:
+        expected["read"] = 1
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
 def test_extract_tool_call_counts_unterminated_xml_is_bounded() -> None:
     # A subprocess deadline makes exponential regex backtracking fail safely,
     # rather than hanging the test runner on this malformed persisted message.
