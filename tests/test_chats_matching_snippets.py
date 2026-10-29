@@ -132,3 +132,72 @@ def test_newline_match_display_normalization(
     ]
     assert len(snippets) == 1
     assert "first second" in snippets[0]
+
+
+@pytest.mark.parametrize("kind", ["cursor", "alternate", "codex"])
+@pytest.mark.parametrize(
+    ("content", "query"),
+    [
+        ("A" * 600 + "ΣA", "a" * 600 + "σ"),
+        ("AΣ" + " " * 600, "ς" + " " * 600),
+        # Case-ignorable combining marks can put the decisive context far
+        # outside the nominal excerpt boundary.
+        ("A" * 600 + "Σ" + "\u0301" * 1000 + "A", "a" * 600 + "σ"),
+        ("A" + "\u0301" * 1000 + "Σ" + " " * 600, "ς" + " " * 600),
+    ],
+    ids=[
+        "following-cased",
+        "preceding-cased",
+        "distant-following",
+        "distant-preceding",
+    ],
+)
+def test_context_sensitive_lowercase_match(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    kind: str,
+    content: str,
+    query: str,
+) -> None:
+    cursor = tmp_path / "cursor" / "conversations"
+    cursor.mkdir(parents=True)
+    codex = tmp_path / "codex"
+    codex.mkdir()
+    if kind == "codex":
+        path = codex / "rollout-synthetic.jsonl"
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": content}],
+                    },
+                }
+            )
+        )
+        hits = _search_codex_session(path, query)
+    elif kind == "alternate":
+        path = cursor.parent / "cursor-chat-history.json"
+        path.write_text(
+            json.dumps(
+                {"allConversations": [{"bubbles": [{"type": "user", "text": content}]}]}
+            )
+        )
+        hits = _search_cursor_session(path, query)
+    else:
+        session = cursor / "synthetic"
+        session.mkdir()
+        path = session / "conversation.json"
+        path.write_text(json.dumps({"messages": [{"content": content}]}))
+        hits = _search_cursor_session(path, query)
+    assert query.lower() in content.lower()
+    assert len(hits) == 1
+    assert query.lower() in hits[0]["content"].lower()
+    search_external_chats(query, cursor_dir=cursor, codex_dir=codex)
+    snippets = [
+        line for line in capsys.readouterr().out.splitlines() if line.startswith("   (")
+    ]
+    assert len(snippets) == 1
+    assert query.lower() in snippets[0].lower()

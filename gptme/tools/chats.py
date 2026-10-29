@@ -203,9 +203,15 @@ def _matching_excerpt(content: str, query: str, budget: int = 500) -> str:
         start = bisect.bisect_right(boundaries, start) - 1
         end = bisect.bisect_left(boundaries, end)
     width = max(budget, end - start)
-    left = max(0, start - (width - (end - start)) // 2)
-    left = min(left, max(0, len(content) - width))
-    return content[left : left + width]
+    while True:
+        left = max(0, start - (width - (end - start)) // 2)
+        left = min(left, max(0, len(content) - width))
+        excerpt = content[left : left + width]
+        if needle in excerpt.lower():
+            return excerpt
+        # Slicing can change context-sensitive lowercase forms (e.g. Σ).
+        # Grow context until the original match survives the next search pass.
+        width = min(len(content), width * 2)
 
 
 def _search_cursor_session(path: Path, query: str) -> list[dict]:
