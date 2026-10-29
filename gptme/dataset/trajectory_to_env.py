@@ -265,8 +265,37 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
     def parse(content: str) -> list[ToolUse]:
         # The outer syntax owns its body: XML can contain fenced/native examples,
         # and native JSON arguments can contain XML examples (and vice versa).
+        def fence_ranges(text: str) -> list[tuple[int, int]]:
+            # Extend basic example-fence bounds with heredoc/string-aware
+            # blocks. Check prefixes ending at closers as well: later prose
+            # otherwise changes Codeblock's Markdown nesting look-ahead.
+            lines = text.split("\n")
+            offsets = [0]
+            for line in lines:
+                offsets.append(offsets[-1] + len(line) + 1)
+            ranges = _codeblock_char_ranges(text)
+            for i, line in enumerate(lines):
+                if not re.fullmatch(r"`{3,}[ \t]*", line):
+                    continue
+                for block in Codeblock.iter_from_markdown("\n".join(lines[: i + 1])):
+                    if block.start is not None:
+                        close_line = block.start + block.content.count("\n") + 2
+                        ranges.append(
+                            (
+                                offsets[block.start],
+                                min(offsets[close_line + 1], len(text)),
+                            )
+                        )
+            merged: list[tuple[int, int]] = []
+            for start, end in sorted(ranges):
+                if merged and start < merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+                else:
+                    merged.append((start, end))
+            return merged
+
         def body_ranges(text: str) -> list[tuple[int, int]]:
-            fenced_ranges = _codeblock_char_ranges(text)
+            fenced_ranges = fence_ranges(text)
             ranges = list(fenced_ranges)
             search_from = 0
             while match := toolcall_re.search(text, search_from):
@@ -296,7 +325,7 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
         # apparent closing delimiter, which may belong to a later real call.
         xml_pattern = re.compile(
             r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(tool-use|function_calls)>"
-            r"(?:<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>",
+            r"(?><!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>",
             re.DOTALL,
         )
         search_from = 0
@@ -325,8 +354,20 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                 flags=re.DOTALL,
             )
             calls.extend(DatasetToolUse.iter_from_content(xml_content, "xml"))
-        # `tool` already includes Markdown: parsing both would double count it.
-        calls.extend(DatasetToolUse.iter_from_content(non_xml, "tool"))
+        for start, end in fence_ranges(non_xml):
+            calls.extend(
+                DatasetToolUse.iter_from_content(non_xml[start:end], "markdown")
+            )
+        # The native parser uses a simpler fence scanner. Mask complete parsed
+        # blocks first so literal fences cannot expose native examples either.
+        native_content = non_xml
+        for start, end in fence_ranges(non_xml):
+            native_content = (
+                native_content[:start]
+                + re.sub(r"[^\n]", " ", native_content[start:end])
+                + native_content[end:]
+            )
+        calls.extend(DatasetToolUse.iter_from_content(native_content, "tool"))
         return calls
 
     counts: Counter[str] = Counter()
@@ -339,6 +380,7 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             # Native alias resolution reads the context registry; on a cold
             # context get_tools() creates an empty list. Isolate that lazy write
             # while retaining any existing transport-name aliases for replay.
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
             for call in copy_context().run(parse, content):
                 counts[markdown_tools.get(call.tool, call.tool)] += 1
         elif isinstance(content, list):

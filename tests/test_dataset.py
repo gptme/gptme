@@ -350,6 +350,55 @@ def test_extract_tool_call_counts_rebuilds_fences_after_comment(
     }
 
 
+@pytest.mark.parametrize(
+    ("lang", "body"),
+    [
+        ("shell", "cat <<'EOF' > example.md\n```\n{example}\nEOF"),
+        ("ipython", 'text = """\n```\n{example}\n"""'),
+    ],
+)
+@pytest.mark.parametrize(
+    "example",
+    [
+        "<tool-use><shell>echo example</shell></tool-use>",
+        '@shell(example): {"command":"echo example"}',
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_literal_fences(
+    lang: str,
+    body: str,
+    example: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    content = f"```{lang}\n{body.replace('{example}', example)}\n```"
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        lang: 1
+    }
+    content += '\n<tool-use><save>real</save></tool-use>\n@read(real): {"path":"a"}'
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        lang: 1,
+        "save": 1,
+        "read": 1,
+    }
+
+
+def test_extract_tool_call_counts_unterminated_xml_is_bounded() -> None:
+    # A subprocess deadline makes exponential regex backtracking fail safely,
+    # rather than hanging the test runner on this malformed persisted message.
+    script = (
+        "from gptme.dataset.trajectory_to_env import _extract_tool_call_counts\n"
+        "content = '<tool-use>' + '<![CDATA[x]]>' * 35\n"
+        "assert _extract_tool_call_counts([{'role': 'assistant', 'content': content}]) == {}\n"
+    )
+    import sys
+
+    subprocess.run([sys.executable, "-c", script], check=True, timeout=5)
+
+
 def test_extract_tool_call_counts_ignores_nonassistant() -> None:
     content = '```shell\necho hi\n```\n@shell(call_1): {"command":"echo hi"}'
     assert (
