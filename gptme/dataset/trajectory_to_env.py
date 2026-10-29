@@ -233,7 +233,12 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
     from contextvars import copy_context
 
     from ..codeblock import Codeblock
-    from ..tools.base import ToolUse, _codeblock_char_ranges
+    from ..tools.base import (
+        ToolUse,
+        _codeblock_char_ranges,
+        find_json_end,
+        toolcall_re,
+    )
 
     # Offline exports have no loaded tools. Recognize built-in Markdown tags
     # without discovery/importing tool modules (which may check availability or
@@ -258,13 +263,38 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             return None
 
     def parse(content: str) -> list[ToolUse]:
+        # The outer syntax owns its body: XML can contain fenced/native examples,
+        # and native JSON arguments can contain XML examples (and vice versa).
+        ranges = [(start, end, False) for start, end in _codeblock_char_ranges(content)]
+        search_from = 0
+        while match := toolcall_re.search(content, search_from):
+            end = find_json_end(content, match.start(3))
+            if end is None:
+                break
+            ranges.append((match.start(), end, False))
+            search_from = end
+        ranges.extend(
+            (match.start(), match.end(), True)
+            for match in re.finditer(
+                r"<(tool-use|function_calls)>.*?</\1>", content, re.DOTALL
+            )
+        )
+        calls: list[ToolUse] = []
+        covered_until = 0
+        non_xml = content
+        for start, end, is_xml in sorted(ranges):
+            if start < covered_until:
+                continue
+            covered_until = end
+            if is_xml:
+                calls.extend(
+                    DatasetToolUse.iter_from_content(content[start:end], "xml")
+                )
+                # Preserve line boundaries for the remaining native/Markdown pass.
+                masked = re.sub(r"[^\n]", " ", content[start:end])
+                non_xml = non_xml[:start] + masked + non_xml[end:]
         # `tool` already includes Markdown: parsing both would double count it.
-        calls = list(DatasetToolUse.iter_from_content(content, "tool"))
-        # XML examples inside any code fence are data, not additional calls.
-        unfenced = content
-        for start, end in reversed(_codeblock_char_ranges(content)):
-            unfenced = unfenced[:start] + " " * (end - start) + unfenced[end:]
-        calls.extend(DatasetToolUse.iter_from_content(unfenced, "xml"))
+        calls.extend(DatasetToolUse.iter_from_content(non_xml, "tool"))
         return calls
 
     counts: Counter[str] = Counter()

@@ -203,11 +203,45 @@ def test_extract_tool_call_counts_markdown():
             {"ipython": 2},
         ),
         ("```python\nprint(1)\n```\n```py\nprint(2)\n```", {"python": 1, "ipython": 1}),
+        (
+            '<tool-use><save path="example.txt">\n'
+            '@shell(example): {"command":"echo hi"}\n'
+            "</save></tool-use>",
+            {"save": 1},
+        ),
+        (
+            '<function_calls><invoke name="save" path="example.txt">\n'
+            "```shell\necho hi\n```\n"
+            '@shell(example): {"command":"echo hi"}\n'
+            "</invoke></function_calls>\n"
+            '@shell(real): {"command":"echo bye"}',
+            {"save": 1, "shell": 1},
+        ),
+        (
+            '@save(real): {"path":"example.txt", "content":'
+            '"<tool-use><shell>echo hi</shell></tool-use>"}',
+            {"save": 1},
+        ),
+        (
+            '<tool-use><save path="first.txt">\n```shell\necho example\n```\n'
+            "</save></tool-use>\n"
+            "```shell\necho real\n```\n"
+            '<tool-use><save path="second.txt">\n'
+            '@shell(example): {"command":"echo hi"}\n</save></tool-use>\n'
+            '@shell(real): {"command":"echo bye"}',
+            {"save": 2, "shell": 2},
+        ),
     ],
 )
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
 def test_extract_tool_call_counts_persisted_formats(
-    content: str, expected: dict[str, int]
+    content: str,
+    expected: dict[str, int],
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
     assert (
         _extract_tool_call_counts([{"role": "assistant", "content": content}])
         == expected
