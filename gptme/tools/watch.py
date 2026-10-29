@@ -504,10 +504,6 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
             if watch.cancelled:
                 _kill_proc(proc)
                 return
-            if watch.deadline is not None and time.time() > watch.deadline:
-                _kill_proc(proc)
-                _fire(watch, f"expired without exit ({watch.description})")
-                return
             if read_error:
                 _kill_proc(proc)
                 _fire(watch, f"watch errored: {read_error}")
@@ -519,6 +515,12 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
                     exited_at = time.monotonic()
                 if reader_done.is_set() or time.monotonic() - exited_at >= 2:
                     break
+            elif watch.deadline is not None and time.time() > watch.deadline:
+                # Completion wins over a deadline crossed between polls. The
+                # deadline governs child work, not the bounded post-exit drain.
+                _kill_proc(proc)
+                _fire(watch, f"expired without exit ({watch.description})")
+                return
             # Unlike reader_done.wait(), this does not spin after early EOF.
             watch.cancel_event.wait(timeout=0.2)
     finally:

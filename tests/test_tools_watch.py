@@ -464,6 +464,65 @@ def test_run_waits_for_exit_after_stdout_eof(tmp_path: Path, returncode: int):
             proc.stdout.close()
 
 
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_run_exit_between_polls_wins_over_deadline(
+    tmp_path: Path, returncode: int, monkeypatch: pytest.MonkeyPatch
+):
+    """An exit during the poll wait must not turn into a timeout wake."""
+    import subprocess as sp
+    import sys
+
+    release = tmp_path / "release"
+    proc = sp.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import pathlib, sys, time; p = pathlib.Path(sys.argv[1]); "
+                "exec('while not p.exists(): time.sleep(0.01)'); "
+                "print('done', flush=True); sys.exit(int(sys.argv[2]))"
+            ),
+            str(release),
+            str(returncode),
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+    )
+    w = Watch(
+        id="w-exit-deadline",
+        kind="run",
+        description="exit-between-polls",
+        created=time.time(),
+        deadline=time.time() + 60,
+        proc=proc,
+        logdir=tmp_path,
+    )
+    waits = 0
+
+    def wait_for_exit(timeout: float | None = None) -> bool:
+        nonlocal waits
+        waits += 1
+        assert waits == 1, "settled child should not need another polling wait"
+        release.touch()
+        assert proc.wait(timeout=5) == returncode
+        # Resume the observer after the deadline with the real child reaped,
+        # rather than rely on scheduler timing to reproduce the race.
+        w.deadline = time.time() - 1
+        return False
+
+    monkeypatch.setattr(w.cancel_event, "wait", wait_for_exit)
+    try:
+        _watch_mod._poll_run(w, proc)
+        assert waits == 1
+        assert list(w.events) == [f"process exited rc={returncode} done"]
+        assert proc.stdout is not None and proc.stdout.closed
+    finally:
+        _kill_proc(proc)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
 @pytest.mark.parametrize("finish", ["deadline", "cancel"])
 def test_run_stops_live_child_after_stdout_eof(tmp_path: Path, finish: str):
     import subprocess as sp
@@ -895,7 +954,8 @@ def test_tmux_invalid_pattern_is_valueerror(tmp_path: Path):
 
 
 @pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="requires fork")
-def test_run_exits_when_grandchild_holds_pipe(tmp_path: Path):
+@pytest.mark.parametrize("with_deadline", [False, True])
+def test_run_exits_when_grandchild_holds_pipe(tmp_path: Path, with_deadline: bool):
     """A settled child must not wait forever for an inherited stdout handle."""
     import os
     import signal
@@ -925,8 +985,13 @@ def test_run_exits_when_grandchild_holds_pipe(tmp_path: Path):
         logdir=tmp_path,
     )
     worker = threading.Thread(target=_watch_mod._poll_run, args=(w, proc), daemon=True)
-    worker.start()
     try:
+        assert proc.wait(timeout=5) == 0
+        if with_deadline:
+            # Direct-child work is complete; its deadline must not expire the
+            # subsequent bounded drain of a grandchild's inherited pipe.
+            w.deadline = time.time() + 0.5
+        worker.start()
         worker.join(timeout=6)
         assert not worker.is_alive()
         assert proc.returncode == 0
