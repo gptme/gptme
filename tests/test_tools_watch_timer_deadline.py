@@ -53,7 +53,10 @@ def test_timer_deadline(
     watch_module._poll_timer(watch, seconds)
     assert watch.fired
     assert len(watch.events) == 1
-    assert expected in watch.events[0]
+    expected_message = (
+        "timer elapsed" if expected == "elapsed" else "expired before timer elapsed"
+    )
+    assert watch.events[0] == f"{expected_message} (deadline test)"
     assert now == pytest.approx(finished_at)
     assert all(delay <= watch_module._POLL_INTERVAL for delay in waits)
 
