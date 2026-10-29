@@ -389,7 +389,7 @@ def restore_checkpoint(
     record = _resolve_checkpoint(decision.repo_root, identifier)
     current_sha = decision.head_sha or "?"
 
-    if record.head_sha == current_sha:
+    if record.head_sha == current_sha and decision.kind == "clean_git":
         return f"Already at checkpoint {record.head_sha[:12]} — nothing to restore."
 
     result = subprocess.run(

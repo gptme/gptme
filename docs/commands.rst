@@ -417,7 +417,7 @@ Requires a git workspace to be configured for the session (``--workspace``).
 .. code-block:: text
 
    /checkpoint create                  # Record a checkpoint at current HEAD
-   /checkpoint create --include-dirty  # Also snapshot uncommitted changes
+   /checkpoint create --include-dirty  # Allow a dirty workspace; records HEAD only
    /checkpoint list                    # List all recorded checkpoints
    /checkpoint diff <id>               # Diff current state vs a checkpoint
    /checkpoint restore <id>                    # Restore workspace to a checkpoint
