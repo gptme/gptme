@@ -115,8 +115,8 @@ def test_intentional_command_separators_and_named_keys(
     assert "one; intact" in tmux._capture_pane("gptme_1")
 
 
-@pytest.mark.parametrize("keys", ["C-\\", "M-C-\\", "trailing\\"])
-def test_dispatcher_preserves_trailing_backslash_keys(
+@pytest.mark.parametrize("keys", ["C-\\", "M-C-\\", "trailing\\", "'", '"'])
+def test_dispatcher_preserves_literal_fallback_keys(
     monkeypatch: pytest.MonkeyPatch, keys: str
 ) -> None:
     calls: list[list[str]] = []
@@ -136,7 +136,7 @@ def test_dispatcher_preserves_trailing_backslash_keys(
 
 
 @pytest.mark.parametrize("suffix", ['"unclosed', "'unclosed"])
-def test_malformed_input_has_no_partial_dispatch(
+def test_unmatched_quotes_keep_send_keys_fallback(
     monkeypatch: pytest.MonkeyPatch, suffix: str
 ) -> None:
     calls: list[tuple[str, str]] = []
@@ -147,9 +147,8 @@ def test_malformed_input_has_no_partial_dispatch(
     messages = list(
         tmux.execute_tmux(f"send-keys 1 ok Enter; send-keys 1 {suffix}", [], None)
     )
-    assert not calls
-    assert len(messages) == 1
-    assert "Error:" in messages[0].content
+    assert calls == [("1", "ok Enter"), ("1", suffix)]
+    assert len(messages) == 2
 
 
 @pytest.mark.parametrize(
@@ -228,6 +227,22 @@ def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
         ),
         ("new-session\techo ok # don't wait", ["echo ok # don't wait"]),
         ("new-session echo word#tag", ["echo word#tag"]),
+        (
+            'new-session echo "$(printf " # tag")"; list-sessions',
+            ['echo "$(printf " # tag")"', "list"],
+        ),
+        (
+            'new-session echo "$(printf "%s;inside" "$(printf " # tag")")"; list-sessions',
+            ['echo "$(printf "%s;inside" "$(printf " # tag")")"', "list"],
+        ),
+        (
+            "new-session echo $(printf hi; printf there); list-sessions",
+            ["echo $(printf hi; printf there)", "list"],
+        ),
+        (
+            'new-session echo "\\$(literal"; list-sessions',
+            ['echo "\\$(literal"', "list"],
+        ),
         (r"new-session echo \#tag", [r"echo \#tag"]),
         (r"new-session echo word\ #tag", [r"echo word\ #tag"]),
         (r"new-session echo word\|#tag", [r"echo word\|#tag"]),

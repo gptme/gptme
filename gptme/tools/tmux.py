@@ -443,8 +443,12 @@ def execute_tmux(
     escaped = False
     in_comment = False
     at_word_start = True
+    shell_scopes: list[tuple[bool, str | None]] = []
+    substitution_start = False
 
     for char in cmd:
+        opens_substitution = substitution_start and char == "("
+        substitution_start = False
         if in_comment and char != "\n":
             current.append(char)
             continue
@@ -459,6 +463,27 @@ def execute_tmux(
             # Preserve escapes for send_keys' shlex parsing or new_session's shell.
             current.append(char)
             escaped = True
+            continue
+        is_shell_command = "".join(current).split(maxsplit=1)[0:1] == ["new-session"]
+        if (
+            is_shell_command
+            and char == "("
+            and (
+                (opens_substitution and quote_char != "'")
+                or (shell_scopes and not in_quotes)
+            )
+        ):
+            # Command substitutions have independent quoting scopes. Parentheses
+            # within them also keep their separators out of the tmux dispatcher.
+            shell_scopes.append((in_quotes, quote_char))
+            in_quotes, quote_char = False, None
+            at_word_start = True
+            current.append(char)
+            continue
+        if shell_scopes and char == ")" and not in_quotes:
+            in_quotes, quote_char = shell_scopes.pop()
+            at_word_start = False
+            current.append(char)
             continue
         if (
             char == "#"
@@ -477,28 +502,21 @@ def execute_tmux(
                 in_quotes = False
                 quote_char = None
             current.append(char)
-        elif char == "\n" and not in_quotes:
+        elif char == "\n" and not in_quotes and not shell_scopes:
             if current:
                 commands.append("".join(current).strip())
                 current = []
-        elif char == ";" and not in_quotes:
+        elif char == ";" and not in_quotes and not shell_scopes:
             if current:
                 commands.append("".join(current).strip())
                 current = []
         else:
             current.append(char)
+        substitution_start = char == "$" and quote_char != "'"
         at_word_start = not in_quotes and (char.isspace() or char in ";|&()<>")
 
-    # new-session forwards its argument to Bash, whose nested quoting scopes
-    # (e.g. command substitutions) this lightweight splitter cannot validate.
-    # Keep pre-dispatch rejection for our own command syntax, not shell syntax.
-    is_shell_command = "".join(current).split(maxsplit=1)[0:1] == ["new-session"]
-    # A trailing backslash can be a literal tmux key (e.g. C-\\); send_keys
-    # already preserves those through its shlex fallback.
-    if in_quotes and not is_shell_command:
-        yield Message("system", "Error: Unclosed quote in tmux command")
-        return
-
+    # Leave shell validation to Bash and preserve send_keys' existing literal
+    # fallback for unmatched quotes and trailing backslashes (e.g. C-\\).
     if current:
         commands.append("".join(current).strip())
 
