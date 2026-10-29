@@ -923,6 +923,7 @@ class ToolUse:
     call_id: str | None = None
     start: int | None = None
     _format: ToolFormat | None = "markdown"
+    _occurrence: int | None = None
 
     def execute(
         self,
@@ -1247,6 +1248,12 @@ class ToolUse:
         tool_uses: list[ToolUse] = []
         if active_format == "xml":
             tool_uses = list(cls._iter_from_xml(content))
+            # XML start offsets can repeat for the same tag. Keep an explicit
+            # occurrence so identical calls remain distinguishable on resume.
+            tool_uses = [
+                dataclasses.replace(call, _occurrence=index)
+                for index, call in enumerate(tool_uses)
+            ]
         if active_format in ("markdown", "tool"):
             # Always try markdown parsing: "tool" format also needs to parse
             # markdown blocks for /impersonate content and user-provided tool calls

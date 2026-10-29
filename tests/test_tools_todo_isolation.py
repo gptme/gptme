@@ -524,3 +524,30 @@ def test_restore_aborts_malformed_call_but_replays_next_call(tmp_path: Path) -> 
         "1": "First",
         "2": "Next call",
     }
+
+
+@pytest.mark.parametrize("lxml", [False, True])
+def test_resume_repeated_xml_calls_uses_call_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lxml: bool
+) -> None:
+    import gptme.tools.base as base
+    from gptme.tools.todo import clear_todo_state
+
+    if lxml and not base._LXML_AVAILABLE:
+        pytest.skip("lxml not installed")
+    monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml)
+    base.set_tool_format("xml")
+    content = "\n\n".join(
+        base.ToolUse("todo", ["write"], 'add "Task"').to_output("xml") for _ in range(2)
+    )
+    manager = start(tmp_path / "repeated")
+    manager.append(Message("assistant", content))
+    calls = list(base.ToolUse.iter_from_content(content))
+    for result in calls[0].execute(log=manager.log):
+        manager.append(result)
+    manager.write()
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, lock=False)
+    list(calls[1].execute(log=resumed.log))
+    assert "Summary: 2 total" in _todoread()
+    assert "2. 🔲 Task" in _todoread()

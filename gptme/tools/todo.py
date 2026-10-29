@@ -221,7 +221,11 @@ def _restore_todos(
                 stop_before is not None
                 and msg is messages[-1]
                 and _call_identity(tooluse) == _call_identity(stop_before)
-                and (stop_before.start is None or tooluse.start == stop_before.start)
+                and (
+                    tooluse._occurrence == stop_before._occurrence
+                    if stop_before._occurrence is not None
+                    else stop_before.start is None or tooluse.start == stop_before.start
+                )
             ):
                 return todos, restored
             if tooluse.tool != "todo":
