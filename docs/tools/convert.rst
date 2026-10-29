@@ -16,6 +16,11 @@ call it with structured arguments:
 
     gptme "convert report.pdf to report-page-1.png at high quality, dry run first"
 
+When converting images to PNG or JPEG (``.png``, ``.jpg``, ``.jpeg``), animated
+input produces its first frame at the exact requested output path, not a numbered
+image sequence. Animation-capable GIF and WebP targets are not subject to this
+first-frame selection.
+
 .. automodule:: gptme.tools.convert
     :members:
     :noindex:
