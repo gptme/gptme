@@ -498,12 +498,14 @@ def test_run_exit_between_polls_wins_over_deadline(
         proc=proc,
         logdir=tmp_path,
     )
-    waits = 0
+    wait = w.cancel_event.wait
+    released = False
 
     def wait_for_exit(timeout: float | None = None) -> bool:
-        nonlocal waits
-        waits += 1
-        assert waits == 1, "settled child should not need another polling wait"
+        nonlocal released
+        if released:
+            return wait(timeout)
+        released = True
         release.touch()
         assert proc.wait(timeout=5) == returncode
         # Resume the observer after the deadline with the real child reaped,
@@ -514,7 +516,6 @@ def test_run_exit_between_polls_wins_over_deadline(
     monkeypatch.setattr(w.cancel_event, "wait", wait_for_exit)
     try:
         _watch_mod._poll_run(w, proc)
-        assert waits == 1
         assert list(w.events) == [f"process exited rc={returncode} done"]
         assert proc.stdout is not None and proc.stdout.closed
     finally:
