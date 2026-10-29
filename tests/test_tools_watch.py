@@ -370,15 +370,18 @@ def test_run_reaps_child_after_sigkill_on_timeout(tmp_path: Path):
     import signal
     import subprocess as sp
 
+    ready = tmp_path / "ready"
     proc = sp.Popen(
         [
             "python3",
             "-c",
             (
-                "import os, signal, time; "
+                "import os, pathlib, signal, sys, time; "
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-                "os.close(1); os.close(2); time.sleep(5)"
+                "os.close(1); os.close(2); "
+                "pathlib.Path(sys.argv[1]).touch(); time.sleep(60)"
             ),
+            str(ready),
         ],
         stdout=sp.PIPE,
         stderr=sp.STDOUT,
@@ -390,13 +393,17 @@ def test_run_reaps_child_after_sigkill_on_timeout(tmp_path: Path):
         kind="run",
         description="slow-exit",
         created=time.time(),
-        deadline=time.time() + 0.5,
         proc=proc,
         logdir=tmp_path,
     )
     t = threading.Thread(target=_watch_mod._poll_run, args=(w, proc), daemon=True)
     t.start()
     try:
+        limit = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < limit:
+            time.sleep(0.01)
+        assert ready.exists(), "child did not install its signal handler"
+        w.deadline = time.time() - 1
         t.join(timeout=10)
         assert not t.is_alive()
         assert w.fired
@@ -408,7 +415,10 @@ def test_run_reaps_child_after_sigkill_on_timeout(tmp_path: Path):
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
+        w.cancelled = True
+        w.cancel_event.set()
         _kill_proc(proc)
+        t.join(timeout=3)
 
 
 @pytest.mark.parametrize("returncode", [0, 7])
