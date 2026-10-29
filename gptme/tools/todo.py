@@ -216,9 +216,19 @@ def _restore_todos(
         # System prompts contain examples, not executed assistant instructions.
         if msg.role != "assistant":
             continue
-        for tooluse in ToolUse.iter_from_content(msg.content):
+        # Native parsing also accepts markdown. Fall back to XML only when
+        # neither is present, so XML examples inside fenced calls stay inert.
+        calls = list(
+            ToolUse.iter_from_content(msg.content, tool_format_override="tool")
+        )
+        if not calls:
+            calls = list(
+                ToolUse.iter_from_content(msg.content, tool_format_override="xml")
+            )
+        for tooluse in calls:
             if (
                 stop_before is not None
+                and stop_before.start is not None
                 and msg is messages[-1]
                 and _call_identity(tooluse) == _call_identity(stop_before)
                 and (
@@ -306,13 +316,14 @@ def restore_todos_before_tool(
         log = manager.master_log if manager.current_branch == "main" else manager.log
         messages = log.messages
 
-        # The assistant message is already persisted by the server tool worker.
-        # Keep calls before this one (which may have executed before a restart),
-        # but exclude this call and later calls that have not executed yet.
-        for index in range(len(messages) - 1, -1, -1):
-            if messages[index].role == "assistant":
-                messages = messages[: index + 1]
-                break
+        # Only parsed calls have a source position. A fresh direct ToolUse is
+        # independent, even when its command equals the last historical call.
+        # Parsed pending/rerun calls retain earlier calls in their message.
+        if data.tool_use.start is not None:
+            for index in range(len(messages) - 1, -1, -1):
+                if messages[index].role == "assistant":
+                    messages = messages[: index + 1]
+                    break
         _todo_stores[key], _ = _restore_todos(messages, stop_before=data.tool_use)
     yield from ()
 

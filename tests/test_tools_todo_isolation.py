@@ -286,6 +286,7 @@ def test_direct_tool_resume_restores_before_pending_call(
     manager.append(Message("assistant", pending_content))
     manager.write()
     resumed = LogManager.load(manager.logdir, lock=False)
+    pending = list(ToolUse.iter_from_content(pending_content))[-1]
     result = list(pending.execute(log=resumed.log))
     assert all("not found" not in msg.content for msg in result)
     assert "Saved plan" in _todoread()
@@ -492,12 +493,14 @@ def test_direct_resume_preserves_earlier_calls_in_pending_message(
     )
     manager = start(tmp_path / "partial")
     manager.append(Message("assistant", content))
+    add = list(ToolUse.iter_from_content(content))[0]
     results = list(add.execute(log=manager.log))
     for msg in results:
         manager.append(msg)
     manager.write()
     list(clear_todo_state(manager))
     resumed = LogManager.load(manager.logdir, lock=False)
+    update = list(ToolUse.iter_from_content(content))[1]
     result = list(update.execute(log=resumed.log))
     assert all("not found" not in msg.content for msg in result)
     assert "1. ✅ Saved task" in _todoread()
@@ -551,3 +554,75 @@ def test_resume_repeated_xml_calls_uses_call_occurrence(
     list(calls[1].execute(log=resumed.log))
     assert "Summary: 2 total" in _todoread()
     assert "2. 🔲 Task" in _todoread()
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_independent_direct_call_keeps_identical_completed_history(
+    tmp_path: Path, tool_format: Literal["markdown", "xml", "tool"]
+) -> None:
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state
+
+    set_tool_format(tool_format)
+    direct = ToolUse("todo", ["write"], 'add "Task"')
+    saved = ToolUse("todo", ["write"], 'add "Task"')
+    if tool_format == "tool":
+        saved = ToolUse(
+            "todo", None, None, kwargs={"command": 'write add "Task"'}, call_id="saved"
+        )
+        direct = ToolUse("todo", None, None, kwargs={"command": 'write add "Task"'})
+    manager = start(tmp_path / "independent")
+    saved_content = saved.to_output(tool_format)
+    if tool_format == "tool":
+        saved_content = saved_content.replace("@todo:", "@todo(saved):", 1)
+    manager.append(Message("assistant", saved_content))
+    saved = list(ToolUse.iter_from_content(saved_content))[0]
+    for result in saved.execute(log=manager.log):
+        manager.append(result)
+    manager.write()
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, lock=False)
+    list(direct.execute(log=resumed.log))
+    assert "1. 🔲 Task" in _todoread()
+    assert "2. 🔲 Task" in _todoread()
+    assert "Summary: 2 total" in _todoread()
+
+
+@pytest.mark.parametrize("active_format", ["markdown", "xml", "tool"])
+def test_restore_history_across_tool_format_changes(
+    tmp_path: Path, active_format: Literal["markdown", "xml", "tool"]
+) -> None:
+    from gptme.tools.base import ToolUse, get_tool_format, set_tool_format
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    messages = []
+    formats: tuple[Literal["markdown", "xml", "tool"], ...] = (
+        "markdown",
+        "xml",
+        "tool",
+    )
+    for tool_format in formats:
+        call = ToolUse("todo", ["write"], f'add "Saved {tool_format}"')
+        if tool_format == "tool":
+            call = ToolUse(
+                "todo",
+                None,
+                None,
+                kwargs={"command": 'write add "Saved tool"'},
+                call_id="saved-native",
+            )
+        content = call.to_output(tool_format)
+        if tool_format == "tool":
+            content = content.replace("@todo:", "@todo(saved-native):", 1)
+        messages.append(Message("assistant", content))
+    manager = start(tmp_path / "mixed")
+    for msg in messages:
+        manager.append(msg)
+    list(clear_todo_state(manager))
+    set_tool_format(active_format)
+    list(ensure_todo_state(manager))
+    assert get_tool_format() == active_format
+    assert "1. 🔲 Saved markdown" in _todoread()
+    assert "2. 🔲 Saved xml" in _todoread()
+    assert "3. 🔲 Saved tool" in _todoread()
+    assert "Summary: 3 total" in _todoread()
