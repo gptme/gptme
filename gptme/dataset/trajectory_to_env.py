@@ -265,22 +265,32 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
     def parse(content: str) -> list[ToolUse]:
         # The outer syntax owns its body: XML can contain fenced/native examples,
         # and native JSON arguments can contain XML examples (and vice versa).
-        fenced_ranges = _codeblock_char_ranges(content)
-        ranges = [(start, end, False) for start, end in fenced_ranges]
-        search_from = 0
-        while match := toolcall_re.search(content, search_from):
-            block_end = next(
-                (end for start, end in fenced_ranges if start <= match.start() < end),
-                None,
-            )
-            if block_end is not None:
-                search_from = block_end
-                continue
-            end = find_json_end(content, match.start(3))
-            if end is None:
-                break
-            ranges.append((match.start(), end, False))
-            search_from = end
+        def body_ranges(text: str) -> list[tuple[int, int]]:
+            fenced_ranges = _codeblock_char_ranges(text)
+            ranges = list(fenced_ranges)
+            search_from = 0
+            while match := toolcall_re.search(text, search_from):
+                block_end = next(
+                    (
+                        end
+                        for start, end in fenced_ranges
+                        if start <= match.start() < end
+                    ),
+                    None,
+                )
+                if block_end is not None:
+                    search_from = block_end
+                    continue
+                end = find_json_end(text, match.start(3))
+                if end is None:
+                    break
+                ranges.append((match.start(), end))
+                search_from = end
+            return ranges
+
+        non_xml = content
+        ranges = body_ranges(non_xml)
+        xml_ranges: list[tuple[int, int]] = []
         # Consume comments/CDATA as units both outside and inside wrappers.
         # Skip openers owned by native/fenced bodies before consuming their
         # apparent closing delimiter, which may belong to a later real call.
@@ -292,38 +302,29 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
         search_from = 0
         while match := xml_pattern.search(content, search_from):
             body_end = next(
-                (end for start, end, _ in ranges if start <= match.start() < end),
+                (end for start, end in ranges if start <= match.start() < end),
                 None,
             )
             if body_end is not None:
                 search_from = body_end
                 continue
-            # The accepted outer region owns every opener in its body, even
-            # when an apparent fence/native range extends past its closing tag.
-            # Those nested ranges must not hide a later real XML wrapper.
-            ranges = [
-                entry for entry in ranges if not match.start() <= entry[0] < match.end()
-            ]
-            ranges.append((match.start(), match.end(), True))
+            xml_ranges.append((match.start(), match.end()))
+            # Mask the outer region before rebuilding body ranges: a fence
+            # opener in its body may have hidden a later real fenced block.
+            # Preserve offsets and line boundaries for every remaining pass.
+            masked = re.sub(r"[^\n]", " ", match.group())
+            non_xml = non_xml[: match.start()] + masked + non_xml[match.end() :]
+            ranges = body_ranges(non_xml)
             search_from = match.end()
         calls: list[ToolUse] = []
-        covered_until = 0
-        non_xml = content
-        for start, end, is_xml in sorted(ranges):
-            if start < covered_until:
-                continue
-            covered_until = end
-            if is_xml:
-                xml_content = re.sub(
-                    r"<!\[CDATA\[.*?\]\]>|<!--.*?-->",
-                    lambda match: re.sub(r"[^\n]", " ", match.group()),
-                    content[start:end],
-                    flags=re.DOTALL,
-                )
-                calls.extend(DatasetToolUse.iter_from_content(xml_content, "xml"))
-                # Preserve line boundaries for the remaining native/Markdown pass.
-                masked = re.sub(r"[^\n]", " ", content[start:end])
-                non_xml = non_xml[:start] + masked + non_xml[end:]
+        for start, end in xml_ranges:
+            xml_content = re.sub(
+                r"<!\[CDATA\[.*?\]\]>|<!--.*?-->",
+                lambda match: re.sub(r"[^\n]", " ", match.group()),
+                content[start:end],
+                flags=re.DOTALL,
+            )
+            calls.extend(DatasetToolUse.iter_from_content(xml_content, "xml"))
         # `tool` already includes Markdown: parsing both would double count it.
         calls.extend(DatasetToolUse.iter_from_content(non_xml, "tool"))
         return calls

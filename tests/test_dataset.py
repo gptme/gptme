@@ -324,6 +324,32 @@ def test_extract_tool_call_counts_comment_owns_fence(
     }
 
 
+@pytest.mark.parametrize("outer", ["<!--\n```text\n-->", "<![CDATA[\n```text\n]]>"])
+@pytest.mark.parametrize(
+    "example",
+    [
+        "<tool-use><shell>echo example</shell></tool-use>",
+        '<function_calls><invoke name="shell">echo example</invoke></function_calls>',
+        '@save(example): {"content":"<tool-use><shell>example</shell></tool-use>"}',
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_rebuilds_fences_after_comment(
+    outer: str,
+    example: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    content = f"{outer}\n```json\n{example}\n```"
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {}
+    content += '\n@shell(real): {"command":"echo real"}'
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "shell": 1
+    }
+
+
 def test_extract_tool_call_counts_ignores_nonassistant() -> None:
     content = '```shell\necho hi\n```\n@shell(call_1): {"command":"echo hi"}'
     assert (
