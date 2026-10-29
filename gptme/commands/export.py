@@ -177,7 +177,7 @@ def _replay_tool(log, tool_name: str) -> None:
 
 @command("export")
 def cmd_export(ctx: CommandContext) -> None:
-    """Export conversation as HTML."""
+    """Export conversation text/display assets as offline HTML; attachments are omitted."""
     from ..util.export import export_chat_to_html  # fmt: skip
 
     # Get output path from args or use default

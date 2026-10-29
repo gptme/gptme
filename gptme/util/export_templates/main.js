@@ -29,6 +29,9 @@ new Vue({
     branch: "main",
     chatLog: [],
 
+    // Standalone exports contain references, not attachment bytes.
+    standalone: Array.isArray(window.CHAT_DATA),
+
     // Options
     sortBy: "modified",
     showSystemMessages: false, // hide initial system messages
