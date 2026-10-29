@@ -114,8 +114,11 @@ def _failed_check_reference(run: dict) -> str:
     """Keep external check links; check-run IDs are not workflow run IDs."""
     name = f"{run.get('name', 'Unknown')} ({run.get('conclusion')})"
     url = run.get("html_url") or ""
-    if "/actions/runs/" in url:
-        run_id = url.split("/actions/runs/")[-1].split("/")[0]
+    match = re.fullmatch(
+        r"https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)(?:[/?#].*)?", url
+    )
+    if match:
+        run_id = match.group(1)
         return f"{name} (run {run_id}) — gh run view {run_id} --log-failed"
     return f"{name} — {url}" if url else name
 

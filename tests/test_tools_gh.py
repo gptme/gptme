@@ -272,17 +272,24 @@ class TestFormatCheckResults:
             assert str(conclusion) in result
             assert "run 123" in result
 
-    def test_external_failure_preserves_url(self):
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://ci.example.test/build/123",
+            "https://ci.example.test/actions/runs/123",
+        ],
+    )
+    def test_external_failure_preserves_url(self, url):
         runs = [
             _make_check_run(
                 "external",
                 conclusion="failure",
                 run_id=789,
-                html_url="https://ci.example.test/build/123",
+                html_url=url,
             )
         ]
         result = _format_check_results(runs, "abc1234", 1)
-        assert "https://ci.example.test/build/123" in result
+        assert url in result
         assert "gh run view" not in result
         assert "run 789" not in result
 
@@ -318,20 +325,27 @@ class TestWaitForChecks:
         assert "run 789" not in result
         gh_time.sleep.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://ci.example.test/build/123",
+            "https://ci.example.test/actions/runs/123",
+        ],
+    )
     @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
-    def test_external_failure_preserves_url(self, mock_run, gh_time):
+    def test_external_failure_preserves_url(self, mock_run, gh_time, url):
         runs = [
             _make_check_run(
                 "external",
                 conclusion="failure",
                 run_id=789,
-                html_url="https://ci.example.test/build/123",
+                html_url=url,
             )
         ]
         mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
         result = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))[-1].content
-        assert "https://ci.example.test/build/123" in result
+        assert url in result
         assert "gh run view" not in result
         assert "run 789" not in result
         gh_time.sleep.assert_not_called()
