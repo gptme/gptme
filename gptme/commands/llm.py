@@ -122,10 +122,11 @@ def cmd_model(ctx: CommandContext) -> "Generator[Message, None, None]":
 
     if ctx.args:
         new_model = ctx.args[0]
+        current_tool_format = get_tool_format()
         set_default_model(new_model)
         model_meta = get_default_model()
         assert model_meta is not None
-        new_tool_format = model_meta.default_tool_format or get_tool_format()
+        new_tool_format = model_meta.default_tool_format or current_tool_format
 
         # Persist all dependent runtime state before appending a replacement
         # generated prompt. Historical prompts remain in the append-only log;
@@ -141,7 +142,8 @@ def cmd_model(ctx: CommandContext) -> "Generator[Message, None, None]":
             tool_format=new_tool_format,
         )
         print(f"Set model to {new_model}")
-        print(f"Switched tool format to '{new_tool_format}'")
+        if new_tool_format != current_tool_format:
+            print(f"Switched tool format to '{new_tool_format}'")
     else:
         model = get_default_model()
         if not model:
