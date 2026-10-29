@@ -234,7 +234,8 @@ def _restore_todos(
                 stop_before is not None
                 and stop_before._source_content is msg.content
                 and msg is messages[-1]
-                and _call_identity(tooluse) == _call_identity(stop_before)
+                # Provenance plus occurrence identifies the original call even
+                # when confirmation edits replace its arguments or content.
                 and (
                     tooluse._occurrence == stop_before._occurrence
                     if stop_before._occurrence is not None

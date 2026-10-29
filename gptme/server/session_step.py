@@ -1487,7 +1487,12 @@ def start_tool_execution(
                     # Pending calls were parsed before this worker reloaded the
                     # log. Rebind provenance only to their persisted owner, not
                     # to an unrelated message with an identical command.
-                    for owner_msg in manager.log.messages:
+                    replay_log = (
+                        manager.master_log
+                        if manager.current_branch == "main"
+                        else manager.log
+                    )
+                    for owner_msg in replay_log.messages:
                         if (
                             owner_msg.role == "assistant"
                             and owner_msg.timestamp == tool_exec.assistant_msg_timestamp

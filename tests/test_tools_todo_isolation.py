@@ -680,12 +680,18 @@ def test_restore_does_not_execute_nested_format_examples(
     assert restored == {}
 
 
+@pytest.mark.parametrize("lossless", [False, True])
+@pytest.mark.parametrize("edited", [False, True])
 @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
 def test_server_pending_call_restores_after_worker_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     tool_format: Literal["markdown", "xml", "tool"],
+    lossless: bool,
+    edited: bool,
 ) -> None:
+    from dataclasses import replace
+
     from gptme.config import ChatConfig
     from gptme.tools.base import ToolUse, set_tool_format
     from gptme.tools.todo import clear_todo_state
@@ -702,6 +708,8 @@ def test_server_pending_call_restores_after_worker_reload(
     message = Message("assistant", content)
     manager = start(tmp_path / "worker", [message])
     manager.write()
+    if lossless:
+        manager.preserve_lossless_log()
     list(clear_todo_state(manager))
     session = SessionManager.create_session(str(manager.logdir))
     session.pending_tools["pending"] = ToolExecution(
@@ -721,7 +729,18 @@ def test_server_pending_call_restores_after_worker_reload(
             str(manager.logdir),
             session,
             "pending",
-            None,
+            (
+                replace(
+                    session.pending_tools["pending"].tooluse,
+                    kwargs={"command": 'write add "Edited"'},
+                )
+                if tool_format == "tool"
+                else replace(
+                    session.pending_tools["pending"].tooluse, content='add "Edited"'
+                )
+            )
+            if edited
+            else None,
             "mock/model",
             ChatConfig(model="mock/model"),
         )
@@ -730,5 +749,6 @@ def test_server_pending_call_restores_after_worker_reload(
         resumed = LogManager.load(manager.logdir, lock=False)
         assert resumed
         assert "Summary: 1 total" in _todoread()
+        assert ("Edited" if edited else "Pending") in _todoread()
     finally:
         SessionManager.remove_session(session.id)
