@@ -487,3 +487,83 @@ async def test_local_startup_command_retries_mount_time_completion(
         assert sum("Subagent 'child'" in m.content for m in manager.log) == 1
         assert seen == ([1] if enabled else [])
         assert not app.generating
+
+
+@pytest.mark.asyncio
+async def test_command_release_prioritizes_queued_input_over_notification(
+    tmp_path, monkeypatch
+):
+    """Readiness must not steal the queued prompt's first model request."""
+    from gptme.tui.app import _CommandResult
+
+    manager = LogManager([], logdir=tmp_path / "parent", lock=False)
+    seen: list[list[str]] = []
+    requested = threading.Event()
+    release = threading.Event()
+
+    def model(log, **kwargs):
+        seen.append([m.content for m in log])
+        requested.set()
+        assert release.wait(10)
+        yield Message("assistant", "done")
+
+    monkeypatch.setattr("gptme.tui.app.step", model)
+    app = GptmeApp(manager, workspace=tmp_path)
+    try:
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.generating = True  # /help owns the context
+            app._enqueue_prompt("queued user task")
+            notify_completion(
+                "busy-child", "success", "ready", parent_logdir=manager.logdir
+            )
+            await pilot.pause()
+            # Hold the call_later dispatch so readiness deterministically runs
+            # first, as permitted by the two independent release callbacks.
+            dispatches = []
+            call_later = app.call_later
+
+            def defer_dispatch(callback, *args, **kwargs):
+                if callback == app._dispatch_queue:
+                    dispatches.append(callback)
+                    return True
+                return call_later(callback, *args, **kwargs)
+
+            monkeypatch.setattr(app, "call_later", defer_dispatch)
+            app._background_command_done("help", [], _CommandResult(handled=True))
+            await pilot.pause()
+            assert not requested.is_set()
+            assert app.prompt_queue == ["queued user task"]
+            assert len(dispatches) == 1
+            await dispatches[0]()
+            for _ in range(100):
+                await pilot.pause()
+                if requested.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            assert requested.is_set()
+            assert "queued user task" in seen[0]
+            assert sum("Subagent 'busy-child'" in m.content for m in manager.log) == 1
+            assert len(seen) == 1
+            release.set()
+            await settle(app, pilot)
+            assert not app.prompt_queue
+            assert not app.generating
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_stale_dispatch_does_not_mutate_active_worker_log(tmp_path, monkeypatch):
+    """A delayed command-release callback leaves input at the step boundary."""
+    manager = LogManager([], logdir=tmp_path / "parent", lock=False)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True
+        app._enqueue_prompt("pending at boundary")
+        before = list(manager.log)
+        await app._dispatch_queue()
+        assert list(manager.log) == before
+        assert app.prompt_queue == ["pending at boundary"]
+        app.generating = False

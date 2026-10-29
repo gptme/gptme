@@ -2532,12 +2532,13 @@ class GptmeApp(App):
     async def _deliver_notifications(self) -> None:
         # Never touch the log while a worker/command owns its context. Its
         # release path retries the inbox, even if this signal arrived busy.
-        # Startup prompts have priority over a mount-time notification wake.
-        # Otherwise their submission can mutate an already-running worker's log.
+        # Startup and queued user prompts have priority over notification wakes.
+        # Their dispatcher owns the next turn; its step hooks drain the inbox.
         if (
             self.generating
             or self._quitting
             or self._initial_prompts
+            or self.prompt_queue
             or len(self.screen_stack) > 1
         ):
             return
@@ -4147,6 +4148,10 @@ class GptmeApp(App):
     async def _dispatch_queue(self) -> None:
         """After a turn or command: send the next queued prompt, or hand the
         queue back to the input if the user interrupted."""
+        # A delayed command-release callback may run after another path has
+        # reserved a worker. Leave its live log and step-boundary input alone.
+        if self.generating or self._quitting:
+            return
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
             text = "\n".join(_queued_prompt_text(item) for item in self.prompt_queue)
