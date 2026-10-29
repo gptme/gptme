@@ -35,12 +35,26 @@ Configure RAG in your ``gptme.toml``::
    - Only indexes user and assistant messages (skips system prompts)
    - Enables semantic search across your conversation history
 
+Explicit project indexes use ``<gptme data dir>/rag/projects-v2/<SHA-256 of the
+exact UTF-8 project name>``. Indexing, search and status share this identity;
+case, punctuation and whitespace are significant. Omitting ``project`` (or
+passing an empty string) still uses the CLI's global index.
+
+Legacy ``rag/<sanitized-name>`` directories are never selected or changed,
+even for ordinary names: sanitization did not record the original identity,
+so their contents may belong to another name. After upgrading, explicitly
+rebuild each project from its own source files with
+``rag_index(paths="/path/to/project", project="exact project name")``.
+Search and status use the new index immediately, without falling back to old
+data. Keep legacy directories as backups; there is no automatic migration.
+
 3. Automatic Context Enhancement
 
    - Retrieves semantically similar documents
    - Preserves conversation flow with hidden context messages
 """
 
+import hashlib
 import logging
 import re
 import shutil
@@ -75,7 +89,19 @@ def _project_persist_dir(project: str | None) -> Path | None:
     """Return the persist directory for a project, or None to use the global index."""
     if not project:
         return None
-    return get_data_dir() / "rag" / _sanitize_project_name(project)
+    root = get_data_dir() / "rag"
+    # Hash the exact name, not its lossy legacy spelling. A separate namespace
+    # avoids reusing any old index, whose original project identity is unknown.
+    identity = hashlib.sha256(project.encode("utf-8")).hexdigest()
+    legacy_name = _sanitize_project_name(project)
+    if len(legacy_name.encode("utf-8")) <= 255 and (root / legacy_name).exists():
+        logger.warning(
+            "Legacy RAG index at %s is not reused: its project identity is ambiguous. "
+            "Rebuild with rag_index(paths=..., project=%r); legacy data is unchanged.",
+            root / legacy_name,
+            project,
+        )
+    return root / "projects-v2" / identity
 
 
 instructions = """

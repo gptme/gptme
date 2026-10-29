@@ -1,5 +1,6 @@
 """Tests for the RAG tool."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -297,9 +298,10 @@ def test_project_persist_dir_dot_traversal(tmp_path):
         d_dotdot = _project_persist_dir("..")
     assert d_dot is not None
     # Must stay under rag/ — not resolve to rag/../ or rag/ root itself
-    assert d_dot.name == "default"
+    assert d_dot.parent == tmp_path / "rag" / "projects-v2"
     assert d_dotdot is not None
-    assert d_dotdot.name == "default"
+    assert d_dotdot.parent == d_dot.parent
+    assert d_dotdot != d_dot
 
 
 def test_project_persist_dir_none():
@@ -314,15 +316,16 @@ def test_project_persist_dir_returns_path(tmp_path):
     with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
         d = _project_persist_dir("myproject")
     assert d is not None
-    assert d == tmp_path / "rag" / "myproject"
+    assert (
+        d == tmp_path / "rag" / "projects-v2" / hashlib.sha256(b"myproject").hexdigest()
+    )
 
 
 def test_project_persist_dir_sanitizes_name(tmp_path):
     with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
         d = _project_persist_dir("org/repo")
     assert d is not None
-    # slash replaced with underscore
-    assert d.name == "org_repo"
+    assert d.name == hashlib.sha256(b"org/repo").hexdigest()
 
 
 def test_rag_index_no_project_no_persist_dir():
@@ -347,7 +350,9 @@ def test_rag_index_with_project_passes_persist_dir(tmp_path):
     cmd = mock_run.call_args[0][0]
     assert "--persist-dir" in cmd
     persist_dir_idx = cmd.index("--persist-dir")
-    assert cmd[persist_dir_idx + 1] == str(tmp_path / "rag" / "myproject")
+    assert cmd[persist_dir_idx + 1] == str(
+        tmp_path / "rag" / "projects-v2" / hashlib.sha256(b"myproject").hexdigest()
+    )
 
 
 def test_rag_index_glob_uses_pattern_flag():
@@ -394,7 +399,9 @@ def test_rag_search_with_project_passes_persist_dir(tmp_path):
     cmd = mock_run.call_args[0][0]
     assert "--persist-dir" in cmd
     persist_dir_idx = cmd.index("--persist-dir")
-    assert cmd[persist_dir_idx + 1] == str(tmp_path / "rag" / "myproject")
+    assert cmd[persist_dir_idx + 1] == str(
+        tmp_path / "rag" / "projects-v2" / hashlib.sha256(b"myproject").hexdigest()
+    )
 
 
 def test_rag_search_top_k_uses_n_results_flag():
@@ -440,7 +447,9 @@ def test_rag_status_with_project_not_found(tmp_path):
 
 def test_rag_status_with_project_found(tmp_path):
     """project status reports directory info when the index dir exists."""
-    project_dir = tmp_path / "rag" / "myproject"
+    project_dir = (
+        tmp_path / "rag" / "projects-v2" / hashlib.sha256(b"myproject").hexdigest()
+    )
     project_dir.mkdir(parents=True)
     (project_dir / "chroma.sqlite3").write_bytes(b"x" * 1024)
 
@@ -483,3 +492,74 @@ def test_project_isolation(tmp_path):
         rag_search("query")
         global_cmd = calls[0]
         assert "--persist-dir" not in global_cmd
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ["client/a", "client_a", "client\\a"],
+        ["client b", "client_b", "client  b", "client\tb"],
+        [".", "..", "default", "___"],
+        ["client!", "client?", "client_", "client"],
+        ["Alpha", "alpha", "βeta", "beta"],
+    ],
+)
+def test_project_identities_are_distinct_stable_and_confined(tmp_path, names):
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        paths = [_project_persist_dir(name) for name in names]
+        assert len(set(paths)) == len(names)
+        for name, path in zip(names, paths, strict=True):
+            assert path is not None
+            assert path == _project_persist_dir(name)
+            assert path.resolve().is_relative_to((tmp_path / "rag").resolve())
+
+
+@pytest.mark.parametrize(
+    "project", ["client/a", "client_a", "client b", "client_b", "..", "default"]
+)
+def test_project_operations_agree_and_do_not_reuse_legacy(tmp_path, project, caplog):
+    legacy = tmp_path / "rag" / _sanitize_project_name(project)
+    legacy.mkdir(parents=True)
+    marker = legacy / "legacy-data"
+    marker.write_bytes(b"ambiguous old index; never select or mutate")
+    proc = MagicMock(stdout="ok\n")
+    with (
+        patch("gptme.tools.rag.get_data_dir", return_value=tmp_path),
+        patch("gptme.tools.rag._run_rag_cmd", return_value=proc) as run,
+    ):
+        selected = _project_persist_dir(project)
+        assert selected is not None and selected != legacy
+        assert not selected.exists()
+        for _ in range(2):
+            rag_index(".", project=project)
+            rag_search("token", project=project)
+            for call in run.call_args_list:
+                cmd = call.args[0]
+                assert cmd[cmd.index("--persist-dir") + 1] == str(selected)
+            assert str(selected) in rag_status(project=project)
+            assert "not found" in rag_status(project=project)
+        selected.mkdir(parents=True)
+        (selected / "new-data").write_bytes(b"new index")
+        assert str(selected) in rag_status(project=project)
+        assert "Storage files: 1" in rag_status(project=project)
+    assert marker.read_bytes() == b"ambiguous old index; never select or mutate"
+    assert list(legacy.iterdir()) == [marker]
+    assert "rebuild" in caplog.text.lower()
+
+
+@pytest.mark.parametrize("project", [None, ""])
+def test_global_project_semantics_unchanged(project):
+    proc = MagicMock(stdout="ok\n")
+    with patch("gptme.tools.rag._run_rag_cmd", return_value=proc) as run:
+        rag_index(".", project=project)
+        rag_search("token", project=project)
+        rag_status(project=project)
+    assert all("--persist-dir" not in call.args[0] for call in run.call_args_list)
+
+
+def test_project_identity_is_bounded_for_long_names(tmp_path):
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        path = _project_persist_dir("long/project/" * 1000)
+    assert path is not None
+    assert len(path.name.encode()) <= 255
+    path.mkdir(parents=True)
