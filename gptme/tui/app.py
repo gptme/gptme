@@ -2532,7 +2532,14 @@ class GptmeApp(App):
     async def _deliver_notifications(self) -> None:
         # Never touch the log while a worker/command owns its context. Its
         # release path retries the inbox, even if this signal arrived busy.
-        if self.generating or self._quitting or len(self.screen_stack) > 1:
+        # Startup prompts have priority over a mount-time notification wake.
+        # Otherwise their submission can mutate an already-running worker's log.
+        if (
+            self.generating
+            or self._quitting
+            or self._initial_prompts
+            or len(self.screen_stack) > 1
+        ):
             return
         from ..tools.subagent.hooks import (
             _completion_message,

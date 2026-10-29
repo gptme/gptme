@@ -431,3 +431,37 @@ def test_readiness_is_scoped_reentrant_and_unsubscribable(tmp_path):
     stop()
     signal(tmp_path / "parent")
     assert calls == [1]
+
+
+@pytest.mark.asyncio
+async def test_initial_prompt_precedes_mount_time_completion(tmp_path, monkeypatch):
+    """A queued completion must not steal the startup prompt's worker."""
+    manager = LogManager([], logdir=tmp_path / "parent", lock=False)
+    seen: list[list[str]] = []
+    requested = threading.Event()
+    release = threading.Event()
+
+    def model(log, **kwargs):
+        seen.append([m.content for m in log])
+        requested.set()
+        assert release.wait(5)
+        yield Message("assistant", "done")
+
+    monkeypatch.setattr("gptme.tui.app.step", model)
+    notify_completion("child", "success", "ready", parent_logdir=manager.logdir)
+    app = GptmeApp(manager, workspace=tmp_path, initial_prompts=["startup task"])
+    try:
+        async with app.run_test() as pilot:
+            for _ in range(100):
+                await pilot.pause()
+                if requested.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            assert requested.is_set()
+            assert "startup task" in seen[0]
+            release.set()
+            await settle(app, pilot)
+            assert sum("Subagent 'child'" in m.content for m in manager.log) == 1
+            assert not app.generating
+    finally:
+        release.set()
