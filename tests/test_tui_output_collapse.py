@@ -139,3 +139,31 @@ async def test_short_one_line_output_stays_visible(tmp_path: Path) -> None:
         message, 40, expanded=True
     )
     assert message.content == content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content", [LARGE_JSON, MULTILINE_OUTPUT], ids=["json", "multiline"]
+)
+async def test_new_output_respects_display_setting(
+    tmp_path: Path, content: str
+) -> None:
+    manager = LogManager([], logdir=tmp_path / "conversation", lock=False)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await app.wait_rendered()
+        for count, expanded in enumerate((True, False), start=1):
+            inp = app.query_one("#input", ChatInput)
+            inp.text = f"/display outputs {'on' if expanded else 'off'}"
+            await pilot.press("enter")
+            await pilot.pause()
+            app._on_step_message(Message("system", content))
+            await app.wait_rendered()
+            await pilot.pause()
+            outputs = list(app.query(SystemMessage))
+            assert len(outputs) == count
+            assert outputs[-1].query_one(Collapsible).collapsed is not expanded
+            assert all(
+                output.query_one(Collapsible).collapsed is not expanded
+                for output in outputs
+            )

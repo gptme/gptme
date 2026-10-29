@@ -1002,10 +1002,13 @@ class SystemMessage(Vertical):
     Short one-line messages are shown as-is; long lines get a bounded summary.
     """
 
-    def __init__(self, content: str, highlight: bool = True):
+    def __init__(
+        self, content: str, highlight: bool = True, expanded: bool = False
+    ) -> None:
         super().__init__(classes="message system")
         self.content = _system_display_text(content)
         self.highlight = highlight
+        self.expanded = expanded
 
     def compose(self) -> ComposeResult:
         single_line = "\n" not in self.content
@@ -1019,7 +1022,7 @@ class SystemMessage(Vertical):
             if single_line
             else ChatMarkdown(_drop_summary_line(self.content)),
             title=_summary_title(_summarize(self.content), self.highlight),  # type: ignore[arg-type]
-            collapsed=True,
+            collapsed=not self.expanded,
         )
 
 
@@ -2768,7 +2771,9 @@ class GptmeApp(App):
                 msg.content, show_thinking=self.show_thinking, highlight=self.highlight
             )
         if msg.role == "system":
-            return SystemMessage(msg.content, highlight=self.highlight)
+            return SystemMessage(
+                msg.content, highlight=self.highlight, expanded=self._outputs_expanded
+            )
         return None
 
     def _print_above(self, *renderables) -> None:
