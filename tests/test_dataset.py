@@ -386,6 +386,35 @@ def test_extract_tool_call_counts_literal_fences(
     }
 
 
+@pytest.mark.parametrize(
+    ("lang", "body"),
+    [
+        ("shell", "cat <<'EOF'\n```\nexample\nEOF"),
+        ("ipython", 'text = """\n```\nexample\n"""'),
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_literal_fence_then_real_blocks(
+    lang: str,
+    body: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    content = (
+        f"```{lang}\n{body}\n```\n"
+        "<tool-use><save>real</save></tool-use>\n"
+        "```shell\necho real\n```"
+    )
+    expected = {lang: 1, "save": 1}
+    expected["shell"] = expected.get("shell", 0) + 1
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
 def test_extract_tool_call_counts_loaded_plugin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

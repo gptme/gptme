@@ -282,7 +282,7 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             offsets = [0]
             for line in lines:
                 offsets.append(offsets[-1] + len(line) + 1)
-            ranges = _codeblock_char_ranges(text)
+            recovered: dict[int, int] = {}
             for i, line in enumerate(lines):
                 if not re.fullmatch(r"`{3,}[ \t]*", line):
                     continue
@@ -300,19 +300,23 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                             block.content.count("\n") + 1 if block.content else 0
                         )
                         close_line = block.start + body_lines + 1
-                        ranges.append(
-                            (
-                                offsets[block.start],
-                                min(offsets[close_line + 1], len(text)),
-                            )
-                        )
-            merged: list[tuple[int, int]] = []
-            for start, end in sorted(ranges):
-                if merged and start < merged[-1][1]:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-                else:
-                    merged.append((start, end))
-            return merged
+                        start = offsets[block.start]
+                        end = min(offsets[close_line + 1], len(text))
+                        recovered[start] = max(recovered.get(start, end), end)
+            # A recovered block owns its literal fences, including apparent
+            # openers whose basic range extends beyond the real closing fence.
+            # Rescan the suffix instead of merging those false overlapping
+            # ranges: the next real block may not have been discovered at all.
+            ranges: list[tuple[int, int]] = []
+            cursor = 0
+            while basic := _codeblock_char_ranges(text[cursor:]):
+                start, end = basic[0]
+                start += cursor
+                end += cursor
+                end = max(end, recovered.get(start, end))
+                ranges.append((start, end))
+                cursor = end
+            return ranges
 
         def body_ranges(text: str) -> list[tuple[int, int]]:
             fenced_ranges = fence_ranges(text)
