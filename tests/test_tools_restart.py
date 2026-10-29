@@ -4,7 +4,7 @@ Tests cover:
 - _do_restart: argument filtering (persisted flags, positional args, inline values)
 - execute_restart: confirmation flow (accept/cancel)
 - restart_hook: message detection, flag gating
-- _FLAGS_WITH_VALUES: constant correctness
+- same-interface argv: parser-based coverage in test_restart_argv.py
 - tool spec: registration, hooks, disabled-by-default
 """
 
@@ -16,7 +16,6 @@ import pytest
 from gptme.hooks import HookType
 from gptme.message import Message
 from gptme.tools.restart import (
-    _FLAGS_WITH_VALUES,
     RestartError,
     _do_restart,
     _http_status,
@@ -50,21 +49,6 @@ def _reset_restart_flag():
     mod._triggered_restart = False
     yield
     mod._triggered_restart = False
-
-
-# ── Constants ────────────────────────────────────────────────────────────
-
-
-class TestFlagsWithValues:
-    """Test _FLAGS_WITH_VALUES constant."""
-
-    def test_contains_expected_flags(self):
-        expected = {"--name", "-m", "--model", "-w", "--workspace", "--agent-path"}
-        assert expected.issubset(_FLAGS_WITH_VALUES)
-
-    def test_all_entries_start_with_dash(self):
-        for flag in _FLAGS_WITH_VALUES:
-            assert flag.startswith("-"), f"{flag} doesn't start with -"
 
 
 # ── _do_restart argument filtering ───────────────────────────────────────
