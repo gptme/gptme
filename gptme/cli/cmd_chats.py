@@ -645,7 +645,10 @@ def chats_fork(id: str, at_turn: int, fork_name: str | None):
         # Copy only explicit policy, never the entire config (which may contain
         # credentials, source workspace/agent paths or confirmation overrides).
         source_config = ChatConfig()
-        if (source_logdir / "config.toml").exists():
+        source_config_path = source_logdir / "config.toml"
+        if source_config_path.is_symlink() and not source_config_path.exists():
+            raise click.ClickException("Cannot fork unreadable source config.toml")
+        if source_config_path.exists():
             source_config = ChatConfig.from_logdir(source_logdir)
             if source_config._logdir is None:
                 raise click.ClickException("Cannot fork unreadable source config.toml")

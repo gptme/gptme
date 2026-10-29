@@ -517,14 +517,23 @@ def test_chats_fork_retains_only_explicit_policy(
     } == before
 
 
+@pytest.mark.parametrize("config_kind", ["malformed", "dangling_symlink"])
 def test_chats_fork_unreadable_policy_fails_closed(
-    source_session: Path, monkeypatch: pytest.MonkeyPatch
+    source_session: Path, monkeypatch: pytest.MonkeyPatch, config_kind: str
 ) -> None:
-    """A malformed saved config must not silently produce an unrestricted fork."""
+    """Unreadable saved configs must not silently produce an unrestricted fork."""
     from gptme.cli.cmd_chats import chats_fork
 
     source = source_session / "my-session"
-    (source / "config.toml").write_text('[chat]\ntools = ["read"\n')
+    config = source / "config.toml"
+    if config_kind == "dangling_symlink":
+        try:
+            config.symlink_to("missing-config.toml")
+        except OSError:
+            pytest.skip("Creating symlinks is not supported")
+    else:
+        config.write_text('[chat]\ntools = ["read"\n')
+    original_conversation = (source / "conversation.jsonl").read_bytes()
     monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: source_session)
     result = CliRunner().invoke(
         chats_fork, ["my-session", "--at-turn", "1", "--name", "policy-fork"]
@@ -532,4 +541,11 @@ def test_chats_fork_unreadable_policy_fails_closed(
     assert result.exit_code != 0
     assert "config" in result.output.lower()
     assert not (source_session / "policy-fork").exists()
-    assert (source / "config.toml").read_text() == '[chat]\ntools = ["read"\n'
+    assert (source / "conversation.jsonl").read_bytes() == original_conversation
+    if config_kind == "dangling_symlink":
+        assert config.is_symlink()
+        assert config.readlink() == Path("missing-config.toml")
+        assert not config.exists()
+        assert not (source / "workspace").exists()
+    else:
+        assert config.read_text() == '[chat]\ntools = ["read"\n'
