@@ -1138,7 +1138,10 @@ class ToolUse:
                         )
                     )
 
-        yield from _execute_tool()
+        from ..logmanager import LogManager
+
+        with LogManager.preserve_current():
+            yield from _execute_tool()
 
     @property
     def is_runnable(self) -> bool:

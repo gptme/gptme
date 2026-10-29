@@ -2,15 +2,28 @@
 
 import pytest
 
-from gptme.tools.todo import TodoItem, _current_todos, _todoread, _todowrite
+from gptme.tools.todo import TodoItem, _get_todos, _todoread, _todowrite
 
 
 @pytest.fixture(autouse=True)
-def clear_todos():
-    """Clear todos before each test."""
-    _current_todos.clear()
+def clear_todos(tmp_path):
+    """Bind an isolated conversation and release its state after each test."""
+    from gptme.logmanager import LogManager
+    from gptme.tools.todo import clear_todo_state
+
+    manager = LogManager(logdir=tmp_path / "conversation", lock=False)
     yield
-    _current_todos.clear()
+    list(clear_todo_state(manager))
+
+
+def replay_todos(messages):
+    from gptme.logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    assert manager is not None
+    from gptme.tools.todo import replay_todo_on_session_start
+
+    return replay_todo_on_session_start(manager.logdir, None, messages)
 
 
 def test_todo_item():
@@ -46,21 +59,21 @@ def test_todowrite_add():
     # Add a todo
     result = _todowrite("add", "Test", "todo")
     assert "Added todo 1: Test todo" in result
-    assert "1" in _current_todos
-    assert _current_todos["1"]["text"] == "Test todo"
-    assert _current_todos["1"]["state"] == "pending"
+    assert "1" in _get_todos()
+    assert _get_todos()["1"]["text"] == "Test todo"
+    assert _get_todos()["1"]["state"] == "pending"
 
     # Add another todo
     result = _todowrite("add", "Second", "task")
     assert "Added todo 2: Second task" in result
-    assert "2" in _current_todos
+    assert "2" in _get_todos()
 
 
 def test_todowrite_add_with_quotes():
     """Test adding todos with quoted text."""
     result = _todowrite("add", '"Complete the project"')
     assert "Added todo 1: Complete the project" in result
-    assert _current_todos["1"]["text"] == "Complete the project"
+    assert _get_todos()["1"]["text"] == "Complete the project"
 
 
 def test_todowrite_update_state():
@@ -71,12 +84,12 @@ def test_todowrite_update_state():
     # Update state to in_progress
     result = _todowrite("update", "1", "in_progress")
     assert "Updated todo 1 state to: in_progress" in result
-    assert _current_todos["1"]["state"] == "in_progress"
+    assert _get_todos()["1"]["state"] == "in_progress"
 
     # Update state to completed
     result = _todowrite("update", "1", "completed")
     assert "Updated todo 1 state to: completed" in result
-    assert _current_todos["1"]["state"] == "completed"
+    assert _get_todos()["1"]["state"] == "completed"
 
 
 def test_todowrite_update_paused():
@@ -86,7 +99,7 @@ def test_todowrite_update_paused():
     # Update state to paused
     result = _todowrite("update", "1", "paused")
     assert "Updated todo 1 state to: paused" in result
-    assert _current_todos["1"]["state"] == "paused"
+    assert _get_todos()["1"]["state"] == "paused"
 
     # Verify paused shows correct emoji in list
     result = _todoread()
@@ -108,7 +121,7 @@ def test_todowrite_update_text():
     # Update text
     result = _todowrite("update", "1", "New", "text")
     assert "Updated todo 1 text to: New text" in result
-    assert _current_todos["1"]["text"] == "New text"
+    assert _get_todos()["1"]["text"] == "New text"
 
 
 def test_todowrite_remove():
@@ -120,8 +133,8 @@ def test_todowrite_remove():
     # Remove first todo
     result = _todowrite("remove", "1")
     assert "Removed todo 1: First todo" in result
-    assert "1" not in _current_todos
-    assert "2" in _current_todos
+    assert "1" not in _get_todos()
+    assert "2" in _get_todos()
 
 
 def test_todowrite_clear_all():
@@ -133,7 +146,7 @@ def test_todowrite_clear_all():
     # Clear all
     result = _todowrite("clear")
     assert "Cleared 2 todos" in result
-    assert len(_current_todos) == 0
+    assert len(_get_todos()) == 0
 
 
 def test_todowrite_clear_completed():
@@ -150,9 +163,9 @@ def test_todowrite_clear_completed():
     # Clear completed
     result = _todowrite("clear", "completed")
     assert "Cleared 1 completed todos" in result
-    assert "1" not in _current_todos
-    assert "2" in _current_todos
-    assert "3" in _current_todos
+    assert "1" not in _get_todos()
+    assert "2" in _get_todos()
+    assert "3" in _get_todos()
 
 
 def test_todoread_with_todos():
@@ -210,27 +223,27 @@ def test_todo_id_generation():
     """Test that todo IDs are generated correctly."""
     # Add todos and check IDs
     _todowrite("add", "First")
-    assert "1" in _current_todos
+    assert "1" in _get_todos()
 
     _todowrite("add", "Second")
-    assert "2" in _current_todos
+    assert "2" in _get_todos()
 
     # Remove middle todo
     _todowrite("remove", "1")
 
     # Next todo should get next available ID
     _todowrite("add", "Third")
-    assert "3" in _current_todos
+    assert "3" in _get_todos()
 
 
 def test_conversation_scoped_storage():
     """Test that todos are stored in conversation scope."""
     # Add a todo
     _todowrite("add", "Test", "todo")
-    assert len(_current_todos) == 1
+    assert len(_get_todos()) == 1
 
     # Clear the global storage (simulating new conversation)
-    _current_todos.clear()
+    _get_todos().clear()
 
     # Should be empty
     result = _todoread()
@@ -270,13 +283,13 @@ def test_execute_todo_write():
     assert "Added todo 2" in msgs[0].content
 
     # Verify todos were added
-    assert "1" in _current_todos
-    assert "2" in _current_todos
+    assert "1" in _get_todos()
+    assert "2" in _get_todos()
 
     # Test write with update
     msgs = list(execute_todo("update 1 in_progress", ["write"], None))
     assert "Updated todo 1 state to: in_progress" in msgs[0].content
-    assert _current_todos["1"]["state"] == "in_progress"
+    assert _get_todos()["1"]["state"] == "in_progress"
 
 
 def test_execute_todo_default_read():
@@ -338,28 +351,22 @@ def test_replay_ignores_system_prompt_examples(xml_format):
     """
     from gptme.message import Message
     from gptme.tools.base import ToolUse
-    from gptme.tools.todo import replay_todo_on_session_start
 
     example = ToolUse(
         "todo", ["write"], 'add "Implement core functionality"'
     ).to_output("xml")
     msgs = [Message("system", example), Message("user", "hi")]
-    assert list(replay_todo_on_session_start(None, None, msgs)) == []
-    assert not _current_todos
+    assert list(replay_todos(msgs)) == []
+    assert not _get_todos()
 
 
 def test_replay_restores_assistant_todos(xml_format):
     from gptme.message import Message
-    from gptme.tools.todo import replay_todo_on_session_start
 
     call = '<tool-use>\n<todo args="write">\nadd "Real task"\n</todo>\n</tool-use>'
-    out = list(
-        replay_todo_on_session_start(
-            None, None, [Message("user", "hi"), Message("assistant", call)]
-        )
-    )
+    out = list(replay_todos([Message("user", "hi"), Message("assistant", call)]))
     assert out and "Restored todo state" in out[0].content
-    assert _current_todos["1"]["text"] == "Real task"
+    assert _get_todos()["1"]["text"] == "Real task"
 
 
 def _execute(code=None, args=None, kwargs=None):
@@ -373,7 +380,7 @@ def test_execute_todo_command_kwarg_add():
     """Native tool calls pass the whole command as a single 'command' kwarg."""
     result = _execute(kwargs={"command": 'write add "Implement core functionality"'})
     assert result == ["Added todo 1: Implement core functionality"]
-    assert _current_todos["1"]["text"] == "Implement core functionality"
+    assert _get_todos()["1"]["text"] == "Implement core functionality"
 
 
 def test_execute_todo_command_kwarg_read():
@@ -387,8 +394,8 @@ def test_execute_todo_command_kwarg_multiple_operations():
     """Multiple write operations can be separated by newlines."""
     result = _execute(kwargs={"command": 'write\nadd "First"\nadd "Second"'})
     assert result == ["Added todo 1: First\nAdded todo 2: Second"]
-    assert _current_todos["1"]["text"] == "First"
-    assert _current_todos["2"]["text"] == "Second"
+    assert _get_todos()["1"]["text"] == "First"
+    assert _get_todos()["2"]["text"] == "Second"
 
 
 def test_execute_todo_command_kwarg_write_operation_without_subcommand():
@@ -407,7 +414,7 @@ def test_execute_todo_no_args_reads():
     """Without a subcommand the list is read (not silently written)."""
     result = _execute()
     assert "📝 Todo list is empty" in result[0]
-    assert not _current_todos
+    assert not _get_todos()
 
 
 @pytest.fixture
@@ -424,44 +431,31 @@ def native_tool_format():
 def test_replay_restores_native_todo_writes(native_tool_format):
     """Native tool calls carry the command in a kwarg; they must replay too."""
     from gptme.message import Message
-    from gptme.tools.todo import replay_todo_on_session_start
 
     call = '@todo(call_1): {"command": "write add \\"Native task\\""}'
-    out = list(
-        replay_todo_on_session_start(
-            None, None, [Message("user", "hi"), Message("assistant", call)]
-        )
-    )
+    out = list(replay_todos([Message("user", "hi"), Message("assistant", call)]))
     assert out and "Restored todo state" in out[0].content
-    assert _current_todos["1"]["text"] == "Native task"
+    assert _get_todos()["1"]["text"] == "Native task"
 
 
 def test_replay_restores_native_bare_write_operation(native_tool_format):
     """A native write operation without the 'write' subcommand replays too."""
     from gptme.message import Message
-    from gptme.tools.todo import replay_todo_on_session_start
 
     call = '@todo(call_1): {"command": "add \\"Bare task\\""}'
-    out = list(
-        replay_todo_on_session_start(
-            None, None, [Message("user", "hi"), Message("assistant", call)]
-        )
-    )
+    out = list(replay_todos([Message("user", "hi"), Message("assistant", call)]))
     assert out and "Restored todo state" in out[0].content
-    assert _current_todos["1"]["text"] == "Bare task"
+    assert _get_todos()["1"]["text"] == "Bare task"
 
 
 def test_replay_skips_malformed_native_call(native_tool_format):
     """A malformed native call is skipped, not fatal to the replay."""
     from gptme.message import Message
-    from gptme.tools.todo import replay_todo_on_session_start
 
     bad = '@todo(call_1): {"command": null}'
     good = '@todo(call_2): {"command": "write add \\"Survived\\""}'
     out = list(
-        replay_todo_on_session_start(
-            None,
-            None,
+        replay_todos(
             [
                 Message("user", "hi"),
                 Message("assistant", bad),
@@ -470,7 +464,7 @@ def test_replay_skips_malformed_native_call(native_tool_format):
         )
     )
     assert out and "Restored todo state" in out[0].content
-    assert _current_todos["1"]["text"] == "Survived"
+    assert _get_todos()["1"]["text"] == "Survived"
 
 
 def test_replay_tool_does_not_raise_for_other_tools(tmp_path):
