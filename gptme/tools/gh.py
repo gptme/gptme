@@ -441,7 +441,48 @@ def _handle_pr_merge(
     args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Generator[Message, None, None]:
     """Handle `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]`."""
-    info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
+    # A structured caller may provide its reference through the separate url
+    # parameter, leaving options (rather than a reference) at index 2.
+    has_ref = bool(args and len(args) > 2 and not args[2].startswith("-"))
+    flags = args[3 if has_ref else 2 :] if args else []
+    method: str | None = None
+    auto = False
+    delete_branch = False
+    match_head: str | None = None
+
+    i = 0
+    while i < len(flags):
+        arg = flags[i]
+        if arg in ("--squash", "--rebase", "--merge"):
+            if method is not None and method != arg[2:]:
+                yield Message("system", "Error: Conflicting merge methods")
+                return
+            method = arg[2:]
+        elif arg == "--auto":
+            auto = True
+        elif arg == "--delete-branch":
+            delete_branch = True
+        elif arg == "--match-head-commit" or arg.startswith("--match-head-commit="):
+            if match_head is not None:
+                yield Message("system", "Error: Repeated --match-head-commit guard")
+                return
+            if arg == "--match-head-commit":
+                i += 1
+                value = flags[i] if i < len(flags) else ""
+            else:
+                value = arg.split("=", 1)[1]
+            if not value.strip() or value.startswith("-"):
+                yield Message(
+                    "system", "Error: --match-head-commit requires a SHA value"
+                )
+                return
+            match_head = value
+        else:
+            yield Message("system", f"Error: Unsupported merge argument: {arg}")
+            return
+        i += 1
+
+    info, err = _resolve_ref(args if has_ref else None, kwargs, "pull", "PR reference")
     if err:
         yield err
         return
@@ -451,40 +492,11 @@ def _handle_pr_merge(
     owner = info["owner"]
     repo = info["repo"]
 
-    # Parse flags from remaining args (index 3+)
-    # Boolean flags (no value): --squash, --rebase, --merge, --auto, --delete-branch
-    # Value flags: --match-head-commit SHA
-    method = "squash"  # Default
-    auto = False
-    delete_branch = False
-    match_head: str | None = None
-
-    if args:
-        i = 3
-        while i < len(args):
-            arg = args[i]
-            if arg in ("--squash", "--rebase", "--merge"):
-                method = arg[2:]
-            elif arg == "--auto":
-                auto = True
-            elif arg == "--delete-branch":
-                delete_branch = True
-            elif arg == "--match-head-commit":
-                if i + 1 < len(args):
-                    match_head = args[i + 1]
-                    i += 1
-                else:
-                    yield Message(
-                        "system", "Error: --match-head-commit requires a SHA value"
-                    )
-                    return
-            i += 1
-
     result = merge_github_pr(
         owner,
         repo,
         pr_number,
-        method=method,
+        method=method or "squash",
         auto=auto,
         delete_branch=delete_branch,
         match_head_commit=match_head,
