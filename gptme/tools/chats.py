@@ -92,6 +92,9 @@ def search_chats(
     """
     Search past conversation logs for the given query and print a summary of the results.
 
+    Displayed message numbers are 1-based original-log positions, including
+    hidden system messages. Pass them directly to read_chat(start_message=...).
+
     Args:
         query (str): The search query.
         max_results (int): Maximum number of conversations to display.
@@ -150,7 +153,7 @@ def search_chats(
             f"\n{i}. {conversation.name} ({len(result['matching_messages'])} matches):"
         )
         for j, (msg_idx, msg) in enumerate(matches, 1):
-            print(f"\n  Match {j} (message {msg_idx}, {msg.role}):")
+            print(f"\n  Match {j} (message {msg_idx + 1}, {msg.role}):")
             match_str = _format_message_with_context(
                 msg.content, query, context_lines=context_lines, max_matches=max_matches
             )
@@ -497,18 +500,43 @@ def read_chat(
     incl_system: bool = False,
     context_messages: int = 0,
     start_message: int | None = None,
+    full: bool = False,
+    content_offset: int = 0,
+    max_chars: int = 10000,
 ) -> None:
-    """
-    Read a specific conversation log.
+    """Read a specific conversation log, with cheap one-line previews by default.
+
+    Message numbers are 1-based positions in the original log, including hidden
+    system messages, and match native search results. Context counts visible
+    messages before that position and is included in max_results.
 
     Args:
-        id (str): The id of the conversation to read.
-        max_results (int): Maximum number of messages to display.
-        incl_system (bool): Whether to include system messages.
-        context_messages (int): Number of messages to show before start_message.
-        start_message (int | None): Start from this message number (1-indexed), if specified.
+        id: Conversation ID.
+        max_results: Maximum number of visible messages, including context.
+        incl_system: Include system messages without changing message numbers.
+        context_messages: Visible messages before start_message.
+        start_message: Original-log message number (1-based), or the beginning.
+        full: Emit multiline content verbatim, bounded by max_chars per message.
+        content_offset: Zero-based character offset for a single full message.
+        max_chars: Full-mode character limit per message (1 to 100000).
+            Truncated output provides the next offset for recovery.
     """
     from ..logmanager import LogManager, get_conversation_by_id  # fmt: skip
+
+    if max_results < 1 or context_messages < 0:
+        raise ValueError(
+            "max_results must be positive and context_messages nonnegative"
+        )
+    if start_message is not None and start_message < 1:
+        raise ValueError("start_message must be a positive 1-based message number")
+    if content_offset < 0 or not 1 <= max_chars <= 100000:
+        raise ValueError(
+            "content_offset must be nonnegative and max_chars in 1..100000"
+        )
+    if content_offset and (not full or max_results != 1 or context_messages):
+        raise ValueError(
+            "content_offset requires full=True, max_results=1 and no context"
+        )
 
     # Look up by id across ALL conversations. Using list_conversations() here
     # would only scan the 20 most recent, so any older conversation was reported
@@ -521,13 +549,31 @@ def read_chat(
     log_path = Path(conv.path)
     logmanager = LogManager.load(log_path, lock=False)
     print(f"Reading conversation: {conv.name} ({conv.id})")
-    messages = [msg for msg in logmanager.log if msg.role != "system" or incl_system]
-    start_idx = 0
-    if start_message is not None:
-        start_idx = max(0, start_message - 1 - context_messages)
-        messages = messages[start_idx:]
-    for i, msg in enumerate(messages[:max_results]):
-        print(f"{start_idx + i + 1}. {msg.format(max_length=100)}")
+    messages = [
+        (number, msg)
+        for number, msg in enumerate(logmanager.log, 1)
+        if msg.role != "system" or incl_system
+    ]
+    start = start_message or 1
+    anchor = next(
+        (i for i, (number, _) in enumerate(messages) if number >= start),
+        len(messages),
+    )
+    # An out-of-range start is an empty page, even if context was requested.
+    if start > len(logmanager.log):
+        return
+    first = max(0, anchor - context_messages)
+    for number, msg in messages[first : first + max_results]:
+        if not full:
+            print(f"{number}. {msg.format(max_length=100)}")
+            continue
+        end = min(len(msg.content), content_offset + max_chars)
+        print(f"{number}. {msg.role}:\n{msg.content[content_offset:end]}")
+        if end < len(msg.content):
+            print(
+                f"[message {number} truncated; continue with start_message={number}, "
+                f"max_results=1, full=True, content_offset={end}]"
+            )
 
 
 def find_empty_conversations(

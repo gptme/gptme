@@ -172,6 +172,7 @@ def chats_search(
                 entry["snippets"] = [
                     {
                         "index": idx,
+                        "message_number": idx + 1,
                         "role": msg.role,
                         "content": msg.content[:200],
                     }
@@ -210,16 +211,52 @@ def chats_search(
 )
 @click.option("--system", is_flag=True, help="Include system messages.")
 @click.option(
-    "-c", "--context", default=0, help="Messages of context before start message."
+    "-c",
+    "--context",
+    default=0,
+    type=click.IntRange(min=0),
+    help="Visible context messages before start, included in --limit.",
 )
 @click.option(
     "--start",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
-    help="Start from this message number (1-indexed).",
+    help="Original-log message number (1-based, including hidden system messages).",
 )
-def chats_read(id: str, limit: int, system: bool, context: int, start: int | None):
-    """Read a specific chat log."""
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Read multiline content, bounded by --max-chars per message.",
+)
+@click.option(
+    "--content-offset",
+    default=0,
+    type=click.IntRange(min=0),
+    help="Character offset; requires --full --limit 1 and no context.",
+)
+@click.option(
+    "--max-chars",
+    default=10000,
+    type=click.IntRange(min=1, max=100000),
+    help="Full-mode character limit per message (default: 10000).",
+)
+def chats_read(
+    id: str,
+    limit: int,
+    system: bool,
+    context: int,
+    start: int | None,
+    full: bool,
+    content_offset: int,
+    max_chars: int,
+):
+    """Read a chat with previews, or bounded full text using --full.
+
+    Search's message numbers and JSON message_number are accepted by --start.
+    JSON index remains zero-based for compatibility. System visibility never
+    changes message numbers. For truncated full text, continue the same message
+    with --full --limit 1 --content-offset N using the reported next offset.
+    """
     _ensure_tools()
 
     from ..tools.chats import read_chat  # fmt: skip
@@ -231,13 +268,19 @@ def chats_read(id: str, limit: int, system: bool, context: int, start: int | Non
         click.echo(f"Conversation '{id}' not found.")
         raise SystemExit(1)
 
-    read_chat(
-        id,
-        max_results=limit,
-        incl_system=system,
-        context_messages=context,
-        start_message=start,
-    )
+    try:
+        read_chat(
+            id,
+            max_results=limit,
+            incl_system=system,
+            context_messages=context,
+            start_message=start,
+            full=full,
+            content_offset=content_offset,
+            max_chars=max_chars,
+        )
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
 
 
 @chats.command("rename")
