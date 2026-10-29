@@ -4955,7 +4955,9 @@ class TestOutputSchema:
             subagent_types.ToolUse,
             "iter_from_content",
             staticmethod(
-                lambda content: iter([subagent_types.ToolUse("complete", [], "")])
+                lambda content, **kwargs: iter(
+                    [subagent_types.ToolUse("complete", [], "")]
+                )
             ),
         )
         sa = self._make_subagent(
@@ -4977,7 +4979,7 @@ class TestOutputSchema:
         monkeypatch.setattr(
             subagent_types.ToolUse,
             "iter_from_content",
-            staticmethod(lambda content: iter(())),
+            staticmethod(lambda content, **kwargs: iter(())),
         )
         sa = self._make_subagent(
             tmp_path, "```complete\n\n```", output_schema=_SampleSchema

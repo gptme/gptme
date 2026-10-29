@@ -547,10 +547,13 @@ class Subagent:
         # Inspect the last non-system message so those postamble records cannot
         # mask a useful complete/clarify result.
         terminal_msg = log[-1]
+        terminal_index = len(log) - 1
         task_completed = False
-        for message in reversed(log):
+        for index in range(len(log) - 1, self.fork_message_count - 1, -1):
+            message = log[index]
             if message.role != "system":
                 terminal_msg = message
+                terminal_index = index
                 break
             if "Task complete" in message.content:
                 task_completed = True
@@ -572,7 +575,13 @@ class Subagent:
         # Check for a complete tool call in the terminal assistant message.
         # Try parsing as ToolUse first
         tool_uses = list(ToolUse.iter_from_content(terminal_msg.content))
-        complete_tool = next((tu for tu in tool_uses if tu.tool == "complete"), None)
+        # A child's native tool format need not match the parent's current format.
+        native_tools = list(
+            ToolUse.iter_from_content(terminal_msg.content, tool_format_override="tool")
+        )
+        complete_tool = next(
+            (tu for tu in tool_uses + native_tools if tu.tool == "complete"), None
+        )
 
         if complete_tool:
             # Extract content from complete tool
@@ -582,6 +591,46 @@ class Subagent:
                 result = self._normalize_json_result(result)
             else:
                 result = "Task completed (no summary provided)"
+                # Native complete has no summary parameter. Providers persist prose
+                # either before the call in this message or as a separate message.
+                # Only recover adjacent, tool-free prose from this child's history:
+                # never cross a user turn, tool invocation, or fork boundary.
+                if complete_tool.kwargs is not None and len(native_tools) == 1:
+                    from ...context import strip_reasoning
+                    from ...message import _strip_think_sig
+
+                    # Reasoning and provider signatures are not a report. Strip
+                    # them before deciding whether to recover preceding prose.
+                    summary, _ = strip_reasoning(
+                        _strip_think_sig(terminal_msg.content[: complete_tool.start])
+                    )
+                    if not summary:
+                        for previous in reversed(
+                            log[self.fork_message_count : terminal_index]
+                        ):
+                            if previous.role == "system":
+                                if previous.call_id or (previous.metadata or {}).get(
+                                    "tool"
+                                ):
+                                    break
+                                continue
+                            if (
+                                previous.role == "assistant"
+                                and "```complete" not in previous.content
+                                and "```clarify" not in previous.content
+                                and not any(ToolUse.iter_from_content(previous.content))
+                                and not any(
+                                    ToolUse.iter_from_content(
+                                        previous.content, tool_format_override="tool"
+                                    )
+                                )
+                            ):
+                                summary, _ = strip_reasoning(
+                                    _strip_think_sig(previous.content)
+                                )
+                            break
+                    if summary:
+                        result = self._normalize_json_result(summary)
             return ReturnType(
                 "success",
                 result + f"\n\nFull log: {self.logdir}",
