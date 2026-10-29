@@ -216,8 +216,8 @@ def execute_save_impl(
     if baseline is not None:
         baseline.validate(path_display)
 
-    # Ensure content ends with newline
-    if not content.endswith("\n"):
+    # Preserve an explicitly empty file; nonempty text keeps its final newline.
+    if content and not content.endswith("\n"):
         content += "\n"
 
     # Check if file exists and store original content for comparison
@@ -376,10 +376,12 @@ def _validate_and_execute(
     """Common validation and execution logic for save and append operations."""
     # Get content from kwargs if available (tool format), otherwise use code (markdown format)
     content = kwargs.get("content") if kwargs else None
-    if not content:
+    if content is None:
         content = code
 
-    if not content:
+    # Empty saves deliberately create/truncate zero-byte files. Empty appends
+    # remain rejected rather than unexpectedly adding a newline.
+    if not isinstance(content, str) or (operation == "append" and not content):
         yield Message("system", "No content provided")
         return
 

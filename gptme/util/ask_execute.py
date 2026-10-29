@@ -112,7 +112,7 @@ def execute_with_confirmation(
 
         # Prepare preview content
         preview_content = None
-        if preview_fn and content:
+        if preview_fn:
             preview_content = preview_fn(content, path)
 
         # Get confirmation via hook system.
