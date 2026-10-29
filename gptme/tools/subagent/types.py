@@ -126,7 +126,9 @@ _subagent_results_lock = threading.Lock()
 _completion_queue: queue.Queue[tuple[Path | None, str, Status, str, str | None]] = (
     queue.Queue()
 )
-_progress_queue: queue.Queue[tuple[Path | None, str, str]] = queue.Queue()
+_progress_queue: queue.Queue[
+    tuple[Path | None, str, str] | tuple[Path | None, str, str, str]
+] = queue.Queue()
 
 # Guard for one-shot registry rehydration on first access after process restart
 _registry_rehydrated = False

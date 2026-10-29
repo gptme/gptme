@@ -105,6 +105,7 @@ from ..util.interrupt import (
     start_tracking,
     stop_tracking,
 )
+from ..util.notification_ready import subscribe as subscribe_notifications
 from ..util.tokens import len_tokens
 from .statusline import LogStats, build_payload, run_statusline
 
@@ -2371,6 +2372,7 @@ class GptmeApp(App):
         self._in_step = False
         self._step_processes: set[int] = set()  # started during the step
         self._quitting = False
+        self._unsubscribe_notifications = lambda: None
         self._stream_widget: StreamingMessage | None = None
         # Streamed chunks are buffered by the worker and rendered at most
         # STREAM_FPS times a second: each render re-lays out the whole buffer.
@@ -2505,8 +2507,68 @@ class GptmeApp(App):
         if self._statusline_cmd:
             # durations and other time-based fields change without events
             self.set_interval(STATUSLINE_REFRESH, self._update_status)
+
+        # Subscribe before the initial drain: an event arriving during mount
+        # either remains in the inbox or posts a readiness message (or both).
+        def signal_ready() -> None:
+            self.post_message(self.NotificationReady())
+
+        self._unsubscribe_notifications = subscribe_notifications(
+            self.manager.logdir, signal_ready
+        )
+        self.screen_change_signal.subscribe(
+            self, lambda screen: self.post_message(self.NotificationReady())
+        )
+        self.post_message(self.NotificationReady())
         if self._initial_prompts:
             self.call_after_refresh(self._submit_initial_prompts)
+
+    class NotificationReady(TextualMessage):
+        """Payload-free signal; the existing tool queues own delivery."""
+
+    async def on_gptme_app_notification_ready(self, event: NotificationReady) -> None:
+        await self._deliver_notifications()
+
+    async def _deliver_notifications(self) -> None:
+        # Never touch the log while a worker/command owns its context. Its
+        # release path retries the inbox, even if this signal arrived busy.
+        if self.generating or self._quitting or len(self.screen_stack) > 1:
+            return
+        from ..tools.subagent.hooks import (
+            _completion_message,
+            progress_message,
+            take_queued_completions,
+            take_queued_progress,
+        )
+        from ..tools.watch import take_queued_watch_events
+
+        manager = self.manager
+        branch = manager.current_branch
+        messages = [
+            progress_message(agent, text)
+            for agent, text in take_queued_progress(manager.logdir, branch=branch)
+        ]
+        terminal = [
+            _completion_message(agent, status, text)
+            for agent, status, text, _ in take_queued_completions(
+                manager.logdir, branch=branch
+            )
+        ]
+        terminal.extend(
+            Message("system", f"Watch {watch_id} fired: {text}")
+            for watch_id, text in take_queued_watch_events(
+                manager.logdir, branch=branch
+            )
+        )
+        for msg in messages + terminal:
+            manager.append(msg)
+            self._on_step_message(msg)
+        config = self._chat_ctx.copy().run(get_config)
+        autowake = config.chat is None or config.chat.watch_autowake is not False
+        if terminal and autowake and not self._interrupt_event.is_set():
+            # Do not submit/clear the input: it is an unsent draft, including
+            # its cursor/selection. _start_generation reserves exactly one worker.
+            self._start_generation()
 
     def _enqueue_prompt(self, prompt: str | Message) -> None:
         """Queue a prompt and, in full-screen mode, show it as a queued widget."""
@@ -2616,6 +2678,7 @@ class GptmeApp(App):
 
     def on_unmount(self) -> None:
         self._quitting = True
+        self._unsubscribe_notifications()
         self._restore_inline_resize_handler()
         self._interrupt_event.set()
         abandon_skill_invocations(self.manager.logdir, self._skill_session_id)
@@ -3367,6 +3430,7 @@ class GptmeApp(App):
             # Drain it and start a turn, matching the CLI chat loop.
             self._drain_command_queued_prompts()
         self._update_status()
+        self.post_message(self.NotificationReady())
 
     def _display_command(self, args: list[str]) -> None:
         """``/display [thinking|outputs|hidden|highlight|grouping] [on|off]``: display-only settings.
@@ -3536,6 +3600,8 @@ class GptmeApp(App):
     # --------------------------------------------------------- generation
 
     def _start_generation(self) -> None:
+        if self.generating or self._quitting:
+            return
         logger.debug("starting generation worker")
         # Snapshot the submitted prompt before hooks or generation mutate the log.
         prompt = next((m for m in reversed(self.manager.log) if m.role == "user"), None)
@@ -3670,6 +3736,18 @@ class GptmeApp(App):
                 for msg in turn_msgs:
                     manager.append(msg)
             while True:
+                # step() itself does not run this lifecycle boundary. Keep
+                # cancel/steer and completion hooks consistent with the CLI.
+                for msg in (
+                    trigger_hook(
+                        HookType.STEP_PRE,
+                        manager=manager,
+                        notification_branch=manager.current_branch,
+                    )
+                    or []
+                ):
+                    manager.append(msg)
+                    self.call_from_thread(self._on_step_message, msg)
                 self.call_from_thread(self._begin_stream)
                 interrupted = False
                 declined = False
@@ -4088,6 +4166,7 @@ class GptmeApp(App):
             await self._submit_user_input(prompt)
             return
         self._set_state("idle")
+        await self._deliver_notifications()
 
     # ------------------------------------------------------- confirmation
 

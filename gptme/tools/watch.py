@@ -80,13 +80,16 @@ class Watch:
     lock: threading.Lock = field(default_factory=threading.Lock)
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
+    branch: str = "main"  # captured when armed, not when the event fires
 
 
 _watches: dict[str, Watch] = {}
 _watches_lock = threading.Lock()
 _watch_seq = 0
 # Offline fallback queue drained at STEP_PRE: (logdir, watch_id, text)
-_pending_deliveries: deque[tuple[Path | None, str, str]] = deque()
+_pending_deliveries: deque[
+    tuple[Path | None, str, str] | tuple[Path | None, str, str, str]
+] = deque()
 _pending_lock = threading.Lock()
 
 
@@ -238,10 +241,15 @@ def _deliver(watch: Watch, text: str) -> None:
         except Exception:
             logger.debug("server delivery failed for %s", watch.id, exc_info=True)
     with _pending_lock:
-        _pending_deliveries.append((watch.logdir, watch.id, text))
+        _pending_deliveries.append((watch.logdir, watch.id, text, watch.branch))
+    from ..util.notification_ready import signal
+
+    signal(watch.logdir)
 
 
-def take_queued_watch_events(logdir: Path | None) -> list[tuple[str, str]]:
+def take_queued_watch_events(
+    logdir: Path | None, *, branch: str | None = None
+) -> list[tuple[str, str]]:
     """Pop offline-queued watch events for `logdir` (server retry path).
 
     Mirrors ``take_queued_completions``: the server re-attempts a live wake
@@ -252,8 +260,10 @@ def take_queued_watch_events(logdir: Path | None) -> list[tuple[str, str]]:
     with _pending_lock:
         retained = type(_pending_deliveries)()
         for item in _pending_deliveries:
-            item_logdir, watch_id, text = item
-            if logdir is None or item_logdir == logdir:
+            item_logdir, watch_id, text, *origin = item
+            if (logdir is None or item_logdir == logdir) and (
+                branch is None or (origin[0] if origin else "main") == branch
+            ):
                 returned.append((watch_id, text))
             else:
                 retained.append(item)
@@ -619,7 +629,9 @@ def _watch_drain_hook(manager, **kwargs) -> "Generator[Message, None, None]":
     """
 
     manager_logdir = getattr(manager, "logdir", None)
-    for watch_id, text in take_queued_watch_events(manager_logdir):
+    for watch_id, text in take_queued_watch_events(
+        manager_logdir, branch=kwargs.get("notification_branch")
+    ):
         yield Message("system", f"Watch {watch_id} fired: {text}")
 
 
@@ -1005,6 +1017,7 @@ def _watch(
 
     manager = LogManager.get_current_log()
     logdir = getattr(manager, "logdir", None) if manager else None
+    branch = getattr(manager, "current_branch", "main")
     tokens = shlex.split(code or "")
     if not tokens:
         raise ValueError(
@@ -1080,6 +1093,7 @@ def _watch(
             logdir=logdir,
         )
         w.id = _new_id()
+        w.branch = branch
         return _spawn(w, _poll_timer, seconds)
 
     if verb in ("run", "until", "stream"):
@@ -1100,6 +1114,7 @@ def _watch(
             logdir=logdir,
         )
         w.id = _new_id()
+        w.branch = branch
         if verb == "until":
             every = _parse_duration(opts.get("every", "30s"))
             return _spawn(w, _poll_until, command, every)
@@ -1154,6 +1169,7 @@ def _watch(
             logdir=logdir,
         )
         w.id = _new_id()
+        w.branch = branch
         return _spawn(w, _poll_tmux, session, pattern, stable)
 
     raise ValueError(
