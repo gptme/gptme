@@ -303,6 +303,27 @@ def test_extract_tool_call_counts_persisted_formats(
     )
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<!--\n```text\n-->\n<tool-use><shell>echo real</shell></tool-use>\n```",
+        "<![CDATA[\n```text\n]]>\n"
+        '<function_calls><invoke name="shell">echo real</invoke></function_calls>\n```',
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_comment_owns_fence(
+    content: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "shell": 1
+    }
+
+
 def test_extract_tool_call_counts_ignores_nonassistant() -> None:
     content = '```shell\necho hi\n```\n@shell(call_1): {"command":"echo hi"}'
     assert (

@@ -298,6 +298,12 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             if body_end is not None:
                 search_from = body_end
                 continue
+            # The accepted outer region owns every opener in its body, even
+            # when an apparent fence/native range extends past its closing tag.
+            # Those nested ranges must not hide a later real XML wrapper.
+            ranges = [
+                entry for entry in ranges if not match.start() <= entry[0] < match.end()
+            ]
             ranges.append((match.start(), match.end(), True))
             search_from = match.end()
         calls: list[ToolUse] = []
