@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytest.importorskip("textual")
+
 from gptme.hooks import clear_hooks
 from gptme.logmanager import LogManager
 from gptme.message import Message
