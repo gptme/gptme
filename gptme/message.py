@@ -863,7 +863,10 @@ def toml_to_msgs(toml: str) -> list[Message]:
     The string can be a whole file with multiple [[messages]].
     """
     t = tomlkit.parse(toml)
-    assert "messages" in t and isinstance(t["messages"], list)
+    if "messages" not in t:
+        raise ValueError("TOML document has no [[messages]] table")
+    if not isinstance(t["messages"], list):
+        raise ValueError("TOML messages must be an array of [[messages]] tables")
     msgs: list[dict] = t["messages"]
 
     return [
