@@ -25,7 +25,7 @@ def private_tmux(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         cmd: list[str], *args: Any, **kwargs: Any
     ) -> subprocess.CompletedProcess:
         if cmd[0] == "tmux":
-            cmd = ["tmux", "-L", socket, *cmd[1:]]
+            cmd = ["tmux", "-L", socket, "-f", "/dev/null", *cmd[1:]]
         return run(cmd, *args, **kwargs)
 
     monkeypatch.setattr(tmux.subprocess, "run", isolated_run)
@@ -33,7 +33,18 @@ def private_tmux(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(tmux, "get_confirmation", ConfirmationResult.confirm)
     try:
         isolated_run(
-            ["tmux", "new-session", "-d", "-s", "gptme_1", "stty -echo; cat"],
+            [
+                "tmux",
+                "new-session",
+                "-d",
+                "-x",
+                "120",
+                "-y",
+                "40",
+                "-s",
+                "gptme_1",
+                "stty -echo; cat",
+            ],
             check=True,
             capture_output=True,
         )
@@ -121,8 +132,32 @@ def test_malformed_input_has_no_partial_dispatch(
     assert "Error:" in messages[0].content
 
 
+@pytest.mark.parametrize(
+    "comment", ["don't wait", 'say "hello', "trailing\\", "ignore; send-keys 1 bad"]
+)
+def test_new_session_preserves_shell_comments(private_tmux: None, comment: str) -> None:
+    messages = list(
+        tmux.execute_tmux(
+            None,
+            None,
+            {"command": f"new-session printf 'comment-%s\\n' ok # {comment}"},
+        )
+    )
+    assert len(messages) == 1
+    assert not messages[0].content.startswith("Error:")
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if "comment-ok" in tmux._capture_pane("gptme_2"):
+            return
+        time.sleep(0.01)
+    pytest.fail("new-session did not execute the shell command before its comment")
+
+
 def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
-    command = "printf '%s\\n' " + shlex.quote('new "quoted; AFTER_MARKER"')
+    # The completed output is absent from the submitted command, so terminal echo
+    # cannot satisfy the assertion before the shell executes printf.
+    command = "printf 'new %s\\n' " + shlex.quote('"quoted; AFTER_MARKER"')
+    assert 'new "quoted; AFTER_MARKER"' not in command
     messages = list(
         tmux.execute_tmux(None, None, {"command": f"new-session {command}"})
     )
@@ -134,3 +169,31 @@ def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
         time.sleep(0.01)
     else:
         pytest.fail("new-session did not preserve quoted command")
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "new-session echo ok # don't wait\nlist-sessions",
+            ["echo ok # don't wait", "list"],
+        ),
+        ("new-session\techo ok # don't wait", ["echo ok # don't wait"]),
+        ("new-session echo word#tag", ["echo word#tag"]),
+        (r"new-session echo \#tag", [r"echo \#tag"]),
+        (r"new-session echo word\ #tag", [r"echo word\ #tag"]),
+        (r"new-session echo word\|#tag", [r"echo word\|#tag"]),
+        ('new-session echo "#tag"', ['echo "#tag"']),
+        ("send-keys 1 #literal Enter", ["#literal Enter"]),
+    ],
+)
+def test_comment_boundaries_preserve_dispatch(
+    monkeypatch: pytest.MonkeyPatch, command: str, expected: list[str]
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(tmux, "get_confirmation", ConfirmationResult.confirm)
+    monkeypatch.setattr(tmux, "new_session", lambda value: calls.append(value))
+    monkeypatch.setattr(tmux, "send_keys", lambda pane, value: calls.append(value))
+    monkeypatch.setattr(tmux, "list_sessions", lambda: calls.append("list"))
+    list(tmux.execute_tmux(command, [], None))
+    assert calls == expected

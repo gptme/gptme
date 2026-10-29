@@ -441,18 +441,35 @@ def execute_tmux(
     in_quotes = False
     quote_char = None
     escaped = False
+    in_comment = False
+    at_word_start = True
 
     for char in cmd:
+        if in_comment and char != "\n":
+            current.append(char)
+            continue
+        if char == "\n":
+            in_comment = False
         if escaped:
             current.append(char)
             escaped = False
+            at_word_start = False
             continue
         if char == "\\" and quote_char != "'":
             # Preserve escapes for send_keys' shlex parsing or new_session's shell.
             current.append(char)
             escaped = True
             continue
-        if char in ["'", '"']:
+        if (
+            char == "#"
+            and not in_quotes
+            and "".join(current).split(maxsplit=1)[0:1] == ["new-session"]
+            and at_word_start
+        ):
+            # Only new-session forwards shell syntax; send-keys treats # literally.
+            in_comment = True
+            current.append(char)
+        elif char in ["'", '"']:
             if not in_quotes:
                 in_quotes = True
                 quote_char = char
@@ -470,6 +487,7 @@ def execute_tmux(
                 current = []
         else:
             current.append(char)
+        at_word_start = not in_quotes and (char.isspace() or char in ";|&()<>")
 
     if in_quotes or escaped:
         yield Message(
