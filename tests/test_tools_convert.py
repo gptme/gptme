@@ -678,18 +678,82 @@ def test_conversion_result_summary_dry_run():
     assert "Converted via" not in summary
 
 
-def test_convert_file_same_path_rejected(avail_all, tmp_path):
-    """convert_file must reject src == dest to prevent data corruption."""
+def _png_bytes(payload: bytes = b"payload") -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + payload
+
+
+def _alias_destination(tmp_path: Path, src: Path, alias: str) -> Path:
+    if alias == "same-path":
+        return src
+    dest = tmp_path / "alias.jpg"
+    if alias == "hardlink":
+        try:
+            dest.hardlink_to(src)
+        except OSError as exc:
+            pytest.skip(f"hard links unsupported: {exc}")
+        return dest
+    dest.symlink_to(src)
+    return dest
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("alias", ["same-path", "hardlink", "symlink"])
+def test_convert_file_rejects_identity_aliases(avail_all, tmp_path, dry_run, alias):
+    """Same path, symlink, and hardlink destinations must not launch a converter."""
     src = tmp_path / "photo.png"
-    src.write_bytes(b"\x89PNG")
+    original = _png_bytes()
+    src.write_bytes(original)
+    dest = _alias_destination(tmp_path, src, alias)
     with (
         patch("gptme.tools.convert.get_availability", return_value=avail_all),
         patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert") as mock_convert,
     ):
-        result = convert_file(src, src)
+        result = convert_file(src, dest, dry_run=dry_run)
     assert not result.success
+    assert result.converter_used == "none"
     assert result.error is not None
     assert "different" in result.error.lower()
+    assert src.read_bytes() == original
+    assert dest.read_bytes() == original
+    mock_convert.assert_not_called()
+
+
+def test_convert_file_missing_destination_is_not_an_alias(avail_all, tmp_path):
+    """A destination that does not exist yet is a new output, not an identity alias."""
+    src = tmp_path / "photo.png"
+    src.write_bytes(_png_bytes())
+    dest = tmp_path / "out.jpg"
+    planned = ConversionResult(success=True, output_path=dest, converter_used="ffmpeg")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert", return_value=planned) as mock_convert,
+    ):
+        dry = convert_file(src, dest, dry_run=True)
+        assert dry.success
+        assert dry.metadata.get("dry_run") is True
+        mock_convert.assert_not_called()
+        result = convert_file(src, dest)
+    assert result.success
+    mock_convert.assert_called_once()
+
+
+def test_convert_file_distinct_existing_destination_is_converted(avail_all, tmp_path):
+    """Overwriting a different existing file is allowed; only inode aliases are rejected."""
+    src = tmp_path / "photo.png"
+    dest = tmp_path / "out.jpg"
+    src.write_bytes(_png_bytes())
+    dest.write_bytes(b"old-jpeg")
+    planned = ConversionResult(success=True, output_path=dest, converter_used="ffmpeg")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert", return_value=planned) as mock_convert,
+    ):
+        result = convert_file(src, dest)
+    assert result.success
+    mock_convert.assert_called_once()
 
 
 def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
