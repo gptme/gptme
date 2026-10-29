@@ -417,3 +417,135 @@ def test_fork_relative_attachment_with_missing_snapshot(tmp_path: Path) -> None:
     assert copied[0].files == [dest / "attachments/note.txt"]
     assert copied[0].file_hashes == {}
     assert (dest / "attachments/note.txt").read_text() == "live attachment"
+
+
+@pytest.mark.parametrize("at_turn", [0, 2])
+@pytest.mark.parametrize(
+    "policy",
+    [
+        None,
+        (None, None, None),
+        ([], [], "explorer"),
+        (["read"], ["docs.example.test"], "explorer"),
+    ],
+)
+def test_chats_fork_retains_only_explicit_policy(
+    source_session: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    at_turn: int,
+    policy: tuple[list[str] | None, list[str] | None, str | None] | None,
+) -> None:
+    """Saved restrictions survive a fork and resume without sharing runtime state."""
+    from gptme.cli.cmd_chats import chats_fork
+    from gptme.config.chat import ChatConfig
+    from gptme.config.models import MCPConfig, MCPServerConfig
+
+    source = source_session / "my-session"
+    workspace = source / "workspace"
+    workspace.mkdir()
+    (workspace / "private.txt").write_text("not a fork attachment")
+    (source / "lock").write_text("source owner")
+    (source / "costs.json").write_text('{"total": 42}')
+    if policy is not None:
+        tools, hosts, profile = policy
+        ChatConfig(
+            _logdir=source,
+            name="source identity",
+            workspace=workspace,
+            agent=workspace,
+            model="openai/source-model",
+            tools=tools,
+            allow_hosts=hosts,
+            agent_profile=profile,
+            env={"PRIVATE_TOKEN": "synthetic-secret"},
+            mcp=MCPConfig(
+                enabled=True,
+                servers=[MCPServerConfig(name="private", env={"TOKEN": "mcp-secret"})],
+            ),
+            no_confirm=True,
+            system_prompt="private runtime override",
+        ).save()
+    before = {
+        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
+    }
+    monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: source_session)
+
+    result = CliRunner().invoke(
+        chats_fork,
+        ["my-session", "--at-turn", str(at_turn), "--name", "policy-fork"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    fork_dir = source_session / "policy-fork"
+    fork = ChatConfig.from_logdir(fork_dir)
+    expected = policy if policy is not None else (None, None, None)
+    assert (fork.tools, fork.allow_hosts, fork.agent_profile) == expected
+    assert fork._logdir == fork_dir
+    assert fork.workspace == (fork_dir / "workspace").resolve()
+    assert fork.agent is None
+    assert fork.model is None  # Keep the existing default-model behavior.
+    assert fork.env == {}
+    assert fork.mcp is None
+    assert fork.no_confirm is None
+    assert fork.system_prompt is None
+    assert not (fork.workspace / "private.txt").exists()
+    assert not (fork_dir / "lock").exists()
+    assert not (fork_dir / "costs.json").exists()
+    assert {
+        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
+    } == before
+    messages = (fork_dir / "conversation.jsonl").read_text().splitlines()
+    assert len(messages) == 1 + 2 * at_turn
+
+    # Exercise the real saved-config/CLI merge used when resuming the fork.
+    resumed = ChatConfig.load_or_create(fork_dir, ChatConfig())
+    assert (resumed.tools, resumed.allow_hosts, resumed.agent_profile) == expected
+    assert resumed.workspace == fork.workspace
+    overridden = ChatConfig.load_or_create(
+        fork_dir,
+        ChatConfig(
+            tools=["shell"],
+            allow_hosts=["override.example.test"],
+            agent_profile="developer",
+        ),
+    )
+    assert overridden.tools == ["shell"]
+    assert overridden.allow_hosts == ["override.example.test"]
+    assert overridden.agent_profile == "developer"
+    assert {
+        p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
+    } == before
+
+
+@pytest.mark.parametrize("config_kind", ["malformed", "dangling_symlink"])
+def test_chats_fork_unreadable_policy_fails_closed(
+    source_session: Path, monkeypatch: pytest.MonkeyPatch, config_kind: str
+) -> None:
+    """Unreadable saved configs must not silently produce an unrestricted fork."""
+    from gptme.cli.cmd_chats import chats_fork
+
+    source = source_session / "my-session"
+    config = source / "config.toml"
+    if config_kind == "dangling_symlink":
+        try:
+            config.symlink_to("missing-config.toml")
+        except OSError:
+            pytest.skip("Creating symlinks is not supported")
+    else:
+        config.write_text('[chat]\ntools = ["read"\n')
+    original_conversation = (source / "conversation.jsonl").read_bytes()
+    monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: source_session)
+    result = CliRunner().invoke(
+        chats_fork, ["my-session", "--at-turn", "1", "--name", "policy-fork"]
+    )
+    assert result.exit_code != 0
+    assert "config" in result.output.lower()
+    assert not (source_session / "policy-fork").exists()
+    assert (source / "conversation.jsonl").read_bytes() == original_conversation
+    if config_kind == "dangling_symlink":
+        assert config.is_symlink()
+        assert config.readlink() == Path("missing-config.toml")
+        assert not config.exists()
+        assert not (source / "workspace").exists()
+    else:
+        assert config.read_text() == '[chat]\ntools = ["read"\n'
