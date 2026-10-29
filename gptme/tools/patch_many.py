@@ -8,7 +8,10 @@ where the model would otherwise issue N separate patch calls, one per file.
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -189,6 +192,72 @@ def _execute_patch_many_confirmed(
     yield from execute_patch_many_impl(patches)
 
 
+def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
+    """Prepare a same-directory replacement without touching its target."""
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.patch-many-", dir=path.parent)
+    staged = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+        staged.chmod(mode)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return staged
+
+
+def _publish_patches(
+    order: list[Path],
+    contents: dict[Path, bytes],
+    originals: dict[Path, bytes],
+    modes: dict[Path, int],
+) -> str | None:
+    """Stage every replacement and backup, then publish with best-effort rollback."""
+    staged: dict[Path, Path] = {}
+    backups: dict[Path, Path] = {}
+    retained: set[Path] = set()
+    attempted: list[Path] = []
+    try:
+        try:
+            for path in order:
+                backups[path] = _stage_patch_content(path, originals[path], modes[path])
+                staged[path] = _stage_patch_content(path, contents[path], modes[path])
+        except OSError as error:
+            return f"Atomic patch failed: staging write error: {error}. No files were written."
+
+        for path in order:
+            # Include the failing target: a publication wrapper can mutate then
+            # raise. Restore from a fully prepared original, not another write.
+            attempted.append(path)
+            try:
+                os.replace(staged[path], path)
+            except OSError as error:
+                failures: list[str] = []
+                for target in reversed(attempted):
+                    try:
+                        os.replace(backups[target], target)
+                    except OSError as restore_error:
+                        retained.add(backups[target])
+                        failures.append(
+                            f"`{target}`: {restore_error}; original retained at `{backups[target]}`"
+                        )
+                if failures:
+                    return (
+                        f"Atomic patch failed: write error on `{path}`: {error}. "
+                        "Restoration incomplete; files may be modified:\n"
+                        + "\n".join(failures)
+                    )
+                return (
+                    f"Atomic patch failed: write error on `{path}`: {error}. "
+                    f"Rolled back {len(attempted)} file(s). Original contents restored."
+                )
+    finally:
+        for temporary in [*staged.values(), *backups.values()]:
+            if temporary not in retained:
+                temporary.unlink(missing_ok=True)
+    return None
+
+
 def execute_patch_many_impl(
     patches: Sequence[tuple[Path, str | Patch]],
 ) -> Generator[Message, None, None]:
@@ -202,12 +271,14 @@ def execute_patch_many_impl(
     # a second entry for one path would be applied to the original text and its
     # write would clobber the first (silent partial application).
     current: dict[Path, str] = {}
-    originals: dict[Path, str] = {}
+    originals: dict[Path, bytes] = {}
+    modes: dict[Path, int] = {}
     newlines: dict[Path, str] = {}
     order: list[Path] = []
     hunks = 0
 
     for path, patch_src in patches:
+        path = path.resolve()
         if path not in current:
             if not path.exists():
                 yield Message(
@@ -223,7 +294,18 @@ def execute_patch_many_impl(
                 return
 
             try:
+                info = path.stat()
+                # Replacing one hardlinked name would detach it from its aliases;
+                # writing in place would clobber edits through another name.
+                if info.st_nlink > 1:
+                    yield Message(
+                        "system",
+                        f"Atomic patch aborted: hardlink alias target `{path}`. No files were written.",
+                    )
+                    return
+                original_bytes = path.read_bytes()
                 original = path.read_text(encoding="utf-8")
+                modes[path] = stat.S_IMODE(info.st_mode)
                 newlines[path] = file_newline(path)
             except (UnicodeDecodeError, PermissionError, OSError) as e:
                 yield Message(
@@ -232,7 +314,7 @@ def execute_patch_many_impl(
                 )
                 return
 
-            originals[path] = original
+            originals[path] = original_bytes
             current[path] = original
             order.append(path)
 
@@ -255,36 +337,23 @@ def execute_patch_many_impl(
 
         current[path] = new_content
 
-    def _write(path: Path, text: str) -> None:
-        # Content was read in universal-newline mode, so write it back with the
-        # file's own line ending (as patch does) instead of the platform default.
-        path.write_text(
-            text.replace("\r\n", "\n"), encoding="utf-8", newline=newlines[path]
-        )
-
-    written: list[Path] = []
-    for path in order:
-        try:
-            _write(path, current[path])
-        except OSError as e:
-            # Roll back any already-written files to preserve atomicity
-            for rolled_back in written:
-                try:
-                    _write(rolled_back, originals[rolled_back])
-                except OSError:
-                    pass  # best-effort rollback
-            yield Message(
-                "system",
-                f"Atomic patch failed: write error on `{path}`: {e}. "
-                f"Rolled back {len(written)} file(s). No files were modified.",
-            )
-            return
-        written.append(path)
+    # Content was read in universal-newline mode; preserve each file's style.
+    contents = {
+        path: current[path]
+        .replace("\r\n", "\n")
+        .replace("\n", newlines[path])
+        .encode("utf-8")
+        for path in order
+    }
+    error = _publish_patches(order, contents, originals, modes)
+    if error:
+        yield Message("system", error)
+        return
 
     yield Message(
         "system",
-        f"Applied {hunks} hunk(s) atomically to {len(written)} file(s):\n"
-        + "\n".join(f"  - {p}" for p in written),
+        f"Applied {hunks} hunk(s) atomically to {len(order)} file(s):\n"
+        + "\n".join(f"  - {p}" for p in order),
     )
 
 

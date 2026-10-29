@@ -528,17 +528,18 @@ def test_atomic_write_failure_rollback(tmp_path, monkeypatch):
         (f2, Patch("original b", "modified b")),
     ]
 
-    # Make the second write fail
-    original_write_text = Path.write_text
-    call_count = [0]
+    # Fail at the publication boundary, not the now-staged text writer.
+    original_replace = os.replace
+    failed = False
 
-    def failing_write_text(self, *args, **kwargs):
-        call_count[0] += 1
-        if self == f2:
+    def failing_replace(source, destination):
+        nonlocal failed
+        if destination == f2 and not failed:
+            failed = True
             raise OSError("disk full")
-        return original_write_text(self, *args, **kwargs)
+        return original_replace(source, destination)
 
-    monkeypatch.setattr(Path, "write_text", failing_write_text)
+    monkeypatch.setattr(os, "replace", failing_replace)
 
     messages = list(execute_patch_many_impl(patches))
     assert messages
@@ -670,3 +671,181 @@ def test_multi_block_entry_counts_each_hunk(tmp_path):
     assert f.read_text() == "ALPHA\nBETA\n"
     assert "2 hunk(s)" in messages[0].content
     assert "1 file(s)" in messages[0].content
+
+
+def test_hardlink_aliases_refused_before_any_write(tmp_path):
+    first = tmp_path / "first.txt"
+    alias = tmp_path / "alias.txt"
+    first.write_text("alpha\nbeta\n")
+    os.link(first, alias)
+    messages = list(
+        execute_patch_many_impl(
+            [
+                (first, Patch("alpha", "ALPHA")),
+                (alias, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    assert first.read_text() == alias.read_text() == "alpha\nbeta\n"
+    assert "alias" in messages[0].content.lower()
+    assert "aborted" in messages[0].content.lower()
+
+
+def test_partial_failing_target_is_restored(tmp_path, monkeypatch):
+    first, second = tmp_path / "first.txt", tmp_path / "second.txt"
+    first.write_text("alpha\nbeta\n")
+    second.write_text("alpha\nbeta\n")
+    original_write = Path.write_text
+    failed = False
+
+    def partial_write(path, text, *args, **kwargs):
+        nonlocal failed
+        if path == second and not failed:
+            failed = True
+            with path.open("w") as stream:
+                stream.write(text[:2])
+            raise OSError("partial target write")
+        return original_write(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", partial_write)
+    messages = list(
+        execute_patch_many_impl(
+            [
+                (first, Patch("alpha", "ALPHA")),
+                (second, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    if failed:
+        assert first.read_text() == second.read_text() == "alpha\nbeta\n"
+        assert "failed" in messages[0].content.lower()
+    else:
+        # Staging avoids the destructive target-write boundary altogether.
+        assert first.read_text() == "ALPHA\nbeta\n"
+        assert second.read_text() == "alpha\nBETA\n"
+
+
+@pytest.mark.parametrize("mutate_first", [False, True])
+def test_publication_failure_restores_all_targets(tmp_path, monkeypatch, mutate_first):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_bytes(b"alpha\r\nbeta\r\n")
+    second.write_bytes(b"alpha\r\nbeta\r\n")
+    first.chmod(0o751)
+    before = {p: (p.read_bytes(), p.stat().st_mode) for p in (first, second)}
+    replace = os.replace
+    failed = False
+
+    def fail_publish(source, destination):
+        nonlocal failed
+        if destination == second and not failed:
+            failed = True
+            if mutate_first:
+                destination.write_bytes(b"partial")
+            raise OSError("injected publication failure")
+        return replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_publish)
+    messages = list(
+        execute_patch_many_impl(
+            [
+                (first, Patch("alpha", "ALPHA")),
+                (second, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    assert failed
+    assert "Original contents restored" in messages[0].content
+    assert {p: (p.read_bytes(), p.stat().st_mode) for p in before} == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["first", "second"]
+
+
+def test_restore_failure_retains_original_and_reports_target(tmp_path, monkeypatch):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_text("alpha\nbeta\n")
+    second.write_text("alpha\nbeta\n")
+    replace = os.replace
+    publication_failed = False
+
+    def fail_publish_and_restore(source, destination):
+        nonlocal publication_failed
+        if destination == second and not publication_failed:
+            publication_failed = True
+            raise OSError("publish failed")
+        if publication_failed and destination == first:
+            raise OSError("restore failed")
+        return replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_publish_and_restore)
+    messages = list(
+        execute_patch_many_impl(
+            [
+                (first, Patch("alpha", "ALPHA")),
+                (second, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    text = messages[0].content
+    assert "Restoration incomplete" in text
+    assert "No files were modified" not in text
+    assert str(first) in text
+    retained = [p for p in tmp_path.iterdir() if p not in (first, second)]
+    assert len(retained) == 1
+    assert retained[0].read_bytes() == b"alpha\nbeta\n"
+    assert str(retained[0]) in text
+    assert first.read_text() == "ALPHA\nbeta\n"
+    assert second.read_text() == "alpha\nbeta\n"
+
+
+def test_staging_failure_never_publishes(tmp_path, monkeypatch):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_text("alpha")
+    second.write_text("beta")
+    stage = patch_many_tool._stage_patch_content
+    calls = 0
+
+    def fail_stage(path, content, mode):
+        nonlocal calls
+        calls += 1
+        if calls == 4:
+            raise OSError("staging full")
+        return stage(path, content, mode)
+
+    monkeypatch.setattr(patch_many_tool, "_stage_patch_content", fail_stage)
+    messages = list(
+        execute_patch_many_impl(
+            [
+                (first, Patch("alpha", "ALPHA")),
+                (second, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    assert "No files were written" in messages[0].content
+    assert first.read_text() == "alpha"
+    assert second.read_text() == "beta"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["first", "second"]
+
+
+def test_symlink_alias_accumulates_and_keeps_link(tmp_path):
+    target, alias = tmp_path / "target", tmp_path / "alias"
+    target.write_text("alpha\nbeta\n")
+    alias.symlink_to(target)
+    list(
+        execute_patch_many_impl(
+            [
+                (target, Patch("alpha", "ALPHA")),
+                (alias, Patch("beta", "BETA")),
+            ]
+        )
+    )
+    assert alias.is_symlink()
+    assert target.read_text() == alias.read_text() == "ALPHA\nBETA\n"
+
+
+def test_staged_success_preserves_permissions_and_line_endings(tmp_path):
+    target = tmp_path / "target"
+    target.write_bytes(b"alpha\r\nbeta\r\n")
+    target.chmod(0o751)
+    list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert target.read_bytes() == b"ALPHA\r\nbeta\r\n"
+    assert target.stat().st_mode & 0o777 == 0o751
+    assert list(tmp_path.iterdir()) == [target]
