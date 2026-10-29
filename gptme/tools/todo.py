@@ -28,7 +28,7 @@ from ..hooks import HookType
 from ..hooks.types import ToolExecutePreData
 from ..logmanager import LogManager
 from ..message import Message
-from .base import Parameter, ToolSpec, ToolUse, _codeblock_char_ranges
+from .base import Parameter, ToolSpec, ToolUse, _codeblock_char_ranges, find_json_end
 
 logger = logging.getLogger(__name__)
 
@@ -217,11 +217,21 @@ def _restore_todos(
         # System prompts contain examples, not executed assistant instructions.
         if msg.role != "assistant":
             continue
-        # A wrapper mention is not a call. Probe outside fenced examples so
-        # neither prose nor the first fenced wrapper chooses the wrong parser.
+        # A wrapper mention is not a call. Probe outside fenced examples and
+        # native JSON arguments, where XML is data rather than an invocation.
         # Parse the original below to retain execution-time call provenance.
+        native_calls = list(
+            ToolUse.iter_from_content(msg.content, tool_format_override="tool")
+        )
+        excluded = _codeblock_char_ranges(msg.content)
+        for call in native_calls:
+            if call._format == "tool" and call.start is not None:
+                start = msg.content.find("{", call.start)
+                end = find_json_end(msg.content, start)
+                if end is not None:
+                    excluded.append((start, end))
         xml_content = msg.content
-        for start, end in reversed(_codeblock_char_ranges(msg.content)):
+        for start, end in sorted(excluded, reverse=True):
             xml_content = xml_content[:start] + " " * (end - start) + xml_content[end:]
         xml = (
             next(
@@ -229,10 +239,10 @@ def _restore_todos(
             )
             is not None
         )
-        calls = list(
-            ToolUse.iter_from_content(
-                msg.content, tool_format_override="xml" if xml else "tool"
-            )
+        calls = (
+            list(ToolUse.iter_from_content(msg.content, tool_format_override="xml"))
+            if xml
+            else native_calls
         )
         for tooluse in calls:
             if (

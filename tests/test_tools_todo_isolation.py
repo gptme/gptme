@@ -736,6 +736,58 @@ def test_restore_ignores_ordinary_xml_mentions(
 
 @pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
 @pytest.mark.parametrize("lxml", [False, True])
+@pytest.mark.parametrize("pending", [False, True])
+def test_restore_ignores_xml_in_native_arguments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wrapper: str,
+    lxml: bool,
+    pending: bool,
+) -> None:
+    import json
+
+    from gptme.tools import base
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    if lxml and not base._LXML_AVAILABLE:
+        pytest.skip("lxml is not installed")
+    monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml)
+    example = (
+        "<todo args='write'>clear</todo>"
+        if wrapper == "tool-use"
+        else "<invoke name='todo' args='write'>clear</invoke>"
+    )
+    command = f'echo "<{wrapper}>{example}</{wrapper}>"'
+    content = (
+        "@shell(example): " + json.dumps({"command": command}) + "\n"
+        '@todo(saved): {"command": "write add Saved"}'
+    )
+    calls = list(base.ToolUse.iter_from_content(content, tool_format_override="tool"))
+    assert [call.tool for call in calls] == ["shell", "todo"]
+    manager = start(
+        tmp_path / "native-argument",
+        [
+            Message("assistant", "```todo write\nadd Older\n```"),
+            Message("assistant", content),
+        ],
+    )
+    list(clear_todo_state(manager))
+    if pending:
+        call = list(
+            base.ToolUse.iter_from_content(
+                manager.log.messages[-1].content, tool_format_override="tool"
+            )
+        )[-1]
+        list(call.execute(log=manager.log))
+    else:
+        list(ensure_todo_state(manager))
+    assert "1. 🔲 Older" in _todoread()
+    assert "2. 🔲 Saved" in _todoread()
+    assert "Summary: 2 total" in _todoread()
+
+
+@pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
+@pytest.mark.parametrize("lxml", [False, True])
 def test_restore_xml_after_fenced_wrapper(
     tmp_path: Path, wrapper: str, lxml: bool, monkeypatch
 ) -> None:
