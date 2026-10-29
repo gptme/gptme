@@ -364,12 +364,8 @@ def test_run_honors_timeout(tmp_path: Path):
     assert "expired" in w.events[-1]
 
 
-def test_run_reports_killed_returncode(tmp_path: Path):
-    """A stopped child is reaped before its exit wake reports `rc`.
-
-    Regression: the SIGKILL escalation path did not reap, so the exit wake
-    reported ``rc=None`` for a process that had been stopped.
-    """
+def test_run_reaps_child_after_sigkill_on_timeout(tmp_path: Path):
+    """A child ignoring SIGTERM is reaped on explicit timeout, not on EOF."""
     import os
     import signal
     import subprocess as sp
@@ -378,9 +374,11 @@ def test_run_reports_killed_returncode(tmp_path: Path):
         [
             "python3",
             "-c",
-            "import os, signal, time; "
-            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-            "os.close(1); os.close(2); time.sleep(5)",
+            (
+                "import os, signal, time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "os.close(1); os.close(2); time.sleep(5)"
+            ),
         ],
         stdout=sp.PIPE,
         stderr=sp.STDOUT,
@@ -392,7 +390,7 @@ def test_run_reports_killed_returncode(tmp_path: Path):
         kind="run",
         description="slow-exit",
         created=time.time(),
-        deadline=None,
+        deadline=time.time() + 0.5,
         proc=proc,
         logdir=tmp_path,
     )
@@ -402,14 +400,115 @@ def test_run_reports_killed_returncode(tmp_path: Path):
         t.join(timeout=10)
         assert not t.is_alive()
         assert w.fired
-        assert "process exited rc=" in w.events[-1]
-        assert "rc=None" not in w.events[-1]
+        assert "expired without exit" in w.events[-1]
+        assert proc.returncode == -signal.SIGKILL
+        assert proc.stdout is not None and proc.stdout.closed
     finally:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except OSError:
             pass
         _kill_proc(proc)
+
+
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_run_waits_for_exit_after_stdout_eof(tmp_path: Path, returncode: int):
+    """EOF is not permission to terminate quiet work after two seconds."""
+    import subprocess as sp
+    import sys
+
+    marker = tmp_path / "completed"
+    proc = sp.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os, pathlib, sys, time; os.close(1); os.close(2); "
+                "time.sleep(2.8); pathlib.Path(sys.argv[1]).touch(); "
+                "sys.exit(int(sys.argv[2]))"
+            ),
+            str(marker),
+            str(returncode),
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+    )
+    w = Watch(
+        id="w-eof",
+        kind="run",
+        description="closed-output",
+        created=time.time(),
+        proc=proc,
+        logdir=tmp_path,
+    )
+    try:
+        _watch_mod._poll_run(w, proc)
+        assert marker.exists(), "watch killed the child before its work completed"
+        assert proc.returncode == returncode
+        assert list(w.events) == [f"process exited rc={returncode}"]
+        assert proc.stdout is not None and proc.stdout.closed
+    finally:
+        _kill_proc(proc)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
+@pytest.mark.parametrize("finish", ["deadline", "cancel"])
+def test_run_stops_live_child_after_stdout_eof(tmp_path: Path, finish: str):
+    import subprocess as sp
+    import sys
+
+    closed = tmp_path / "closed"
+    proc = sp.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os, pathlib, sys, time; os.close(1); os.close(2); "
+                "pathlib.Path(sys.argv[1]).touch(); time.sleep(60)"
+            ),
+            str(closed),
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+    )
+    w = Watch(
+        id="w-eof-stop",
+        kind="run",
+        description="closed-output",
+        created=time.time(),
+        proc=proc,
+        logdir=tmp_path,
+    )
+    worker = threading.Thread(target=_watch_mod._poll_run, args=(w, proc), daemon=True)
+    worker.start()
+    try:
+        limit = time.monotonic() + 5
+        while not closed.exists() and time.monotonic() < limit:
+            time.sleep(0.01)
+        assert closed.exists()
+        if finish == "deadline":
+            w.deadline = time.time() - 1
+        else:
+            w.cancelled = True
+            w.cancel_event.set()
+        worker.join(timeout=1.5)
+        assert not worker.is_alive()
+        assert proc.poll() is not None
+        assert proc.stdout is not None and proc.stdout.closed
+        if finish == "deadline":
+            assert w.fired and "expired without exit" in w.events[-1]
+        else:
+            assert not w.fired
+    finally:
+        w.cancelled = True
+        w.cancel_event.set()
+        _kill_proc(proc)
+        worker.join(timeout=3)
+        if proc.stdout is not None:
+            proc.stdout.close()
 
 
 def test_cancel_kills_watched_process(tmp_path: Path):
@@ -785,6 +884,57 @@ def test_tmux_invalid_pattern_is_valueerror(tmp_path: Path):
         _watch_cli("tmux sess --pattern '['", tmp_path)
 
 
+@pytest.mark.skipif(not hasattr(__import__("os"), "fork"), reason="requires fork")
+def test_run_exits_when_grandchild_holds_pipe(tmp_path: Path):
+    """A settled child must not wait forever for an inherited stdout handle."""
+    import os
+    import signal
+    import subprocess as sp
+    import sys
+
+    proc = sp.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os, time; pid = os.fork(); "
+                "time.sleep(60) if pid == 0 else print('parent done', flush=True)"
+            ),
+        ],
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    w = Watch(
+        id="w-inherited",
+        kind="run",
+        description="inherited-pipe",
+        created=time.time(),
+        proc=proc,
+        logdir=tmp_path,
+    )
+    worker = threading.Thread(target=_watch_mod._poll_run, args=(w, proc), daemon=True)
+    worker.start()
+    try:
+        worker.join(timeout=6)
+        assert not worker.is_alive()
+        assert proc.returncode == 0
+        assert list(w.events) == ["process exited rc=0 parent done"]
+        assert proc.stdout is not None and proc.stdout.closed
+    finally:
+        w.cancelled = True
+        w.cancel_event.set()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        _kill_proc(proc)
+        worker.join(timeout=3)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
 def test_run_timeout_closes_stdout_when_grandchild_holds_pipe(tmp_path: Path):
     """Closing stdout unblocks the reader if a grandchild inherited the pipe."""
     import os
@@ -839,8 +989,10 @@ def test_stream_ends_when_parent_exits_even_if_grandchild_holds_pipe(
         [
             "python3",
             "-c",
-            "import os, sys, time; os.fork() or time.sleep(60); "
-            "print('hi', flush=True)",
+            (
+                "import os, sys, time; os.fork() or time.sleep(60); "
+                "print('hi', flush=True)"
+            ),
         ],
         stdout=sp.PIPE,
         stderr=sp.DEVNULL,
