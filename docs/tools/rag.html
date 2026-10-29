@@ -666,6 +666,19 @@
 <li><p>Enables semantic search across your conversation history</p></li>
 </ul>
 </li>
+</ol>
+<p>Explicit project indexes use <code class="docutils literal notranslate"><span class="pre">&lt;gptme</span> <span class="pre">data</span> <span class="pre">dir&gt;/rag/projects-v2/&lt;SHA-256</span> <span class="pre">of</span> <span class="pre">the</span>
+<span class="pre">exact</span> <span class="pre">UTF-8</span> <span class="pre">project</span> <span class="pre">name&gt;</span></code>. Indexing, search and status share this identity;
+case, punctuation and whitespace are significant. Omitting <code class="docutils literal notranslate"><span class="pre">project</span></code> (or
+passing an empty string) still uses the CLI’s global index.</p>
+<p>Legacy <code class="docutils literal notranslate"><span class="pre">rag/&lt;sanitized-name&gt;</span></code> directories are never selected or changed,
+even for ordinary names: sanitization did not record the original identity,
+so their contents may belong to another name. After upgrading, explicitly
+rebuild each project from its own source files with
+<code class="docutils literal notranslate"><span class="pre">rag_index(&quot;/path/to/project&quot;,</span> <span class="pre">project=&quot;exact</span> <span class="pre">project</span> <span class="pre">name&quot;)</span></code>.
+Search and status use the new index immediately, without falling back to old
+data. Keep legacy directories as backups; there is no automatic migration.</p>
+<ol class="arabic simple" start="3">
 <li><p>Automatic Context Enhancement</p>
 <ul class="simple">
 <li><p>Retrieves semantically similar documents</p></li>

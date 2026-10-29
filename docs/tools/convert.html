@@ -635,7 +635,9 @@
 <p>The <code class="docutils literal notranslate"><span class="pre">convert</span></code> tool reformats files offline using system converters, falling
 back gracefully when a specific one is unavailable. Choose the destination
 format by the <code class="docutils literal notranslate"><span class="pre">output_path</span></code> extension (<code class="docutils literal notranslate"><span class="pre">.png</span></code>, <code class="docutils literal notranslate"><span class="pre">.jpg</span></code>, <code class="docutils literal notranslate"><span class="pre">.txt</span></code>, <code class="docutils literal notranslate"><span class="pre">.md</span></code>),
-and pass <code class="docutils literal notranslate"><span class="pre">dry_run</span></code> to see the converter plan without executing. It has no
+and pass <code class="docutils literal notranslate"><span class="pre">dry_run</span></code> to see the converter plan without executing. Image-to-image
+output paths are literal filenames: <code class="docutils literal notranslate"><span class="pre">asset%03d.jpg</span></code> writes that exact name,
+not a numbered image sequence. It has no
 markdown-fence block type, so ask for it in natural language and let the model
 call it with structured arguments:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>gptme "convert report.pdf to report-page-1.png at high quality, dry run first"
