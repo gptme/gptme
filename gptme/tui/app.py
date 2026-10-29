@@ -999,24 +999,30 @@ def _system_display_text(content: str) -> str:
 class SystemMessage(Vertical):
     """A system/tool-output message, collapsed by default (like <details>).
 
-    One-line messages are shown as-is: there is nothing to expand.
+    Short one-line messages are shown as-is; long lines get a bounded summary.
     """
 
-    def __init__(self, content: str, highlight: bool = True):
+    def __init__(
+        self, content: str, highlight: bool = True, expanded: bool = False
+    ) -> None:
         super().__init__(classes="message system")
         self.content = _system_display_text(content)
         self.highlight = highlight
+        self.expanded = expanded
 
     def compose(self) -> ComposeResult:
-        if "\n" not in self.content:
+        single_line = "\n" not in self.content
+        if single_line and len(self.content) <= SUMMARY_MAXLEN:
             yield Static(
                 _summary_title(self.content, self.highlight), classes="system-line"
             )
             return
         yield Collapsible(
-            ChatMarkdown(_drop_summary_line(self.content)),
+            Static(Text(self.content))
+            if single_line
+            else ChatMarkdown(_drop_summary_line(self.content)),
             title=_summary_title(_summarize(self.content), self.highlight),  # type: ignore[arg-type]
-            collapsed=True,
+            collapsed=not self.expanded,
         )
 
 
@@ -1484,7 +1490,7 @@ def renderables_for_message(
         return items
     # system/tool output: compact summary line, optionally expanded
     content = _system_display_text(content)
-    if "\n" not in content:
+    if "\n" not in content and len(content) <= SUMMARY_MAXLEN:
         line = _summary_title(content, highlight)
         line.stylize("dim")
         return [line, Text()]
@@ -1493,7 +1499,8 @@ def renderables_for_message(
     summary.stylize("dim")
     renderables: list = [summary]
     if expanded:
-        renderables.append(Padding(RichMarkdown(content), (0, 0, 0, 2)))
+        body = Text(content) if "\n" not in content else RichMarkdown(content)
+        renderables.append(Padding(body, (0, 0, 0, 2)))
     renderables.append(Text())
     return renderables
 
@@ -2764,7 +2771,9 @@ class GptmeApp(App):
                 msg.content, show_thinking=self.show_thinking, highlight=self.highlight
             )
         if msg.role == "system":
-            return SystemMessage(msg.content, highlight=self.highlight)
+            return SystemMessage(
+                msg.content, highlight=self.highlight, expanded=self._outputs_expanded
+            )
         return None
 
     def _print_above(self, *renderables) -> None:
