@@ -44,7 +44,7 @@ Legacy ``rag/<sanitized-name>`` directories are never selected or changed,
 even for ordinary names: sanitization did not record the original identity,
 so their contents may belong to another name. After upgrading, explicitly
 rebuild each project from its own source files with
-``rag_index(paths="/path/to/project", project="exact project name")``.
+``rag_index("/path/to/project", project="exact project name")``.
 Search and status use the new index immediately, without falling back to old
 data. Keep legacy directories as backups; there is no automatic migration.
 
@@ -94,10 +94,19 @@ def _project_persist_dir(project: str | None) -> Path | None:
     # avoids reusing any old index, whose original project identity is unknown.
     identity = hashlib.sha256(project.encode("utf-8")).hexdigest()
     legacy_name = _sanitize_project_name(project)
-    if len(legacy_name.encode("utf-8")) <= 255 and (root / legacy_name).exists():
+    if (
+        len(legacy_name.encode("utf-8")) <= 255
+        and (root / legacy_name).exists()
+        # The namespace can also contain a real legacy index for this name.
+        # Child project directories alone do not make it a legacy index.
+        and (
+            legacy_name != "projects-v2"
+            or (root / legacy_name / "chroma.sqlite3").is_file()
+        )
+    ):
         logger.warning(
             "Legacy RAG index at %s is not reused: its project identity is ambiguous. "
-            "Rebuild with rag_index(paths=..., project=%r); legacy data is unchanged.",
+            "Rebuild with rag_index('/path/to/project', project=%r); legacy data is unchanged.",
             root / legacy_name,
             project,
         )

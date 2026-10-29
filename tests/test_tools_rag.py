@@ -563,3 +563,28 @@ def test_project_identity_is_bounded_for_long_names(tmp_path):
     assert path is not None
     assert len(path.name.encode()) <= 255
     path.mkdir(parents=True)
+
+
+@pytest.mark.parametrize("project", ["projects-v2", "projects-v2.", "projects-v2!"])
+@pytest.mark.parametrize("has_legacy_index", [False, True])
+def test_project_namespace_only_warns_for_actual_legacy_index(
+    tmp_path, caplog, project, has_legacy_index
+):
+    namespace = tmp_path / "rag" / "projects-v2"
+    new_index = namespace / hashlib.sha256(b"another project").hexdigest()
+    new_index.mkdir(parents=True)
+    (new_index / "chroma.sqlite3").write_bytes(b"new project index")
+    if has_legacy_index:
+        (namespace / "chroma.sqlite3").write_bytes(b"legacy project index")
+    before = {
+        path: path.read_bytes() for path in namespace.rglob("*") if path.is_file()
+    }
+
+    with patch("gptme.tools.rag.get_data_dir", return_value=tmp_path):
+        selected = _project_persist_dir(project)
+
+    assert selected == namespace / hashlib.sha256(project.encode("utf-8")).hexdigest()
+    assert ("Legacy RAG index" in caplog.text) == has_legacy_index
+    assert {
+        path: path.read_bytes() for path in namespace.rglob("*") if path.is_file()
+    } == before
