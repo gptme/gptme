@@ -537,12 +537,16 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
 
 def _poll_timer(watch: Watch, seconds: float) -> None:
     end = time.time() + seconds
-    while not watch.cancelled and time.time() < end:
-        watch.cancel_event.wait(
-            timeout=min(_POLL_INTERVAL, max(0.1, end - time.time()))
-        )
-    if not watch.cancelled:
-        _fire(watch, f"timer elapsed ({watch.description})")
+    while not watch.cancelled:
+        now = time.time()
+        if watch.deadline is not None and now >= watch.deadline:
+            _fire(watch, f"expired before timer elapsed ({watch.description})")
+            return
+        if now >= end:
+            _fire(watch, f"timer elapsed ({watch.description})")
+            return
+        boundary = min(end, watch.deadline) if watch.deadline is not None else end
+        watch.cancel_event.wait(timeout=min(_POLL_INTERVAL, boundary - now))
 
 
 def _poll_tmux(
