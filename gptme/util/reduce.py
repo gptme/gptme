@@ -170,7 +170,8 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
         # truncate the middle part of the codeblock, keeping the first and last n lines
         lines = codeblock.content.split("\n")
         if len(lines) > lines_pre + lines_post + 1:
-            content = "\n".join([*lines[:lines_pre], "[...]", *lines[-lines_post:]])
+            tail = lines[-lines_post:] if lines_post else []
+            content = "\n".join([*lines[:lines_pre], "[...]", *tail])
         else:
             logger.warning("Not enough lines in codeblock to truncate")
             continue
@@ -279,9 +280,8 @@ def _truncate_details_blocks(
             lines.pop()
 
         if len(lines) > lines_pre + lines_post + 1:
-            truncated_body = "\n".join(
-                [*lines[:lines_pre], "[...]", *lines[-lines_post:]]
-            )
+            tail = lines[-lines_post:] if lines_post else []
+            truncated_body = "\n".join([*lines[:lines_pre], "[...]", *tail])
             replacement = f"{header}\n{truncated_body}\n{footer}"
             content = content[:block_start] + replacement + content[block_end:]
 

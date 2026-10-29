@@ -40,6 +40,45 @@ def test_truncate_msg():
     assert "```index.html" in truncated.content
 
 
+@pytest.mark.parametrize("wrapper", ["code", "details", "both"])
+@pytest.mark.parametrize(
+    ("lines_pre", "lines_post", "expected_lines"),
+    [
+        (2, 0, ["line 0", "line 1", "[...]"]),
+        (0, 0, ["[...]"]),
+        (0, 2, ["[...]", "line 28", "line 29"]),
+        (2, 2, ["line 0", "line 1", "[...]", "line 28", "line 29"]),
+        (
+            10,
+            10,
+            [
+                *(f"line {i}" for i in range(10)),
+                "[...]",
+                *(f"line {i}" for i in range(20, 30)),
+            ],
+        ),
+    ],
+)
+def test_truncate_msg_line_counts(
+    wrapper: str, lines_pre: int, lines_post: int, expected_lines: list[str]
+) -> None:
+    """Requested zero counts must not retain or duplicate the entire body."""
+
+    def wrap(body: str) -> str:
+        blocks = []
+        if wrapper in ("code", "both"):
+            blocks.append(f"```text\n{body}\n```")
+        if wrapper in ("details", "both"):
+            blocks.append(f"<details>\n<summary>Logs</summary>\n{body}\n</details>")
+        return "Before.\n\n" + "\n\n".join(blocks) + "\n\nAfter."
+
+    msg = Message("system", wrap("\n".join(f"line {i}" for i in range(30))))
+    truncated = truncate_msg(msg, lines_pre=lines_pre, lines_post=lines_post)
+
+    assert truncated is not None
+    assert truncated.content == wrap("\n".join(expected_lines))
+
+
 def test_truncate_details_block():
     """Test that long <details> blocks are truncated."""
     # Generate a long details block with 50 lines
