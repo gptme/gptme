@@ -690,7 +690,10 @@ def chats_stats(id: str | None, since: str | None, as_json: bool):
     """Show conversation statistics.
 
     Without an ID, displays overview of conversation history including counts,
-    date ranges, message totals, and activity breakdown.
+    date ranges, message totals, and activity breakdown. Model usage is attributed
+    to each originating model. A conversation counts once for each model it used,
+    so model counts can exceed the total conversation count. Legacy histories
+    without per-model usage fall back to the last model (or unknown).
 
     With an ID, shows detailed stats for one conversation including role counts,
     tool calls, token usage, and duration.
