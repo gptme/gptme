@@ -1,5 +1,6 @@
 """Tests for custom OpenAI-compatible providers configuration."""
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -152,8 +153,13 @@ def test_malformed_main_providers_allow_local_overlay(
     config = load_user_config(str(main))
 
     assert [p.name for p in config.providers] == ["local"]
-    assert "providers" in caplog.text
-    assert "runtime defaults" not in caplog.text
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.WARNING
+    ]
+    assert any("providers" in message for message in warnings)
+    assert all("runtime defaults" not in message for message in warnings)
 
 
 @pytest.mark.parametrize("malformed", ['"invalid"', "42", '{ name = "bad" }'])
