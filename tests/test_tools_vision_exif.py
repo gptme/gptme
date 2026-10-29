@@ -21,12 +21,8 @@ def isolated_temp_files(monkeypatch: pytest.MonkeyPatch):
 
 def asymmetric_image(resize: bool) -> Image.Image:
     size = (1400, 2100) if resize else (800, 1200)
-    image = (
-        Image.frombytes(
-            "RGB", size, random.Random(123).randbytes(size[0] * size[1] * 3)
-        )
-        if resize
-        else Image.new("RGB", size, "white")
+    image = Image.frombytes(
+        "RGB", size, random.Random(123).randbytes(size[0] * size[1] * 3)
     )
     width, height = size
     # Big asymmetric corner patches remain identifiable after JPEG and resize.
@@ -40,18 +36,23 @@ def asymmetric_image(resize: bool) -> Image.Image:
     return image
 
 
+@pytest.mark.parametrize("image_format", ["png", "jpeg"])
 @pytest.mark.parametrize("orientation", [None, 1, 2, 3, 4, 5, 6, 7, 8])
 @pytest.mark.parametrize("resize", [False, True])
 def test_large_exif_display_pixels(
-    tmp_path: Path, orientation: int | None, resize: bool
+    tmp_path: Path, orientation: int | None, resize: bool, image_format: str
 ) -> None:
-    source = tmp_path / "oriented.png"
+    source = tmp_path / f"oriented.{image_format}"
     image = asymmetric_image(resize)
     exif = Image.Exif()
     if orientation is not None:
         exif[274] = orientation
     exif[315] = "Synthetic private author"
-    image.save(source, compress_level=0, exif=exif)
+    if image_format == "jpeg":
+        # Noisy high-quality JPEGs cross the input gate even without resizing.
+        image.save(source, quality=100, subsampling=0, exif=exif)
+    else:
+        image.save(source, compress_level=0, exif=exif)
     assert source.stat().st_size > 1024 * 1024
     original_hash = hashlib.sha256(source.read_bytes()).digest()
     with Image.open(source) as original:
