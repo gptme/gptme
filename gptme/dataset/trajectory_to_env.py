@@ -281,19 +281,16 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                 break
             ranges.append((match.start(), end, False))
             search_from = end
-        # CDATA and comments are body text, not wrapper boundaries or nested
-        # calls. Mask them before both boundary detection and XML parsing;
-        # only names/counts are needed, and offsets/line boundaries stay intact.
-        xml_content = re.sub(
-            r"<!\[CDATA\[.*?\]\]>|<!--.*?-->",
-            lambda match: re.sub(r"[^\n]", " ", match.group()),
-            content,
-            flags=re.DOTALL,
-        )
+        # Consume comments/CDATA as units while finding XML boundaries. Their
+        # delimiters outside a wrapper (for example in native JSON) must not
+        # swallow a later call. Mask body text only after selecting a wrapper.
         ranges.extend(
             (match.start(), match.end(), True)
             for match in re.finditer(
-                r"<(tool-use|function_calls)>.*?</\1>", xml_content, re.DOTALL
+                r"<(tool-use|function_calls)>"
+                r"(?:<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>",
+                content,
+                re.DOTALL,
             )
         )
         calls: list[ToolUse] = []
@@ -304,9 +301,13 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                 continue
             covered_until = end
             if is_xml:
-                calls.extend(
-                    DatasetToolUse.iter_from_content(xml_content[start:end], "xml")
+                xml_content = re.sub(
+                    r"<!\[CDATA\[.*?\]\]>|<!--.*?-->",
+                    lambda match: re.sub(r"[^\n]", " ", match.group()),
+                    content[start:end],
+                    flags=re.DOTALL,
                 )
+                calls.extend(DatasetToolUse.iter_from_content(xml_content, "xml"))
                 # Preserve line boundaries for the remaining native/Markdown pass.
                 masked = re.sub(r"[^\n]", " ", content[start:end])
                 non_xml = non_xml[:start] + masked + non_xml[end:]

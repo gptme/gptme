@@ -235,6 +235,22 @@ def test_extract_tool_call_counts_markdown():
             {"save": 1, "shell": 1},
         ),
         (
+            '@save(a): {"content":"<!--"}\n'
+            '<tool-use><shell>echo "-->"</shell></tool-use>',
+            {"save": 1, "shell": 1},
+        ),
+        (
+            '```json\n{"content":"<!--"}\n```\n'
+            '<tool-use><shell>echo "-->"</shell></tool-use>',
+            {"shell": 1},
+        ),
+        (
+            '@save(a): {"content":"<![CDATA["}\n'
+            '<function_calls><invoke name="shell"><![CDATA[echo hi]]></invoke>'
+            "</function_calls>",
+            {"save": 1, "shell": 1},
+        ),
+        (
             "```json\n@shell(example): {\n```\n"
             '@save(real): {"content":"<tool-use><shell>echo hi</shell></tool-use>"}',
             {"save": 1},
