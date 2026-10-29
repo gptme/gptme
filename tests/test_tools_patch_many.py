@@ -973,7 +973,7 @@ def test_staging_preserves_target_group(tmp_path, monkeypatch, fail_publication)
 
 
 @pytest.mark.skipif(not hasattr(os, "setxattr"), reason="xattrs unavailable")
-def test_staging_preserves_posix_access_acl(tmp_path):
+def test_staging_preserves_posix_access_acl(tmp_path, monkeypatch):
     import struct
 
     target = tmp_path / "target"
@@ -993,7 +993,20 @@ def test_staging_preserves_posix_access_acl(tmp_path):
         os.setxattr(target, "system.posix_acl_access", acl)
     except OSError as error:
         pytest.skip(f"filesystem does not support POSIX ACLs: {error}")
+    chmod = Path.chmod
+    checked = []
+
+    def check_acl_before_permissions(path, mode):
+        if path.name.startswith(".patch-many-"):
+            # chmod must never expose group mode bits without the access ACL
+            # already restricting the group to the target's actual audience.
+            assert os.getxattr(path, "system.posix_acl_access") == acl
+            checked.append(path)
+        return chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", check_acl_before_permissions)
     messages = list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert len(checked) == 2
     assert "Applied" in messages[0].content
     assert os.getxattr(target, "system.posix_acl_access") == acl
 

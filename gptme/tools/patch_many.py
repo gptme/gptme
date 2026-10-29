@@ -204,7 +204,6 @@ def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
             staged_info = staged.stat()
             if (staged_info.st_uid, staged_info.st_gid) != (info.st_uid, info.st_gid):
                 os.chown(staged, info.st_uid, info.st_gid)
-        staged.chmod(mode)
         # Preserve access ACLs (and other xattrs) rather than granting the new
         # inode's default audience access. Failure aborts staging before writes.
         if hasattr(os, "listxattr"):
@@ -213,6 +212,9 @@ def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
                 os.removexattr(staged, name)
             for name in source_attrs:
                 os.setxattr(staged, name, os.getxattr(path, name))
+        # Widen permissions only after installing the source access ACL. Its
+        # group mode bits are an ACL mask, not necessarily group permissions.
+        staged.chmod(mode)
     except BaseException as error:
         try:
             staged.unlink(missing_ok=True)
