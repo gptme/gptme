@@ -740,35 +740,39 @@ Each links to its setup details on <a class="reference internal" href="providers
 <td><p><code class="docutils literal notranslate"><span class="pre">xai/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">XAI_API_KEY</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#deepseek"><span class="std std-ref">DeepSeek</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#opencode-go"><span class="std std-ref">OpenCode Go</span></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">opencode-go/</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OPENCODE_API_KEY</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#deepseek"><span class="std std-ref">DeepSeek</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">deepseek/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">DEEPSEEK_API_KEY</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#moonshot"><span class="std std-ref">Moonshot</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#moonshot"><span class="std std-ref">Moonshot</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">moonshot/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">MOONSHOT_API_KEY</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#nvidia"><span class="std std-ref">NVIDIA</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#nvidia"><span class="std std-ref">NVIDIA</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">nvidia/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">NVIDIA_API_KEY</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#azure"><span class="std std-ref">Azure OpenAI</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#azure"><span class="std std-ref">Azure OpenAI</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">azure/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">AZURE_OPENAI_API_KEY</span></code> and <code class="docutils literal notranslate"><span class="pre">AZURE_OPENAI_ENDPOINT</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#openai-subscription"><span class="std std-ref">OpenAI Subscription</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#openai-subscription"><span class="std std-ref">OpenAI Subscription</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">openai-subscription/</span></code></p></td>
 <td><p>ChatGPT Plus/Pro sign-in with <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">openai-subscription</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#grok-subscription"><span class="std std-ref">Grok Subscription</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#grok-subscription"><span class="std std-ref">Grok Subscription</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">grok-subscription/</span></code></p></td>
 <td><p>SuperGrok sign-in with <code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">grok-subscription</span></code> (or an existing <code class="docutils literal notranslate"><span class="pre">grok</span> <span class="pre">login</span></code>)</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#gptme-managed-service"><span class="std std-ref">gptme Managed Service</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#gptme-managed-service"><span class="std std-ref">gptme Managed Service</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">gptme/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">gptme-auth</span> <span class="pre">login</span></code>, or <code class="docutils literal notranslate"><span class="pre">GPTME_CLOUD_API_KEY</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="providers-supported.html#local-providers"><span class="std std-ref">Local server</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="providers-supported.html#local-providers"><span class="std std-ref">Local server</span></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OPENAI_BASE_URL</span></code> pointing at an OpenAI-compatible server</p></td>
 </tr>
@@ -786,6 +790,8 @@ model is the cheaper model used for conversation titles and summaries.</p>
 +---------------------+----------------------------------------------+-----------------------------------------+
 | Provider            | Recommended model                            | Summary model                           |
 +=====================+==============================================+=========================================+
+| opencode-go         | opencode-go/deepseek-v4.1-flash              |                                         |
++---------------------+----------------------------------------------+-----------------------------------------+
 | openai              | openai/gpt-5.6-sol                           | openai/gpt-5-mini                       |
 +---------------------+----------------------------------------------+-----------------------------------------+
 | openai-subscription | openai-subscription/gpt-6-astra              |                                         |

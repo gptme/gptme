@@ -4083,6 +4083,9 @@ Each links to its setup details on :doc:`providers-supported`.
    * - :ref:`xAI <xai>`
      - ``xai/``
      - ``XAI_API_KEY``
+   * - :ref:`OpenCode Go <opencode-go>`
+     - ``opencode-go/``
+     - ``OPENCODE_API_KEY``
    * - :ref:`DeepSeek <deepseek>`
      - ``deepseek/``
      - ``DEEPSEEK_API_KEY``
@@ -4502,6 +4505,40 @@ Requesty
     REQUESTY_API_KEY = "your-api-key"
 
 Get an API key at https://app.requesty.ai/ (navigate to API Keys). See https://docs.requesty.ai for details.
+
+.. _opencode-go:
+
+OpenCode Go
+~~~~~~~~~~~
+
+`OpenCode Go <https://opencode.ai/go>`__ offers Go ($10/month) and Go Plus
+($40/month) plans usable with other coding agents, including gptme.
+Subscribe in the OpenCode Console and copy your API key into your user config:
+
+.. code-block:: toml
+
+    [env]
+    OPENCODE_API_KEY = "your-opencode-api-key"
+
+Then select one of the supported DeepSeek models:
+
+.. code-block:: sh
+
+    gptme "inspect this repository" -m opencode-go/deepseek-v4.1-flash
+    gptme "inspect this repository" -m opencode-go/deepseek-v4-pro
+
+The provider uses Go's OpenAI-compatible Chat Completions endpoint and sends
+a gptme user agent plus a stable conversation-session header. This initial
+integration registers the DeepSeek models, not the entire Go catalog; some
+other Go models require different API protocols.
+
+DeepSeek access requires **Global** to be enabled in the OpenCode workspace's
+**Settings > Privacy > Regions**. Consult the current
+`Go documentation <https://opencode.ai/docs/go/>`__ for limits, model availability,
+and data policies. Allowances have rolling five-hour, weekly, and monthly limits;
+"8x" credit is not a guaranteed output-token multiplier. Optional **Extra Usage**
+can charge your pay-as-you-go balance after the allowance is exhausted.
+gptme displays conservative peak token rates, not remaining subscription quota.
 
 .. _groq:
 
@@ -5691,11 +5728,11 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 108 of the 131 models in the
+- ``default_tool_format`` is set to ``tool`` on 110 of the 133 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
-  ``deepseek``, ``moonshot``, ``openrouter``, ``requesty``, and the
+  ``deepseek``, ``opencode-go``, ``moonshot``, ``openrouter``, ``requesty``, and the
   subscription/proxy variants). ``anthropic`` is excluded because it uses the
   Anthropic SDK rather than the OpenAI-compatible path, and ``mock`` is
   test-only. An explicit per-model value always wins over the provider stamp.
@@ -5705,7 +5742,7 @@ behaviour silently:
   the same ``tool`` default applied at resolution time instead, including on
   dynamic-fetch fallbacks.
 
-- ``supports_parallel_tool_calls`` is set on 71 entries: the Claude Fable 5.x
+- ``supports_parallel_tool_calls`` is set on 73 entries: the Claude Fable 5.x
   and Opus/Sonnet 4.x/5.x families, the OpenRouter Claude Opus/Sonnet aliases,
   Kimi K3, the GPT-4.1/GPT-5/GPT-6
   families, verified Gemini models (and the OpenRouter Gemini 3.5 Flash alias;
@@ -5713,7 +5750,8 @@ behaviour silently:
   ``PARALLEL_TOOL_CALL_EXCEPTIONS``), xAI Grok (excluding the older
   ``grok-2-vision-1212``; including ``grok-subscription``), Groq's
   ``llama-3.3-70b-versatile``, DeepSeek chat/reasoner/Flash, and the
-  OpenRouter DeepSeek V4 aliases including the new V4.1 Flash. Deliberate
+  OpenRouter DeepSeek V4 aliases including the new V4.1 Flash, and OpenCode Go's
+  DeepSeek V4.1 Flash/V4 Pro. Deliberate
   omissions are meaningful: Claude Haiku 4.5
   carries an explicit comment that it does *not* emit multiple tool calls per
   response. Moonshot Kimi K2/K2.6, OpenRouter Qwen/Llama/Kimi K2, and Groq's

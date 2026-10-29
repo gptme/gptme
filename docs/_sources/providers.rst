@@ -92,6 +92,9 @@ Each links to its setup details on :doc:`providers-supported`.
    * - :ref:`xAI <xai>`
      - ``xai/``
      - ``XAI_API_KEY``
+   * - :ref:`OpenCode Go <opencode-go>`
+     - ``opencode-go/``
+     - ``OPENCODE_API_KEY``
    * - :ref:`DeepSeek <deepseek>`
      - ``deepseek/``
      - ``DEEPSEEK_API_KEY``
