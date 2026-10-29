@@ -154,10 +154,8 @@ def execute_morph(
         yield Message("system", f"Error: failed Morph API call: {e}")
         return
 
-    edited_content = response.strip()
-
-    # Check if Morph actually returned edited content
-    if not edited_content:
+    # Reject empty responses without stripping meaningful indentation or newlines.
+    if not response.strip():
         yield Message("system", "Error: Morph returned empty content")
         return
 
@@ -169,7 +167,7 @@ def execute_morph(
 
     # Use execute_with_confirmation with the edited content
     yield from execute_with_confirmation(
-        edited_content,
+        response,
         args,
         kwargs,
         execute_fn=execute_morph_with_verification,
