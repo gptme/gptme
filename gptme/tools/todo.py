@@ -202,7 +202,13 @@ def _replay_lines(tooluse: ToolUse) -> list[str]:
     return _write_operations(tooluse)
 
 
-def _restore_todos(messages: list[Message]) -> tuple[dict[str, dict], bool]:
+def _call_identity(call: ToolUse) -> tuple:
+    return call.tool, call.args, call.content, call.kwargs, call.call_id
+
+
+def _restore_todos(
+    messages: list[Message], stop_before: ToolUse | None = None
+) -> tuple[dict[str, dict], bool]:
     """Rebuild into a private store so replay cannot touch another conversation."""
     todos: dict[str, dict] = {}
     restored = False
@@ -211,6 +217,13 @@ def _restore_todos(messages: list[Message]) -> tuple[dict[str, dict], bool]:
         if msg.role != "assistant":
             continue
         for tooluse in ToolUse.iter_from_content(msg.content):
+            if (
+                stop_before is not None
+                and msg is messages[-1]
+                and _call_identity(tooluse) == _call_identity(stop_before)
+                and (stop_before.start is None or tooluse.start == stop_before.start)
+            ):
+                return todos, restored
             if tooluse.tool != "todo":
                 continue
             for line in _write_operations(tooluse):
@@ -287,21 +300,13 @@ def restore_todos_before_tool(
         messages = log.messages
 
         # The assistant message is already persisted by the server tool worker.
-        # Rebuild only the history preceding it; this execution applies its calls.
-        def identity(call: ToolUse) -> tuple:
-            return call.tool, call.args, call.content, call.kwargs, call.call_id
-
+        # Keep calls before this one (which may have executed before a restart),
+        # but exclude this call and later calls that have not executed yet.
         for index in range(len(messages) - 1, -1, -1):
-            msg = messages[index]
-            if msg.role != "assistant":
-                continue
-            if any(
-                identity(call) == identity(data.tool_use)
-                for call in ToolUse.iter_from_content(msg.content)
-            ):
-                messages = messages[:index]
-            break
-        _todo_stores[key], _ = _restore_todos(messages)
+            if messages[index].role == "assistant":
+                messages = messages[: index + 1]
+                break
+        _todo_stores[key], _ = _restore_todos(messages, stop_before=data.tool_use)
     yield from ()
 
 

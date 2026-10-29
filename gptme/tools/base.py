@@ -987,13 +987,10 @@ class ToolUse:
                     token = _current_tool_use.set(self)
                     try:
                         with LogManager.preserve_current():
-                            ex = tool.execute(
-                                self.content,
-                                self.args,
-                                self.kwargs,
-                            )
+                            ex = tool.execute(self.content, self.args, self.kwargs)
+                            tool_owner = LogManager.get_current_log()
                         generator_result = (
-                            preserve_generator_owner(ex)
+                            preserve_generator_owner(ex, tool_owner)
                             if isinstance(ex, Generator)
                             else None
                         )
@@ -1143,23 +1140,27 @@ class ToolUse:
                         )
                     )
 
-        from ..logmanager import LogManager
+        from ..logmanager import LogManager, _current_log_var
 
         def preserve_generator_owner(
-            generator: Generator[Message, None, None],
+            generator: Generator[Message, None, None], owner: LogManager | None
         ) -> Generator[Message, None, None]:
-            # Restore before yielding to callbacks/the caller, not only when
-            # the whole tool finishes. A tool can load other conversations.
+            # Preserve only conversation ownership: tools intentionally update
+            # other context state (shell sessions, enabled tools, etc.).
             try:
                 while True:
                     with LogManager.preserve_current():
+                        _current_log_var.set(owner)
                         try:
                             msg = next(generator)
                         except StopIteration:
                             return
+                        finally:
+                            owner = LogManager.get_current_log()
                     yield msg
             finally:
                 with LogManager.preserve_current():
+                    _current_log_var.set(owner)
                     generator.close()
 
         with LogManager.preserve_current():

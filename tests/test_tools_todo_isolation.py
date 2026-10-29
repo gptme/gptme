@@ -413,3 +413,93 @@ def test_start_replay_respects_explicit_branch(tmp_path: Path) -> None:
     assert "Keep main" in _todoread()
     manager.branch("alternative")
     assert "Alternative" in _todoread()
+
+
+@pytest.mark.parametrize("call_id", [None, "reader-call"])
+@pytest.mark.parametrize("finish", ["exhaust", "close", "interrupt"])
+def test_tool_generator_keeps_internal_owner_between_yields(
+    tmp_path: Path, call_id: str | None, finish: str
+) -> None:
+    from collections.abc import Generator
+
+    from gptme.hooks import clear_hooks
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    a = start(tmp_path / "a")
+    _todowrite("add", "A plan")
+    clear_hooks()
+    internal_owners = []
+
+    def execute(code, args, kwargs) -> Generator[Message, None, None]:
+        b = LogManager(logdir=tmp_path / "b", lock=False)
+        try:
+            yield Message("system", "Read B")
+            internal_owners.append(LogManager.get_current_log())
+            _todowrite("add", "B plan")
+            if finish == "interrupt":
+                raise KeyboardInterrupt
+        finally:
+            internal_owners.append(LogManager.get_current_log())
+            assert LogManager.get_current_log() is b
+            _todowrite("add", "B cleanup")
+
+    set_tools([ToolSpec(name="reader", desc="Read another log", execute=execute)])
+    execution = ToolUse("reader", None, None, call_id=call_id).execute(log=a.log)
+    if finish == "interrupt":
+        with pytest.raises(KeyboardInterrupt):
+            list(execution)
+    else:
+        assert next(execution).content == "Read B"
+        assert LogManager.get_current_log() is a
+        if finish == "close":
+            execution.close()
+        else:
+            list(execution)
+    assert internal_owners
+    assert LogManager.get_current_log() is a
+    assert "A plan" in _todoread()
+    assert "B plan" not in _todoread()
+    assert "B cleanup" not in _todoread()
+    b_context = Context()
+    b_context.run(LogManager, logdir=tmp_path / "b", lock=False)
+    assert "B cleanup" in b_context.run(_todoread)
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_direct_resume_preserves_earlier_calls_in_pending_message(
+    tmp_path: Path, tool_format: Literal["markdown", "xml", "tool"]
+) -> None:
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state
+
+    set_tool_format(tool_format)
+
+    def call(command: str, call_id: str) -> ToolUse:
+        if tool_format == "tool":
+            return ToolUse(
+                "todo", None, None, kwargs={"command": command}, call_id=call_id
+            )
+        return ToolUse("todo", ["write"], command.removeprefix("write "))
+
+    add = call('write add "Saved task"', "add")
+    update = call("write update 1 completed", "update")
+    later = call('write add "Not yet executed"', "later")
+    content = "\n\n".join(
+        t.to_output(tool_format).replace("@todo:", f"@todo({t.call_id}):", 1)
+        if tool_format == "tool"
+        else t.to_output(tool_format)
+        for t in [add, update, later]
+    )
+    manager = start(tmp_path / "partial")
+    manager.append(Message("assistant", content))
+    results = list(add.execute(log=manager.log))
+    for msg in results:
+        manager.append(msg)
+    manager.write()
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, lock=False)
+    result = list(update.execute(log=resumed.log))
+    assert all("not found" not in msg.content for msg in result)
+    assert "1. ✅ Saved task" in _todoread()
+    assert "Summary: 1 total" in _todoread()
+    assert "Not yet executed" not in _todoread()
