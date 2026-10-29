@@ -265,18 +265,35 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
     def parse(content: str) -> list[ToolUse]:
         # The outer syntax owns its body: XML can contain fenced/native examples,
         # and native JSON arguments can contain XML examples (and vice versa).
-        ranges = [(start, end, False) for start, end in _codeblock_char_ranges(content)]
+        fenced_ranges = _codeblock_char_ranges(content)
+        ranges = [(start, end, False) for start, end in fenced_ranges]
         search_from = 0
         while match := toolcall_re.search(content, search_from):
+            block_end = next(
+                (end for start, end in fenced_ranges if start <= match.start() < end),
+                None,
+            )
+            if block_end is not None:
+                search_from = block_end
+                continue
             end = find_json_end(content, match.start(3))
             if end is None:
                 break
             ranges.append((match.start(), end, False))
             search_from = end
+        # CDATA and comments are body text, not wrapper boundaries or nested
+        # calls. Mask them before both boundary detection and XML parsing;
+        # only names/counts are needed, and offsets/line boundaries stay intact.
+        xml_content = re.sub(
+            r"<!\[CDATA\[.*?\]\]>|<!--.*?-->",
+            lambda match: re.sub(r"[^\n]", " ", match.group()),
+            content,
+            flags=re.DOTALL,
+        )
         ranges.extend(
             (match.start(), match.end(), True)
             for match in re.finditer(
-                r"<(tool-use|function_calls)>.*?</\1>", content, re.DOTALL
+                r"<(tool-use|function_calls)>.*?</\1>", xml_content, re.DOTALL
             )
         )
         calls: list[ToolUse] = []
@@ -288,7 +305,7 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             covered_until = end
             if is_xml:
                 calls.extend(
-                    DatasetToolUse.iter_from_content(content[start:end], "xml")
+                    DatasetToolUse.iter_from_content(xml_content[start:end], "xml")
                 )
                 # Preserve line boundaries for the remaining native/Markdown pass.
                 masked = re.sub(r"[^\n]", " ", content[start:end])
