@@ -136,10 +136,15 @@
                   </div>
                 </div>
                 <div class="text-sm" v-html="message.html"></div>
-                <!-- File attachments (images rendered inline, others as download links) -->
+                <!-- Standalone exports omit attachments; server mode serves images/downloads. -->
                 <div v-if="message.files && message.files.length" class="mt-3 flex flex-wrap gap-2">
                   <template v-for="file in message.files">
-                    <a v-if="isImage(file)"
+                    <span v-if="standalone"
+                          :key="file"
+                          class="attachment-omitted inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-sm text-gray-700">
+                      &#128206; {{ file.split('/').pop() }} — Attachment omitted from standalone export
+                    </span>
+                    <a v-else-if="isImage(file)"
                        :key="file"
                        :href="fileUrl(file)"
                        target="_blank"

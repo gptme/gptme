@@ -336,7 +336,9 @@ def chats_export(
     """Export a conversation to HTML or markdown.
 
     Exports the conversation with the given ID to a file.
-    Use --format to choose between HTML (self-contained) and markdown.
+    Use --format to choose between HTML and markdown. HTML includes conversation
+    text and display assets for offline viewing; attachments are not embedded
+    and are shown as omitted rather than linked to the original server.
 
     Use --safety-check to run a local heuristic analysis of assistant messages
     for hedging/uncertainty signals and jailbreak bypass indicators before exporting.
