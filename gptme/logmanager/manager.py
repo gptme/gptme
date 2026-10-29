@@ -280,9 +280,6 @@ class LogManager:
             self.logdir = Path(self._tmpdir.name)
         self.chat_id = self.logdir.name
 
-        # Set as current log for tools to access (context-local)
-        _current_log_var.set(self)
-
         # Create and optionally lock the directory
         self._sync_root = existing_parent(self.logdir)
         self.logdir.mkdir(parents=True, exist_ok=True)
@@ -352,6 +349,10 @@ class LogManager:
                 self.current_branch,
             )
             self.current_view = None
+
+        # Publish only a fully initialized manager. In particular, a failed
+        # lock acquisition must leave the caller's current log untouched.
+        _current_log_var.set(self)
 
     def _acquire_lock_fd(self) -> bool:
         """Acquire the OS lock and record ownership; false means same-process reuse."""
