@@ -638,6 +638,68 @@ def test_restore_history_across_tool_format_changes(
     assert "Summary: 3 total" in _todoread()
 
 
+@pytest.mark.parametrize("tool_format", ["markdown", "tool"])
+@pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
+@pytest.mark.parametrize("closed", [False, True])
+def test_restore_ignores_ordinary_xml_mentions(
+    tmp_path: Path,
+    tool_format: Literal["markdown", "tool"],
+    wrapper: str,
+    closed: bool,
+) -> None:
+    from gptme.tools.base import ToolUse
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    mention = f"The XML format uses <{wrapper}>"
+    if closed:
+        mention += f"</{wrapper}>"
+    call = (
+        ToolUse("todo", ["write"], 'add "Saved task"')
+        if tool_format == "markdown"
+        else ToolUse(
+            "todo",
+            None,
+            None,
+            kwargs={"command": 'write add "Saved task"'},
+            call_id="saved",
+        )
+    )
+    content = (
+        mention
+        + "\n"
+        + call.to_output(tool_format).replace("@todo:", "@todo(saved):", 1)
+    )
+    manager = start(tmp_path / "xml-mention", [Message("assistant", content)])
+    list(clear_todo_state(manager))
+    list(ensure_todo_state(manager))
+    assert "1. 🔲 Saved task" in _todoread()
+    assert "Summary: 1 total" in _todoread()
+
+
+@pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
+@pytest.mark.parametrize("lxml", [False, True])
+def test_restore_xml_after_fenced_wrapper(
+    tmp_path: Path, wrapper: str, lxml: bool, monkeypatch
+) -> None:
+    from gptme.tools import base
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    if lxml and not base._LXML_AVAILABLE:
+        pytest.skip("lxml is not installed")
+    monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml)
+    call = (
+        '<todo args="write">add "Saved task"</todo>'
+        if wrapper == "tool-use"
+        else '<invoke name="todo" args="write">add "Saved task"</invoke>'
+    )
+    content = f"```xml\n<{wrapper}></{wrapper}>\n```\n<{wrapper}>{call}</{wrapper}>"
+    manager = start(tmp_path / "xml-after-example", [Message("assistant", content)])
+    list(clear_todo_state(manager))
+    list(ensure_todo_state(manager))
+    assert "1. 🔲 Saved task" in _todoread()
+    assert "Summary: 1 total" in _todoread()
+
+
 @pytest.mark.parametrize("parsed", [False, True])
 def test_fresh_direct_call_does_not_own_historical_message(
     tmp_path: Path, parsed: bool

@@ -216,13 +216,17 @@ def _restore_todos(
         # System prompts contain examples, not executed assistant instructions.
         if msg.role != "assistant":
             continue
-        # Select XML only when its wrapper is outside a fenced example.
-        # Otherwise native parsing also accepts markdown and ignores examples.
-        fences = _codeblock_char_ranges(msg.content)
-        xml = any(
-            (pos := msg.content.find(tag)) >= 0
-            and not any(start <= pos < end for start, end in fences)
-            for tag in ("<tool-use>", "<function_calls>")
+        # A wrapper mention is not a call. Probe outside fenced examples so
+        # neither prose nor the first fenced wrapper chooses the wrong parser.
+        # Parse the original below to retain execution-time call provenance.
+        xml_content = msg.content
+        for start, end in reversed(_codeblock_char_ranges(msg.content)):
+            xml_content = xml_content[:start] + " " * (end - start) + xml_content[end:]
+        xml = (
+            next(
+                ToolUse.iter_from_content(xml_content, tool_format_override="xml"), None
+            )
+            is not None
         )
         calls = list(
             ToolUse.iter_from_content(
