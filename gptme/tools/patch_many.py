@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec
+from .base import Parameter, ToolSpec, file_newline
 from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 
 if TYPE_CHECKING:
@@ -203,6 +203,7 @@ def execute_patch_many_impl(
     # write would clobber the first (silent partial application).
     current: dict[Path, str] = {}
     originals: dict[Path, str] = {}
+    newlines: dict[Path, str] = {}
     order: list[Path] = []
     hunks = 0
 
@@ -223,6 +224,7 @@ def execute_patch_many_impl(
 
             try:
                 original = path.read_text(encoding="utf-8")
+                newlines[path] = file_newline(path)
             except (UnicodeDecodeError, PermissionError, OSError) as e:
                 yield Message(
                     "system",
@@ -253,15 +255,22 @@ def execute_patch_many_impl(
 
         current[path] = new_content
 
+    def _write(path: Path, text: str) -> None:
+        # Content was read in universal-newline mode, so write it back with the
+        # file's own line ending (as patch does) instead of the platform default.
+        path.write_text(
+            text.replace("\r\n", "\n"), encoding="utf-8", newline=newlines[path]
+        )
+
     written: list[Path] = []
     for path in order:
         try:
-            path.write_text(current[path], encoding="utf-8")
+            _write(path, current[path])
         except OSError as e:
             # Roll back any already-written files to preserve atomicity
             for rolled_back in written:
                 try:
-                    rolled_back.write_text(originals[rolled_back], encoding="utf-8")
+                    _write(rolled_back, originals[rolled_back])
                 except OSError:
                     pass  # best-effort rollback
             yield Message(

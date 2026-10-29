@@ -562,6 +562,16 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower()
         assert f.read_text() == "alpha\nBETA\ngamma\n"
 
+    @pytest.mark.parametrize("eol", [b"\n", b"\r\n"])
+    def test_preserves_line_endings(self, tmp_path: Path, eol: bytes):
+        f = tmp_path / "f.txt"
+        f.write_bytes(eol.join([b"alpha", b"beta", b"gamma", b""]))
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 2.=2:\n+BETA\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower()
+        assert f.read_bytes() == eol.join([b"alpha", b"BETA", b"gamma", b""])
+
     def test_tag_mismatch_rejected(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\n")
