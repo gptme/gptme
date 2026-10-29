@@ -58,6 +58,48 @@ def test_docx_table_text_in_body_order(
 
 
 @pytest.mark.parametrize("extension", ["txt", "md"])
+@pytest.mark.parametrize(
+    ("short_row", "before", "after"), [(0, 1, 0), (0, 0, 1), (1, 1, 1)]
+)
+def test_docx_omitted_grid_positions(
+    tmp_path: Path, extension: str, short_row: int, before: int, after: int
+) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = docx.Document()
+    table = document.add_table(rows=2, cols=3)
+    expected_rows = [[f"R{r}C{c}" for c in range(3)] for r in range(2)]
+    for row, values in zip(table.rows, expected_rows):
+        for cell, value in zip(row.cells, values):
+            cell.text = value
+    row = table.rows[short_row]
+    # Omitted positions are absent cells, not existing cells with empty text.
+    for name, count in [("gridBefore", before), ("gridAfter", after)]:
+        if count:
+            prop = OxmlElement(f"w:{name}")
+            prop.set(qn("w:val"), str(count))
+            row._tr.get_or_add_trPr().append(prop)
+    for cell in list(row._tr.tc_lst)[:before]:
+        row._tr.remove(cell)
+    if after:
+        for cell in list(row._tr.tc_lst)[-after:]:
+            row._tr.remove(cell)
+    for column in range(3):
+        if column < before or column >= 3 - after:
+            expected_rows[short_row][column] = ""
+    assert len(row.cells) == 3 - before - after
+
+    if extension == "txt":
+        expected = "\n".join("\t".join(values) for values in expected_rows)
+    else:
+        lines = ["| " + " | ".join(values) + " |" for values in expected_rows]
+        lines.insert(1, "| --- | --- | --- |")
+        expected = "\n".join(lines)
+    assert convert(document, tmp_path, extension) == expected
+
+
+@pytest.mark.parametrize("extension", ["txt", "md"])
 def test_docx_paragraph_control(tmp_path: Path, extension: str) -> None:
     document = docx.Document()
     document.add_heading("Introduction", level=1)

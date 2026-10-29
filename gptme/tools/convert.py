@@ -613,7 +613,17 @@ class DocumentToTextConverter(Converter):
                         after_table = False
                     elif element.tag == qn("w:tbl"):
                         table = Table(element, doc)
-                        rows = [[cell.text for cell in row.cells] for row in table.rows]
+                        rows = [
+                            [""] * row.grid_cols_before
+                            + [cell.text for cell in row.cells]
+                            + [""] * row.grid_cols_after
+                            for row in table.rows
+                        ]
+                        # Omitted cells still occupy grid positions. Normalize
+                        # widths so a short header cannot hide later values.
+                        width = max(len(table.columns), max(map(len, rows), default=0))
+                        for cells in rows:
+                            cells.extend([""] * (width - len(cells)))
                         if markdown and rows:
                             # Markdown has no spans: repeat merged cells in each
                             # grid position, as python-docx row.cells does.
