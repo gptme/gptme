@@ -593,7 +593,14 @@ class Subagent:
                 # Only recover adjacent, tool-free prose from this child's history:
                 # never cross a user turn, tool invocation, or fork boundary.
                 if complete_tool.kwargs is not None and len(native_tools) == 1:
-                    summary = terminal_msg.content[: complete_tool.start].strip()
+                    from ...context import strip_reasoning
+                    from ...message import _strip_think_sig
+
+                    # Reasoning and provider signatures are not a report. Strip
+                    # them before deciding whether to recover preceding prose.
+                    summary, _ = strip_reasoning(
+                        _strip_think_sig(terminal_msg.content[: complete_tool.start])
+                    )
                     if not summary:
                         for previous in reversed(
                             log[self.fork_message_count : terminal_index]
@@ -615,7 +622,9 @@ class Subagent:
                                     )
                                 )
                             ):
-                                summary = previous.content.strip()
+                                summary, _ = strip_reasoning(
+                                    _strip_think_sig(previous.content)
+                                )
                             break
                     if summary:
                         result = self._normalize_json_result(summary)

@@ -15,7 +15,12 @@ def native_call(tool: str, call_id: str = "call_complete") -> str:
     return f"@{tool}({call_id}): {{}}"
 
 
-def read_result(tmp_path: Path, messages: list[Message], fork_count: int = 0) -> str:
+def read_result(
+    tmp_path: Path,
+    messages: list[Message],
+    fork_count: int = 0,
+    output_schema: dict | None = None,
+) -> str:
     logdir = tmp_path / "child"
     logdir.mkdir()
     (logdir / "conversation.jsonl").write_text(
@@ -28,6 +33,7 @@ def read_result(tmp_path: Path, messages: list[Message], fork_count: int = 0) ->
         logdir=logdir,
         model=None,
         fork_message_count=fork_count,
+        output_schema=output_schema,
     )
     result = child._read_log()
     assert result.status == "success"
@@ -58,6 +64,47 @@ def test_native_complete_recovers_final_prose(
         ]
     )
     assert read_result(tmp_path, messages) == report
+
+
+@pytest.mark.parametrize("same_message", [False, True])
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("structured", [False, True])
+def test_native_complete_excludes_thinking_and_signatures(
+    tmp_path: Path, same_message: bool, tag: str, structured: bool
+) -> None:
+    report = '{"answer":42}' if structured else "Tests passed; CI pending."
+    thinking = (
+        f"<{tag}>Private reasoning\n"
+        "<!-- think-sig: inside-signature -->\n"
+        f"</{tag}>\n<!-- think-sig: outside\nsignature -->\n"
+    )
+    completion = native_call("complete")
+    if same_message:
+        messages = [Message("assistant", thinking + report + "\n\n" + completion)]
+    else:
+        messages = [
+            Message("assistant", thinking + report),
+            Message("assistant", thinking + completion),
+        ]
+    schema = {"type": "object"} if structured else None
+    result = read_result(tmp_path, messages, output_schema=schema)
+    assert result == (json.dumps(json.loads(report)) if structured else report)
+    if structured:
+        assert json.loads(result) == {"answer": 42}
+
+
+@pytest.mark.parametrize("same_message", [False, True])
+def test_native_complete_thinking_only_is_not_a_report(
+    tmp_path: Path, same_message: bool
+) -> None:
+    thinking = "<think>Private reasoning</think>\n<!-- think-sig: signature -->\n"
+    completion = native_call("complete")
+    messages = (
+        [Message("assistant", thinking + completion)]
+        if same_message
+        else [Message("assistant", thinking), Message("assistant", completion)]
+    )
+    assert read_result(tmp_path, messages) == "Task completed (no summary provided)"
 
 
 @pytest.mark.parametrize(
