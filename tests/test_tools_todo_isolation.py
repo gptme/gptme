@@ -286,7 +286,10 @@ def test_direct_tool_resume_restores_before_pending_call(
     manager.append(Message("assistant", pending_content))
     manager.write()
     resumed = LogManager.load(manager.logdir, lock=False)
-    pending = list(ToolUse.iter_from_content(pending_content))[-1]
+    pending_message = next(
+        msg for msg in reversed(resumed.log.messages) if msg.role == "assistant"
+    )
+    pending = list(ToolUse.iter_from_content(pending_message.content))[-1]
     result = list(pending.execute(log=resumed.log))
     assert all("not found" not in msg.content for msg in result)
     assert "Saved plan" in _todoread()
@@ -500,7 +503,10 @@ def test_direct_resume_preserves_earlier_calls_in_pending_message(
     manager.write()
     list(clear_todo_state(manager))
     resumed = LogManager.load(manager.logdir, lock=False)
-    update = list(ToolUse.iter_from_content(content))[1]
+    pending_message = next(
+        msg for msg in reversed(resumed.log.messages) if msg.role == "assistant"
+    )
+    update = list(ToolUse.iter_from_content(pending_message.content))[1]
     result = list(update.execute(log=resumed.log))
     assert all("not found" not in msg.content for msg in result)
     assert "1. ✅ Saved task" in _todoread()
@@ -551,6 +557,10 @@ def test_resume_repeated_xml_calls_uses_call_occurrence(
     manager.write()
     list(clear_todo_state(manager))
     resumed = LogManager.load(manager.logdir, lock=False)
+    pending_message = next(
+        msg for msg in reversed(resumed.log.messages) if msg.role == "assistant"
+    )
+    calls = list(base.ToolUse.iter_from_content(pending_message.content))
     list(calls[1].execute(log=resumed.log))
     assert "Summary: 2 total" in _todoread()
     assert "2. 🔲 Task" in _todoread()
@@ -626,3 +636,99 @@ def test_restore_history_across_tool_format_changes(
     assert "2. 🔲 Saved xml" in _todoread()
     assert "3. 🔲 Saved tool" in _todoread()
     assert "Summary: 3 total" in _todoread()
+
+
+@pytest.mark.parametrize("parsed", [False, True])
+def test_fresh_direct_call_does_not_own_historical_message(
+    tmp_path: Path, parsed: bool
+) -> None:
+    from gptme.tools.base import ToolUse
+    from gptme.tools.todo import clear_todo_state
+
+    content = '```todo write\nadd "Task"\n```'
+    manager = start(tmp_path / "fresh", [Message("assistant", content)])
+    list(clear_todo_state(manager))
+    fresh_content = content.encode().decode()
+    assert fresh_content == content and fresh_content is not content
+    call = (
+        list(ToolUse.iter_from_content(fresh_content))[0]
+        if parsed
+        else ToolUse("todo", ["write"], 'add "Task"')
+    )
+    list(call.execute(log=manager.log))
+    assert "2. 🔲 Task" in _todoread()
+
+
+@pytest.mark.parametrize("outer_format", ["markdown", "xml"])
+def test_restore_does_not_execute_nested_format_examples(
+    tmp_path: Path, outer_format: Literal["markdown", "xml"]
+) -> None:
+    from gptme.tools.base import ToolUse
+    from gptme.tools.shell import tool as shell
+    from gptme.tools.todo import _restore_todos
+
+    start(tmp_path / "examples")
+    set_tools([todo, shell])
+    inner_format: Literal["markdown", "xml"] = (
+        "xml" if outer_format == "markdown" else "markdown"
+    )
+    example = ToolUse("todo", ["write"], 'add "Example"').to_output(inner_format)
+    content = ToolUse("shell", [], f"cat <<'EOF'\n{example}\nEOF").to_output(
+        outer_format
+    )
+    restored, _ = _restore_todos([Message("assistant", content)])
+    assert restored == {}
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_server_pending_call_restores_after_worker_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_format: Literal["markdown", "xml", "tool"],
+) -> None:
+    from gptme.config import ChatConfig
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state
+
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+
+    set_tool_format(tool_format)
+    call = ToolUse("todo", ["write"], 'add "Pending"')
+    if tool_format == "tool":
+        call = ToolUse("todo", None, None, kwargs={"command": 'write add "Pending"'})
+    content = call.to_output(tool_format).replace("@todo:", "@todo(pending):", 1)
+    message = Message("assistant", content)
+    manager = start(tmp_path / "worker", [message])
+    manager.write()
+    list(clear_todo_state(manager))
+    session = SessionManager.create_session(str(manager.logdir))
+    session.pending_tools["pending"] = ToolExecution(
+        tool_id="pending",
+        tooluse=list(ToolUse.iter_from_content(message.content))[0],
+        auto_confirm=False,
+        assistant_msg_timestamp=message.timestamp,
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment", lambda **kw: None
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._start_step_thread", lambda *a, **kw: None
+    )
+    try:
+        thread = start_tool_execution(
+            str(manager.logdir),
+            session,
+            "pending",
+            None,
+            "mock/model",
+            ChatConfig(model="mock/model"),
+        )
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+        resumed = LogManager.load(manager.logdir, lock=False)
+        assert resumed
+        assert "Summary: 1 total" in _todoread()
+    finally:
+        SessionManager.remove_session(session.id)

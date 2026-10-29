@@ -924,6 +924,9 @@ class ToolUse:
     start: int | None = None
     _format: ToolFormat | None = "markdown"
     _occurrence: int | None = None
+    # Parser provenance, not command equality: identical independent calls
+    # must not be mistaken for a pending call in a persisted message.
+    _source_content: str | None = field(default=None, compare=False, repr=False)
 
     def execute(
         self,
@@ -1262,7 +1265,8 @@ class ToolUse:
         # return them in the order they appear
         # sort by position; tools with unknown position (None) go last
         tool_uses.sort(key=lambda x: x.start if x.start is not None else len(content))
-        yield from tool_uses
+        for call in tool_uses:
+            yield dataclasses.replace(call, _source_content=content)
 
         # don't continue unless tool format (or override allows it)
         if active_format != "tool":
@@ -1311,6 +1315,7 @@ class ToolUse:
                     call_id=call_id,
                     start=match.start(),
                     _format="tool",
+                    _source_content=content,
                 )
             except json.JSONDecodeError:
                 logger.debug(f"Failed to parse JSON: {json_str}")

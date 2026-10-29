@@ -27,7 +27,7 @@ from ..hooks import HookType
 from ..hooks.types import ToolExecutePreData
 from ..logmanager import LogManager
 from ..message import Message
-from .base import Parameter, ToolSpec, ToolUse
+from .base import Parameter, ToolSpec, ToolUse, _codeblock_char_ranges
 
 logger = logging.getLogger(__name__)
 
@@ -216,19 +216,23 @@ def _restore_todos(
         # System prompts contain examples, not executed assistant instructions.
         if msg.role != "assistant":
             continue
-        # Native parsing also accepts markdown. Fall back to XML only when
-        # neither is present, so XML examples inside fenced calls stay inert.
-        calls = list(
-            ToolUse.iter_from_content(msg.content, tool_format_override="tool")
+        # Select XML only when its wrapper is outside a fenced example.
+        # Otherwise native parsing also accepts markdown and ignores examples.
+        fences = _codeblock_char_ranges(msg.content)
+        xml = any(
+            (pos := msg.content.find(tag)) >= 0
+            and not any(start <= pos < end for start, end in fences)
+            for tag in ("<tool-use>", "<function_calls>")
         )
-        if not calls:
-            calls = list(
-                ToolUse.iter_from_content(msg.content, tool_format_override="xml")
+        calls = list(
+            ToolUse.iter_from_content(
+                msg.content, tool_format_override="xml" if xml else "tool"
             )
+        )
         for tooluse in calls:
             if (
                 stop_before is not None
-                and stop_before.start is not None
+                and stop_before._source_content is msg.content
                 and msg is messages[-1]
                 and _call_identity(tooluse) == _call_identity(stop_before)
                 and (
@@ -316,14 +320,12 @@ def restore_todos_before_tool(
         log = manager.master_log if manager.current_branch == "main" else manager.log
         messages = log.messages
 
-        # Only parsed calls have a source position. A fresh direct ToolUse is
-        # independent, even when its command equals the last historical call.
-        # Parsed pending/rerun calls retain earlier calls in their message.
-        if data.tool_use.start is not None:
-            for index in range(len(messages) - 1, -1, -1):
-                if messages[index].role == "assistant":
-                    messages = messages[: index + 1]
-                    break
+        # Parser provenance identifies the owning message; offsets and equal
+        # commands alone cannot distinguish a fresh call from historical work.
+        for index in range(len(messages) - 1, -1, -1):
+            if data.tool_use._source_content is messages[index].content:
+                messages = messages[: index + 1]
+                break
         _todo_stores[key], _ = _restore_todos(messages, stop_before=data.tool_use)
     yield from ()
 

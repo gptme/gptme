@@ -17,6 +17,7 @@ import time
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1483,6 +1484,19 @@ def start_tool_execution(
 
                     # use explicit tooluse if set (may be modified), else from pending
                     tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
+                    # Pending calls were parsed before this worker reloaded the
+                    # log. Rebind provenance only to their persisted owner, not
+                    # to an unrelated message with an identical command.
+                    for owner_msg in manager.log.messages:
+                        if (
+                            owner_msg.role == "assistant"
+                            and owner_msg.timestamp == tool_exec.assistant_msg_timestamp
+                            and owner_msg.content == tooluse._source_content
+                        ):
+                            tooluse = replace(
+                                tooluse, _source_content=owner_msg.content
+                            )
+                            break
 
                     # Record start time and notify about tool execution
                     tool_exec.started_at = time.monotonic()
