@@ -237,11 +237,40 @@ class TestFormatCheckResults:
         result = _format_check_results([], "abc1234", 1)
         assert "Total: 0" in result
 
-    def test_unknown_conclusion_maps_to_success(self):
-        """Conclusions not in the known set default to 'success'."""
-        runs = [_make_check_run("weird", "completed", "neutral")]
+    @pytest.mark.parametrize(
+        ("conclusion", "expected"),
+        [
+            ("success", "1 passed"),
+            ("failure", "1 failed"),
+            ("cancelled", "1 cancelled"),
+            ("neutral", "1 neutral"),
+            ("skipped", "1 skipped"),
+            ("timed_out", "1 failed"),
+            ("action_required", "1 failed"),
+            ("stale", "1 failed"),
+            ("startup_failure", "1 failed"),
+            ("future_conclusion", "1 failed"),
+            (None, "1 failed"),
+            ("pending", "1 failed"),
+        ],
+    )
+    def test_terminal_conclusions(self, conclusion, expected):
+        runs = [
+            _make_check_run(
+                "build",
+                "completed",
+                conclusion,
+                html_url="https://github.com/o/r/actions/runs/123/jobs/456",
+            )
+        ]
         result = _format_check_results(runs, "abc1234", 1)
-        assert "✅ 1 passed" in result
+        assert expected in result
+        if conclusion != "success":
+            assert "1 passed" not in result
+        if expected == "1 failed":
+            assert "build" in result
+            assert str(conclusion) in result
+            assert "run 123" in result
 
     def test_pending_status(self):
         runs = [_make_check_run("deploy", "pending", None)]
@@ -253,6 +282,64 @@ class TestFormatCheckResults:
 
 
 class TestWaitForChecks:
+    @pytest.mark.parametrize(
+        ("conclusion", "expected"),
+        [
+            ("success", "All checks passed"),
+            ("failure", "Checks failed"),
+            ("cancelled", "Checks cancelled"),
+            ("neutral", "1 neutral"),
+            ("skipped", "1 skipped"),
+            ("timed_out", "Checks failed"),
+            ("action_required", "Checks failed"),
+            ("stale", "Checks failed"),
+            ("startup_failure", "Checks failed"),
+            ("future_conclusion", "Checks failed"),
+            (None, "Checks failed"),
+            ("pending", "Checks failed"),
+        ],
+    )
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_terminal_conclusions(self, mock_run, gh_time, conclusion, expected):
+        runs = [
+            _make_check_run(
+                "build",
+                "completed",
+                conclusion,
+                html_url="https://github.com/o/r/actions/runs/123/jobs/456",
+            )
+        ]
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        result = "\n".join(m.content for m in messages)
+        assert expected in messages[-1].content
+        if conclusion != "success":
+            assert "All checks passed" not in result
+            assert "1 passed" not in result
+        if expected == "Checks failed":
+            assert "build" in messages[-1].content
+            assert str(conclusion) in messages[-1].content
+            assert "run 123" in messages[-1].content
+        gh_time.sleep.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "status", ["queued", "pending", "in_progress", "waiting", "requested"]
+    )
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_pending_states_keep_polling(self, mock_run, gh_time, status):
+        pending = [_make_check_run("build", status, None)]
+        complete = [_make_check_run("build", "completed", "success")]
+        mock_run.side_effect = [
+            _mock_subprocess_run(json.dumps({"check_runs": pending})),
+            _mock_subprocess_run(json.dumps({"check_runs": complete})),
+        ]
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        assert "in progress" in messages[1].content
+        assert "All checks passed" in messages[-1].content
+        gh_time.sleep.assert_called_once_with(10)
+
     @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     @patch("gptme.tools.gh._get_pr_check_runs")
