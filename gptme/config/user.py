@@ -951,7 +951,9 @@ def save_provider_config(
         reload_config()
 
 
-def _merge_config_data(main_config: dict, local_config: dict) -> dict:
+def _merge_config_data(
+    main_config: dict, local_config: dict, *, _root: bool = True
+) -> dict:
     """
     Merge local configuration into main configuration.
 
@@ -1030,7 +1032,9 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
                 if mcp_key != "servers":
                     merged["mcp"][mcp_key] = mcp_value
 
-        elif key == "providers":
+        elif _root and key == "providers":
+            # Only root providers use the provider schema; plugin settings
+            # named providers retain ordinary recursive override semantics.
             # Skip malformed containers before merge-by-name, just as the
             # tolerant user parser does. Keep partial entries for name-based
             # overrides; they need not construct a ProviderConfig on their own.
@@ -1071,7 +1075,7 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
             isinstance(value, dict) and key in merged and isinstance(merged[key], dict)
         ):
             # Recursive merge for nested dictionaries
-            merged[key] = _merge_config_data(merged[key], value)
+            merged[key] = _merge_config_data(merged[key], value, _root=False)
         else:
             # Direct override for other keys
             merged[key] = value

@@ -162,6 +162,37 @@ def test_malformed_main_providers_allow_local_overlay(
     assert all("runtime defaults" not in message for message in warnings)
 
 
+@pytest.mark.parametrize("runtime", [False, True])
+@pytest.mark.parametrize(
+    ("main_value", "local_value", "expected"),
+    [
+        ('"openai"', '"anthropic"', "anthropic"),
+        ('{ region = "old" }', '{ region = "new" }', {"region": "new"}),
+        ('["openai"]', '["anthropic"]', ["anthropic"]),
+    ],
+)
+def test_nested_plugin_providers_keep_normal_overlay_semantics(
+    tmp_path: Path,
+    runtime: bool,
+    main_value: str,
+    local_value: str,
+    expected: str | dict[str, str] | list[str],
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text(f"[plugin.router]\nproviders = {main_value}\n", encoding="utf-8")
+    (tmp_path / "config.local.toml").write_text(
+        f"[plugin.router]\nproviders = {local_value}\n", encoding="utf-8"
+    )
+    if runtime:
+        get_user_config_runtime_path(str(main)).write_text(
+            '[plugin.router]\nproviders = "runtime"\n', encoding="utf-8"
+        )
+
+    config = load_user_config(str(main))
+
+    assert config.plugin["router"]["providers"] == expected
+
+
 @pytest.mark.parametrize("malformed", ['"invalid"', "42", '{ name = "bad" }'])
 def test_malformed_local_provider_container_keeps_main(
     tmp_path: Path, caplog, malformed: str
