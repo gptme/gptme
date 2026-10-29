@@ -523,6 +523,7 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
 
     def _reader() -> None:
         nonlocal tail, read_error
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
             fd = stdout.fileno()
             while not stop.is_set() and not watch.cancelled:
@@ -532,11 +533,12 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 if not ready:
                     continue
                 piece = os.read(fd, 4096)
-                if not piece:
-                    return
-                text = piece.decode("utf-8", errors="replace")
+                # Pipe reads can split a character; flush incomplete input only at EOF.
+                text = decoder.decode(piece, final=not piece)
                 with buf_lock:
                     tail = (tail + text)[-_RUN_TAIL_CHARS:]
+                if not piece:
+                    return
         except Exception as exc:
             read_error = str(exc)
             logger.debug("watch %s run reader failed", watch.id, exc_info=True)
