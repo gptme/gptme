@@ -8,7 +8,7 @@ import atexit
 import tempfile
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from ..message import Message
 from .base import ToolFunction, ToolSpec
@@ -101,9 +101,15 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
                 files=[image_path.absolute()],
             )
 
+        # JPEG output drops orientation metadata, so apply it to pixels first.
+        oriented = ImageOps.exif_transpose(img)
+        dimensions = oriented.size
+
         # Convert RGBA to RGB if needed (convert both branches to ensure Image type)
         out: Image.Image = (
-            img.convert("RGB") if img.mode == "RGBA" else img.convert(img.mode)
+            oriented.convert("RGB")
+            if oriented.mode == "RGBA"
+            else oriented.convert(oriented.mode)
         )
 
         # First try just compressing as JPG without scaling
