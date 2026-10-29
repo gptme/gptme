@@ -2,6 +2,7 @@
 
 import time
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -57,6 +58,40 @@ def test_timer_deadline(
     assert all(delay <= watch_module._POLL_INTERVAL for delay in waits)
 
 
+@pytest.mark.parametrize(
+    ("deadline", "expected"),
+    [(100.99, "expired"), (101.0, "expired"), (101.01, "timer elapsed")],
+)
+def test_timer_wait_overshoots_both_boundaries(
+    deadline: float,
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    now = 100.0
+    watch = watch_module.Watch(
+        id="w-timer-overshoot",
+        kind="timer",
+        description="overshoot test",
+        created=now,
+        deadline=deadline,
+        logdir=tmp_path,
+    )
+
+    def wait(timeout: float | None = None) -> bool:
+        nonlocal now
+        assert timeout is not None and timeout > 0
+        now = 101.02
+        return False
+
+    monkeypatch.setattr(watch_module, "time", SimpleNamespace(time=lambda: now))
+    monkeypatch.setattr(watch.cancel_event, "wait", wait)
+    watch_module._poll_timer(watch, 1.0)
+    assert watch.fired
+    assert len(watch.events) == 1
+    assert watch.events[0].startswith(expected)
+
+
 def test_timer_cancellation_during_wait(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -81,11 +116,22 @@ def test_timer_cancellation_during_wait(
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-def test_public_timer_timeout(tmp_path: Path, cancelled: bool) -> None:
+def test_public_timer_timeout(
+    tmp_path: Path, cancelled: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from gptme.logmanager.manager import _current_log_var
 
     token = _current_log_var.set(None)
     before = set(watch_module._watches)
+    release_worker = Event()
+    poll_timer = watch_module._poll_timer
+
+    def gated_poll_timer(watch: watch_module.Watch, seconds: float) -> None:
+        release_worker.wait()
+        poll_timer(watch, seconds)
+
+    if cancelled:
+        monkeypatch.setattr(watch_module, "_poll_timer", gated_poll_timer)
     try:
         watch_module._watch("timer 2s --timeout 20ms public-deadline", None, None)
         watches = [w for key, w in watch_module._watches.items() if key not in before]
@@ -96,6 +142,7 @@ def test_public_timer_timeout(tmp_path: Path, cancelled: bool) -> None:
         if cancelled:
             watch.cancelled = True
             watch.cancel_event.set()
+            release_worker.set()
         watch.thread.join(timeout=1)
         assert not watch.thread.is_alive()
         if cancelled:
@@ -108,6 +155,7 @@ def test_public_timer_timeout(tmp_path: Path, cancelled: bool) -> None:
             ]
     finally:
         _current_log_var.reset(token)
+        release_worker.set()
         for key in set(watch_module._watches) - before:
             watch = watch_module._watches.pop(key)
             watch.cancelled = True

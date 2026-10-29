@@ -539,7 +539,11 @@ def _poll_timer(watch: Watch, seconds: float) -> None:
     end = time.time() + seconds
     while not watch.cancelled:
         now = time.time()
-        if watch.deadline is not None and now >= watch.deadline:
+        if (
+            watch.deadline is not None
+            and watch.deadline <= end
+            and now >= watch.deadline
+        ):
             _fire(watch, f"expired before timer elapsed ({watch.description})")
             return
         if now >= end:
