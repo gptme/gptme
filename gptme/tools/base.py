@@ -1167,8 +1167,9 @@ class ToolUse:
                     _current_log_var.set(owner)
                     generator.close()
 
-        with LogManager.preserve_current():
-            yield from _execute_tool()
+        yield from preserve_generator_owner(
+            _execute_tool(), LogManager.get_current_log()
+        )
 
     @property
     def is_runnable(self) -> bool:

@@ -17,6 +17,7 @@ import logging
 import shlex
 from collections import Counter
 from collections.abc import Generator
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -325,13 +326,32 @@ def restore_todos_before_tool(
         log = manager.master_log if manager.current_branch == "main" else manager.log
         messages = log.messages
 
-        # Parser provenance identifies the owning message; offsets and equal
-        # commands alone cannot distinguish a fresh call from historical work.
+        # Establish ownership by identity first: equal independent commands are
+        # not pending calls. Active views and lossless history are deserialized
+        # separately, so map an owned view message to its full-history copy by
+        # timestamp AND content before applying the call-occurrence boundary.
+        stop_before = data.tool_use
+        owner = next(
+            (
+                msg
+                for msg in reversed(manager.log.messages)
+                if msg.role == "assistant"
+                and stop_before._source_content is msg.content
+            ),
+            None,
+        )
         for index in range(len(messages) - 1, -1, -1):
-            if data.tool_use._source_content is messages[index].content:
+            msg = messages[index]
+            if stop_before._source_content is msg.content or (
+                owner is not None
+                and msg.role == "assistant"
+                and msg.timestamp == owner.timestamp
+                and msg.content == owner.content
+            ):
                 messages = messages[: index + 1]
+                stop_before = replace(stop_before, _source_content=msg.content)
                 break
-        _todo_stores[key], _ = _restore_todos(messages, stop_before=data.tool_use)
+        _todo_stores[key], _ = _restore_todos(messages, stop_before=stop_before)
     yield from ()
 
 

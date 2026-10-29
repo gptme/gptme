@@ -421,6 +421,64 @@ def test_start_replay_respects_explicit_branch(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("call_id", [None, "reader-call"])
 @pytest.mark.parametrize("finish", ["exhaust", "close", "interrupt"])
+def test_tool_execution_preserves_interleaved_consumer_owner(
+    tmp_path: Path, call_id: str | None, finish: str
+) -> None:
+    from gptme.hooks import HookType, clear_hooks, register_hook
+    from gptme.tools.base import ToolSpec, ToolUse
+
+    a = start(tmp_path / "a")
+    _todowrite("add", "A plan")
+    clear_hooks()
+    owners = []
+
+    def execute(code, args, kwargs):
+        try:
+            yield Message("system", "First")
+            assert LogManager.get_current_log() is a
+            if finish == "interrupt":
+                raise KeyboardInterrupt
+            yield Message("system", "Second")
+        finally:
+            owners.append(LogManager.get_current_log())
+
+    def post_hook(data):
+        assert LogManager.get_current_log() is a
+        yield from ()
+
+    set_tools([ToolSpec(name="reader", desc="Stream results", execute=execute)])
+    register_hook("check_owner", HookType.TOOL_EXECUTE_POST, post_hook)
+    execution = ToolUse("reader", None, None, call_id=call_id).execute(log=a.log)
+    # Native calls buffer the tool generator before yielding its first result,
+    # so their interruption happens before any consumer can switch owners.
+    if call_id and finish == "interrupt":
+        with pytest.raises(KeyboardInterrupt):
+            list(execution)
+        assert LogManager.get_current_log() is a
+        return
+    assert next(execution).content == "First"
+    b = LogManager(logdir=tmp_path / "b", lock=False)
+    _todowrite("add", "B plan")
+    if finish == "close":
+        execution.close()
+    elif finish == "interrupt":
+        with pytest.raises(KeyboardInterrupt):
+            list(execution)
+    else:
+        list(execution)
+    assert owners == [a]
+    assert LogManager.get_current_log() is b
+    _todowrite("clear")
+    assert not has_incomplete_todos()
+    with LogManager.preserve_current():
+        from gptme.logmanager import _current_log_var
+
+        _current_log_var.set(a)
+        assert "A plan" in _todoread()
+
+
+@pytest.mark.parametrize("call_id", [None, "reader-call"])
+@pytest.mark.parametrize("finish", ["exhaust", "close", "interrupt"])
 def test_tool_generator_keeps_internal_owner_between_yields(
     tmp_path: Path, call_id: str | None, finish: str
 ) -> None:
@@ -814,3 +872,66 @@ def test_server_pending_call_restores_after_worker_reload(
         assert ("Edited" if edited else "Pending") in _todoread()
     finally:
         SessionManager.remove_session(session.id)
+
+
+@pytest.mark.parametrize("view", [False, True])
+@pytest.mark.parametrize("edited", [False, True])
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_direct_pending_call_from_separately_loaded_history(
+    tmp_path: Path,
+    tool_format: Literal["markdown", "xml", "tool"],
+    view: bool,
+    edited: bool,
+) -> None:
+    from dataclasses import replace
+
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state
+
+    set_tool_format(tool_format)
+
+    def call(text: str, call_id: str) -> str:
+        tooluse = (
+            ToolUse("todo", None, None, kwargs={"command": f'write add "{text}"'})
+            if tool_format == "tool"
+            else ToolUse("todo", ["write"], f'add "{text}"')
+        )
+        return tooluse.to_output(tool_format).replace("@todo:", f"@todo({call_id}):", 1)
+
+    older = Message("assistant", call("Older task", "older"))
+    pending = Message(
+        "assistant",
+        "\n\n".join(
+            [
+                call("Earlier call", "earlier"),
+                call("Pending", "pending"),
+                call("Later call", "later"),
+            ]
+        ),
+    )
+    manager = start(tmp_path / "separate-history", [older, pending])
+    manager.write()
+    if view:
+        manager.create_view("compacted-001", [Message("system", "Summary"), pending])
+        manager.switch_view("compacted-001")
+    else:
+        manager.preserve_lossless_log()
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, lock=False)
+    pending_message = resumed.log.messages[-1]
+    master_message = resumed.master_log.messages[-1]
+    assert pending_message.content == master_message.content
+    assert pending_message.content is not master_message.content
+    tooluse = list(ToolUse.iter_from_content(pending_message.content))[1]
+    if edited:
+        tooluse = (
+            replace(tooluse, kwargs={"command": 'write add "Edited"'})
+            if tool_format == "tool"
+            else replace(tooluse, content='add "Edited"')
+        )
+    list(tooluse.execute(log=resumed.log))
+    assert "1. 🔲 Older task" in _todoread()
+    assert "2. 🔲 Earlier call" in _todoread()
+    assert f"3. 🔲 {'Edited' if edited else 'Pending'}" in _todoread()
+    assert "Later call" not in _todoread()
+    assert "Summary: 3 total" in _todoread()
