@@ -386,6 +386,36 @@ def test_extract_tool_call_counts_literal_fences(
     }
 
 
+def test_extract_tool_call_counts_loaded_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gptme.tools as tools
+    from gptme.tools.base import ToolSpec
+
+    monkeypatch.setattr(
+        tools,
+        "get_tools",
+        lambda: [
+            ToolSpec(name="custom_plugin", desc="test", block_types=["custom_alias"])
+        ],
+    )
+    content = "```custom_alias\n{}\n```"
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "custom_plugin": 1
+    }
+
+
+def test_extract_tool_call_counts_thinking_offsets() -> None:
+    content = (
+        "<think>\na\nb\n</think>\n"
+        "<tool-use><save>real</save></tool-use>\n```shell\necho hi\n```"
+    )
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "save": 1,
+        "shell": 1,
+    }
+
+
 @pytest.mark.parametrize("lang", ["", "shell", "json"])
 @pytest.mark.parametrize("suffix", ["", '\n@read(real): {"path":"a"}'])
 def test_extract_tool_call_counts_empty_fence(lang: str, suffix: str) -> None:

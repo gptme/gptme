@@ -254,11 +254,20 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
     }
     markdown_tools["py"] = "ipython"
 
+    from ..tools import get_tools
+
+    # Consult only already-loaded registrations; never discover/import plugins.
+    loaded_markdown_tools = {
+        tag: tool.name
+        for tool in copy_context().run(get_tools)
+        for tag in tool.block_types
+    }
+
     class DatasetToolUse(ToolUse):
         @classmethod
         def _from_codeblock(cls, codeblock: Codeblock) -> ToolUse | None:
             tag = codeblock.lang.split(" ")[0]
-            if name := markdown_tools.get(tag):
+            if name := markdown_tools.get(tag) or loaded_markdown_tools.get(tag):
                 return cls(name, None, codeblock.content, start=codeblock.start)
             return None
 
@@ -277,7 +286,15 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             for i, line in enumerate(lines):
                 if not re.fullmatch(r"`{3,}[ \t]*", line):
                     continue
-                for block in Codeblock.iter_from_markdown("\n".join(lines[: i + 1])):
+                # Thinking-tag stripping makes Codeblock.start relative to a
+                # shortened string. Neutralize only those delimiters for this
+                # position pass, preserving all offsets and line boundaries.
+                prefix = re.sub(
+                    r"</?(?:think|thinking)>",
+                    lambda m: " " * len(m.group()),
+                    "\n".join(lines[: i + 1]),
+                )
+                for block in Codeblock.iter_from_markdown(prefix):
                     if block.start is not None:
                         body_lines = (
                             block.content.count("\n") + 1 if block.content else 0
@@ -346,7 +363,8 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             # Preserve offsets and line boundaries for every remaining pass.
             masked = re.sub(r"[^\n]", " ", match.group())
             non_xml = non_xml[: match.start()] + masked + non_xml[match.end() :]
-            ranges = body_ranges(non_xml)
+            if "```" in match.group() or toolcall_re.search(match.group()):
+                ranges = body_ranges(non_xml)
             search_from = match.end()
         calls: list[ToolUse] = []
         for start, end in xml_ranges:
