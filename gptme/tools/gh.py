@@ -113,7 +113,7 @@ def _check_run_state(run: dict) -> str:
 def _failed_check_reference(run: dict) -> str:
     """Keep external check links; check-run IDs are not workflow run IDs."""
     name = f"{run.get('name', 'Unknown')} ({run.get('conclusion')})"
-    url = run.get("html_url", "")
+    url = run.get("html_url") or ""
     if "/actions/runs/" in url:
         run_id = url.split("/actions/runs/")[-1].split("/")[0]
         return f"{name} (run {run_id}) — gh run view {run_id} --log-failed"

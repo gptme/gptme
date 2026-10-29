@@ -286,6 +286,15 @@ class TestFormatCheckResults:
         assert "gh run view" not in result
         assert "run 789" not in result
 
+    def test_failed_check_with_null_url(self):
+        run = _make_check_run("build", conclusion="failure", run_id=789)
+        run["html_url"] = None
+        result = _format_check_results([run], "abc1234", 1)
+        assert "1 failed" in result
+        assert "build (failure)" in result
+        assert "gh run view" not in result
+        assert "run 789" not in result
+
     def test_pending_status(self):
         runs = [_make_check_run("deploy", "pending", None)]
         result = _format_check_results(runs, "abc1234", 3)
@@ -296,6 +305,19 @@ class TestFormatCheckResults:
 
 
 class TestWaitForChecks:
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_failed_check_with_null_url(self, mock_run, gh_time):
+        run = _make_check_run("build", conclusion="failure", run_id=789)
+        run["html_url"] = None
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": [run]}))
+        result = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))[-1].content
+        assert "Checks failed" in result
+        assert "build (failure)" in result
+        assert "gh run view" not in result
+        assert "run 789" not in result
+        gh_time.sleep.assert_not_called()
+
     @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
     def test_external_failure_preserves_url(self, mock_run, gh_time):
