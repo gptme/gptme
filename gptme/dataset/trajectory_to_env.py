@@ -229,7 +229,44 @@ def _categorise_files(files: list[str]) -> str:
 
 
 def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
-    """Count tool calls by tool name across all *messages*."""
+    """Count assistant tool syntax without initializing the live tool registry."""
+    from contextvars import copy_context
+
+    from ..codeblock import Codeblock
+    from ..tools.base import ToolUse, _codeblock_char_ranges
+
+    # Offline exports have no loaded tools. Recognize built-in Markdown tags
+    # without discovery/importing tool modules (which may check availability or
+    # connect to services). Explicit XML/native calls can retain plugin names.
+    # Keep the historical `python` dataset key; `py` is an ipython block alias.
+    markdown_tools = {
+        name: name
+        for name in (
+            "shell python ipython save append patch patch_many read hashline_edit "
+            "todo form memory complete clarify morph tmux vent choice progress "
+            "watch elicit restart gh mcp request_tool_change"
+        ).split()
+    }
+    markdown_tools["py"] = "ipython"
+
+    class DatasetToolUse(ToolUse):
+        @classmethod
+        def _from_codeblock(cls, codeblock: Codeblock) -> ToolUse | None:
+            tag = codeblock.lang.split(" ")[0]
+            if name := markdown_tools.get(tag):
+                return cls(name, None, codeblock.content, start=codeblock.start)
+            return None
+
+    def parse(content: str) -> list[ToolUse]:
+        # `tool` already includes Markdown: parsing both would double count it.
+        calls = list(DatasetToolUse.iter_from_content(content, "tool"))
+        # XML examples inside any code fence are data, not additional calls.
+        unfenced = content
+        for start, end in reversed(_codeblock_char_ranges(content)):
+            unfenced = unfenced[:start] + " " * (end - start) + unfenced[end:]
+        calls.extend(DatasetToolUse.iter_from_content(unfenced, "xml"))
+        return calls
+
     counts: Counter[str] = Counter()
     for msg in messages:
         role = msg.get("role", "")
@@ -237,9 +274,11 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             continue
         content = msg.get("content", "")
         if isinstance(content, str):
-            # Markdown tool-use pattern: ```tool_name\n...```
-            for m in re.finditer(r"```(\w[\w-]*)\n", content):
-                counts[m.group(1)] += 1
+            # Native alias resolution reads the context registry; on a cold
+            # context get_tools() creates an empty list. Isolate that lazy write
+            # while retaining any existing transport-name aliases for replay.
+            for call in copy_context().run(parse, content):
+                counts[markdown_tools.get(call.tool, call.tool)] += 1
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_use":

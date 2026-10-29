@@ -162,6 +162,101 @@ def test_extract_tool_call_counts_markdown():
     assert counts["python"] == 1
 
 
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            "```shell echo hi\nignored\n```\n```save path/to/my file.py\nx = 1\n```",
+            {"shell": 1, "save": 1},
+        ),
+        (
+            "<tool-use><shell>echo hi</shell><py>print(1)</py></tool-use>",
+            {"shell": 1, "ipython": 1},
+        ),
+        (
+            '@shell(call_1): {"command":"echo hi"}\n'
+            '@shell(call_2): {"command":"echo bye"}',
+            {"shell": 2},
+        ),
+        (
+            "```shell\necho hi\n```\n"
+            '<tool-use><save path="a.py">x = 1</save></tool-use>\n'
+            '@shell(call_1): {"command":"echo bye"}\n'
+            "```py\nprint(1)\n```",
+            {"shell": 2, "save": 1, "ipython": 1},
+        ),
+        (
+            '```json\n@ shell: {}\n@shell(example): {"command":"no"}\n```\n'
+            '````text\n@shell(example2): {"command":"no"}\n'
+            "```shell\nnot a call\n```\n"
+            "<tool-use><shell>not a call</shell></tool-use>\n````\n"
+            "```unknown\nnot a call\n```",
+            {},
+        ),
+        (
+            '```shell\n@shell(example): {"command":"not another call"}\n```',
+            {"shell": 1},
+        ),
+        (
+            '<function_calls><invoke name="py">print(1)</invoke></function_calls>\n'
+            '@py(call_1): {"code":"print(2)"}',
+            {"ipython": 2},
+        ),
+        ("```python\nprint(1)\n```\n```py\nprint(2)\n```", {"python": 1, "ipython": 1}),
+    ],
+)
+def test_extract_tool_call_counts_persisted_formats(
+    content: str, expected: dict[str, int]
+) -> None:
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+def test_extract_tool_call_counts_ignores_nonassistant() -> None:
+    content = '```shell\necho hi\n```\n@shell(call_1): {"command":"echo hi"}'
+    assert (
+        _extract_tool_call_counts(
+            [{"role": role, "content": content} for role in ("system", "user", "tool")]
+            + [{"role": "user", "content": [{"type": "tool_use", "name": "shell"}]}]
+        )
+        == {}
+    )
+
+
+def test_extract_tool_call_counts_cold_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gptme.tools as tools
+    from gptme.tools.base import _tool_format_var
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("Dataset extraction must not initialize or discover tools")
+
+    monkeypatch.setattr(tools, "init_tools", forbidden)
+    monkeypatch.setattr(tools, "get_available_tools", forbidden)
+    loaded = tools._loaded_tools_var.set(None)
+    initialized = tools._tools_initialized_var.set(False)
+    tool_format = _tool_format_var.set("xml")
+    try:
+        assert _extract_tool_call_counts(
+            [
+                {
+                    "role": "assistant",
+                    "content": '```shell echo hi\nignored\n```\n\n@shell(c): {"command":"hi"}',
+                }
+            ]
+        ) == {"shell": 2}
+        assert tools._loaded_tools_var.get() is None
+        assert not tools.tools_initialized()
+        assert _tool_format_var.get() == "xml"
+    finally:
+        _tool_format_var.reset(tool_format)
+        tools._tools_initialized_var.reset(initialized)
+        tools._loaded_tools_var.reset(loaded)
+
+
 def test_extract_tool_call_counts_tool_use_blocks():
     messages = [
         {
