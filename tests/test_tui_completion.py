@@ -567,3 +567,63 @@ async def test_stale_dispatch_does_not_mutate_active_worker_log(tmp_path, monkey
         assert list(manager.log) == before
         assert app.prompt_queue == ["pending at boundary"]
         app.generating = False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("event_kind", ["child", "watch"])
+async def test_queued_local_commands_retry_deferred_notifications(
+    tmp_path, monkeypatch, enabled, event_kind
+):
+    """Local-only queue dispatch must release the command-busy inbox deferral."""
+    from gptme.config import ChatConfig, get_config
+    from gptme.tools import watch
+    from gptme.tui.app import _CommandResult
+
+    manager = LogManager([], logdir=tmp_path / "parent", lock=False)
+    get_config().chat = ChatConfig(watch_autowake=enabled)
+    seen: list[int] = []
+    monkeypatch.setattr("gptme.tui.app.step", lambda *a, **kw: record_step(seen))
+    monkeypatch.setattr(
+        "gptme.server.session_models.SessionManager.request_watch_wake",
+        lambda *a, **kw: False,
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True  # /help owns the context
+        app._enqueue_prompt("/display outputs")
+        app._enqueue_prompt("/display thinking")
+        if event_kind == "child":
+            notify_completion(
+                "queued-child", "success", "ready", parent_logdir=manager.logdir
+            )
+            marker = "Subagent 'queued-child'"
+        else:
+            watch._deliver(
+                watch.Watch("queued-watch", "timer", "test", 0, logdir=manager.logdir),
+                "ready",
+            )
+            marker = "Watch queued-watch fired:"
+        await pilot.pause()
+        dispatches = []
+        call_later = app.call_later
+
+        def defer_dispatch(callback, *args, **kwargs):
+            if callback == app._dispatch_queue:
+                dispatches.append(callback)
+                return True
+            return call_later(callback, *args, **kwargs)
+
+        monkeypatch.setattr(app, "call_later", defer_dispatch)
+        app._background_command_done("help", [], _CommandResult(handled=True))
+        await pilot.pause()
+        assert not seen
+        assert not any(marker in m.content for m in manager.log)
+        assert len(dispatches) == 1
+        await dispatches[0]()
+        await settle(app, pilot)
+        assert not app.prompt_queue
+        assert sum(marker in m.content for m in manager.log) == 1
+        assert seen == ([1] if enabled else [])
+        assert not app.generating

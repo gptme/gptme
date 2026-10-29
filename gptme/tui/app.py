@@ -4179,6 +4179,9 @@ class GptmeApp(App):
             prompt = self._pop_queued_prompt()
             self._set_state("idle")
             await self._submit_user_input(prompt)
+            # Local commands may consume the queue without starting a worker.
+            # Retry readiness deferred to that queue; busy/modal guards apply.
+            await self._deliver_notifications()
             return
         self._set_state("idle")
         await self._deliver_notifications()
