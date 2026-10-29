@@ -1,12 +1,18 @@
 """Tests for the Textual TUI (requires the `tui` extra)."""
 
+import io
+import json
 import signal
 import sys
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("textual")
 
+from rich.console import Console
+from rich.markdown import Markdown as RichMarkdown
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.text import Text
 from textual.color import Color
@@ -2590,10 +2596,108 @@ async def test_one_line_system_message_not_collapsible(tmp_path):
         assert "system_info" not in str(widget.query_one(Static).render())
 
 
-def test_renderables_one_line_system_message():
+@pytest.mark.parametrize("expanded", [False, True])
+def test_renderables_one_line_system_message(expanded: bool) -> None:
     msg = Message("system", "<system_info>cwd is /x</system_info>")
-    rendered = [str(r) for r in renderables_for_message(msg)]
-    assert rendered[0] == "cwd is /x"
+    rendered = [str(r) for r in renderables_for_message(msg, expanded=expanded)]
+    assert rendered == ["cwd is /x", ""]
+
+
+@pytest.fixture
+def long_single_line_json() -> str:
+    """Synthetic gh-style output, without any personal source data."""
+    return json.dumps(
+        [{"number": i, "title": f"Synthetic result {i}"} for i in range(500)]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("width", [32, 100])
+async def test_long_one_line_system_message_collapses(
+    tmp_path: Path, long_single_line_json: str, width: int
+) -> None:
+    content = long_single_line_json
+    assert "\n" not in content
+    msg = Message("system", content)
+    manager = make_manager(tmp_path, [msg])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test(size=(width, 30)) as pilot:
+        await pilot.pause()
+        widget = app.query_one(SystemMessage)
+        block = widget.query_one(Collapsible)
+        body = block.query_one(ChatMarkdown)
+        assert block.collapsed
+        assert str(block.title) == _summarize(content)
+        collapsed_height = widget.size.height
+        assert collapsed_height <= 5
+        # The truncated title must not cause any loss in the expandable body.
+        assert body._markdown == content
+
+        await pilot.press("ctrl+o")
+        await pilot.pause()
+        assert not block.collapsed
+        assert widget.size.height > collapsed_height
+        assert body._markdown == content
+
+        inp = app.query_one("#input", ChatInput)
+        for command, expanded in [
+            ("/display outputs off", False),
+            ("/display outputs on", True),
+        ]:
+            inp.text = command
+            await pilot.press("enter")
+            await pilot.pause()
+            assert block.collapsed is not expanded
+        assert msg.content == content
+        assert manager.log[0].content == content
+
+
+@pytest.mark.parametrize("width", [32, 100])
+@pytest.mark.parametrize("expanded", [False, True])
+def test_renderables_long_one_line_system_message(
+    long_single_line_json: str, width: int, expanded: bool
+) -> None:
+    content = long_single_line_json
+    msg = Message("system", content)
+    renderables = renderables_for_message(msg, expanded=expanded)
+    assert renderables[0].plain == "▶ " + _summarize(content)
+    output = io.StringIO()
+    console = Console(file=output, width=width, color_system=None)
+    for renderable in renderables:
+        console.print(renderable)
+    if expanded:
+        body = renderables[1]
+        assert isinstance(body, Padding)
+        assert isinstance(body.renderable, RichMarkdown)
+        assert body.renderable.markup == content
+        # Rich can wrap between words at either terminal width.
+        assert "Synthetic result 499" in " ".join(output.getvalue().split())
+    else:
+        assert len(output.getvalue().splitlines()) <= 5
+        assert "Synthetic result 499" not in output.getvalue()
+    assert msg.content == content
+
+
+@pytest.mark.parametrize(("length", "collapsible"), [(80, False), (81, True)])
+def test_system_message_single_line_summary_boundary(
+    length: int, collapsible: bool
+) -> None:
+    content = "x" * length
+    widgets = list(SystemMessage(content).compose())
+    assert isinstance(widgets[0], Collapsible) is collapsible
+    inline = renderables_for_message(Message("system", content))
+    assert inline[0].plain == ("▶ " + _summarize(content) if collapsible else content)
+
+
+@pytest.mark.parametrize("expanded", [False, True])
+def test_renderables_multiline_system_message(expanded: bool) -> None:
+    content = "first line\nsecond line"
+    renderables = renderables_for_message(Message("system", content), expanded=expanded)
+    assert renderables[0].plain == "▶ first line (2 lines)"
+    if expanded:
+        assert renderables[1].renderable.markup == content
+    else:
+        assert len(renderables) == 2
 
 
 @pytest.mark.asyncio
