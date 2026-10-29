@@ -9,6 +9,8 @@ import pytest
 pytest.importorskip("textual")
 
 from rich.console import Console
+from rich.padding import Padding
+from rich.text import Text
 from textual.widgets import Collapsible, Static
 
 from gptme.logmanager import LogManager
@@ -25,14 +27,19 @@ LARGE_JSON = json.dumps(
     {"records": [{"label": f"record{i}", "value": "abcdefghij"} for i in range(100)]}
 )
 MULTILINE_OUTPUT = "Command completed\nfirst output row\nlast output row"
+OUTPUTS = [
+    LARGE_JSON,
+    MULTILINE_OUTPUT,
+    "<div>" + "x" * 100 + "</div>",
+    ("**bold** [label](https://example.com) " * 5).strip(),
+]
+OUTPUT_IDS = ["json", "multiline", "html", "markdown"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("width", [40, 120])
 @pytest.mark.parametrize("toggle", ["keyboard", "command"])
-@pytest.mark.parametrize(
-    "content", [LARGE_JSON, MULTILINE_OUTPUT], ids=["json", "multiline"]
-)
+@pytest.mark.parametrize("content", OUTPUTS, ids=OUTPUT_IDS)
 async def test_fullscreen_output_folds_and_preserves_content(
     tmp_path: Path, width: int, toggle: str, content: str
 ) -> None:
@@ -59,12 +66,19 @@ async def test_fullscreen_output_folds_and_preserves_content(
             await pilot.pause()
             assert block.collapsed is not expanded
             if expanded:
-                markdown = output.query_one(ChatMarkdown)
-                await markdown.rendered.wait()
-                if content == LARGE_JSON:
-                    assert markdown.source == content
+                if "\n" not in content:
+                    body = block.query_one("Contents").query_one(Static)
+                    assert isinstance(body.content, Text)
+                    assert body.content.plain == content
+                    visible = "".join(
+                        body.render_line(y).text
+                        for y in range(body.content_size.height)
+                    )
+                    assert "".join(content.split()) in "".join(visible.split())
                     assert output.size.height > collapsed_height
                 else:
+                    markdown = output.query_one(ChatMarkdown)
+                    await markdown.rendered.wait()
                     # The short first line is already present in the title.
                     assert markdown.source == "first output row\nlast output row"
             else:
@@ -82,9 +96,7 @@ def _render_inline(message: Message, width: int, expanded: bool) -> str:
 
 
 @pytest.mark.parametrize("width", [40, 120])
-@pytest.mark.parametrize(
-    "content", [LARGE_JSON, MULTILINE_OUTPUT], ids=["json", "multiline"]
-)
+@pytest.mark.parametrize("content", OUTPUTS, ids=OUTPUT_IDS)
 def test_inline_output_folds_and_preserves_content(width: int, content: str) -> None:
     message = Message("system", content)
     collapsed = _render_inline(message, width, expanded=False)
@@ -93,7 +105,15 @@ def test_inline_output_folds_and_preserves_content(width: int, content: str) -> 
     assert "last output row" not in collapsed
 
     expanded = _render_inline(message, width, expanded=True)
-    # Rich wraps the paragraph and adds indentation; every original character
+    if "\n" not in content:
+        body = next(
+            item
+            for item in renderables_for_message(message, expanded=True)
+            if isinstance(item, Padding)
+        ).renderable
+        assert isinstance(body, Text)
+        assert body.plain == content
+    # Rich wraps the output and adds indentation; every original character
     # other than whitespace must survive the expanded display.
     assert "".join(content.split()) in "".join(expanded.split())
     assert _render_inline(message, width, expanded=False) == collapsed

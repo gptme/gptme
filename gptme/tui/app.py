@@ -1008,13 +1008,16 @@ class SystemMessage(Vertical):
         self.highlight = highlight
 
     def compose(self) -> ComposeResult:
-        if "\n" not in self.content and len(self.content) <= SUMMARY_MAXLEN:
+        single_line = "\n" not in self.content
+        if single_line and len(self.content) <= SUMMARY_MAXLEN:
             yield Static(
                 _summary_title(self.content, self.highlight), classes="system-line"
             )
             return
         yield Collapsible(
-            ChatMarkdown(_drop_summary_line(self.content)),
+            Static(Text(self.content))
+            if single_line
+            else ChatMarkdown(_drop_summary_line(self.content)),
             title=_summary_title(_summarize(self.content), self.highlight),  # type: ignore[arg-type]
             collapsed=True,
         )
@@ -1493,7 +1496,8 @@ def renderables_for_message(
     summary.stylize("dim")
     renderables: list = [summary]
     if expanded:
-        renderables.append(Padding(RichMarkdown(content), (0, 0, 0, 2)))
+        body = Text(content) if "\n" not in content else RichMarkdown(content)
+        renderables.append(Padding(body, (0, 0, 0, 2)))
     renderables.append(Text())
     return renderables
 
