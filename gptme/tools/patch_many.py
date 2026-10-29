@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec, file_newline
+from .base import Parameter, ToolSpec
 from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 
 if TYPE_CHECKING:
@@ -199,7 +199,20 @@ def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(content)
+        info = path.stat()
+        if hasattr(os, "chown"):
+            staged_info = staged.stat()
+            if (staged_info.st_uid, staged_info.st_gid) != (info.st_uid, info.st_gid):
+                os.chown(staged, info.st_uid, info.st_gid)
         staged.chmod(mode)
+        # Preserve access ACLs (and other xattrs) rather than granting the new
+        # inode's default audience access. Failure aborts staging before writes.
+        if hasattr(os, "listxattr"):
+            source_attrs = set(os.listxattr(path))
+            for name in set(os.listxattr(staged)) - source_attrs:
+                os.removexattr(staged, name)
+            for name in source_attrs:
+                os.setxattr(staged, name, os.getxattr(path, name))
     except BaseException as error:
         try:
             staged.unlink(missing_ok=True)
@@ -320,9 +333,18 @@ def execute_patch_many_impl(
                     )
                     return
                 original_bytes = path.read_bytes()
-                original = path.read_text(encoding="utf-8")
+                original = (
+                    original_bytes.decode("utf-8")
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                )
                 modes[path] = stat.S_IMODE(info.st_mode)
-                newlines[path] = file_newline(path)
+                crlf = original_bytes.count(b"\r\n")
+                newlines[path] = (
+                    "\r\n"
+                    if crlf and crlf >= original_bytes.count(b"\n") - crlf
+                    else "\n"
+                )
             except (UnicodeDecodeError, PermissionError, OSError) as e:
                 yield Message(
                     "system",

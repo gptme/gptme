@@ -915,6 +915,110 @@ def test_symlink_alias_accumulates_and_keeps_link(tmp_path):
     assert target.read_text() == alias.read_text() == "ALPHA\nBETA\n"
 
 
+def test_patch_validation_and_rollback_share_one_snapshot(tmp_path, monkeypatch):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.write_bytes(b"alpha\r\n")
+    second.write_bytes(b"beta\n")
+    read_bytes = Path.read_bytes
+    reads = []
+
+    def changing_read(path):
+        data = read_bytes(path)
+        if path == first:
+            reads.append(data)
+            if len(reads) == 1:
+                first.write_bytes(b"other\n")
+        return data
+
+    monkeypatch.setattr(Path, "read_bytes", changing_read)
+    messages = list(
+        execute_patch_many_impl(
+            [(first, Patch("alpha", "ALPHA")), (second, Patch("beta", "BETA"))]
+        )
+    )
+    assert "Applied" in messages[0].content
+    assert reads == [b"alpha\r\n"]
+    assert read_bytes(first) == b"ALPHA\r\n"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership")
+@pytest.mark.parametrize("fail_publication", [False, True])
+def test_staging_preserves_target_group(tmp_path, monkeypatch, fail_publication):
+    target = tmp_path / "target"
+    target.write_bytes(b"alpha\n")
+    other_groups = [group for group in os.getgroups() if group != os.getgid()]
+    if not other_groups:
+        pytest.skip("requires a supplementary group")
+    os.chown(target, -1, other_groups[0])
+    target.chmod(0o660)
+    before = target.stat()
+    replace = os.replace
+    failed = False
+
+    def fail_replace(source, destination):
+        nonlocal failed
+        if fail_publication and not failed:
+            failed = True
+            replace(source, destination)
+            raise OSError("publication failed after replacement")
+        return replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    messages = list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert ("Rolled back" if fail_publication else "Applied") in messages[0].content
+    assert target.read_bytes() == (b"alpha\n" if fail_publication else b"ALPHA\n")
+    assert target.stat().st_uid == before.st_uid
+    assert target.stat().st_gid == before.st_gid
+    assert target.stat().st_mode == before.st_mode
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="xattrs unavailable")
+def test_staging_preserves_posix_access_acl(tmp_path):
+    import struct
+
+    target = tmp_path / "target"
+    target.write_bytes(b"alpha\n")
+    # Linux POSIX ACL: owner rw, named user r, group none, mask r, other none.
+    acl = struct.pack("<I", 2) + b"".join(
+        struct.pack("<HHI", tag, permissions, identity)
+        for tag, permissions, identity in [
+            (1, 6, 0xFFFFFFFF),
+            (2, 4, os.getuid() + 1),
+            (4, 0, 0xFFFFFFFF),
+            (16, 4, 0xFFFFFFFF),
+            (32, 0, 0xFFFFFFFF),
+        ]
+    )
+    try:
+        os.setxattr(target, "system.posix_acl_access", acl)
+    except OSError as error:
+        pytest.skip(f"filesystem does not support POSIX ACLs: {error}")
+    messages = list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert "Applied" in messages[0].content
+    assert os.getxattr(target, "system.posix_acl_access") == acl
+
+
+@pytest.mark.skipif(not hasattr(os, "chown"), reason="ownership unavailable")
+def test_metadata_copy_failure_aborts_before_publication(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.write_bytes(b"alpha\n")
+    before = target.stat()
+    chmod = Path.chmod
+
+    def fail_metadata(path, mode):
+        if path.name.startswith(".patch-many-"):
+            raise PermissionError("metadata denied")
+        return chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", fail_metadata)
+    messages = list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+    assert "staging write error" in messages[0].content
+    assert "metadata denied" in messages[0].content
+    assert target.read_bytes() == b"alpha\n"
+    assert target.stat().st_ino == before.st_ino
+    assert list(tmp_path.iterdir()) == [target]
+
+
 def test_staged_success_preserves_permissions_and_line_endings(tmp_path):
     target = tmp_path / "target"
     target.write_bytes(b"alpha\r\nbeta\r\n")
