@@ -504,22 +504,19 @@ def read_chat(
     content_offset: int = 0,
     max_chars: int = 10000,
 ) -> None:
-    """Read a specific conversation log, with cheap one-line previews by default.
-
-    Message numbers are 1-based positions in the original log, including hidden
-    system messages, and match native search results. Context counts visible
-    messages before that position and is included in max_results.
+    """Read a conversation, previewing one line per message unless full=True.
 
     Args:
         id: Conversation ID.
-        max_results: Maximum number of visible messages, including context.
-        incl_system: Include system messages without changing message numbers.
+        max_results: Visible message limit, including context.
+        incl_system: Show system messages.
         context_messages: Visible messages before start_message.
-        start_message: Original-log message number (1-based), or the beginning.
-        full: Emit multiline content verbatim, bounded by max_chars per message.
-        content_offset: Zero-based character offset for a single full message.
-        max_chars: Full-mode character limit per message (1 to 100000).
-            Truncated output provides the next offset for recovery.
+        start_message: 1-based original-log position, matching search even with
+            hidden system messages. Defaults to the beginning.
+        full: Emit verbatim multiline content, capped by max_chars per message.
+        content_offset: Zero-based character offset; requires full=True,
+            max_results=1 and no context. Follow emitted hints to continue.
+        max_chars: Full-mode character cap (1..100000).
     """
     from ..logmanager import LogManager, get_conversation_by_id  # fmt: skip
 
@@ -572,7 +569,8 @@ def read_chat(
         if end < len(msg.content):
             print(
                 f"[message {number} truncated; continue with start_message={number}, "
-                f"max_results=1, full=True, content_offset={end}]"
+                f"max_results=1, full=True, incl_system={incl_system}, "
+                f"content_offset={end}]"
             )
 
 
@@ -1052,12 +1050,9 @@ Assistant: Certainly! I'll search our past conversations for mentions of "python
 instructions = """
 ### When to use chats
 
-Use chats when the user asks about or wants to reference a past conversation:
-- "remember when we discussed X?" → search_chats('X')
-- "find our earlier chat about Y" → search_chats('Y')
-- "what did we say about Z last week?" → search_chats('Z')
-- Listing recent sessions to give the user an overview → list_chats()
-- Reading a specific prior conversation by ID → read_chat(id)
+For past conversations, use list_chats() for recent sessions, search_chats(query)
+for content, and read_chat(id) for a saved conversation. Search message numbers
+pass directly to start_message; full=True recovers bounded multiline text.
 
 Do **not** use chats for:
 - The current conversation — its content is already in the context window.

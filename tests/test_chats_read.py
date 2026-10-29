@@ -1,5 +1,6 @@
 """Synthetic native search-to-read recovery through functions and Click."""
 
+import ast
 import json
 
 import pytest
@@ -207,6 +208,33 @@ def test_first_last_and_system_search(history, capsys):
     assert "1. system:\ninitial system" in capsys.readouterr().out
     read_chat(conv_id, start_message=5, max_results=1, full=True)
     assert "5. user:\nfollowing question" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("system", [False, True])
+def test_continuation_hint_preserves_visibility(history, tmp_path, capsys, system):
+    conv_id, _ = history
+    path = tmp_path / conv_id / "conversation.jsonl"
+    content = "s" * 10000 + "REMAINING_SYSTEM_TEXT"
+    path.write_text(
+        json.dumps({"role": "system" if system else "user", "content": content})
+        + "\n"
+        + json.dumps({"role": "user", "content": "unrelated following message"})
+        + "\n"
+    )
+    read_chat(conv_id, incl_system=system, max_results=1, full=True)
+    output = capsys.readouterr().out
+    hint = output.split("continue with ", 1)[1].split("]", 1)[0]
+    # Replay only the emitted arguments, not the original call's visibility.
+    call = ast.parse(f"read_chat({hint})", mode="eval").body
+    assert isinstance(call, ast.Call)
+    kwargs = {}
+    for kw in call.keywords:
+        assert kw.arg is not None
+        kwargs[kw.arg] = ast.literal_eval(kw.value)
+    read_chat(conv_id, **kwargs)
+    continued = capsys.readouterr().out
+    assert "REMAINING_SYSTEM_TEXT" in continued
+    assert "unrelated following message" not in continued
 
 
 def test_full_default_cap_and_exact_boundary(history, tmp_path, capsys):
