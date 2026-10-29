@@ -235,6 +235,23 @@ def test_extract_tool_call_counts_markdown():
             {"save": 1, "shell": 1},
         ),
         (
+            "<!-- <tool-use><shell>echo example</shell></tool-use> -->",
+            {},
+        ),
+        (
+            '<!-- <function_calls><invoke name="shell">echo example</invoke>'
+            "</function_calls> -->\n"
+            "<tool-use><shell>echo real</shell></tool-use>",
+            {"shell": 1},
+        ),
+        (
+            '<!--\n@shell(example): {"command":"echo example"}\n'
+            "```shell\necho example\n```\n"
+            "<tool-use><shell>echo example</shell></tool-use>\n-->\n"
+            '@save(real): {"content":"real"}',
+            {"save": 1},
+        ),
+        (
             '@save(a): {"content":"<!--"}\n'
             '<tool-use><shell>echo "-->"</shell></tool-use>',
             {"save": 1, "shell": 1},

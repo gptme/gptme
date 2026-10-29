@@ -281,18 +281,25 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                 break
             ranges.append((match.start(), end, False))
             search_from = end
-        # Consume comments/CDATA as units while finding XML boundaries. Their
-        # delimiters outside a wrapper (for example in native JSON) must not
-        # swallow a later call. Mask body text only after selecting a wrapper.
-        ranges.extend(
-            (match.start(), match.end(), True)
-            for match in re.finditer(
-                r"<(tool-use|function_calls)>"
-                r"(?:<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>",
-                content,
-                re.DOTALL,
-            )
+        # Consume comments/CDATA as units both outside and inside wrappers.
+        # Skip openers owned by native/fenced bodies before consuming their
+        # apparent closing delimiter, which may belong to a later real call.
+        xml_pattern = re.compile(
+            r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(tool-use|function_calls)>"
+            r"(?:<!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>",
+            re.DOTALL,
         )
+        search_from = 0
+        while match := xml_pattern.search(content, search_from):
+            body_end = next(
+                (end for start, end, _ in ranges if start <= match.start() < end),
+                None,
+            )
+            if body_end is not None:
+                search_from = body_end
+                continue
+            ranges.append((match.start(), match.end(), True))
+            search_from = match.end()
         calls: list[ToolUse] = []
         covered_until = 0
         non_xml = content
