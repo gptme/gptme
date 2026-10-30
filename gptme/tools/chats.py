@@ -2,6 +2,7 @@
 List, search, and summarize past conversation logs.
 """
 
+import bisect
 import json as json_mod
 import logging
 import statistics
@@ -188,6 +189,34 @@ def _discover_cursor_sessions(cursor_dir: Path | None = None) -> list[Path]:
     return results
 
 
+def _matching_excerpt(content: str, query: str, budget: int = 500) -> str:
+    """Keep the first matching substring, expanding the budget for long queries."""
+    lowered = content.lower()
+    needle = query.lower()
+    start = lowered.find(needle)
+    if start < 0:
+        return content[:budget]
+    end = start + len(needle)
+    if len(lowered) != len(content):
+        # Unicode lowercasing can expand characters (e.g. İ → i + dot).
+        # Translate offsets back to the original text before slicing it.
+        boundaries = [0]
+        for character in content:
+            boundaries.append(boundaries[-1] + len(character.lower()))
+        start = bisect.bisect_right(boundaries, start) - 1
+        end = bisect.bisect_left(boundaries, end)
+    width = max(budget, end - start)
+    while True:
+        left = max(0, start - (width - (end - start)) // 2)
+        left = min(left, max(0, len(content) - width))
+        excerpt = content[left : left + width]
+        if needle in excerpt.lower():
+            return excerpt
+        # Slicing can change context-sensitive lowercase forms (e.g. Σ).
+        # Grow context until the original match survives the next search pass.
+        width = min(len(content), width * 2)
+
+
 def _search_cursor_session(path: Path, query: str) -> list[dict]:
     """Search a single Cursor ``conversation.json`` for *query*.
 
@@ -216,7 +245,7 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
             results.append(
                 {
                     "role": role,
-                    "content": content[:500],
+                    "content": _matching_excerpt(content, query),
                     "session_title": data.get("title", path.parent.name),
                 }
             )
@@ -242,7 +271,7 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
                     results.append(
                         {
                             "role": role,
-                            "content": content[:500],
+                            "content": _matching_excerpt(content, query),
                             "session_title": conv.get("composerId", path.parent.name),
                         }
                     )
@@ -302,7 +331,7 @@ def _search_codex_session(path: Path, query: str) -> list[dict]:
                 results.append(
                     {
                         "role": role,
-                        "content": content[:500],
+                        "content": _matching_excerpt(content, query),
                         "session_title": path.stem,
                     }
                 )
@@ -391,7 +420,7 @@ def search_external_chats(
         title = matches[0]["session_title"] if matches else result["path"].stem
         print(f"\n{i}. [{agent}] {title} ({len(matches)} match(es)):")
         for match in matches[:1]:
-            snippet = match["content"][:200].replace("\n", " ")
+            snippet = _matching_excerpt(match["content"], query, 200).replace("\n", " ")
             print(f"   ({match['role']}): {snippet}…")
 
 
