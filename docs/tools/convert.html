@@ -644,6 +644,10 @@ call it with structured arguments:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>gptme "convert report.pdf to report-page-1.png at high quality, dry run first"
 </pre></div>
 </div>
+<p>When converting images to PNG or JPEG (<code class="docutils literal notranslate"><span class="pre">.png</span></code>, <code class="docutils literal notranslate"><span class="pre">.jpg</span></code>, <code class="docutils literal notranslate"><span class="pre">.jpeg</span></code>), animated
+input produces its first frame at the exact requested output path, not a numbered
+image sequence. Animation-capable GIF and WebP targets are not subject to this
+first-frame selection.</p>
 <p>File format conversion tool for gptme.</p>
 <p>Provides offline, multi-format file conversion with auto-detection and
 graceful degradation when specific converters are unavailable.</p>
@@ -651,7 +655,8 @@ graceful degradation when specific converters are unavailable.</p>
 <blockquote>
 <div><ul class="simple">
 <li><p>PDF → PNG/JPEG (Poppler/pdftoppm, ImageMagick fallback)</p></li>
-<li><p>Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback)</p></li>
+<li><p>Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback).
+PNG/JPEG output selects the first frame of animated input.</p></li>
 <li><p>DOCX → text/markdown (python-docx, LibreOffice headless fallback)</p></li>
 <li><p>MP4/video → JPEG thumbnail (FFmpeg)</p></li>
 <li><p>PDF → text (pypdf, Poppler/pdftotext fallback)</p></li>
