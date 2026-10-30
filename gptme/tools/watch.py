@@ -496,40 +496,37 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
         finally:
             reader_done.set()
 
-    threading.Thread(target=_reader, daemon=True).start()
-    while not reader_done.wait(timeout=0.2):
-        if watch.cancelled:
-            _kill_proc(proc)
-            stop.set()
-            reader_done.wait(timeout=2)
-            _close_stdout(proc)
-            return
-        if watch.deadline is not None and time.time() > watch.deadline:
-            _kill_proc(proc)
-            stop.set()
-            reader_done.wait(timeout=2)
-            _close_stdout(proc)
-            _fire(watch, f"expired without exit ({watch.description})")
-            return
-    if watch.cancelled:
-        return
-    if read_error:
-        _kill_proc(proc)
-        _close_stdout(proc)
-        _fire(watch, f"watch errored: {read_error}")
-        return
+    reader = threading.Thread(target=_reader, daemon=True)
+    reader.start()
+    exited_at: float | None = None
     try:
-        proc.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        _kill_proc(proc)
+        while True:
+            if watch.cancelled:
+                _kill_proc(proc)
+                return
+            if read_error:
+                _kill_proc(proc)
+                _fire(watch, f"watch errored: {read_error}")
+                return
+            if proc.poll() is not None:
+                # EOF can precede child exit; an inherited write handle can
+                # also outlive it. Bound draining only *after* the child exits.
+                if exited_at is None:
+                    exited_at = time.monotonic()
+                if reader_done.is_set() or time.monotonic() - exited_at >= 2:
+                    break
+            elif watch.deadline is not None and time.time() > watch.deadline:
+                # Completion wins over a deadline crossed between polls. The
+                # deadline governs child work, not the bounded post-exit drain.
+                _kill_proc(proc)
+                _fire(watch, f"expired without exit ({watch.description})")
+                return
+            # Unlike reader_done.wait(), this does not spin after early EOF.
+            watch.cancel_event.wait(timeout=0.2)
+    finally:
+        stop.set()
+        reader.join(timeout=2)
         _close_stdout(proc)
-        # `_kill_proc`'s terminate path reaps the child, but the SIGKILL
-        # escalation does not. Reap once more so `returncode` is populated
-        # instead of the wake reporting `rc=None` for a process we stopped.
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pass
     with buf_lock:
         out = tail
     _fire(watch, f"process exited rc={proc.returncode} {out}".strip())
