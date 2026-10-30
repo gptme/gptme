@@ -1392,4 +1392,3 @@ def test_real_imagemagick_gif_retains_animation(tmp_path, avail_imagemagick_only
         assert output.convert("RGB").getpixel((0, 0)) == (255, 0, 0)
         output.seek(1)
         assert output.convert("RGB").getpixel((0, 0)) == (0, 0, 255)
-

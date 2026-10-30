@@ -73,35 +73,27 @@ def test_libreoffice_publishes_exact_bytes(
 
 
 def test_libreoffice_publication_failure_is_not_success(tmp_path: Path) -> None:
-    """A missing destination parent produces a useful failure and cleans extraction."""
+    """Reject a missing destination parent before launching extraction."""
     source = tmp_path / "source.odt"
     source.write_bytes(b"unchanged source document")
     dest = tmp_path / "missing" / "output.txt"
-    output_dirs: list[Path] = []
-
-    def successful_extract(
-        command: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess:
-        output_dir = Path(command[command.index("--outdir") + 1])
-        output_dirs.append(output_dir)
-        (output_dir / "source.txt").write_bytes(PAYLOAD)
-        return subprocess.CompletedProcess(command, 0, b"", b"")
 
     with (
         patch(
             "gptme.tools.convert.get_availability",
             return_value=ToolAvailability(libreoffice=True),
         ),
-        patch("gptme.tools.convert.subprocess.run", side_effect=successful_extract),
+        patch("gptme.tools.convert.subprocess.run") as run,
     ):
         result = DocumentToTextConverter().convert(source, dest)
     assert not result.success
     assert result.output_path is None
-    assert result.converter_used == "libreoffice"
+    assert result.converter_used == "document-to-text"
     assert result.error and f"Could not write {dest}" in result.error
+    run.assert_not_called()
     assert not dest.exists()
     assert source.read_bytes() == b"unchanged source document"
-    assert output_dirs and all(not path.exists() for path in output_dirs)
+    assert set(tmp_path.iterdir()) == {source}
 
 
 def test_libreoffice_partial_copy_preserves_existing_output(tmp_path: Path) -> None:
