@@ -794,3 +794,37 @@ def test_compacted_branch_reorder_is_rejected_without_changing_history(tmp_path)
         manager.edit([messages[0], Message("user", "Inserted"), *messages[1:]])
     assert manager.full_log.messages == before
     assert manager.log.messages == messages
+
+
+def test_branch_edit_distinguishes_results_with_equal_timestamps(tmp_path):
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    first = Message("system", "first", call_id="a")
+    second = Message("system", "second", call_id="b", timestamp=first.timestamp)
+    manager = LogManager([first, second], logdir=tmp_path / "equal-time", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([first, second])
+    manager.branch("alternative")
+    manager.edit([second])
+    assert "second" in recall_result(2)
+    assert "not a tool result" in recall_result(1)
+    LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "second" in recall_result(2)
+
+
+def test_current_branch_write_does_not_overwrite_other_branch_archive(tmp_path):
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    manager = LogManager(_messages(), logdir=tmp_path / "concurrent", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.write()
+    stale = LogManager.load(manager.logdir, lock=False)
+    writer = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    writer.append(Message("system", "new branch output", call_id="new"))
+    stale.write(branches=False)
+    LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "new branch output" in recall_result(6)

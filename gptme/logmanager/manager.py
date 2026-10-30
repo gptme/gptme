@@ -741,6 +741,8 @@ class LogManager:
             paths.add(lossless_path)
 
         for branch, archive in self._branch_lossless_logs.items():
+            if not branches and branch != self.current_branch:
+                continue
             archive_path = self.logdir / "branches" / branch / "lossless.jsonl"
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             self._branch_lossless_logs[branch] = archive.write_jsonl(
@@ -925,10 +927,19 @@ class LogManager:
                     (
                         (i, position)
                         for i, (position, old) in enumerate(available)
-                        if old.timestamp == message.timestamp
+                        if old.timestamp == message.timestamp and old == message
                     ),
                     None,
                 )
+                if match is None:
+                    match = next(
+                        (
+                            (i, position)
+                            for i, (position, old) in enumerate(available)
+                            if old.timestamp == message.timestamp
+                        ),
+                        None,
+                    )
                 if match is None:
                     additions.append(message)
                     continue
