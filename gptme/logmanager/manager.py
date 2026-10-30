@@ -935,7 +935,11 @@ class LogManager:
                     old.timestamp == message.timestamp and old == message
                     for old in previous
                 )
-                if matches > retained:
+                kept = sum(
+                    old.timestamp == message.timestamp and old == message
+                    for old in updated
+                )
+                if matches > retained or (0 < kept < matches):
                     raise ValueError(
                         "Cannot apply an ambiguous retained occurrence inside "
                         "compacted branch history; identical hidden messages exist."

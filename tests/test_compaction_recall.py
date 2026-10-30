@@ -991,6 +991,35 @@ def test_branch_edit_rejects_ambiguous_retained_occurrence(
     assert resumed.log.messages == previous.messages
 
 
+@pytest.mark.parametrize("roundtrip", [False, True])
+def test_branch_edit_rejects_deleting_one_of_identical_visible_occurrences(
+    tmp_path: Path, roundtrip: bool
+) -> None:
+    from gptme.logmanager import Log
+
+    first = Message("assistant", "```todo write\nadd Original\n```")
+    clear = Message("assistant", "```todo write\nclear\n```")
+    duplicate = first.replace()
+    manager = LogManager(
+        [first, clear, duplicate], logdir=tmp_path / "visible-occurrences", lock=False
+    )
+    manager.preserve_lossless_log()
+    manager.log = Log([first, duplicate])
+    manager.branch("alternative")
+    manager.write()
+    if roundtrip:
+        manager = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    previous = manager.log
+    history = manager.full_log
+    with pytest.raises(ValueError, match="ambiguous"):
+        manager.edit([manager.log[-1]])
+    assert manager.log.messages == previous.messages
+    assert manager.full_log.messages == history.messages
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert resumed.full_log.messages == history.messages
+    assert resumed.log.messages == previous.messages
+
+
 @pytest.mark.parametrize("inherited", [False, True])
 @pytest.mark.parametrize("reverse", [False, True])
 def test_branch_archive_names_do_not_collide_with_transcripts(
