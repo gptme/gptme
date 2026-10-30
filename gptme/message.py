@@ -191,6 +191,9 @@ class MessageMetadata(TypedDict, total=False):
         }
     """
 
+    # Actual startup-selected file origins, preserving final file symlinks even
+    # when Message.files is serialized as resolved paths.
+    startup_prompt_files: list[str]
     model: str
     # The subprovider that actually served the request, in @provider suffix form
     # (e.g. "openrouter/deepseek/deepseek-v4-flash-0731@together"). Only set when

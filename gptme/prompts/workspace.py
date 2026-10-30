@@ -150,6 +150,58 @@ def prompt_workspace_runtime(
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
 
+def resolve_prompt_file_paths(
+    entries: list[str], config_dir: Path
+) -> list[tuple[Path, Path]]:
+    """Resolve configured prompt files, keeping both the configured and target path.
+
+    - absolute paths are used as-is
+    - ``~`` is expanded
+    - relative paths resolve against the config directory (e.g. ~/.config/gptme)
+    - files that don't exist are skipped, since startup skips them too
+
+    The configured path matters for symlinked files: it tells which workspace
+    the file was loaded *from*, which the target path does not.
+
+    All valid entries are returned, including multiple configured paths that
+    resolve to the same target. Callers are responsible for deduplicating
+    content when that matters; retaining every alias is necessary so the
+    agents_md_inject hook can find the workspaces for all configured files.
+    """
+    pairs: list[tuple[Path, Path]] = []
+    for entry in entries:
+        p = Path(entry).expanduser()
+        if not p.is_absolute():
+            p = config_dir / entry
+        try:
+            resolved = p.resolve()
+        except OSError:
+            # If resolve fails (e.g., path doesn't exist yet), keep as-is
+            resolved = p
+        if not resolved.exists():
+            logger.debug(f"User-configured file not found: {resolved}")
+            continue
+        pairs.append((p, resolved))
+    return pairs
+
+
+def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
+    """Resolve configured prompt files the way startup does.
+
+    See :func:`resolve_prompt_file_paths` for the resolution rules.
+    Deduplicates by resolved path; use :func:`resolve_prompt_file_paths`
+    directly when all configured aliases must be retained.
+    """
+    seen: set[str] = set()
+    result: list[Path] = []
+    for _, resolved in resolve_prompt_file_paths(entries, config_dir):
+        key = str(resolved)
+        if key not in seen:
+            seen.add(key)
+            result.append(resolved)
+    return result
+
+
 def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
@@ -237,6 +289,7 @@ def prompt_workspace(
     agent_files: list[Path] = []  # Agent instruction files (AGENTS.md, etc.)
     context_files: list[Path] = []  # Regular context files (README, etc.)
     seen_paths: set[str] = set()
+    configured_paths: dict[Path, list[Path]] = {}
     workspace_resolved = workspace.resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
 
@@ -345,23 +398,19 @@ def prompt_workspace(
             )
         except (ImportError, OSError, ValueError, AttributeError):
             user_files = []
-        if user_files:
-            for entry in user_files:
-                p = Path(entry).expanduser()
-                if not p.is_absolute():
-                    p = config_dir / entry
-                try:
-                    p = p.resolve()
-                except OSError:
-                    # If resolve fails (e.g., path doesn't exist yet), keep as-is
-                    pass
-                if p.exists():
-                    rp = str(p)
-                    if rp not in seen_paths:
-                        context_files.append(p)
-                        seen_paths.add(rp)
-                else:
-                    logger.debug(f"User-configured file not found: {p}")
+        for configured, p in resolve_prompt_file_paths(user_files, config_dir):
+            rp = str(p)
+            # Keep the final file symlink's origin in the startup message.
+            # Resolve its parent first so directory symlinks followed by
+            # '..' retain filesystem semantics, not lexical semantics.
+            # Always record the alias so that symlinked files pointing to
+            # the same content as an earlier entry are still tracked — their
+            # configured paths matter for the foreign-workspace exemption.
+            origin = configured.parent.resolve() / configured.name
+            configured_paths.setdefault(p, []).append(origin)
+            if rp not in seen_paths:
+                context_files.append(p)
+                seen_paths.add(rp)
 
     # Apply exclude patterns from project config (glob-matched against file names and paths)
     if project and project.exclude:
@@ -416,6 +465,14 @@ def prompt_workspace(
             "system",
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
+            metadata={
+                "startup_prompt_files": [
+                    str(alias)
+                    for f in valid_context_files
+                    if isinstance(f, Path)
+                    for alias in configured_paths.get(f, [f])
+                ]
+            },
         )
 
     # Load persistent memories from all layered roots (project, CC, agent, user).

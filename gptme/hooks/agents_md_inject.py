@@ -46,7 +46,7 @@ from ..config import get_config, get_project_config
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
+from ..prompts import AGENT_FILES, _loaded_agent_files_var, find_agent_files_in_tree
 from ..util.context_dedup import _content_hash
 
 # Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
@@ -161,13 +161,85 @@ def _agent_name_of(directory: Path) -> str | None:
     return None
 
 
-def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
+def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
+    """Walk up from ``start`` to the nearest agent workspace root.
+
+    Returns the resolved root and its declared agent name, or None when no
+    agent workspace is found before reaching the home directory.
+    """
+    home = Path.home().resolve()
+    current = start
+    while True:
+        name = _agent_name_of(current)
+        if name is not None:
+            return current.resolve(), name
+        if current.resolve() == home or current == current.parent:
+            return None
+        current = current.parent
+
+
+# Suffix patterns for known agent instruction files, as Path objects.
+# A startup file grants an identity exemption only when it is itself an
+# instruction file — not when it is any other file from an agent workspace.
+_AGENT_INSTRUCTION_PATTERNS: tuple[tuple[str, ...], ...] = tuple(
+    Path(p).parts for p in AGENT_FILES
+)
+
+
+def _is_agent_instruction_file(path: Path) -> bool:
+    """Return True if path is a known agent instruction filename."""
+    parts = path.parts
+    for pattern_parts in _AGENT_INSTRUCTION_PATTERNS:
+        n = len(pattern_parts)
+        if parts[-n:] == pattern_parts:
+            return True
+    return False
+
+
+def _prompt_file_roots(log: Log | None) -> set[Path]:
+    """Agent roots represented by instruction files in the startup system messages.
+
+    Configuration alone is not evidence of loading: exclusions and selective
+    context can omit a configured file. Read the startup log instead, which also
+    survives fresh server request contexts. Later tool output must not grant an
+    identity exemption.
+
+    Only files that are themselves known agent instruction files (AGENTS.md,
+    CLAUDE.md, etc.) are counted as evidence of identity adoption — a plain
+    context file from an agent workspace is not sufficient.
+    """
+    roots: set[Path] = set()
+    if log is None:
+        return roots
+    for msg in log.messages:
+        if msg.role != "system":
+            break
+        origins = msg.metadata.get("startup_prompt_files", []) if msg.metadata else []
+        files = [file for file in msg.files if isinstance(file, Path)]
+        files.extend(Path(origin) for origin in origins)
+        for file in files:
+            if not _is_agent_instruction_file(file):
+                continue
+            # Resolve directory symlinks and '..' together, preserving only the
+            # final file symlink's location as well as its target's location.
+            for location in (file.parent.resolve(), file.resolve().parent):
+                found = _nearest_agent_root(location)
+                if found is not None:
+                    roots.add(found[0])
+    return roots
+
+
+def _session_identity(
+    workspace: Path | None, log: Log | None = None
+) -> tuple[str | None, set[Path]]:
     """Return the session's agent name and its own workspace roots.
 
     The agent name comes from the chat config's agent workspace when available,
     falling back to the session workspace's ``gptme.toml``. Own roots are the
-    session workspace and agent path (resolved); an agent workspace at or above
-    one of them is part of the session's own context, never foreign.
+    session workspace, the agent path, and - for a session without an identity
+    of its own - any agent workspace whose instructions were loaded at startup
+    (resolved); an agent workspace at or above one of them is part of the
+    session's own context, never foreign.
     """
     roots: set[Path] = set()
     name: str | None = None
@@ -185,6 +257,12 @@ def _session_identity(workspace: Path | None) -> tuple[str | None, set[Path]]:
         roots.add(ws)
         if name is None:
             name = _agent_name_of(ws)
+    if name is None:
+        # A session without an identity of its own may adopt the agent
+        # workspaces whose instructions it already loaded at startup. A session
+        # that *does* have an identity keeps it: entering another agent's
+        # workspace must not hand over the identity.
+        roots |= _prompt_file_roots(log)
     return name, roots
 
 
@@ -197,7 +275,8 @@ def _find_foreign_agent_root(
     to the nearest directory whose gptme.toml declares an ``[agent]`` name. That
     workspace is *foreign* when it is not one of the session's own roots (or an
     ancestor of one) and its agent name differs from the session's. A session
-    without an agent name treats every other agent workspace as foreign.
+    without an agent name treats every other agent workspace as foreign, except
+    those whose instructions it already loaded at startup.
 
     Both the path the file was discovered at and its symlink-resolved target
     are checked, so a symlinked ``AGENTS.md`` is foreign if either location is.
@@ -217,20 +296,15 @@ def _walk_to_agent_root(
     start: Path, session_name: str | None, own_roots: set[Path]
 ) -> tuple[Path, str] | None:
     """Walk up from ``start`` to the nearest agent root; return it if foreign."""
-    home = Path.home().resolve()
-    current = start
-    while True:
-        name = _agent_name_of(current)
-        if name is not None:
-            resolved = current.resolve()
-            if any(root.is_relative_to(resolved) for root in own_roots):
-                return None
-            if session_name is not None and name == session_name:
-                return None
-            return resolved, name
-        if current.resolve() == home or current == current.parent:
-            return None
-        current = current.parent
+    found = _nearest_agent_root(start)
+    if found is None:
+        return None
+    resolved, name = found
+    if any(root.is_relative_to(resolved) for root in own_roots):
+        return None
+    if session_name is not None and name == session_name:
+        return None
+    return resolved, name
 
 
 def _sanitize_for_notice(text: str, max_len: int = 64) -> str:
@@ -284,10 +358,10 @@ def _format_foreign_notice(
 
 
 def _partition_foreign(
-    agent_files: list[Path], workspace: Path | None
+    agent_files: list[Path], workspace: Path | None, log: Log | None = None
 ) -> tuple[list[Path], dict[Path, tuple[str, list[Path]]], str | None]:
     """Split candidates into allowed files and files in foreign agent workspaces."""
-    session_name, own_roots = _session_identity(workspace)
+    session_name, own_roots = _session_identity(workspace, log)
     allowed: list[Path] = []
     foreign: dict[Path, tuple[str, list[Path]]] = {}
     for agent_file in agent_files:
@@ -334,7 +408,7 @@ def inject_agent_instruction_files(
     if not candidates:
         return
 
-    allowed, foreign, session_name = _partition_foreign(candidates, workspace)
+    allowed, foreign, session_name = _partition_foreign(candidates, workspace, log)
     for root, (name, files) in foreign.items():
         logger.info(
             "Not loading instructions from agent workspace '%s' (%s): %s",
