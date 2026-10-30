@@ -85,7 +85,8 @@ from ..message import Message
 from ..prompt_queue import drain_prompt_queue
 from ..tools import ToolFormat, ToolUse
 from ..tools.base import ToolUse as ToolUseType
-from ..tools.base import get_tool_format
+from ..tools.base import find_json_end, get_tool_format
+from ..tools.base import toolcall_re as _TOOL_CALL_RE
 from ..tools.complete import SessionCompleteException
 from ..tools.restart import (
     Interface,
@@ -162,12 +163,16 @@ _THINK_RE = re.compile(
 _THINK_OPEN_RE = re.compile(r"<think(?:ing)?(?:\s[^>]*)?>")
 _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 
-# Matches the `tool` format: @tool_name(call_id): {...json...}. Calls end at
-# the next tool-call header, any following prose (indented or not), or the end
-# of the message. JSON string braces are handled by parsing the captured body.
-_TOOL_CALL_RE = re.compile(
-    r"^(@(\w+)\([^)]*\)):\s*(\{.*?\})(?=\n@\w+\([^)]*\):|\n|\Z)",
-    re.MULTILINE | re.DOTALL,
+# Recognize the same native names/IDs as the executor, including MCP names.
+# JSON boundaries come from find_json_end, not a regex over quoted braces.
+_NATIVE_HEADER_RE = re.compile(r"^@[^\r\n]+?\([\w\-:\.]+\):\s*(?=\{|\Z)", re.MULTILINE)
+_LITERAL_OR_THINK_RE = re.compile(
+    r"(?P<native>" + _NATIVE_HEADER_RE.pattern + r")"
+    r"|^ {0,3}(?P<fence>`{3,}(?!`)(?=[^`\n]*(?:\n|\Z))|~{3,})[^\n]*"
+    r"|(?P<inline>`+)"
+    r"|(?P<xml>(?i:<(?:tool-use|function_calls)(?=\s|>)[^>]*>))"
+    r"|(?P<thinking><think(?:ing)?(?:\s[^>]*)?>)",
+    re.MULTILINE,
 )
 
 # Matches XML tool-call blocks (<tool-use>...</tool-use> or <function_calls>...</function_calls>).
@@ -188,25 +193,79 @@ def _split_thinking(content: str) -> list[tuple[bool, str]]:
     """
     segments: list[tuple[bool, str]] = []
     last_end = 0
-    for m in _THINK_RE.finditer(content):
-        before = content[last_end : m.start()]
+    for start, end, inner in _thinking_spans(content):
+        before = content[last_end:start]
         if before.strip():
             segments.append((False, before))
-        inner = _THINK_SIG_RE.sub("", m.group(1)).strip()
+        inner = _THINK_SIG_RE.sub("", inner).strip()
         if inner:
             segments.append((True, inner))
-        last_end = m.end()
+        last_end = end
     tail = content[last_end:]
-    if open_m := _THINK_OPEN_RE.search(tail):
-        before = tail[: open_m.start()]
-        if before.strip():
-            segments.append((False, before))
-        inner = _THINK_SIG_RE.sub("", tail[open_m.end() :]).strip()
-        if inner:
-            segments.append((True, inner))
-    elif tail.strip():
+    if tail.strip():
         segments.append((False, tail))
     return segments
+
+
+def _literal_region_end(content: str, match: re.Match[str]) -> int:
+    """Skip a literal region without interpreting any reasoning tags inside it.
+
+    Open tool payloads/fences protect the rest of a streaming buffer too.
+    This is display-only: execution/recovery policy stays in the core parsers.
+    """
+    if match.group("native"):
+        return find_json_end(content, match.end()) or len(content)
+    if fence := match.group("fence"):
+        closing = re.compile(
+            r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*\r?$",
+            re.MULTILINE,
+        )
+        end = closing.search(content, match.end())
+        return end.end() if end else len(content)
+    if match.group("xml"):
+        tag = match.group().split(">", 1)[0].split()[0][1:]
+        end = re.search(
+            r"</" + re.escape(tag) + r"\s*>", content[match.end() :], re.IGNORECASE
+        )
+        return match.end() + end.end() if end else len(content)
+    # Only complete inline-code spans protect tags; an unmatched or escaped
+    # backtick in prose must not hide subsequent genuine reasoning.
+    start = match.start()
+    while start > 0 and content[start - 1] == "\\":
+        start -= 1
+    delimiter = match.group()
+    if (match.start() - start) % 2:
+        # Markdown escapes one character, not the whole run: any remaining
+        # backticks can still open a shorter inline span.
+        delimiter = delimiter[1:]
+        if not delimiter:
+            return match.end()
+    closing = re.compile(r"(?<!`)" + re.escape(delimiter) + r"(?!`)")
+    # Inline code can include soft line breaks, but cannot consume another
+    # paragraph. An unrelated later backtick must not hide real reasoning.
+    paragraph_end = re.search(r"\r?\n[ \t]*\r?\n", content[match.end() :])
+    limit = match.end() + paragraph_end.start() if paragraph_end else len(content)
+    end = closing.search(content, match.end(), limit)
+    return end.end() if end else match.end()
+
+
+def _thinking_spans(content: str) -> Generator[tuple[int, int, str], None, None]:
+    """Find reasoning outside literal regions, in source order.
+
+    A genuine reasoning opener owns its entire span (including fenced draft
+    commands). Conversely, an earlier tool/code opener owns its payload, so
+    neither closed nor partial literal tags split that payload.
+    """
+    pos = 0
+    while match := _LITERAL_OR_THINK_RE.search(content, pos):
+        if not match.group("thinking"):
+            pos = _literal_region_end(content, match)
+            continue
+        closed = _THINK_RE.match(content, match.start())
+        end = closed.end() if closed else len(content)
+        inner = closed.group(1) if closed else content[match.end() :]
+        yield match.start(), end, inner
+        pos = end
 
 
 def _strip_thinking(text: str) -> str:
@@ -214,10 +273,13 @@ def _strip_thinking(text: str) -> str:
 
     Removes closed ``<think>`` blocks and cuts an unclosed trailing one.
     """
-    text = _THINK_RE.sub("", text)
-    if m := _THINK_OPEN_RE.search(text):
-        text = text[: m.start()]
-    return text
+    parts = []
+    last_end = 0
+    for start, end, _inner in _thinking_spans(text):
+        parts.append(text[last_end:start])
+        last_end = end
+    parts.append(text[last_end:])
+    return "".join(parts)
 
 
 def _thinking_stub(text: str) -> str:
@@ -299,12 +361,12 @@ def _split_tool_calls(text: str) -> list[tuple[bool, str]]:
     """
     segments: list[tuple[bool, str]] = []
     last_end = 0
-    for m in _TOOL_CALL_RE.finditer(text):
-        before = text[last_end : m.start()]
+    for start, end in _native_call_spans(text):
+        before = text[last_end:start]
         if before.strip():
             segments.append((False, before))
-        segments.append((True, m.group(0)))
-        last_end = m.end()
+        segments.append((True, text[start:end]))
+        last_end = end
     tail = text[last_end:]
     if tail.strip():
         segments.append((False, tail))
@@ -315,11 +377,12 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
     """Parse a tool-format line into (title, code, lang) for a Collapsible."""
     import json  # local import — json not used elsewhere in this module
 
-    m = _TOOL_CALL_RE.match(call_text.strip())
+    call_text = call_text.strip()
+    m = _TOOL_CALL_RE.match(call_text)
     if not m:
         return call_text, call_text, "text"
-    tool_name = m.group(2)
-    json_body = m.group(3)
+    tool_name = m.group(1)
+    json_body = call_text[m.start(3) : find_json_end(call_text, m.start(3))]
     try:
         args = json.loads(json_body)
     except Exception:
@@ -584,32 +647,66 @@ def _streaming_all_segments(buffer: str) -> list[tuple[str, str]]:
             if text.strip():
                 out.append(("thinking", text))
         else:
-            for is_tool, seg in _split_streaming_markdown_tool_calls(text):
-                if not seg.strip():
+            # Native JSON owns its contents, including XML/fence examples.
+            for is_native, native_part in _split_streaming_native_tool_calls(text):
+                if is_native:
+                    out.append(("tool_call", native_part))
                     continue
-                if is_tool:
-                    out.append(("tool_call", seg))
-                    continue
-                for is_call, part in _split_streaming_native_tool_calls(seg):
-                    if part.strip():
-                        out.append(("tool_call" if is_call else "prose", part))
+                # XML bodies likewise own nested Markdown examples, just as
+                # they do in finalized rendering. The XML scanner itself skips
+                # openers quoted inside earlier Markdown literal regions.
+                for is_xml, xml_part in _split_streaming_xml_tool_calls(native_part):
+                    if is_xml:
+                        out.append(("tool_call", xml_part))
+                        continue
+                    for is_call, part in _split_streaming_markdown_tool_calls(xml_part):
+                        if part.strip():
+                            out.append(("tool_call" if is_call else "prose", part))
     return out
 
 
-# A native ("tool" format) call while streaming: its header line, up to the
-# end of that line or of the buffer (the JSON may still be arriving).
-_STREAMING_NATIVE_CALL_RE = re.compile(r"^@\w+\([^)\n]*\):[^\n]*", re.MULTILINE)
+def _native_call_spans(
+    text: str, *, streaming: bool = False
+) -> Generator[tuple[int, int], None, None]:
+    """Native JSON spans, including pretty-printed/partial objects."""
+    pos = 0
+    while match := _LITERAL_OR_THINK_RE.search(text, pos):
+        if match.group("thinking"):
+            closed = _THINK_RE.match(text, match.start())
+            pos = closed.end() if closed else len(text)
+            continue
+        if not match.group("native"):
+            pos = _literal_region_end(text, match)
+            continue
+        end = find_json_end(text, match.end())
+        pos = end if end is not None else len(text)
+        if end is not None or streaming:
+            yield match.start(), pos
 
 
 def _split_streaming_native_tool_calls(text: str) -> list[tuple[bool, str]]:
-    """Split prose into (is_tool, segment) at ``@tool(id): {...}`` lines."""
+    """Keep an entire native payload together, even before the JSON closes."""
     out: list[tuple[bool, str]] = []
     last = 0
-    for m in _STREAMING_NATIVE_CALL_RE.finditer(text):
-        if text[last : m.start()].strip():
-            out.append((False, text[last : m.start()]))
-        out.append((True, m.group(0)))
-        last = m.end()
+    for start, end in _native_call_spans(text, streaming=True):
+        if text[last:start].strip():
+            out.append((False, text[last:start]))
+        out.append((True, text[start:end]))
+        last = end
+    if text[last:].strip() or not out:
+        out.append((False, text[last:]))
+    return out
+
+
+def _split_streaming_xml_tool_calls(text: str) -> list[tuple[bool, str]]:
+    """Protect closed and still-streaming XML tool bodies."""
+    out: list[tuple[bool, str]] = []
+    last = 0
+    for start, end in _xml_call_spans(text, streaming=True):
+        if text[last:start].strip():
+            out.append((False, text[last:start]))
+        out.append((True, text[start:end]))
+        last = end
     if text[last:].strip() or not out:
         out.append((False, text[last:]))
     return out
@@ -618,16 +715,33 @@ def _split_streaming_native_tool_calls(text: str) -> list[tuple[bool, str]]:
 _NATIVE_ARG_RE = re.compile(r'"(?:command|code|path|file)"\s*:\s*"((?:[^"\\]|\\.)*)')
 
 
+def _xml_call_spans(
+    text: str, *, streaming: bool = False
+) -> Generator[tuple[int, int], None, None]:
+    """XML calls outside earlier native payloads and Markdown examples."""
+    pos = 0
+    while match := _LITERAL_OR_THINK_RE.search(text, pos):
+        if match.group("thinking"):
+            closed = _THINK_RE.match(text, match.start())
+            pos = closed.end() if closed else len(text)
+            continue
+        pos = _literal_region_end(text, match)
+        if match.group("xml") and (
+            streaming or _XML_TOOLUSE_RE.match(text, match.start())
+        ):
+            yield match.start(), pos
+
+
 def _split_xml_tool_calls(content: str) -> list[tuple[bool, str]]:
     """Split content into (is_tool, segment) pairs for XML-format tool-call blocks."""
     segments: list[tuple[bool, str]] = []
     last_end = 0
-    for m in _XML_TOOLUSE_RE.finditer(content):
-        before = content[last_end : m.start()]
+    for start, end in _xml_call_spans(content):
+        before = content[last_end:start]
         if before.strip():
             segments.append((False, before))
-        segments.append((True, m.group(0)))
-        last_end = m.end()
+        segments.append((True, content[start:end]))
+        last_end = end
     tail = content[last_end:]
     if tail.strip():
         segments.append((False, tail))
@@ -1115,8 +1229,9 @@ class StreamingMessage(Vertical):
         if not self.is_mounted:
             return
         segments = _streaming_all_segments(self._buffer)
-        if self.show_thinking:
-            # Body mode: render full stream (thinking included) as plain text.
+        if self.show_thinking and not any(kind == "tool_call" for kind, _ in segments):
+            # Body mode is safe only without tool payloads. Showing reasoning
+            # must not also expand a large native JSON or file-writing call.
             content = self._buffer.strip()
             self._body.update(Text(content or "Generating…"))
             self._body.display = True
@@ -1170,12 +1285,12 @@ class StreamingMessage(Vertical):
                 if kind == "thinking":
                     assert isinstance(row, Static)
                     n = len(text.splitlines())
-                    row.update(
-                        Text(
-                            f"▸ Thinking ({n} line{'s' if n != 1 else ''})",
-                            style="dim",
-                        )
+                    label = (
+                        text
+                        if self.show_thinking
+                        else f"▸ Thinking ({n} line{'s' if n != 1 else ''})"
                     )
+                    row.update(Text(label, style="dim"))
                 elif kind == "tool_call":
                     assert isinstance(row, Static)
                     row.update(Text(_streaming_tool_stub(text), style="dim"))
@@ -1212,9 +1327,10 @@ class StreamingMessage(Vertical):
 
     def _sync_body(self, shown: bool = False) -> None:
         """Show the body ("Generating…") until a segment row is on screen."""
-        if self.show_thinking:
+        segments = _streaming_all_segments(self._buffer)
+        if self.show_thinking and not any(kind == "tool_call" for kind, _ in segments):
             return  # body mode: the body shows the stream itself
-        rows = self._segments[: len(_streaming_all_segments(self._buffer))]
+        rows = self._segments[: len(segments)]
         shown = shown or any(
             row.shown if isinstance(row, StreamProse) else True for row in rows
         )
@@ -3824,6 +3940,13 @@ class GptmeApp(App):
             placeholder.remove()
 
     def _stream_preview(self) -> str:
+        segments = _streaming_all_segments(self._stream_text)
+        if any(kind == "tool_call" for kind, _ in segments):
+            return "\n".join(
+                _streaming_tool_stub(text) if kind == "tool_call" else text
+                for kind, text in segments
+                if kind != "thinking" or self.show_thinking
+            )
         if self.show_thinking:
             return self._stream_text
         return _strip_thinking(self._stream_text)
