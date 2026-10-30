@@ -13,6 +13,12 @@ if TYPE_CHECKING:
     from gptme.message import Message
 
 
+requires_existing_replacement = pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="existing-file replacement is intentionally refused on Windows/macOS",
+)
+
+
 @pytest.mark.skipif(
     sys.platform in ("win32", "darwin"),
     reason="requires POSIX RLIMIT_FSIZE and supported existing-file replacement",
@@ -289,7 +295,10 @@ def test_shared_writable_parent_refused_before_staging(
 
 
 @pytest.mark.parametrize("phase", ["write", "close", "replace"])
-@pytest.mark.parametrize("exists", [True, False])
+@pytest.mark.parametrize(
+    "exists",
+    [pytest.param(True, marks=requires_existing_replacement), False],
+)
 def test_failure_cleans_staging_and_preserves_destination(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str, exists: bool
 ) -> None:
@@ -407,6 +416,7 @@ def test_new_file_mode_matches_ordinary_creation(tmp_path: Path) -> None:
     assert stat.S_IMODE(target.stat().st_mode) == stat.S_IMODE(control.stat().st_mode)
 
 
+@requires_existing_replacement
 @pytest.mark.skipif(os.name == "nt", reason="POSIX hard links")
 @pytest.mark.parametrize("operation", ["save", "patch"])
 def test_hard_links_fail_closed_without_splitting_aliases(
@@ -433,6 +443,7 @@ def test_hard_links_fail_closed_without_splitting_aliases(
     assert target.stat().st_ino == alias.stat().st_ino
 
 
+@requires_existing_replacement
 @pytest.mark.parametrize("operation", ["save", "patch"])
 def test_publication_failure_never_reports_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
@@ -472,6 +483,7 @@ def test_publication_failure_never_reports_success(
     assert target.read_text() == "ORIGINAL\n"
 
 
+@requires_existing_replacement
 @pytest.mark.parametrize("phase", ["create", "fdopen", "chmod"])
 def test_staging_setup_failure_preserves_original(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
@@ -501,6 +513,7 @@ def test_staging_setup_failure_preserves_original(
     assert [p.name for p in tmp_path.iterdir()] == ["target"]
 
 
+@requires_existing_replacement
 @pytest.mark.skipif(
     os.name == "nt" or not hasattr(os, "geteuid") or os.geteuid() == 0,
     reason="requires POSIX non-root permissions",
@@ -520,6 +533,7 @@ def test_read_only_destination_not_bypassed(tmp_path: Path) -> None:
         target.chmod(0o644)
 
 
+@requires_existing_replacement
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
 def test_private_original_never_staged_with_broader_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -561,6 +575,7 @@ def test_metadata_bearing_original_fails_closed(tmp_path: Path) -> None:
     assert [p.name for p in tmp_path.iterdir()] == ["target"]
 
 
+@requires_existing_replacement
 @pytest.mark.skipif(os.name == "nt", reason="POSIX NAME_MAX")
 def test_long_valid_destination_name(tmp_path: Path) -> None:
     from gptme.util.file_write import write_text_preserving_original
