@@ -609,7 +609,7 @@ def _run_chat_loop(
                 console.log(f"[red]{LLM_REQUEST_FAILED_PREFIX}[/red] {e}")
             manager.append(Message("system", f"{LLM_REQUEST_FAILED_PREFIX} {e}"))
             hold_queued_prompts = True
-            parked_waiting = parked_waiting or bool(parked or prompt_queue)
+            parked_waiting = True
             if parked and not is_output_json() and not is_output_quiet():
                 console.log(
                     f"[yellow]Held {parked} queued prompt(s) after provider "

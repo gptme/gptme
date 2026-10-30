@@ -395,8 +395,9 @@ def test_headless_exhaustion_parks_then_exits(offline, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("failures", [1, 2])
+@pytest.mark.parametrize("has_pending", [True, False])
 def test_interactive_command_does_not_drain_parked_prompts(
-    offline, monkeypatch, tmp_path, failures
+    offline, monkeypatch, tmp_path, failures, has_pending
 ):
     """Slash commands after exhaustion must not retry parked work."""
     from gptme.logmanager import Log
@@ -411,7 +412,9 @@ def test_interactive_command_does_not_drain_parked_prompts(
         manager, "log", manager.log.append(msg)
     )
     pending = Message("user", "parked follow-through")
-    queue = [Message("user", "initial work"), pending]
+    queue = [Message("user", "initial work")]
+    if has_pending:
+        queue.append(pending)
     error = httpx.RemoteProtocolError("synthetic exhausted provider")
     llm.mark_llm_reply_origin(error)
     process = Mock(
@@ -448,7 +451,9 @@ def test_interactive_command_does_not_drain_parked_prompts(
 
     assert process.call_count == failures
     assert inputs == []
-    assert [msg.content for msg in drain_prompt_queue(tmp_path)] == [pending.content]
+    assert [msg.content for msg in drain_prompt_queue(tmp_path)] == (
+        [pending.content] if has_pending else []
+    )
 
 
 def test_interactive_park_oserror_keeps_in_memory_queue(offline, monkeypatch, tmp_path):
