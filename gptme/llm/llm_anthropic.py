@@ -3,13 +3,16 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
+from dataclasses import replace
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    ParamSpec,
     TypedDict,
+    TypeVar,
     Union,
     cast,
 )
@@ -669,9 +672,17 @@ def retry_on_overloaded(
     return decorator
 
 
+_P = ParamSpec("_P")
+_Y = TypeVar("_Y")
+_R = TypeVar("_R")
+
+
 def retry_generator_on_overloaded(
     max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
-):
+) -> Callable[
+    [Callable[_P, Generator[_Y, None, _R]]],
+    Callable[_P, Generator[_Y, None, _R]],
+]:
     """Decorator to retry generator functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
@@ -680,9 +691,11 @@ def retry_generator_on_overloaded(
     has started, errors are raised immediately to prevent duplicate output.
     """
 
-    def decorator(func):
+    def decorator(
+        func: Callable[_P, Generator[_Y, None, _R]],
+    ) -> Callable[_P, Generator[_Y, None, _R]]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Generator[_Y, None, _R]:
             # Capture the retry generation once per call (see retry_abort.py).
             generation = current_generation()
             from .recovery import recovery_active
@@ -1501,9 +1514,10 @@ def _transform_system_messages(
     1. Extracts the leading static system prompt messages as the main system prompt
     2. For models without native system-message support (< Opus 4.8): wraps
        subsequent system messages as ``<system>`` tags in user messages
-    3. For Opus 4.8+: preserves subsequent system messages as ``role: "system"``
-       (native mid-conversation system-message support)
-    4. Merges consecutive user messages (for legacy path)
+    3. For Opus 4.8+: preserves system sections only after a user turn and
+       before an assistant turn or the end of the history. Tool results always
+       become user messages so _handle_tools can emit native tool_result blocks.
+    4. Merges consecutive user messages
     5. Applies cache control to optimize performance
 
     Note: Anthropic allows up to 4 cache breakpoints in a conversation.
@@ -1540,28 +1554,40 @@ def _transform_system_messages(
 
     native_system = model is not None and _supports_native_system_messages(model)
 
-    if native_system:
-        # Opus 4.8+: subsequent system messages are kept as-is (native support).
-        # No transformation needed — they pass through as role="system".
-        pass
-    else:
-        # Pre-Opus-4.8: convert subsequent system messages into <system> tags
-        # inside user messages, unless a `call_id` is present, indicating the
-        # tool_format is 'tool'. Tool responses are handled separately by _handle_tool.
-        for i, message in enumerate(messages):
-            if message.role == "system":
+    i = 0
+    while i < len(messages):
+        message = messages[i]
+        if message.role != "system":
+            i += 1
+            continue
+
+        # Consecutive plain system messages form one section. Tool results
+        # instead belong to the user turn, even on models with native support.
+        end = i + 1
+        if message.call_id is None:
+            while (
+                end < len(messages)
+                and messages[end].role == "system"
+                and messages[end].call_id is None
+            ):
+                end += 1
+        keep_native = (
+            native_system
+            and message.call_id is None
+            and i > 0
+            and messages[i - 1].role == "user"
+            and (end == len(messages) or messages[end].role == "assistant")
+        )
+        if not keep_native:
+            for j in range(i, end):
+                message = messages[j]
                 content = (
                     f"<system>{message.content}</system>"
                     if message.call_id is None
                     else message.content
                 )
-
-                messages[i] = Message(
-                    "user",
-                    content=content,
-                    files=message.files,
-                    call_id=message.call_id,
-                )
+                messages[j] = replace(message, role="user", content=content)
+        i = end
 
     # find consecutive user role messages and merge them together
     messages_new: list[Message] = []
