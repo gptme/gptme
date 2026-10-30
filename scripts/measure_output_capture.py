@@ -22,6 +22,7 @@ from tempfile import TemporaryDirectory
 # Prevent a cold tokenizer cache from attempting a download. All budget knobs
 # below are explicit so local agent settings do not change the comparison.
 os.environ["GPTME_TIKTOKEN_TIMEOUT"] = "0"
+os.environ["GPTME_PRUNE_TOOL_OUTPUT"] = "0"
 for _key, _value in {
     "GPTME_SHELL_TRUNC_PRE_TOKENS": "2000",
     "GPTME_SHELL_TRUNC_POST_TOKENS": "8000",
