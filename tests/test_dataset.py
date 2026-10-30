@@ -445,6 +445,45 @@ def test_extract_tool_call_counts_thinking_offsets() -> None:
     }
 
 
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("closed", [False, True])
+def test_extract_tool_call_counts_excludes_thinking(tag: str, closed: bool) -> None:
+    content = (
+        f"<{tag}>\n```shell\necho example\n```\n"
+        '@read(example): {"path":"example"}\n'
+        "<tool-use><save>example</save></tool-use>\n"
+    )
+    expected = {}
+    if closed:
+        content += f"</{tag}>\n```shell\necho real\n```"
+        expected = {"shell": 1}
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            '@save(real): {"content":"<think>"}\n@shell(real): {}',
+            {"save": 1, "shell": 1},
+        ),
+        ("```save example.txt\n<think>\nexample\n</think>\n```", {"save": 1}),
+        ("```shell\necho '<think>'\n```", {"shell": 1}),
+        ("<!--\n<think>\n-->\n```shell\necho real\n```", {"shell": 1}),
+    ],
+)
+def test_extract_tool_call_counts_literal_thinking(
+    content: str, expected: dict[str, int]
+) -> None:
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
 @pytest.mark.parametrize("lang", ["", "shell", "json"])
 @pytest.mark.parametrize("suffix", ["", '\n@read(real): {"path":"a"}'])
 def test_extract_tool_call_counts_empty_fence(lang: str, suffix: str) -> None:
@@ -458,8 +497,12 @@ def test_extract_tool_call_counts_empty_fence(lang: str, suffix: str) -> None:
     )
 
 
+@pytest.mark.parametrize("lang", ["shell", "ipython"])
+@pytest.mark.parametrize("command", ["echo hi", "echo 'hi'", 'echo "hi"'])
 def test_extract_tool_call_counts_fence_scan_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    lang: str,
 ) -> None:
     from gptme.codeblock import Codeblock
 
@@ -472,9 +515,9 @@ def test_extract_tool_call_counts_fence_scan_is_bounded(
         return original(markdown, streaming=streaming)
 
     monkeypatch.setattr(Codeblock, "iter_from_markdown", measured)
-    content = "```shell\necho hi\n```\n" * 100
+    content = f"```{lang}\n{command}\n```\n" * 100
     assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
-        "shell": 100
+        lang: 100
     }
     # Bound work, not wall-clock time: completed blocks must not be reparsed
     # at every later closer. Allow the ownership and format parsing passes.

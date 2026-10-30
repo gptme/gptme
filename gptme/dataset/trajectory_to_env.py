@@ -312,7 +312,6 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
                         if (
                             block.lang in {"shell", "ipython"}
                             and "<<" not in block.content
-                            and not any(quote in block.content for quote in ("'", '"'))
                         ):
                             next_prefix_start = close_line + 1
                 prefix_start = next_prefix_start
@@ -321,14 +320,19 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             # Rescan the suffix instead of merging those false overlapping
             # ranges: the next real block may not have been discovered at all.
             ranges: list[tuple[int, int]] = []
-            cursor = 0
-            while basic := _codeblock_char_ranges(text[cursor:]):
-                start, end = basic[0]
-                start += cursor
-                end += cursor
-                end = max(end, recovered.get(start, end))
-                ranges.append((start, end))
-                cursor = end
+            basic = iter(_codeblock_char_ranges(text))
+            scan_start = 0
+            while entry := next(basic, None):
+                start, end = entry
+                start += scan_start
+                end += scan_start
+                recovered_end = max(end, recovered.get(start, end))
+                ranges.append((start, recovered_end))
+                if recovered_end != end:
+                    # Only changed ownership invalidates the remaining basic
+                    # ranges. Ordinary blocks share one scan, not N suffix scans.
+                    scan_start = recovered_end
+                    basic = iter(_codeblock_char_ranges(text[scan_start:]))
             return ranges
 
         def body_ranges(text: str) -> list[tuple[int, int]]:
@@ -362,8 +366,9 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
         # apparent closing delimiter, which may belong to a later real call.
         xml_pattern = re.compile(
             r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(tool-use|function_calls)>"
-            r"(?><!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>",
-            re.DOTALL,
+            r"(?><!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>"
+            r"|^<(?P<thought>think|thinking)>.*?(?:</(?P=thought)>|\Z)",
+            re.DOTALL | re.MULTILINE,
         )
         search_from = 0
         while match := xml_pattern.search(content, search_from):
@@ -374,7 +379,11 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             if body_end is not None:
                 search_from = body_end
                 continue
-            xml_ranges.append((match.start(), match.end()))
+            # Reasoning owns its examples just like comments do. Only accept
+            # standalone tags outside fenced/native bodies; literal tags saved
+            # by a tool must not hide subsequent real calls.
+            if match.group("thought") is None:
+                xml_ranges.append((match.start(), match.end()))
             # Mask the outer region before rebuilding body ranges: a fence
             # opener in its body may have hidden a later real fenced block.
             # Preserve offsets and line boundaries for every remaining pass.
@@ -393,9 +402,14 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             )
             calls.extend(DatasetToolUse.iter_from_content(xml_content, "xml"))
         for start, end in fence_ranges(non_xml):
-            calls.extend(
-                DatasetToolUse.iter_from_content(non_xml[start:end], "markdown")
+            # Thinking regions outside tools were already masked. Delimiters
+            # inside a surviving fenced body are literal tool arguments.
+            block_content = re.sub(
+                r"</?(?:think|thinking)>",
+                lambda match: " " * len(match.group()),
+                non_xml[start:end],
             )
+            calls.extend(DatasetToolUse.iter_from_content(block_content, "markdown"))
         # The native parser uses a simpler fence scanner. Mask complete parsed
         # blocks first so literal fences cannot expose native examples either.
         native_content = non_xml
