@@ -493,13 +493,13 @@ def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
     """
     runner = CliRunner()
     test_file = tmp_path / "hello.txt"
-    test_file.write_text("hello\n")
+    test_file.write_text("attached-content-marker\n")
 
     monkeypatch.setenv("GPTME_DISABLE_PATH_INCLUDE", "1")
-    result = runner.invoke(main, ["prompts", "expand", str(test_file)])
+    result = runner.invoke(main, ["prompts", "expand", f"@{test_file}"])
 
     assert result.exit_code == 0
-    assert "hello" in result.output
+    assert "attached-content-marker" in result.output
     assert str(test_file) in result.output
     assert os.environ["GPTME_DISABLE_PATH_INCLUDE"] == "1"
 
@@ -523,13 +523,13 @@ def test_prompts_expand_no_warning_for_existing_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     runner = _runner_separate_stderr()
     test_file = tmp_path / "hello.txt"
-    test_file.write_text("hello\n")
+    test_file.write_text("attached-content-marker\n")
 
-    result = runner.invoke(main, ["prompts", "expand", str(test_file)])
+    result = runner.invoke(main, ["prompts", "expand", f"@{test_file}"])
 
     assert result.exit_code == 0
     assert "warning:" not in result.stderr
-    assert "hello" in result.stdout
+    assert "attached-content-marker" in result.stdout
     assert str(test_file) in result.stdout
 
 
@@ -607,7 +607,7 @@ def test_prompts_expand_mixed_relative_path_no_warning(tmp_path, monkeypatch):
 
     result = runner.invoke(
         main,
-        ["prompts", "expand", "see README.md about something about a ./file.txt"],
+        ["prompts", "expand", "see @README.md about something about a ./file.txt"],
     )
 
     assert result.exit_code == 0
@@ -625,7 +625,7 @@ def test_prompts_expand_relative_to_other_path_no_warning(tmp_path, monkeypatch)
 
     result = runner.invoke(
         main,
-        ["prompts", "expand", "see proj/README.md about something about a ./file.txt"],
+        ["prompts", "expand", "see @proj/README.md about something about a ./file.txt"],
     )
 
     assert result.exit_code == 0
@@ -687,13 +687,13 @@ def test_prompts_expand_no_warning_for_existing_path_with_trailing_punct(
     monkeypatch.chdir(tmp_path)
     runner = _runner_separate_stderr()
     test_file = tmp_path / "hello.txt"
-    test_file.write_text("hello\n")
+    test_file.write_text("attached-content-marker\n")
 
-    result = runner.invoke(main, ["prompts", "expand", str(test_file) + "."])
+    result = runner.invoke(main, ["prompts", "expand", f"@{test_file}."])
 
     assert result.exit_code == 0
     assert "warning:" not in result.stderr
-    assert "hello" in result.stdout
+    assert "attached-content-marker" in result.stdout
 
 
 def test_prompts_expand_quoted_mixed_prose_starting_with_path_no_warning(
