@@ -213,6 +213,22 @@ class ConversionResult:
         return " | ".join(parts)
 
 
+def _check_destination(dest: Path, converter_used: str = "") -> ConversionResult | None:
+    """Reject existing destinations that cannot hold a regular output file."""
+    if dest.is_dir():
+        reason = "an existing directory"
+    elif dest.exists() and not dest.is_file():
+        reason = "not a regular file"
+    else:
+        return None
+    return ConversionResult(
+        success=False,
+        output_path=dest,
+        converter_used=converter_used,
+        error=f"Destination is {reason}: {dest}",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Abstract converter base
 # ---------------------------------------------------------------------------
@@ -357,13 +373,8 @@ class PDFToImageConverter(Converter):
         dest_ext = dest.suffix.lstrip(".").lower()
         warnings: list[str] = []
 
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
         if avail.pdftoppm:
             # Bound rendering itself, not just the output selected below.
@@ -509,13 +520,8 @@ class ImageConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
         if error := _source_error(src):
             return ConversionResult(False, None, self.name, error=error)
@@ -667,13 +673,8 @@ class PDFToTextConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
         if error := _source_error(src):
             return ConversionResult(False, None, self.name, error=error)
@@ -778,13 +779,8 @@ class DocumentToTextConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
         if error := _source_error(src):
             return ConversionResult(False, None, self.name, error=error)
@@ -954,13 +950,8 @@ class VideoThumbnailConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
         if error := _source_error(src):
             return ConversionResult(False, None, self.name, error=error)
@@ -1100,16 +1091,10 @@ def convert_file(
             error="Source and destination paths must be different",
         )
 
+    if failure := _check_destination(dest, conv.name):
+        return failure
+
     if dry_run:
-        # Match the concrete converters: a directory destination cannot succeed.
-        # Dry-run used to skip this check and report a possible conversion.
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used=conv.name,
-                error=f"Destination is an existing directory: {dest}",
-            )
         return ConversionResult(
             success=True,
             output_path=dest,
