@@ -294,8 +294,14 @@ def test_failure_cleans_staging_and_preserves_destination(
 
 @pytest.mark.parametrize("operation", ["save", "patch"])
 @pytest.mark.parametrize("ending", ["\n", "\r\n"])
+@pytest.mark.parametrize("simulate_macos", [False, True])
 def test_success_preserves_mode_symlink_and_endings(
-    tmp_path: Path, operation: str, ending: str, requires_symlinks: None
+    tmp_path: Path,
+    operation: str,
+    ending: str,
+    requires_symlinks: None,
+    monkeypatch: pytest.MonkeyPatch,
+    simulate_macos: bool,
 ) -> None:
     import stat
 
@@ -307,6 +313,24 @@ def test_success_preserves_mode_symlink_and_endings(
     target.chmod(0o754)
     link = tmp_path / "link.txt"
     link.symlink_to(target)
+    if simulate_macos:
+        monkeypatch.setattr(sys, "platform", "darwin")
+    if os.name == "nt" or sys.platform == "darwin":
+        reason = "Windows security descriptor" if os.name == "nt" else "macOS ACL"
+        with pytest.raises(ValueError, match=reason):
+            if operation == "save":
+                list(execute_save_impl("REPLACEMENT\n", link))
+            else:
+                list(
+                    execute_patch_impl(
+                        "<<<<<<< ORIGINAL\nORIGINAL\n=======\nREPLACEMENT\n>>>>>>> UPDATED",
+                        link,
+                    )
+                )
+        assert target.read_bytes() == ("ORIGINAL" + ending).encode()
+        assert link.is_symlink()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["link.txt", "real.txt"]
+        return
     if operation == "save":
         messages = list(execute_save_impl("REPLACEMENT\n", link))
     else:
