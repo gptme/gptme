@@ -8,6 +8,8 @@ server session exists, else queued and drained at STEP_PRE.
 Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md
 """
 
+import codecs
+import io
 import logging
 import os
 import queue
@@ -304,28 +306,41 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
             errors="replace",
         )
         watch.proc = proc
+        # Retain only the displayed prefix, but drain the pipe continuously so
+        # verbose probes cannot block on stdout or accumulate in communicate().
+        assert proc.stdout is not None
+        fd = proc.stdout.fileno()
+        decoder = io.IncrementalNewlineDecoder(
+            codecs.getincrementaldecoder("utf-8")(errors="replace"), translate=True
+        )
         stdout = ""
-        while True:
-            if watch.cancelled:
-                _kill_proc(proc)
-                try:
-                    proc.communicate(timeout=2)
-                except Exception:
-                    pass
-                return
-            if watch.deadline is not None and time.time() > watch.deadline:
-                _kill_proc(proc)
-                try:
-                    proc.communicate(timeout=2)
-                except Exception:
-                    pass
-                _fire(watch, f"expired without condition met ({watch.description})")
-                return
-            try:
-                stdout, _ = proc.communicate(timeout=0.2)
-                break
-            except subprocess.TimeoutExpired:
-                continue
+        eof = False
+        try:
+            while True:
+                if watch.cancelled:
+                    _kill_proc(proc)
+                    return
+                if watch.deadline is not None and time.time() > watch.deadline:
+                    _kill_proc(proc)
+                    _fire(watch, f"expired without condition met ({watch.description})")
+                    return
+                if eof:
+                    try:
+                        proc.wait(timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                ready, _, _ = select.select([fd], [], [], 0.2)
+                if not ready:
+                    continue
+                piece = os.read(fd, 4096)
+                text = decoder.decode(piece, final=not piece)
+                if not stdout:
+                    text = text.lstrip()
+                stdout += text[: max(0, 500 - len(stdout))]
+                eof = not piece
+        finally:
+            _close_stdout(proc)
         if proc.returncode == 0:
             out = (stdout or "").strip() or command
             _fire(watch, f"condition met: {out[:500]}")

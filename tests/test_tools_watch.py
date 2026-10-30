@@ -1,7 +1,10 @@
 """Tests for the watch tool (slice 3: monitors + ScheduleWakeup parity)."""
 
+import shlex
+import sys
 import threading
 import time
+import tracemalloc
 from pathlib import Path
 
 import pytest
@@ -145,6 +148,141 @@ def test_until_fires_once(tmp_path: Path):
         time.sleep(0.05)
     assert w.fired
     assert "condition met" in w.events[-1]
+
+
+@pytest.mark.parametrize("fd", [1, 2])
+def test_until_bounds_output_before_retaining_it(monkeypatch, fd):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            f"import os; os.write({fd}, b'prefix' + b'x' * (8 * 1024 * 1024))",
+        ]
+    )
+    watch = Watch(
+        id="bounded",
+        kind="until",
+        description="verbose",
+        created=time.time(),
+        deadline=time.time() + 10,
+    )
+    tracemalloc.start()
+    try:
+        _watch_mod._poll_until(watch, command, 0.01)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert watch.fired
+    assert watch.events[-1].startswith("condition met: prefix")
+    assert len(watch.events[-1]) <= 515
+    assert peak < 4 * 1024 * 1024
+
+
+def test_until_waits_for_exit_after_output_eof(monkeypatch):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import os,time; os.close(1); os.close(2); time.sleep(2.2)",
+        ]
+    )
+    watch = Watch(
+        id="eof",
+        kind="until",
+        description="slow",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert watch.fired
+    assert watch.proc is not None and watch.proc.returncode == 0
+    assert watch.events[-1] == f"condition met: {command[:500]}"
+
+
+def test_until_retries_nonzero_probe(monkeypatch, tmp_path):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    marker = tmp_path / "attempt"
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; import sys; p=Path({str(marker)!r}); "
+            "seen=p.exists(); p.write_text('attempt'); print('success' if seen else 'retry'); sys.exit(0 if seen else 1)",
+        ]
+    )
+    watch = Watch(
+        id="retry",
+        kind="until",
+        description="retry",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == ["condition met: success"]
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_until_stops_quiet_probe_after_eof(monkeypatch, cancel):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    command = "exec " + shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import os,time; os.close(1); os.close(2); time.sleep(30)",
+        ]
+    )
+    watch = Watch(
+        id="stop",
+        kind="until",
+        description="quiet",
+        created=time.time(),
+        deadline=time.time() + (5 if cancel else 0.3),
+    )
+    thread = threading.Thread(
+        target=_watch_mod._poll_until, args=(watch, command, 0.01)
+    )
+    thread.start()
+    try:
+        if cancel:
+            time.sleep(0.1)
+            watch.cancelled = True
+            watch.cancel_event.set()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert watch.proc is not None and watch.proc.poll() is not None
+        assert watch.proc.stdout is not None and watch.proc.stdout.closed
+        if cancel:
+            assert not watch.events
+        else:
+            assert list(watch.events) == ["expired without condition met (quiet)"]
+    finally:
+        watch.cancelled = True
+        _kill_proc(watch.proc)
+        thread.join(timeout=5)
+
+
+def test_until_decodes_split_utf8_and_newlines(monkeypatch):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    read = _watch_mod.os.read
+    monkeypatch.setattr(_watch_mod.os, "read", lambda fd, size: read(fd, 1))
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.write(1, b'  \\xe2\\x82\\xac\\r\\nend\\xff')",
+        ]
+    )
+    watch = Watch(
+        id="unicode",
+        kind="until",
+        description="unicode",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == ["condition met: €\nend�"]
 
 
 def _record_all() -> list[Watch]:
