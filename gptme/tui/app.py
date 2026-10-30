@@ -1657,15 +1657,15 @@ def complete_path(text: str) -> list[str]:
             continue
         if e.name.startswith(".") and not prefix.startswith("."):
             continue
-        # Nested ticks would close the wrapper early and expose an inner
-        # `@path` token. Skip those names; the user can type them.
-        if "`" in e.name:
-            continue
         try:
             is_dir = e.is_dir()
         except OSError:  # e.g. a symlink loop
             continue
         path = at + dir_part + e.name + ("/" if is_dir else "")
+        # Nested ticks would close the wrapper early and expose an inner
+        # `@path` token. Skip those names; the user can type them.
+        if "`" in path:
+            continue
         if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
             path = "./" + path
         if quoted:

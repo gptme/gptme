@@ -457,6 +457,9 @@ def test_complete_path_skips_nested_tick_filename(tmp_path, monkeypatch, legacy)
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    # Default vs legacy auto-include (#4655). On master both values exercise
+    # current auto-include; after that switch they split. A leaked nested-tick
+    # wrap exposes explicit `@secret.txt`, so either policy would attach it.
     monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
     (tmp_path / "secret.txt").write_text("SYNTHETIC-SECRET-MARKER")
     (tmp_path / "photo `@secret.txt` album.txt").write_text("SYNTHETIC-TARGET")
