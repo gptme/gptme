@@ -177,10 +177,65 @@ _XML_TOOLUSE_RE = re.compile(
 )
 
 
+# Find the next display boundary in source order. Tool payloads and fenced code
+# are opaque, including unfinished payloads while streaming. Only tags outside
+# those regions can introduce provider reasoning.
+_DISPLAY_BOUNDARY_RE = re.compile(
+    r"^@\w+\([^\n)]*\):[ \t]*|"
+    r"^ {0,3}(?P<fence>`{3,}|~{3,})[^\n]*|"
+    r"(?P<xml>(?i:<tool-use>|<function_calls>))|"
+    r"(?P<think><think(?:ing)?(?:\s[^>]*)?>)",
+    re.MULTILINE,
+)
+
+
+def _thinking_blocks(content: str) -> Generator[tuple[int, int, str], None, None]:
+    """Yield reasoning spans without interpreting literal tool/code contents."""
+    pos = 0
+    while boundary := _DISPLAY_BOUNDARY_RE.search(content, pos):
+        if boundary.group("think"):
+            if closed := _THINK_RE.match(content, boundary.start()):
+                end, inner = closed.end(), closed.group(1)
+            else:
+                end, inner = len(content), content[boundary.end() :]
+            yield boundary.start(), end, inner
+            pos = end
+        elif fence := boundary.group("fence"):
+            close = re.search(
+                rf"^ {{0,3}}{re.escape(fence[0])}{{{len(fence)},}}[ \t]*\r?$",
+                content[boundary.end() :],
+                re.MULTILINE,
+            )
+            pos = boundary.end() + close.end() if close else len(content)
+        elif xml := boundary.group("xml"):
+            close = re.compile(
+                re.escape(xml.replace("<", "</", 1)), re.IGNORECASE
+            ).search(content, boundary.end())
+            pos = close.end() if close else len(content)
+        else:
+            # raw_decode respects escaped quotes/braces and multiline JSON. An
+            # incomplete call owns the remaining stream, not just its first line.
+            pos = _native_call_end(content, boundary.end())
+
+
+def _native_call_end(content: str, body: int) -> int:
+    """End of native JSON, or the buffer end while it is incomplete."""
+    while body < len(content) and content[body].isspace():
+        body += 1
+    if body < len(content) and content[body] != "{":
+        # A header-shaped prose example is not an incomplete JSON tool call.
+        return body
+    try:
+        _, size = json.JSONDecoder().raw_decode(content[body:])
+    except ValueError:
+        return len(content)
+    return body + size
+
+
 def _split_thinking(content: str) -> list[tuple[bool, str]]:
     """Split message content into (is_thinking, text) segments.
 
-    Detects <think>/<thinking> blocks and separates them from normal content
+    Detects <think>/<thinking> blocks outside tool payloads and fenced code
     so the TUI can render them in collapsible sections. An unclosed trailing
     block (interrupted or malformed output) is treated as thinking too, matching
     ``_strip_thinking`` — otherwise hidden mode would print the reasoning as
@@ -188,23 +243,16 @@ def _split_thinking(content: str) -> list[tuple[bool, str]]:
     """
     segments: list[tuple[bool, str]] = []
     last_end = 0
-    for m in _THINK_RE.finditer(content):
-        before = content[last_end : m.start()]
+    for start, end, inner in _thinking_blocks(content):
+        before = content[last_end:start]
         if before.strip():
             segments.append((False, before))
-        inner = _THINK_SIG_RE.sub("", m.group(1)).strip()
+        inner = _THINK_SIG_RE.sub("", inner).strip()
         if inner:
             segments.append((True, inner))
-        last_end = m.end()
+        last_end = end
     tail = content[last_end:]
-    if open_m := _THINK_OPEN_RE.search(tail):
-        before = tail[: open_m.start()]
-        if before.strip():
-            segments.append((False, before))
-        inner = _THINK_SIG_RE.sub("", tail[open_m.end() :]).strip()
-        if inner:
-            segments.append((True, inner))
-    elif tail.strip():
+    if tail.strip():
         segments.append((False, tail))
     return segments
 
@@ -214,10 +262,13 @@ def _strip_thinking(text: str) -> str:
 
     Removes closed ``<think>`` blocks and cuts an unclosed trailing one.
     """
-    text = _THINK_RE.sub("", text)
-    if m := _THINK_OPEN_RE.search(text):
-        text = text[: m.start()]
-    return text
+    parts: list[str] = []
+    last = 0
+    for start, end, _ in _thinking_blocks(text):
+        parts.append(text[last:start])
+        last = end
+    parts.append(text[last:])
+    return "".join(parts)
 
 
 def _thinking_stub(text: str) -> str:
@@ -596,20 +647,21 @@ def _streaming_all_segments(buffer: str) -> list[tuple[str, str]]:
     return out
 
 
-# A native ("tool" format) call while streaming: its header line, up to the
-# end of that line or of the buffer (the JSON may still be arriving).
-_STREAMING_NATIVE_CALL_RE = re.compile(r"^@\w+\([^)\n]*\):[^\n]*", re.MULTILINE)
+# A native ("tool" format) header; the JSON decoder locates its body boundary,
+# including pretty-printed multiline bodies and incomplete streaming arguments.
+_STREAMING_NATIVE_CALL_RE = re.compile(r"^@\w+\([^)\n]*\):[ \t]*", re.MULTILINE)
 
 
 def _split_streaming_native_tool_calls(text: str) -> list[tuple[bool, str]]:
     """Split prose into (is_tool, segment) at ``@tool(id): {...}`` lines."""
     out: list[tuple[bool, str]] = []
     last = 0
-    for m in _STREAMING_NATIVE_CALL_RE.finditer(text):
+    while m := _STREAMING_NATIVE_CALL_RE.search(text, last):
         if text[last : m.start()].strip():
             out.append((False, text[last : m.start()]))
-        out.append((True, m.group(0)))
-        last = m.end()
+        end = _native_call_end(text, m.end())
+        out.append((True, text[m.start() : end]))
+        last = end
     if text[last:].strip() or not out:
         out.append((False, text[last:]))
     return out
