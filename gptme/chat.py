@@ -408,9 +408,11 @@ def _run_chat_loop(
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
-    # After an exhausted interactive provider failure, skip one drain/consume
-    # pass so remaining intent is not immediately retried under a fresh budget.
+    # After an exhausted interactive provider failure, skip drain/consume until
+    # the user submits a normal (non-command) message. Slash commands must not
+    # immediately retry parked work under a fresh budget.
     hold_queued_prompts = False
+    parked_waiting = False
     while True:
         consume_queue = not hold_queued_prompts
         if consume_queue:
@@ -427,6 +429,8 @@ def _run_chat_loop(
 
                 # Handle user commands
                 if msg.role == "user" and execute_cmd(msg, manager):
+                    if parked_waiting:
+                        hold_queued_prompts = True
                     continue
 
                 if msg.role == "user":
@@ -516,6 +520,8 @@ def _run_chat_loop(
 
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager):
+                        if parked_waiting:
+                            hold_queued_prompts = True
                         continue
 
                     # Trigger turn.pre hooks once per submitted user prompt,
@@ -536,6 +542,8 @@ def _run_chat_loop(
                         model,
                         output_schema,
                     )
+                    # A normal prompt is explicit resume: drain parked work next.
+                    parked_waiting = False
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
@@ -565,6 +573,8 @@ def _run_chat_loop(
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
+            if parked_waiting:
+                hold_queued_prompts = True
             continue
         except Exception as e:
             # A failed LLM reply (provider outage or detected degeneration) must
@@ -578,7 +588,11 @@ def _run_chat_loop(
             # raise so a later explicit resume can recover it. Consuming the
             # in-memory queue here would retry those prompts under a fresh
             # recovery budget while the provider is still failing.
-            parked = _park_remaining_prompts(manager, prompt_queue, logdir)
+            try:
+                parked = _park_remaining_prompts(manager, prompt_queue, logdir)
+            except OSError:
+                logger.exception("Failed to park queued prompts after provider failure")
+                parked = 0
             if parked:
                 prompt_queue.clear()
             if not interactive:
@@ -588,10 +602,16 @@ def _run_chat_loop(
                 console.log(f"[red]{LLM_REQUEST_FAILED_PREFIX}[/red] {e}")
             manager.append(Message("system", f"{LLM_REQUEST_FAILED_PREFIX} {e}"))
             hold_queued_prompts = True
+            parked_waiting = bool(parked or prompt_queue)
             if parked and not is_output_json() and not is_output_quiet():
                 console.log(
                     f"[yellow]Held {parked} queued prompt(s) after provider "
                     "failure; they will run after your next message.[/yellow]"
+                )
+            elif prompt_queue and not is_output_json() and not is_output_quiet():
+                console.log(
+                    "[yellow]Could not save queued prompts; they remain held "
+                    "in this session until your next message.[/yellow]"
                 )
             continue
 

@@ -160,3 +160,19 @@ def test_requeue_prompts_append_keeps_existing_ahead(tmp_path: Path) -> None:
         "already on disk",
         "later",
     ]
+
+
+def test_requeue_prompts_preserves_non_user_role(tmp_path: Path) -> None:
+    assert requeue_prompts(tmp_path, [Message("system", "subagent done")]) == 1
+    (message,) = drain_prompt_queue(tmp_path)
+    assert message.role == "system"
+    assert message.content == "subagent done"
+
+
+def test_requeue_prompts_unknown_role_defaults_to_user(tmp_path: Path) -> None:
+    get_prompt_queue_path(tmp_path).write_text(
+        '{"content": "mystery", "role": "tool"}\n', encoding="utf-8"
+    )
+    (message,) = drain_prompt_queue(tmp_path)
+    assert message.role == "user"
+    assert message.content == "mystery"

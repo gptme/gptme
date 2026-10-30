@@ -7,7 +7,7 @@ import json
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from .message import Message, MessageMetadata
 
@@ -50,8 +50,11 @@ def _prompt_queue_lock(logdir: Path):
                 fcntl.flock(fd, fcntl.LOCK_UN)
 
 
+_QUEUE_ROLES = {"user", "system", "assistant"}
+
+
 def _record_from_message(message: Message) -> dict | None:
-    """Serialize a queued user message for durable storage."""
+    """Serialize a queued message for durable storage."""
     content = str(message.content).strip()
     if not content:
         return None
@@ -59,6 +62,8 @@ def _record_from_message(message: Message) -> dict | None:
         "content": content,
         "queued_at": datetime.now(timezone.utc).isoformat(),
     }
+    if message.role in _QUEUE_ROLES and message.role != "user":
+        record["role"] = message.role
     metadata = message.metadata or {}
     skill_invocation_id = metadata.get("skill_invocation_id")
     if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
@@ -66,6 +71,26 @@ def _record_from_message(message: Message) -> dict | None:
     if metadata.get("steer") is True:
         record["steer"] = True
     return record
+
+
+def _message_from_record(record: dict) -> Message | None:
+    """Rebuild a queued message, defaulting unknown roles to user."""
+    content = str(record.get("content", "")).strip()
+    if not content:
+        return None
+    role = record.get("role", "user")
+    if role not in _QUEUE_ROLES:
+        role = "user"
+    metadata: MessageMetadata | None = None
+    skill_invocation_id = record.get("skill_invocation_id")
+    if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
+        metadata = {"skill_invocation_id": skill_invocation_id}
+    return Message(
+        cast(Literal["system", "user", "assistant"], role),
+        content,
+        quiet=True,
+        metadata=metadata,
+    )
 
 
 def requeue_prompts(
@@ -170,16 +195,11 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
                 remaining.append(line)
                 continue
 
-            content = str(record.get("content", "")).strip()
-            if not content:
+            message = _message_from_record(record)
+            if message is None:
                 logger.warning("Skipping empty queued prompt in %s", queue_path)
                 continue
-
-            metadata: MessageMetadata | None = None
-            skill_invocation_id = record.get("skill_invocation_id")
-            if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
-                metadata = {"skill_invocation_id": skill_invocation_id}
-            drained.append(Message("user", content, quiet=True, metadata=metadata))
+            drained.append(message)
 
         if remaining:
             queue_path.write_text("\n".join(remaining) + "\n", encoding="utf-8")

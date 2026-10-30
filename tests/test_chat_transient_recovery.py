@@ -392,3 +392,93 @@ def test_headless_exhaustion_parks_then_exits(offline, monkeypatch, tmp_path):
     prompt.assert_not_called()
     assert [msg.content for msg in drain_prompt_queue(tmp_path)] == [pending.content]
     assert all("LLM request failed" not in msg.content for msg in manager.log)
+
+
+def test_interactive_command_does_not_drain_parked_prompts(
+    offline, monkeypatch, tmp_path
+):
+    """Slash commands after exhaustion must not retry parked work."""
+    from gptme.logmanager import Log
+    from gptme.prompt_queue import drain_prompt_queue
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message("user", "parked follow-through")
+    queue = [Message("user", "initial work"), pending]
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    process = Mock(side_effect=error)
+    inputs = [Message("user", "/help")]
+
+    def execute(msg, manager):
+        if msg.content.startswith("/"):
+            manager.append(Message("system", "help text"))
+            return True
+        return False
+
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", execute)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "_should_prompt_for_input", lambda log: True)
+    monkeypatch.setattr(
+        chat, "_get_user_input", lambda *a, **k: inputs.pop(0) if inputs else None
+    )
+
+    chat._run_chat_loop(
+        manager,
+        queue,
+        stream=False,
+        interactive=True,
+        logdir=tmp_path,
+    )
+
+    assert process.call_count == 1
+    assert [msg.content for msg in drain_prompt_queue(tmp_path)] == [pending.content]
+
+
+def test_interactive_park_oserror_keeps_in_memory_queue(offline, monkeypatch, tmp_path):
+    """A failed durable park must not drop in-memory intent or kill the session."""
+    from gptme.logmanager import Log
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message("user", "unsaved follow-through")
+    queue = [Message("user", "initial work"), pending]
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    process = Mock(side_effect=error)
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(chat, "requeue_prompts", boom)
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *args: False)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "_get_user_input", Mock(return_value=None))
+
+    chat._run_chat_loop(
+        manager,
+        queue,
+        stream=False,
+        interactive=True,
+        logdir=tmp_path,
+    )
+
+    assert process.call_count == 1
+    assert pending in queue
+    assert any("LLM request failed" in msg.content for msg in manager.log)
