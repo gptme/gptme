@@ -74,7 +74,18 @@ def _make_check_run(
 
 
 def _mock_subprocess_run(stdout: str, returncode: int = 0):
-    """Create a mock for subprocess.run that returns given stdout."""
+    """Create a mock subprocess response, including the API pagination envelope."""
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        pass  # Retain deliberately malformed responses.
+    else:
+        if isinstance(data, dict) and "check_runs" in data:
+            data.setdefault("total_count", len(data["check_runs"]))
+            # Older fixtures reused the default ID; real check runs have unique IDs.
+            for index, run in enumerate(data["check_runs"]):
+                run["id"] = index + 1
+            stdout = json.dumps(data)
     result = MagicMock()
     result.stdout = stdout
     result.returncode = returncode

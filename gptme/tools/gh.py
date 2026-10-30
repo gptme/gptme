@@ -52,6 +52,51 @@ def has_gh_tool() -> bool:
     return shutil.which("gh") is not None
 
 
+def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
+    """Collect a complete, consistent check-run listing or raise on partial data."""
+    runs: list[dict] = []
+    seen: set[int] = set()
+    total: int | None = None
+    page = 1
+    while True:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        data = json.loads(result.stdout)
+        if not isinstance(data, dict):
+            raise ValueError("Invalid check-run response")
+        count = data.get("total_count")
+        batch = data.get("check_runs")
+        if type(count) is not int or count < 0 or not isinstance(batch, list):
+            raise ValueError("Missing or invalid check-run count/list")
+        if total is None:
+            total = count
+        if count != total:
+            raise ValueError("Check-run total changed during pagination; retry")
+        for run in batch:
+            if not isinstance(run, dict) or type(run.get("id")) is not int:
+                raise ValueError("Invalid check-run entry")
+            if run["id"] in seen:
+                raise ValueError("Repeated check run during pagination; retry")
+            seen.add(run["id"])
+            runs.append(run)
+        if len(runs) > total:
+            raise ValueError("Check-run listing exceeds reported total")
+        if len(runs) == total:
+            return runs
+        if not batch:
+            raise ValueError("Incomplete check-run listing: empty page before total")
+        page += 1
+
+
 def _get_pr_check_runs(
     owner: str, repo: str, pr_number: int
 ) -> tuple[str | None, list | None, str | None]:
@@ -75,17 +120,7 @@ def _get_pr_check_runs(
         if not head_sha:
             return None, None, "Could not get HEAD commit SHA"
 
-        # Get check runs for the commit
-        check_runs_result = subprocess.run(
-            ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-
-        check_runs_data = json.loads(check_runs_result.stdout)
-        check_runs = check_runs_data.get("check_runs", [])
+        check_runs = _get_commit_check_runs(owner, repo, head_sha)
 
         return head_sha, check_runs, None
 
@@ -93,7 +128,7 @@ def _get_pr_check_runs(
         return None, None, "GitHub API call timed out after 30s"
     except subprocess.CalledProcessError as e:
         return None, None, f"Failed to fetch check status: {e}"
-    except (json.JSONDecodeError, KeyError) as e:
+    except (ValueError, KeyError) as e:
         return None, None, f"Failed to parse check data: {e}"
 
 
@@ -175,19 +210,11 @@ def _wait_for_checks(
 
         # Get check runs for the original commit directly
         try:
-            check_runs_result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            check_runs_data = json.loads(check_runs_result.stdout)
-            check_runs = check_runs_data.get("check_runs", [])
+            check_runs = _get_commit_check_runs(owner, repo, head_sha)
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
-            json.JSONDecodeError,
+            ValueError,
             KeyError,
         ) as e:
             yield Message("system", f"Error fetching checks: {e}")
@@ -397,21 +424,13 @@ def _handle_pr_status(
 
     if commit_sha:
         try:
-            result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/commits/{commit_sha}/check-runs"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            data = json.loads(result.stdout)
+            check_runs = _get_commit_check_runs(owner, repo, commit_sha)
             head_sha = commit_sha
-            check_runs = data.get("check_runs", [])
             error = None
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
-            json.JSONDecodeError,
+            ValueError,
             KeyError,
         ) as e:
             error = f"Failed to fetch checks: {e}"
