@@ -25,6 +25,7 @@ if os.name == "nt":
     except ImportError:
         pass
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timezone
@@ -246,6 +247,16 @@ class LogManager:
     def get_current_log(cls) -> "LogManager | None":
         """Get the current LogManager instance for this context."""
         return _current_log_var.get()
+
+    @classmethod
+    @contextmanager
+    def preserve_current(cls) -> Iterator[None]:
+        """Keep incidental log reads inside a tool from replacing its caller."""
+        token = _current_log_var.set(_current_log_var.get())
+        try:
+            yield
+        finally:
+            _current_log_var.reset(token)
 
     def __enter__(self) -> "LogManager":
         """Enter context manager."""

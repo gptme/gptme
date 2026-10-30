@@ -214,23 +214,23 @@ class TestTodoContinuationEnforcer:
 
     def setup_method(self):
         """Clear todos before each test."""
-        todo._current_todos.clear()
+        todo._get_todos().clear()
 
     def teardown_method(self):
         """Clear todos after each test."""
-        todo._current_todos.clear()
+        todo._get_todos().clear()
 
     def test_auto_reply_with_incomplete_todos(self):
         """Should mention incomplete todos when they exist."""
         # Add some incomplete todos
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Implement feature X",
             "state": "in_progress",
             "created": "2025-01-01T00:00:00",
             "updated": "2025-01-01T00:00:00",
         }
-        todo._current_todos["2"] = {
+        todo._get_todos()["2"] = {
             "id": "2",
             "text": "Write tests",
             "state": "pending",
@@ -256,7 +256,7 @@ class TestTodoContinuationEnforcer:
     def test_two_auto_replies_with_incomplete_todos_exits(self):
         """Should exit after 2 consecutive no-tool replies even with incomplete todos."""
         # Add incomplete todos
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Implement feature X",
             "state": "in_progress",
@@ -290,7 +290,7 @@ class TestTodoContinuationEnforcer:
     def test_auto_reply_without_incomplete_todos(self):
         """Should show normal message when no incomplete todos."""
         # Add only completed todos
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Done task",
             "state": "completed",
@@ -315,7 +315,7 @@ class TestTodoContinuationEnforcer:
     def test_auto_reply_empty_todos(self):
         """Should show normal message when todo list is empty."""
         # Ensure no todos
-        assert len(todo._current_todos) == 0
+        assert len(todo._get_todos()) == 0
 
         messages = [
             Message("assistant", "Let me think about this..."),
@@ -336,15 +336,15 @@ class TestTodoHelpers:
 
     def setup_method(self):
         """Clear todos before each test."""
-        todo._current_todos.clear()
+        todo._get_todos().clear()
 
     def teardown_method(self):
         """Clear todos after each test."""
-        todo._current_todos.clear()
+        todo._get_todos().clear()
 
     def test_has_incomplete_todos_true(self):
         """Should return True when incomplete todos exist."""
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Task",
             "state": "pending",
@@ -355,7 +355,7 @@ class TestTodoHelpers:
 
     def test_has_incomplete_todos_in_progress(self):
         """Should return True for in_progress todos."""
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Task",
             "state": "in_progress",
@@ -366,7 +366,7 @@ class TestTodoHelpers:
 
     def test_has_incomplete_todos_false(self):
         """Should return False when all todos are completed."""
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Task",
             "state": "completed",
@@ -381,14 +381,14 @@ class TestTodoHelpers:
 
     def test_get_incomplete_todos_summary(self):
         """Should return formatted summary of incomplete todos."""
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Task 1",
             "state": "in_progress",
             "created": "2025-01-01T00:00:00",
             "updated": "2025-01-01T00:00:00",
         }
-        todo._current_todos["2"] = {
+        todo._get_todos()["2"] = {
             "id": "2",
             "text": "Task 2",
             "state": "pending",
@@ -404,7 +404,7 @@ class TestTodoHelpers:
 
     def test_get_incomplete_todos_summary_empty(self):
         """Should return empty string when no incomplete todos."""
-        todo._current_todos["1"] = {
+        todo._get_todos()["1"] = {
             "id": "1",
             "text": "Done",
             "state": "completed",
@@ -496,3 +496,12 @@ class TestStuckDetectHook:
         manager = _make_stuck_manager(repeat=5)
         results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
         assert results == []
+
+
+@pytest.fixture(autouse=True)
+def todo_conversation(tmp_path):
+    from gptme.logmanager import LogManager
+
+    manager = LogManager(logdir=tmp_path / "conversation", lock=False)
+    yield
+    list(todo.clear_todo_state(manager))

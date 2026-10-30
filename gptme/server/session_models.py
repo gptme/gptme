@@ -304,10 +304,10 @@ class SessionManager:
         """Release a synchronous command reservation."""
         with cls._lock:
             cls._active_commands.discard(conversation_id)
-        # Evict after releasing _lock: _evict_idle_cost_window takes the
+        # Evict after releasing _lock: _evict_idle_conversation_state takes the
         # same non-reentrant lock. A live session or a newly started command
         # makes this a no-op.
-        cls._evict_idle_cost_window(conversation_id, None)
+        cls._evict_idle_conversation_state(conversation_id, None)
         # Completions queued while the command owned the conversation are
         # retried only on reservation release. Without this, an idle chat
         # stays asleep until the next manual step. Never let a retry failure
@@ -657,12 +657,13 @@ class SessionManager:
                     if session_end_msgs := trigger_hook(
                         HookType.SESSION_END,
                         manager=manager,
+                        server_managed=True,
                     ):
                         for msg in session_end_msgs:
                             manager.append(msg)
                 except Exception as e:
                     logger.warning(f"Failed to trigger SESSION_END hook: {e}")
-                cls._evict_idle_cost_window(conversation_id, logdir)
+                cls._evict_idle_conversation_state(conversation_id, logdir)
 
             if acp_rt is not None:
                 from .session_step import close_acp_runtime_bg
@@ -716,12 +717,13 @@ class SessionManager:
                 if session_end_msgs := trigger_hook(
                     HookType.SESSION_END,
                     manager=manager,
+                    server_managed=True,
                 ):
                     for msg in session_end_msgs:
                         manager.append(msg)
             except Exception as e:
                 logger.warning(f"Failed to trigger SESSION_END hook: {e}")
-            cls._evict_idle_cost_window(conversation_id, logdir)
+            cls._evict_idle_conversation_state(conversation_id, logdir)
 
         if acp_rt is not None:
             from .session_step import close_acp_runtime_bg
@@ -729,14 +731,17 @@ class SessionManager:
             close_acp_runtime_bg(acp_rt)
 
     @classmethod
-    def _evict_idle_cost_window(cls, conversation_id: str, logdir: Path | None) -> None:
-        """Drop the CostTracker window if no live sessions or commands remain.
+    def _evict_idle_conversation_state(
+        cls, conversation_id: str, logdir: Path | None
+    ) -> None:
+        """Drop conversation caches if no live sessions or commands remain.
 
         Re-checks under ``_lock`` so a session that connected after last-session
         teardown started, or a command still running outside the conversation
         lock, is not evicted.
         """
         from ..dirs import get_logs_dir
+        from ..tools.todo import clear_conversation_todos
         from ..util.cost_tracker import CostTracker, session_id_for_logdir
 
         # Hold _lock across end_session so create_session cannot insert a
@@ -750,6 +755,9 @@ class SessionManager:
             if logdir is None:
                 logdir = get_logs_dir() / conversation_id
             CostTracker.end_session(session_id_for_logdir(logdir))
+            # Like cost windows, todo stores belong to the conversation, not
+            # the removed session. Serialize eviction with create/attach_client.
+            clear_conversation_todos(logdir)
 
     @classmethod
     def remove_all_sessions_for_conversation(cls, conversation_id: str) -> None:
