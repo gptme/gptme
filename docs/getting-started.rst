@@ -87,9 +87,9 @@ Here are some compelling examples to get you started:
     gptme 'create a performant n-body simulation in rust'
 
     # Work with files and code
-    gptme 'summarize this' README.md
-    gptme 'refactor this' main.py
-    gptme 'what do you see?' image.png  # vision
+    gptme 'summarize this' @README.md
+    gptme 'refactor this' @main.py
+    gptme 'what do you see?' @image.png  # vision
 
     # Development workflows
     git status -vv | gptme 'commit'

@@ -121,7 +121,7 @@ def test_include_paths_no_duplicate_embeddings(tmp_path, monkeypatch):
     # Reference the same file four times
     msg = Message(
         "user",
-        "See `data.txt` and also `data.txt`. Then `data.txt` again and data.txt bare.",
+        "See data.txt and `@data.txt`. Then `@data.txt` again and @data.txt.",
     )
     result = include_paths(msg)
 
@@ -140,7 +140,7 @@ def test_include_paths_disabled_via_env_var(tmp_path, monkeypatch):
 
     monkeypatch.setenv("GPTME_DISABLE_PATH_INCLUDE", "1")
 
-    msg = Message("user", "See `data.txt` for details")
+    msg = Message("user", "See `@data.txt` for details")
     result = include_paths(msg)
 
     # The file content should NOT appear when the env var is set
@@ -163,7 +163,7 @@ def test_include_paths_not_disabled_by_falsy_env_var(tmp_path, monkeypatch, fals
     else:
         monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
 
-    msg = Message("user", "See `data.txt` for details")
+    msg = Message("user", "See `@data.txt` for details")
     result = include_paths(msg)
 
     # Content SHOULD appear — falsy values must not disable expansion
@@ -243,7 +243,7 @@ def test_find_potential_paths_ignores_unknown_user_tilde():
     include_paths(Message("user", content))
 
 
-def test_include_paths_error_sends_prompt_as_typed(monkeypatch):
+def test_include_paths_error_sends_prompt_as_typed(tmp_path, monkeypatch):
     """Any error while attaching paths must not crash the chat and lose the prompt."""
     from gptme.message import Message
     from gptme.util import context
@@ -257,9 +257,11 @@ def test_include_paths_error_sends_prompt_as_typed(monkeypatch):
     monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
     monkeypatch.setattr(context, "use_fresh_context", lambda: False)
     monkeypatch.setattr(context, "_resource_to_codeblock", boom)
-    msg = Message("user", "look at ./some/path")
+    path = tmp_path / "source.txt"
+    path.write_text("source")
+    msg = Message("user", f"look at @{path}")
     assert context.include_paths(msg) is msg
-    assert calls == ["./some/path"]
+    assert calls == [str(path)]
 
 
 def test_find_potential_paths_bare_names(tmp_path, monkeypatch):
@@ -450,7 +452,7 @@ Also check `./outside/xml.py` which should be found.
 
 
 def test_include_paths_image_auto_attach(tmp_path, monkeypatch):
-    """Image files in user messages should be auto-attached to msg.files.
+    """Explicit image references should be attached to msg.files.
 
     This verifies the full pipeline: _find_potential_paths detects the path,
     _parse_prompt_files validates it as a supported binary format, and
@@ -464,8 +466,8 @@ def test_include_paths_image_auto_attach(tmp_path, monkeypatch):
     img_file = tmp_path / "test.png"
     img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    # User message with a bare image path
-    msg = Message("user", str(img_file))
+    # User message with an explicit image reference
+    msg = Message("user", f"@{img_file}")
     result = include_paths(msg, workspace=None)
 
     # Image should be in msg.files (not embedded as text)
@@ -476,10 +478,10 @@ def test_include_paths_image_auto_attach(tmp_path, monkeypatch):
 
 
 def test_include_paths_image_in_text(tmp_path, monkeypatch):
-    """Image paths embedded in natural language text should be auto-attached.
+    """Explicit image references embedded in natural language should attach.
 
-    Simulates the scenario where a user types 'View this image ~/test.png'
-    or a paste handler inserts 'View this image: /path/to/image.png'.
+    Simulates the scenario where a user types 'View this image @~/test.png'
+    or a paste handler inserts 'View this image: @/path/to/image.png'.
     """
     from gptme.message import Message
     from gptme.util.context import include_paths
@@ -490,7 +492,7 @@ def test_include_paths_image_in_text(tmp_path, monkeypatch):
     img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
     # User message with image path embedded in text (like paste handler output)
-    msg = Message("user", f"View this image: {img_file}")
+    msg = Message("user", f"View this image: @{img_file}")
     result = include_paths(msg, workspace=None)
 
     # Image should be auto-attached to msg.files
@@ -520,7 +522,7 @@ def test_include_paths_per_message_size_budget(tmp_path, monkeypatch, caplog):
         files.append(f)
 
     # Reference all three files in the message
-    refs = "\n".join(f"`{f.name}`" for f in files)
+    refs = "\n".join(f"`@{f.name}`" for f in files)
     msg = Message("user", f"Read these:\n{refs}")
     caplog.set_level(logging.WARNING)
 
@@ -586,7 +588,7 @@ def test_image_auto_attach_end_to_end(tmp_path, monkeypatch):
     img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
     # Step 1: include_paths extracts the image path
-    msg = Message("user", str(img_file))
+    msg = Message("user", f"@{img_file}")
     msg = include_paths(msg, workspace=None)
     assert len(msg.files) == 1, "include_paths should detect and attach image"
 
@@ -700,8 +702,9 @@ def test_chained_prompts_complete_exits_when_last():
         )
 
 
-def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch):
-    """Later chained prompts should expand file paths at execution time."""
+@pytest.mark.parametrize("mode", ["plain", "explicit", "legacy"])
+def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch, mode):
+    """Queued prompts read current contents only when attachment was requested."""
     import sys
 
     from gptme.chat import _run_chat_loop
@@ -711,6 +714,8 @@ def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if mode == "legacy" else "0")
+    reference = "@notes.txt" if mode == "explicit" else "notes.txt"
 
     data_file = tmp_path / "notes.txt"
     data_file.write_text("before")
@@ -742,7 +747,7 @@ def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch):
             manager=manager,
             prompt_queue=[
                 Message("user", "update the file"),
-                Message("user", "notes.txt"),
+                Message("user", reference),
             ],
             stream=False,
             tool_format="markdown",
@@ -752,7 +757,10 @@ def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch):
 
     assert call_count == 2, "Both chained prompts should have been processed"
     assert len(appended_messages) == 2
-    assert "after" in appended_messages[1].content
+    if mode == "plain":
+        assert appended_messages[1].content == reference
+    else:
+        assert "after" in appended_messages[1].content
     assert "before" not in appended_messages[1].content
 
 

@@ -417,7 +417,7 @@ def test_read_text_capped_keeps_large_pdf_as_attachment(tmp_path, monkeypatch):
     pdf = tmp_path / "report.pdf"
     pdf.write_bytes(b"%PDF-1.7\n" + b"A" * (CONTENT_SIZE_WARN_THRESHOLD * 2) + b"\xff")
 
-    msg = include_paths(Message("user", str(pdf)))
+    msg = include_paths(Message("user", f"@{pdf}"))
     assert msg.files == [pdf]
     assert "%PDF-1.7" not in msg.content
 
@@ -882,7 +882,7 @@ def test_include_paths_directory(tmp_path, monkeypatch):
     (subdir / "utils.py").write_text("def helper(): pass")
 
     monkeypatch.chdir(tmp_path)
-    msg = Message("user", f"review the code in {subdir}")
+    msg = Message("user", f"review the code in @{subdir}")
     result = include_paths(msg)
 
     assert "main.py" in result.content
@@ -1093,10 +1093,10 @@ def test_include_paths_unreadable_file_is_skipped(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     f = _unreadable_file(tmp_path)
     try:
-        msg = include_paths(Message("user", f"look at {f}"), workspace=tmp_path)
+        msg = include_paths(Message("user", f"look at @{f}"), workspace=tmp_path)
     finally:
         f.chmod(0o644)
-    assert msg.content == f"look at {f}"
+    assert msg.content == f"look at @{f}"
     assert not msg.files
 
 
@@ -1110,12 +1110,12 @@ def test_include_paths_inaccessible_parent_is_skipped(tmp_path, monkeypatch):
     monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
     monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
     monkeypatch.setattr(
-        "gptme.util.context._find_potential_paths", lambda _: [str(path)]
+        "gptme.util.context._find_potential_paths", lambda _, **kwargs: [str(path)]
     )
-    with patch("pathlib.Path.is_file", side_effect=PermissionError) as is_file:
-        msg = include_paths(Message("user", f"look at {path}"), workspace=tmp_path)
-    is_file.assert_called_once()
-    assert msg.content == f"look at {path}"
+    with patch("pathlib.Path.exists", side_effect=PermissionError) as exists:
+        msg = include_paths(Message("user", f"look at @{path}"), workspace=tmp_path)
+    exists.assert_called_once()
+    assert msg.content == f"look at @{path}"
     assert not msg.files
 
 
@@ -1190,7 +1190,7 @@ def test_include_paths_url_content_is_screened_for_injection(monkeypatch):
 
 @pytest.mark.parametrize("mode", ["warn", "block", "off"])
 def test_include_paths_embedded_url_is_marked_and_screened(monkeypatch, mode):
-    """A URL reached through the file-path fallback gets the same protection."""
+    """A URL inside quoted prose gets the same protection as an unquoted URL."""
     original, expanded, log_attempt = _expand_url_offline(
         monkeypatch, _CANARY, mode=mode, prompt=f"Summarize `see {_ISSUE_URL}`"
     )
@@ -1228,7 +1228,7 @@ def test_include_paths_url_screening_off(monkeypatch):
 
 
 def test_include_paths_local_file_not_marked_external(tmp_path, monkeypatch):
-    """Local-file inclusion policy is unchanged: no external-content label."""
+    """Explicit local attachments do not get an external-content label."""
     from unittest.mock import patch
 
     from gptme.util import context
@@ -1237,7 +1237,7 @@ def test_include_paths_local_file_not_marked_external(tmp_path, monkeypatch):
     f = tmp_path / "notes.txt"
     f.write_text(_CANARY)
     with patch.object(context, "use_fresh_context", return_value=False):
-        expanded = context._include_paths(Message("user", f"read {f}"))
+        expanded = context._include_paths(Message("user", f"read @{f}"))
     assert _CANARY in expanded.content
     assert "[EXTERNAL CONTENT" not in expanded.content
 
