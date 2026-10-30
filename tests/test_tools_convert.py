@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import socket
+import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -18,6 +25,7 @@ else:
 from gptme.tools.base import ToolSpec
 from gptme.tools.convert import (
     ConversionResult,
+    Converter,
     DocumentToTextConverter,
     ImageConverter,
     PDFToImageConverter,
@@ -884,6 +892,129 @@ def test_directory_destination_rejected(converter, avail_ffmpeg_only, tmp_path):
     assert not result.success
     assert "existing directory" in (result.error or "")
     run.assert_not_called()
+
+
+@pytest.fixture(params=["fifo", "fifo-symlink", "socket"])
+def special_destination(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> Iterator[tuple[Path, Path]]:
+    if os.name != "posix":
+        pytest.skip("Disposable FIFOs and Unix sockets require POSIX")
+    target = tmp_path / "special.png"
+    if request.param == "socket":
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.bind(str(target))
+            yield target, target
+    else:
+        os.mkfifo(target)
+        if request.param == "fifo-symlink":
+            link = tmp_path / "link.png"
+            link.symlink_to(target)
+            yield link, target
+        else:
+            yield target, target
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_router_rejects_special_destination_before_converter(
+    special_destination: tuple[Path, Path],
+    avail_ffmpeg_only: ToolAvailability,
+    tmp_path: Path,
+    dry_run: bool,
+) -> None:
+    dest, target = special_destination
+    mode = target.stat().st_mode
+    src = tmp_path / "source.png"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert") as backend,
+    ):
+        result = convert_file(src, dest, dry_run=dry_run)
+    assert not result.success
+    assert "regular file" in (result.error or "")
+    assert str(dest) in (result.error or "")
+    backend.assert_not_called()
+    assert target.stat().st_mode == mode
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
+
+
+@pytest.mark.parametrize(
+    "converter",
+    [
+        PDFToImageConverter,
+        PDFToTextConverter,
+        DocumentToTextConverter,
+        VideoThumbnailConverter,
+        ImageConverter,
+    ],
+)
+def test_converters_reject_special_destination_before_backend(
+    converter: type[Converter],
+    special_destination: tuple[Path, Path],
+    avail_all: ToolAvailability,
+    tmp_path: Path,
+) -> None:
+    dest, target = special_destination
+    mode = target.stat().st_mode
+    src = tmp_path / "source.docx"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    docx = MagicMock()
+    pypdf = MagicMock()
+    # These guards keep even the unsafe original code from opening a FIFO or
+    # starting a real backend when running the negative control.
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch.dict(sys.modules, {"docx": docx, "pypdf": pypdf}),
+        patch("subprocess.run") as run,
+        patch.object(Path, "write_text") as write,
+    ):
+        result = converter().convert(src, dest)
+    assert not result.success
+    assert "regular file" in (result.error or "")
+    run.assert_not_called()
+    write.assert_not_called()
+    docx.Document.assert_not_called()
+    pypdf.PdfReader.assert_not_called()
+    assert target.stat().st_mode == mode
+    assert not stat.S_ISREG(mode)
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
+
+
+@pytest.mark.parametrize("destination", ["missing", "regular", "regular-symlink"])
+def test_document_conversion_preserves_regular_destinations(
+    destination: str, avail_all: ToolAvailability, tmp_path: Path
+) -> None:
+    src = tmp_path / "source.docx"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    target = tmp_path / "target.txt"
+    dest = target
+    if destination != "missing":
+        target.write_text("OLD_OUTPUT")
+    if destination == "regular-symlink":
+        dest = tmp_path / "link.txt"
+        try:
+            dest.symlink_to(target)
+        except OSError:
+            if os.name == "nt":
+                pytest.skip("Creating symlinks requires Windows privileges")
+            raise
+    docx = MagicMock()
+    docx.Document.return_value.paragraphs = [_MockPara("CONVERTED_TEXT")]
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch.dict(sys.modules, {"docx": docx}),
+    ):
+        plan = convert_file(src, dest, dry_run=True)
+        assert plan.success
+        assert not target.exists() or target.read_text() == "OLD_OUTPUT"
+        result = convert_file(src, dest)
+    assert result.success, result.error
+    assert target.read_text() == "CONVERTED_TEXT"
+    if destination == "regular-symlink":
+        assert dest.is_symlink()
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
 
 
 # ---------------------------------------------------------------------------
