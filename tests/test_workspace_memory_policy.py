@@ -53,6 +53,46 @@ def _memory_content(
     return memories[0].split("):\n\n", 1)[1] if memories else ""
 
 
+@pytest.mark.parametrize("managed", [False, True])
+def test_resaved_superseded_memory_stays_out_of_startup(
+    tmp_path: Path, managed: bool
+) -> None:
+    root = tmp_path / "memory"
+    roots = [MemoryRoot("project", root)]
+    store = MemoryStore(roots)
+    store.save("old", "Obsolete advice", "Original body")
+    store.save("replacement", "Current advice", "Replacement body")
+    store.save("living", "Living control")
+    if managed:
+        _policy(root, ["old.md", "living.md"])
+        store.write_index()
+    store.supersede("old", "replacement")
+    assert "(old.md)" not in _memory_content(tmp_path, roots)
+    index = root / "MEMORY.md"
+    if not managed:
+        index.write_text(index.read_text() + "\nKeep this compatibility prose.\n")
+
+    store.save("old", "Annotated obsolete advice", "Annotated retired body")
+    store.save("living", "Updated living advice")
+
+    content = _memory_content(tmp_path, roots)
+    assert "(old.md)" not in content
+    assert "(replacement.md)" in content
+    assert "Updated living advice" in content
+    if managed:
+        assert store.check_index()
+        assert len(index.read_bytes()) <= 2048
+    else:
+        assert "Keep this compatibility prose." in content
+    retired = store.get("old")
+    replacement = store.get("replacement")
+    assert retired is not None and replacement is not None
+    assert retired.status == "superseded"
+    assert retired.superseded_by == "replacement"
+    assert retired.body.strip() == "Annotated retired body"
+    assert replacement.supersedes == ["old"]
+
+
 def test_prompt_uses_stored_selection_without_hiding_recall(tmp_path: Path) -> None:
     root = tmp_path / "memory"
     root.mkdir()
