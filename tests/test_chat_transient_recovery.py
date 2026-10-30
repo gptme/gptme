@@ -354,6 +354,66 @@ def test_interactive_resume_runs_parked_prompt_once(offline, monkeypatch, tmp_pa
     ]
 
 
+@pytest.mark.parametrize("park_fails", [False, True])
+@pytest.mark.parametrize("has_pending", [False, True])
+def test_interactive_resume_complete_drains_pending_intent(
+    offline, monkeypatch, tmp_path, park_fails, has_pending
+):
+    """Completion on explicit resume must honor pending work and queue closure."""
+    from gptme.logmanager import Log
+    from gptme.prompt_queue import get_prompt_queue_path
+    from gptme.tools.complete import SessionCompleteException
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message("user", "parked follow-through")
+    queue = [Message("user", "initial work")]
+    if has_pending:
+        queue.append(pending)
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    calls: list[str] = []
+    sentinel = tmp_path / "prompt-queue-closed"
+
+    def process(*args, **kwargs):
+        assert not sentinel.exists(), "queue must stay open while work is running"
+        calls.append(manager.log[-1].content)
+        if len(calls) == 1:
+            raise error
+        raise SessionCompleteException("this prompt is done")
+
+    def fail_park(*args, **kwargs):
+        raise OSError("disk full")
+
+    if park_fails:
+        monkeypatch.setattr(chat, "requeue_prompts", fail_park)
+    inputs = Mock(return_value=Message("user", "explicit resume"))
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *args: False)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "_get_user_input", inputs)
+
+    with pytest.raises(SessionCompleteException):
+        chat._run_chat_loop(
+            manager, queue, stream=False, interactive=True, logdir=tmp_path
+        )
+
+    assert calls == ["initial work", "explicit resume"] + (
+        [pending.content] if has_pending else []
+    )
+    inputs.assert_called_once()
+    assert not queue
+    assert not get_prompt_queue_path(tmp_path).exists()
+    assert sentinel.exists(), "final completion must close the steering queue"
+
+
 def test_headless_exhaustion_parks_then_exits(offline, monkeypatch, tmp_path):
     """Headless exhaustion stays failed and nonzero, with remaining intent parked."""
     from gptme.logmanager import Log

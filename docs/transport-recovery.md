@@ -47,8 +47,10 @@ Paths below are relative to the repository root.
   not become blanket-retry cases. Respect `Retry-After` and strict request limits.
 - Interactive CLI exhaustion parks remaining in-memory prompts on the durable
   queue and holds drain/consume until the user submits a normal message.
-  Slash commands and Ctrl+C do not retry parked work. Headless exhaustion
-  still exits nonzero without auto-resume.
+  Slash commands and Ctrl+C do not retry parked work. If the explicit resume
+  turn calls `complete`, pending intent is drained before session completion,
+  just as for chained prompts; the steering queue closes only after that work
+  is exhausted. Headless exhaustion still exits nonzero without auto-resume.
 - Failed output is an uncommitted preview, not persisted assistant content.
   Callback consumers bind `recovery_notifications()` and reset attempt-local
   display/buffers before replay. Plain terminal output cannot be retracted;

@@ -442,36 +442,13 @@ def _run_chat_loop(
                             manager.append(hook_msg)
 
                 # Process the message and get response
-                try:
-                    _process_message_conversation(
-                        manager,
-                        stream,
-                        tool_format,
-                        model,
-                        output_schema,
-                    )
-                except SessionCompleteException:
-                    # Write sentinel BEFORE draining so there is no window
-                    # where the queue file is gone but the sentinel is not yet
-                    # visible.  A concurrent subagent_steer() in that gap would
-                    # see neither the sentinel nor the closed event, write a
-                    # new queue entry, and falsely report success even though
-                    # the chat loop has no remaining drain point.
-                    # If drain finds more chained prompts we unlink the sentinel
-                    # so the loop stays open for steering.
-                    if logdir is not None:
-                        (logdir / "prompt-queue-closed").touch()
-                    _drain_external_prompt_queue(manager, prompt_queue)
-                    if not prompt_queue:
-                        raise
-                    # More chained prompts remain — clear sentinel, keep loop alive.
-                    if logdir is not None:
-                        (logdir / "prompt-queue-closed").unlink(missing_ok=True)
-                    logger.debug(
-                        "complete called but %d chained prompts remain, continuing",
-                        len(prompt_queue),
-                    )
-                    continue
+                _process_message_conversation(
+                    manager,
+                    stream,
+                    tool_format,
+                    model,
+                    output_schema,
+                )
             else:
                 # Get user input or exit if non-interactive
                 if not interactive:
@@ -574,6 +551,27 @@ def _run_chat_loop(
                         console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 
+        except SessionCompleteException:
+            # Queued turns and explicit user resumes share the same completion
+            # boundary: complete finishes this prompt, not pending intent.
+            # Write sentinel BEFORE draining so there is no window
+            # where the queue file is gone but the sentinel is not yet
+            # visible. A concurrent subagent_steer() in that gap would
+            # otherwise falsely report success with no remaining drain point.
+            if logdir is not None:
+                (logdir / "prompt-queue-closed").touch()
+            _drain_external_prompt_queue(manager, prompt_queue)
+            if not prompt_queue:
+                raise
+            # More chained prompts remain — reopen steering and consume them.
+            if logdir is not None:
+                (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+            parked_waiting = False
+            logger.debug(
+                "complete called but %d chained prompts remain, continuing",
+                len(prompt_queue),
+            )
+            continue
         except KeyboardInterrupt:
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted.")
