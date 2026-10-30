@@ -79,6 +79,41 @@ def test_manual_break_indentation_stays_literal(tmp_path: Path, indent: str) -> 
     assert "".join(child.content for child in children) == indent + "*literal*"
 
 
+@pytest.mark.parametrize("style", ["List Bullet", "List Number"])
+@pytest.mark.parametrize("indent", ["", "    ", "\t", " \t  "])
+@pytest.mark.parametrize("breaks", [1, 2])
+def test_list_manual_breaks_stay_inside_item(
+    tmp_path: Path, style: str, indent: str, breaks: int
+) -> None:
+    document = Document()
+    para = document.add_paragraph("intro", style=style)
+    for _ in range(breaks):
+        para.add_run().add_break()
+    for char in indent + "*literal*":
+        para.add_run(char)
+    document.add_paragraph("outside")
+    source = tmp_path / "list-breaks.docx"
+    document.save(str(source))
+    md = tmp_path / "list-breaks.md"
+    txt = tmp_path / "list-breaks.txt"
+    assert convert_file(source, md).success
+    assert convert_file(source, txt).success
+    assert txt.read_text() == "intro" + "\n" * breaks + indent + "*literal*\noutside"
+
+    tokens = MarkdownIt("commonmark").parse(md.read_text())
+    assert sum(t.type == "list_item_open" for t in tokens) == 1
+    assert not any(t.type in ("code_block", "fence") for t in tokens)
+    item_start = next(i for i, t in enumerate(tokens) if t.type == "list_item_open")
+    item_end = next(i for i, t in enumerate(tokens) if t.type == "list_item_close")
+    item_children = [c for t in tokens[item_start:item_end] for c in (t.children or [])]
+    assert all(c.type in ("text", "softbreak") for c in item_children)
+    assert [c.content for c in item_children if c.type == "text"] == [
+        "intro",
+        indent + "*literal*",
+    ]
+    assert [t.content for t in tokens[item_end:] if t.type == "inline"] == ["outside"]
+
+
 def test_separate_paragraphs_and_unchanged_txt(tmp_path: Path) -> None:
     document = Document()
     paragraphs = ["first paragraph", "second paragraph", "", "third paragraph"]

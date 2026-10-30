@@ -104,7 +104,9 @@ def _para_to_md(para: object) -> str:
     if style_name.startswith("Heading 3"):
         return f"### {inline}"
     if "List" in style_name:
-        return f"- {inline}"
+        # Structural indentation keeps every continuation block in this item;
+        # the character references above preserve its literal Word whitespace.
+        return "- " + inline.replace("\n", "\n  ")
     return inline
 
 
