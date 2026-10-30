@@ -928,25 +928,20 @@ def execute_hashline_edit(
     ):
         updated = confirm_result.edited_content
 
-    # For merge-recovered edits, re-read the file right before writing to guard
-    # against concurrent changes that arrived during the confirmation dialog.
-    # This applies regardless of whether the user edited the proposed content —
-    # the live file could have changed while the confirmation dialog was open.
-    if merge_recovered:
-        try:
-            post_confirm_content = resolved.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, PermissionError, OSError) as e:
-            yield Message(
-                "system", f"hashline_edit: cannot re-read file before write: {e}"
-            )
-            return
-        if post_confirm_content != live_content:
-            yield Message(
-                "system",
-                f"hashline_edit: file changed again during confirmation for {resolved}. "
-                "Call `read` to get a fresh snapshot and retry.",
-            )
-            return
+    # Re-read before every write: ordinary and merge-recovered targets can both
+    # change while confirmation is open, including when the user edits the preview.
+    try:
+        post_confirm_content = resolved.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, PermissionError, OSError) as e:
+        yield Message("system", f"hashline_edit: cannot re-read file before write: {e}")
+        return
+    if post_confirm_content != live_content:
+        yield Message(
+            "system",
+            f"hashline_edit: file changed again during confirmation for {resolved}. "
+            "Call `read` to get a fresh snapshot and retry.",
+        )
+        return
 
     # Write result atomically: write to a temp file in the same directory,
     # then rename into place.  os.replace() is a single POSIX syscall (rename(2))
