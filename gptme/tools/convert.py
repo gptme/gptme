@@ -734,6 +734,9 @@ class VideoThumbnailConverter(Converter):
             _arg(src),
             "-vframes",
             "1",
+            # Disable image2's %d/%03d filename expansion for this single output.
+            "-update",
+            "1",
             _arg(dest),
         ]
         result = subprocess.run(cmd, capture_output=True, check=False)
