@@ -168,7 +168,7 @@ _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 _NATIVE_HEADER_RE = re.compile(r"^@[^\r\n]+?\([\w\-:\.]+\):\s*(?=\{|\Z)", re.MULTILINE)
 _LITERAL_OR_THINK_RE = re.compile(
     r"(?P<native>" + _NATIVE_HEADER_RE.pattern + r")"
-    r"|(?P<fence>^`{3,}|^~{3,})[^\n]*"
+    r"|(?P<fence>^`{3,}(?!`)(?=[^`\n]*(?:\n|\Z))|^~{3,})[^\n]*"
     r"|(?P<inline>`+)"
     r"|(?P<xml>(?i:<(?:tool-use|function_calls)(?=\s|>)[^>]*>))"
     r"|(?P<thinking><think(?:ing)?(?:\s[^>]*)?>)",
@@ -231,7 +231,11 @@ def _literal_region_end(content: str, match: re.Match[str]) -> int:
     # Only complete inline-code spans protect tags; an unmatched backtick in
     # prose must not hide subsequent genuine reasoning.
     closing = re.compile(r"(?<!`)" + re.escape(match.group()) + r"(?!`)")
-    end = closing.search(content, match.end())
+    # Inline code can include soft line breaks, but cannot consume another
+    # paragraph. An unrelated later backtick must not hide real reasoning.
+    paragraph_end = re.search(r"\n[ \t]*\n", content[match.end() :])
+    limit = match.end() + paragraph_end.start() if paragraph_end else len(content)
+    end = closing.search(content, match.end(), limit)
     return end.end() if end else match.end()
 
 

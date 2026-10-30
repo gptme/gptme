@@ -348,3 +348,31 @@ def test_uppercase_xml_wrappers_preserve_literal_tags(wrapper: str) -> None:
         "before",
         "after",
     ]
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "```example```",
+        "````<think>literal</think>````",
+    ],
+)
+def test_inline_backtick_runs_are_not_open_fences(example: str) -> None:
+    call = native_call("save", "result")
+    text = example + "\n<think>real reasoning</think>\n" + call
+    assert [body for thinking, body in _split_thinking(text) if thinking] == [
+        "real reasoning"
+    ]
+    assert "real reasoning" not in _strip_thinking(text)
+    assert len(AssistantMessage(text).result_slots) == 1
+
+
+def test_unmatched_backticks_do_not_cross_paragraphs() -> None:
+    text = "An unmatched ` here.\n\n<think>real reasoning</think>\n\nAnother ` here."
+    assert [body for thinking, body in _split_thinking(text) if thinking] == [
+        "real reasoning"
+    ]
+    assert "real reasoning" not in _strip_thinking(text)
+    # A newline within a paragraph remains valid inline code.
+    literal = "`first line\n<think>literal</think>`"
+    assert _split_thinking(literal) == [(False, literal)]
