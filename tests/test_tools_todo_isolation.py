@@ -1166,6 +1166,7 @@ def test_mixed_format_equal_offsets_keep_completed_call(
     assert f"2. 🔲 {'Edited' if edited else 'Native'}" in _todoread()
     assert "Summary: 2 total" in _todoread()
 
+
 @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
 def test_compacted_branch_inherits_only_its_origin_history(
     tmp_path: Path, tool_format: Literal["markdown", "xml", "tool"]
