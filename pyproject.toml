@@ -230,6 +230,7 @@ dev = [
     "types-lxml",
     "lxml",
     "pypdf",
+    "python-docx>=0.8.11",  # Exercise real conversion publication failures in CI.
     "tomli>=2.4.1,<3",
 ]
 

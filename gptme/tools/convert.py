@@ -193,8 +193,64 @@ class Converter(ABC):
     @abstractmethod
     def is_available(self, avail: ToolAvailability) -> bool: ...
 
-    @abstractmethod
     def convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        """Publish a completed single output, never a backend's partial writes.
+
+        Resolve the destination separately from its staging filename: existing
+        symlinks keep pointing to their target, while the requested extension
+        still selects the output format. Replacement is on the same filesystem.
+        This is not a durability or concurrent-path-mutation guarantee.
+        """
+        result = ConversionResult(
+            success=False, output_path=None, converter_used=self.name
+        )
+        published = False
+        try:
+            target = dest.resolve()
+            if target.is_dir():
+                result.output_path = dest
+                result.error = f"Destination is an existing directory: {dest}"
+                return result
+            if target.exists() and not target.is_file():
+                result.error = f"Destination is not a regular file: {dest}"
+                return result
+            with tempfile.TemporaryDirectory(
+                prefix=".gptme-convert-", dir=target.parent
+            ) as directory:
+                staged = Path(directory) / dest.name
+                result = self._convert(src, staged, quality=quality, **kwargs)
+                if result.success:
+                    if not staged.is_file():
+                        result.success = False
+                        result.error = f"Converter did not produce output for {dest}"
+                    else:
+                        if target.exists():
+                            shutil.copymode(target, staged)
+                        staged.replace(target)
+                        published = True
+                        result.output_path = dest
+                if not result.success:
+                    result.output_path = None
+                return result
+        except OSError as exc:
+            if published:
+                result.warnings.append(
+                    f"Output published, but staging cleanup failed: {exc}"
+                )
+                return result
+            result.success = False
+            result.output_path = None
+            result.error = f"Could not write {dest}: {exc}"
+            return result
+
+    @abstractmethod
+    def _convert(
         self,
         src: Path,
         dest: Path,
@@ -230,7 +286,7 @@ class PDFToImageConverter(Converter):
     def is_available(self, avail: ToolAvailability) -> bool:
         return avail.pdftoppm or avail.imagemagick
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
@@ -382,7 +438,7 @@ class ImageConverter(Converter):
             "tiff",
         )
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
@@ -431,6 +487,8 @@ class ImageConverter(Converter):
                 "ffmpeg image convert failed: %s",
                 result.stderr.decode(errors="replace")[-200:],
             )
+            # A fallback must produce its own output, not inherit partial bytes.
+            dest.unlink(missing_ok=True)
 
         if avail.imagemagick:
             source = f"{_im_src(src)}[0]" if single_frame else _arg(src)
@@ -481,7 +539,7 @@ class PDFToTextConverter(Converter):
     def is_available(self, avail: ToolAvailability) -> bool:
         return avail.pypdf or avail.pdftotext
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
@@ -579,7 +637,7 @@ class DocumentToTextConverter(Converter):
             "."
         ).lower() in ("txt", "md")
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
@@ -708,7 +766,7 @@ class VideoThumbnailConverter(Converter):
             "png",
         )
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
