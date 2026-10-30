@@ -704,8 +704,16 @@ def _do_save_browser_state(browser: Browser, path: str) -> str:
         )
     resolved = Path(path).expanduser()
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    ctx.storage_state(path=str(resolved))
-    os.chmod(resolved, 0o600)
+    fd, temporary = tempfile.mkstemp(prefix=".gptme-state-", dir=resolved.parent)
+    try:
+        os.close(fd)
+        # Establish privacy before Playwright writes any authentication bytes.
+        os.chmod(temporary, 0o600)
+        ctx.storage_state(path=temporary)
+        # Replace the directory entry, not a destination symlink's referent.
+        os.replace(temporary, resolved)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     return f"Browser session state saved to {resolved}"
 
 
@@ -732,7 +740,9 @@ def save_browser_state(path: str) -> str:
 
     Args:
         path: File path to write the session JSON. Parent directories are
-              created automatically. ``~`` is expanded.
+              created automatically. ``~`` is expanded. State is staged privately
+              and replaces the destination only after serialization succeeds.
+              A destination symlink is replaced, not followed.
 
     Returns:
         Confirmation string with the absolute path where the state was saved.
