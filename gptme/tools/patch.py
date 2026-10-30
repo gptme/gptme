@@ -372,13 +372,15 @@ def execute_patch_impl(
         # Re-check before the write: the read above is fast but not atomic with this write.
         if path.exists() and not path.is_file():
             raise ValueError(f"Cannot patch non-regular file `{path}`")
+        # Normalize \r\n → \n unconditionally: files are read in universal-newline
+        # mode so the content model is always LF-only. Python's newline= then
+        # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
+        # for LF). Skipping this on LF files would let model-emitted \r\n create
+        # mixed line endings.
+        text = patched_content.replace("\r\n", "\n")
+        # Validate before opening with "w", which would truncate on encoding failure.
+        text.encode("utf-8")
         with open(path, "w", encoding="utf-8", newline=newline) as f:
-            # Normalize \r\n → \n unconditionally: files are read in universal-newline
-            # mode so the content model is always LF-only. Python's newline= then
-            # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
-            # for LF). Skipping this on LF files would let model-emitted \r\n create
-            # mixed line endings.
-            text = patched_content.replace("\r\n", "\n")
             f.write(text)
 
         # Return success message with any warnings
@@ -391,6 +393,10 @@ def execute_patch_impl(
     except FileNotFoundError:
         raise ValueError(
             f"Patch failed: No such file or directory `{path}` (pwd: `{Path.cwd()}`)"
+        ) from None
+    except UnicodeEncodeError as e:
+        raise ValueError(
+            f"Patch failed: content is not encodable as UTF-8 at character {e.start}."
         ) from None
     except UnicodeDecodeError as e:
         # Subclass of ValueError whose args[0] is just the codec name ("utf-8")

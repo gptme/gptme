@@ -197,6 +197,14 @@ def execute_save_impl(
     newline = file_newline(path) if original_content else ""
     if original_content:
         content = content.replace("\r\n", "\n")
+    # Validate before opening with "w", which would truncate even on encoding failure.
+    try:
+        content.encode("utf-8")
+    except UnicodeEncodeError as e:
+        raise ValueError(
+            f"Cannot save to {path_display}: content is not encodable as UTF-8 "
+            f"at character {e.start}."
+        ) from None
     with open(path, "w", encoding="utf-8", newline=newline) as f:
         f.write(content)
 
