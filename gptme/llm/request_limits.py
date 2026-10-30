@@ -126,6 +126,12 @@ def bounded_client(client: Any, provider: str) -> Iterator[Any]:
     if limit is None and not recovery_active():
         yield client
         return
+    # OpenAI init stores a lazy proxy whose _client is the SDK client, not
+    # the HTTP transport. Unwrap it before inspecting SDK transport state.
+    from .llm_openai import _LazyClient
+
+    if isinstance(client, _LazyClient):
+        client = client._materialize()
     if limit is not None:
         _validate_client(client, provider, limit)
     if client._client.follow_redirects is False:
