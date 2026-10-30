@@ -864,7 +864,7 @@ def test_final_sync_includes_unchanged_branch_archive(
     manager.log = Log([Message("system", "Summary")])
     manager.branch("alternative")
     manager.append(Message("system", "branch output", call_id="new"))
-    archive_path = manager.logdir / "branches" / "alternative" / "lossless.jsonl"
+    archive_path = manager.logdir / "branch-archives" / "alternative.jsonl"
     original = archive_path.read_bytes()
     archive_stat = archive_path.stat()
     fsync = os.fsync
@@ -929,7 +929,7 @@ def test_new_empty_branch_archive_is_written_before_final_sync(tmp_path: Path) -
     manager.log = Log([Message("system", "Summary")])
     manager.branch("alternative")
     manager.write(sync=True)
-    archive_path = manager.logdir / "branches" / "alternative" / "lossless.jsonl"
+    archive_path = manager.logdir / "branch-archives" / "alternative.jsonl"
     assert archive_path.read_bytes() == b""
     reloaded = LogManager.load(manager.logdir, branch="alternative", lock=False)
     assert reloaded.full_log.messages == []
@@ -954,3 +954,95 @@ def test_branch_edit_rejects_ambiguous_same_time_replacement(tmp_path: Path) -> 
         manager.edit([second.replace(content="```todo write\nadd Edited\n```")])
     assert manager.full_log.messages == original_history
     assert manager.log.messages == [first, second]
+
+
+@pytest.mark.parametrize("operation", ["edit", "undo"])
+@pytest.mark.parametrize("roundtrip", [False, True])
+def test_branch_edit_rejects_ambiguous_retained_occurrence(
+    tmp_path: Path, roundtrip: bool, operation: str
+) -> None:
+    from gptme.logmanager import Log
+
+    first = Message("assistant", "```todo write\nadd Original\n```")
+    clear = Message("assistant", "```todo write\nclear\n```")
+    duplicate = first.replace()
+    manager = LogManager(
+        [first, clear, duplicate], logdir=tmp_path / "retained-occurrence", lock=False
+    )
+    manager.preserve_lossless_log()
+    manager.log = Log([duplicate])
+    manager.branch("alternative")
+    manager.write()
+    if roundtrip:
+        manager = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    previous = manager.log
+    history = manager.full_log
+    with pytest.raises(ValueError, match="ambiguous"):
+        if operation == "edit":
+            manager.edit(
+                [manager.log[0].replace(content="```todo write\nadd Edited\n```")]
+            )
+        else:
+            manager.undo(1, quiet=True)
+    assert manager.log.messages == previous.messages
+    assert manager.full_log.messages == history.messages
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert resumed.full_log.messages == history.messages
+    assert resumed.log.messages == previous.messages
+
+
+@pytest.mark.parametrize("inherited", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_branch_archive_names_do_not_collide_with_transcripts(
+    tmp_path: Path, inherited: bool, reverse: bool
+) -> None:
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    manager = LogManager(_messages(), logdir=tmp_path / "archive-names", lock=False)
+    if inherited:
+        manager.preserve_lossless_log()
+        manager.log = Log([Message("system", "Summary")])
+    names = ["dev", "dev.jsonl"]
+    if reverse:
+        names.reverse()
+    for name in names:
+        manager.branch(name)
+        # Exercise transcript/archive persistence independently of the existing
+        # branch event-log directory namespace.
+        result = Message("system", f"Result for {name}", call_id=name)
+        manager.log = manager.log.append(result)
+        if inherited:
+            manager._branch_lossless_logs[name] = manager.full_log.append(result)
+        manager.write()
+        manager.preserve_lossless_log()
+        manager.write()
+        manager.branch("main")
+    for name in names:
+        resumed = LogManager.load(manager.logdir, branch=name, lock=False)
+        assert resumed.full_log[-1].content == f"Result for {name}"
+        assert f"Result for {name}" in recall_result(len(resumed.full_log))
+        assert (manager.logdir / "branches" / f"{name}.jsonl").is_file()
+
+
+def test_legacy_branch_archive_remains_readable_after_namespace_move(
+    tmp_path: Path,
+) -> None:
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    manager = LogManager(_messages(), logdir=tmp_path / "legacy-archive", lock=False)
+    manager.branch("alternative")
+    manager.log = Log([Message("system", "Summary")])
+    manager.write()
+    legacy = manager.logdir / "branches" / "alternative" / "lossless.jsonl"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    Log(_messages()).write_jsonl(legacy)
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "0123456789" in recall_result(3)
+    resumed.append(Message("system", "new output", call_id="new"))
+    resumed.write(sync=True)
+    assert legacy.is_file(), "retain old history while writing the new namespace"
+    reloaded = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert reloaded.full_log[-1].content == "new output"
+    assert "new output" in recall_result(len(reloaded.full_log))

@@ -336,9 +336,19 @@ class LogManager:
 
         # Non-main archives belong to the branch, never the shared main history.
         self._branch_lossless_logs: dict[str, Log] = {}
-        for archive in self.logdir.glob("branches/*/lossless.jsonl"):
+        # Retain reads of this PR's earlier layout; new writes use a separate
+        # namespace so archive directories cannot collide with branch transcripts.
+        archives = {
+            archive.parent.name: archive
+            for archive in self.logdir.glob("branches/*/lossless.jsonl")
+        }
+        archives.update(
+            (archive.stem, archive)
+            for archive in self.logdir.glob("branch-archives/*.jsonl")
+        )
+        for branch, archive in archives.items():
             branch_log = Log.read_jsonl(archive)
-            self._branch_lossless_logs[archive.parent.name] = branch_log.replace(
+            self._branch_lossless_logs[branch] = branch_log.replace(
                 messages=self.snapshot_message_files(branch_log.messages)
             )
 
@@ -743,7 +753,7 @@ class LogManager:
         for branch, archive in self._branch_lossless_logs.items():
             if not branches and branch != self.current_branch:
                 continue
-            archive_path = self.logdir / "branches" / branch / "lossless.jsonl"
+            archive_path = self.logdir / "branch-archives" / f"{branch}.jsonl"
             # A prior append may have written without syncing. Keep unchanged
             # archives in the final durability barrier without rewriting them.
             paths.add(archive_path)
@@ -913,6 +923,23 @@ class LogManager:
         def reconcile(history: Log, *, stable_slots: bool) -> Log:
             # Editor round-trips reconstruct objects but preserve timestamps.
             # Match occurrences, not a set: equal messages may occur twice.
+            # Without persisted occurrence IDs a retained subset of identical
+            # messages cannot be assigned safely, even after an editor reload.
+            # Reject it rather than changing a hidden operation's archive slot.
+            for message in previous:
+                matches = sum(
+                    old.timestamp == message.timestamp and old == message
+                    for old in history
+                )
+                retained = sum(
+                    old.timestamp == message.timestamp and old == message
+                    for old in previous
+                )
+                if matches > retained:
+                    raise ValueError(
+                        "Cannot apply an ambiguous retained occurrence inside "
+                        "compacted branch history; identical hidden messages exist."
+                    )
             remaining = list(enumerate(history.messages))
             visible_slots: dict[int, int] = {}
             for position, message in enumerate(previous):
@@ -1029,17 +1056,19 @@ class LogManager:
         if not quiet:
             print("[yellow]Undoing messages:[/yellow]")
         previous = self.log
+        updated = previous
         for _ in range(n):
-            if not self.log:
+            if not updated:
                 break
-            undid = self.log[-1]
-            self.log = self.log.pop()
+            undid = updated[-1]
+            updated = updated.pop()
             if not quiet:
                 print(
                     f"[red]  {undid.role}: {textwrap.shorten(undid.content.strip(), width=50, placeholder='...')}[/]",
                 )
-            peek = self.log[-1] if self.log else None
-        self._reconcile_branch_history(previous, self.log)
+            peek = updated[-1] if updated else None
+        self._reconcile_branch_history(previous, updated)
+        self.log = updated
         self.write()
         self._write_event_log(eventlog.EVENT_UNDO, n=n)
 
@@ -1106,7 +1135,7 @@ class LogManager:
         lossless_path = (
             self.logdir / "lossless.jsonl"
             if self.current_branch == "main"
-            else self.logdir / "branches" / self.current_branch / "lossless.jsonl"
+            else self.logdir / "branch-archives" / f"{self.current_branch}.jsonl"
         )
         lossless_path.parent.mkdir(parents=True, exist_ok=True)
         # Re-compaction must not overwrite the branch's full transcript with
