@@ -218,10 +218,8 @@ def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
     except BaseException as error:
         try:
             staged.unlink(missing_ok=True)
-        except OSError as cleanup_error:
-            raise OSError(
-                f"{error}; staging cleanup failed for `{staged}`: {cleanup_error}"
-            ) from error
+        except BaseException as cleanup_error:
+            error.add_note(f"staging cleanup failed for `{staged}`: {cleanup_error}")
         raise
     return staged
 
@@ -247,6 +245,8 @@ def _publish_patches(
                 staged[path] = _stage_patch_content(path, contents[path], modes[path])
         except OSError as error:
             result = f"Atomic patch failed: staging write error: {error}. No files were written."
+            if notes := getattr(error, "__notes__", []):
+                result += "\n" + "\n".join(notes)
             return result
 
         try:

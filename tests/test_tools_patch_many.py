@@ -1212,3 +1212,53 @@ def test_cleanup_interrupt_preserves_recovery_diagnostics(
     assert first.read_text() == "ALPHA"
     assert second.read_text() == "beta"
     assert len(cleanup_attempts) == 3
+
+
+@pytest.mark.parametrize(
+    "staging_error_type", [OSError, KeyboardInterrupt, SystemExit, RuntimeError]
+)
+@pytest.mark.parametrize("cleanup_error_type", [PermissionError, KeyboardInterrupt])
+def test_staging_cleanup_preserves_primary_error(
+    tmp_path, monkeypatch, staging_error_type, cleanup_error_type
+):
+    target = tmp_path / "target"
+    target.write_text("alpha")
+    original_inode = target.stat().st_ino
+    chmod, unlink = Path.chmod, Path.unlink
+    error = staging_error_type("staging failed")
+    stages = []
+    leftovers = []
+
+    def fail_second_stage(path, mode, *args, **kwargs):
+        if path.name.startswith(".patch-many-"):
+            stages.append(path)
+            if len(stages) == 2:
+                raise error
+        return chmod(path, mode, *args, **kwargs)
+
+    def fail_stage_cleanup(path, *args, **kwargs):
+        if len(stages) == 2 and path == stages[1]:
+            leftovers.append(path)
+            raise cleanup_error_type("cleanup denied")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", fail_second_stage)
+    monkeypatch.setattr(Path, "unlink", fail_stage_cleanup)
+    if staging_error_type is OSError:
+        messages = list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+        report = messages[0].content
+        assert "staging write error" in report
+        assert "No files were written" in report
+    else:
+        with pytest.raises(staging_error_type) as caught:
+            list(execute_patch_many_impl([(target, Patch("alpha", "ALPHA"))]))
+        assert caught.value is error
+        report = "\n".join(getattr(caught.value, "__notes__", []))
+    assert "staging cleanup failed" in report
+    assert "cleanup denied" in report
+    assert len(leftovers) == 1
+    assert str(leftovers[0]) in report
+    assert target.read_text() == "alpha"
+    assert target.stat().st_ino == original_inode
+    assert not stages[0].exists()
+    assert list(tmp_path.glob(".patch-many-*")) == leftovers
