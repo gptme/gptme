@@ -283,8 +283,8 @@ class TestPDFToImageConverter:
             call_count["n"] += 1
             if "pdftoppm" in cmd:
                 return MagicMock(returncode=1, stderr=b"pdftoppm error")
-            # imagemagick
-            dest.write_bytes(b"\x89PNG")
+            # Write to the actual backend output argument (now a staging path).
+            Path(cmd[-1]).write_bytes(b"\x89PNG")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
@@ -375,7 +375,7 @@ class TestImageConverter:
         dest = tmp_path / "out.webp"
 
         def fake_run(cmd, **kwargs):
-            dest.write_bytes(b"RIFF")
+            Path(cmd[-1]).write_bytes(b"RIFF")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
@@ -395,7 +395,7 @@ class TestImageConverter:
         dest = tmp_path / "out.png"
 
         def fake_run(cmd, **kwargs):
-            dest.write_bytes(b"\x89PNG")
+            Path(cmd[-1]).write_bytes(b"\x89PNG")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
@@ -779,7 +779,7 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        dest.write_bytes(b"RIFF")
+        Path(cmd[-1]).write_bytes(b"RIFF")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
@@ -793,7 +793,8 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
     assert "-q:v" not in captured_cmd
     # _arg() already handles dash-prefixed paths via "./" prefix; "--" is not needed.
     assert "--" not in captured_cmd
-    assert captured_cmd[-1] == str(dest)
+    assert Path(captured_cmd[-1]).name == dest.name
+    assert result.output_path == dest
 
 
 # ---------------------------------------------------------------------------
@@ -823,6 +824,7 @@ def test_pdftotext_protects_dash_leading_source(avail_all, tmp_path, monkeypatch
 
     def fake_run(cmd, **kwargs):
         captured.extend(cmd)
+        Path(cmd[-1]).write_bytes(b"text")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
@@ -1007,17 +1009,19 @@ def test_ffmpeg_image_command_has_no_double_dash(avail_ffmpeg_only, tmp_path):
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        dest.write_bytes(b"\xff\xd8\xff")
+        Path(cmd[-1]).write_bytes(b"\xff\xd8\xff")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
         patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
         patch("subprocess.run", side_effect=fake_run),
     ):
-        ImageConverter().convert(src, dest)
+        result = ImageConverter().convert(src, dest)
 
+    assert result.success
+    assert result.output_path == dest
     assert "--" not in captured_cmd
-    assert captured_cmd[-1] == str(dest)
+    assert Path(captured_cmd[-1]).name == dest.name
 
 
 def test_ffmpeg_thumbnail_command_has_no_double_dash(avail_ffmpeg_only, tmp_path):
@@ -1030,17 +1034,19 @@ def test_ffmpeg_thumbnail_command_has_no_double_dash(avail_ffmpeg_only, tmp_path
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        dest.write_bytes(b"\xff\xd8\xff")
+        Path(cmd[-1]).write_bytes(b"\xff\xd8\xff")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
         patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
         patch("subprocess.run", side_effect=fake_run),
     ):
-        VideoThumbnailConverter().convert(src, dest)
+        result = VideoThumbnailConverter().convert(src, dest)
 
+    assert result.success
+    assert result.output_path == dest
     assert "--" not in captured_cmd
-    assert captured_cmd[-1] == str(dest)
+    assert Path(captured_cmd[-1]).name == dest.name
 
 
 def test_doc_to_text_specific_error_when_only_python_docx_installed(tmp_path):
@@ -1296,11 +1302,18 @@ def test_imagemagick_pdf_output_argv(tmp_path, avail_imagemagick_only):
         ),
         patch("gptme.tools.convert.subprocess.run") as run,
     ):
-        run.return_value = subprocess.CompletedProcess([], 0, stderr=b"")
+
+        def fake_run(command, **kwargs):
+            Path(command[-1]).write_bytes(b"png")
+            return subprocess.CompletedProcess(command, 0, stderr=b"")
+
+        run.side_effect = fake_run
         result = PDFToImageConverter().convert(src, dest)
     assert result.success
+    assert result.output_path == dest
     command = run.call_args.args[0]
-    assert command == ["convert", "-density", "150", f"{_im_src(src)}[0]", _arg(dest)]
+    assert command[:-1] == ["convert", "-density", "150", f"{_im_src(src)}[0]"]
+    assert Path(command[-1]).name == dest.name
 
 
 @pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
