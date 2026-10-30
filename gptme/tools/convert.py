@@ -18,7 +18,9 @@ import glob as _glob
 import importlib.util
 import logging
 import mimetypes
+import re
 import shutil
+import string
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
@@ -71,6 +73,7 @@ def _para_to_md(para: object) -> str:
             text = run.text
             if not text:
                 continue
+            text = re.sub(r"([" + re.escape(string.punctuation) + r"])", r"\\\1", text)
             if getattr(run, "bold", False):
                 text = f"**{text}**"
             elif getattr(run, "italic", False):
@@ -78,11 +81,19 @@ def _para_to_md(para: object) -> str:
             parts.append(text)
         inline = "".join(parts)
     else:
-        inline = getattr(para, "text", "")
+        inline = re.sub(
+            r"([" + re.escape(string.punctuation) + r"])",
+            r"\\\1",
+            getattr(para, "text", ""),
+        )
 
     if not inline.strip():
         return ""
 
+    # Literal leading whitespace must not turn an ordinary paragraph into code.
+    inline = re.sub(
+        r"^[ \t]+", lambda match: "".join(f"&#{ord(c)};" for c in match[0]), inline
+    )
     if style_name.startswith("Heading 1"):
         return f"# {inline}"
     if style_name.startswith("Heading 2"):
@@ -605,7 +616,8 @@ class DocumentToTextConverter(Converter):
                     lines = [para.text for para in doc.paragraphs]
 
                 try:
-                    dest.write_text("\n".join(lines), encoding="utf-8")
+                    separator = "\n\n" if dest_ext == "md" else "\n"
+                    dest.write_text(separator.join(lines), encoding="utf-8")
                 except OSError as e:
                     return ConversionResult(
                         success=False,

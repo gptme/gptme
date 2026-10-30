@@ -169,7 +169,7 @@ def test_para_to_md_heading2():
 
 
 def test_para_to_md_heading3():
-    assert _para_to_md(_MockPara("Sub-sub", "Heading 3")) == "### Sub-sub"
+    assert _para_to_md(_MockPara("Sub-sub", "Heading 3")) == r"### Sub\-sub"
 
 
 def test_para_to_md_list():
@@ -512,7 +512,7 @@ class TestDocumentToTextConverter:
         assert result.success, result.error
         content = dest.read_text()
         assert content.startswith("# Introduction"), repr(content)
-        assert "Body text." in content
+        assert r"Body text\." in content
 
 
 # ---------------------------------------------------------------------------
