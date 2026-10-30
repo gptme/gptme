@@ -2,14 +2,16 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from dataclasses import replace
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    ParamSpec,
     TypedDict,
+    TypeVar,
     Union,
     cast,
 )
@@ -663,9 +665,17 @@ def retry_on_overloaded(
     return decorator
 
 
+_P = ParamSpec("_P")
+_Y = TypeVar("_Y")
+_R = TypeVar("_R")
+
+
 def retry_generator_on_overloaded(
     max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
-):
+) -> Callable[
+    [Callable[_P, Generator[_Y, None, _R]]],
+    Callable[_P, Generator[_Y, None, _R]],
+]:
     """Decorator to retry generator functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
@@ -674,9 +684,11 @@ def retry_generator_on_overloaded(
     has started, errors are raised immediately to prevent duplicate output.
     """
 
-    def decorator(func):
+    def decorator(
+        func: Callable[_P, Generator[_Y, None, _R]],
+    ) -> Callable[_P, Generator[_Y, None, _R]]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Generator[_Y, None, _R]:
             # Capture the retry generation once per call (see retry_abort.py).
             generation = current_generation()
             attempts = max_retries if max_retries is not None else get_max_retries()

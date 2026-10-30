@@ -1,7 +1,7 @@
 """Anthropic native system messages must respect turn and tool-result placement."""
 
 import json
-from typing import Literal
+from typing import Literal, NotRequired, TypedDict, cast
 
 import httpx2
 import pytest
@@ -11,6 +11,23 @@ from gptme.llm import llm_anthropic
 from gptme.message import Message
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import get_tool, init_tools
+
+
+class _RequestBlock(TypedDict):
+    type: str
+    id: NotRequired[str]
+    tool_use_id: NotRequired[str]
+    text: NotRequired[str]
+    content: NotRequired[list["_RequestBlock"]]
+
+
+class _RequestMessage(TypedDict):
+    role: str
+    content: list[_RequestBlock]
+
+
+class _RequestPayload(TypedDict):
+    messages: list[_RequestMessage]
 
 
 @pytest.mark.parametrize(
@@ -119,11 +136,11 @@ def test_stream_tool_results_use_user_turn(
         Message("system", "README.md", call_id=call_id),
         Message("system", "Continue carefully"),
     ]
-    payloads: list[dict] = []
+    payloads: list[_RequestPayload] = []
 
     def serve(request: httpx2.Request) -> httpx2.Response:
-        payloads.append(json.loads(request.content))
-        events: list[dict] = [
+        payloads.append(cast(_RequestPayload, json.loads(request.content)))
+        events: list[dict[str, object]] = [
             {
                 "type": "message_start",
                 "message": {
