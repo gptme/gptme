@@ -1,5 +1,6 @@
 """Prompt path mentions are prose; only deliberate references attach resources."""
 
+import errno
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -298,6 +299,14 @@ def test_cli_completes_explicit_attachment_prefix(tmp_path, monkeypatch):
     assert completed == "see `@photo album.txt`"
     result = context._include_paths(Message("user", completed))
     assert "spaced-content-marker" in result.content
+    secret = tmp_path / "secret.txt"
+    secret.write_text("must-not-attach")
+    (tmp_path / "photo `@secret.txt` album.txt").write_text("nested-tick-name")
+    tick_completed = _apply_first_completion("see @pho")
+    assert tick_completed == "see `@photo album.txt`"
+    tick_result = context._include_paths(Message("user", tick_completed))
+    assert "must-not-attach" not in tick_result.content
+    assert "spaced-content-marker" in tick_result.content
 
 
 @pytest.mark.parametrize("legacy", [False, True])
@@ -322,6 +331,22 @@ def test_legacy_command_backticks_expand_embedded_path(tmp_path, monkeypatch, le
         call.args and str(call.args[0]).lower().startswith(("http://", "https://"))
         for call in read.call_args_list
     )
+
+
+def test_overlong_explicit_path_does_not_drop_sibling_attachment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "good.txt").write_text("keep-this-marker")
+    original_exists = Path.exists
+
+    def exists_with_overlong(self):
+        if len(str(self)) > 200:
+            raise OSError(errno.ENAMETOOLONG, "name too long")
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", exists_with_overlong)
+    long_name = "@./" + ("a" * 300) + ".txt"
+    result = context._include_paths(Message("user", f"Read @good.txt {long_name}"))
+    assert "keep-this-marker" in result.content
 
 
 def test_explicit_command_backticks_do_not_expand_embedded_path(tmp_path, monkeypatch):

@@ -375,6 +375,10 @@ class GptmeCompleter(Completer):
                     complete_seg[: len(complete_seg) + completion.start_position]
                     + completion.text
                 )
+                # Nested ticks would close the wrapper early and expose an
+                # inner `@path` token. Skip those names; the user can type them.
+                if "`" in completed:
+                    continue
                 if not any(ch.isspace() for ch in completed):
                     yield completion
                     continue

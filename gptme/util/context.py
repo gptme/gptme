@@ -721,6 +721,12 @@ def _include_paths(
             except PermissionError:
                 logger.warning("Skipping unreadable file: %s", word)
                 continue
+            except OSError as oserr:
+                # Path.exists() can raise ENAMETOOLONG; skip this reference
+                # without aborting sibling attachments already in the prompt.
+                if oserr.errno == errno.ENAMETOOLONG:
+                    continue
+                raise
             if over_budget:
                 mime, _ = mimetypes.guess_type(str(f))
                 if not mime or mime.startswith("text/"):
