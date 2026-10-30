@@ -22,7 +22,11 @@ def _patch_content(replacement: str) -> str:
 @pytest.mark.parametrize("operation", ["save", "patch"])
 @pytest.mark.parametrize("symlink", [False, True], ids=["file", "symlink"])
 def test_unencodable_write_preserves_existing_file(
-    tmp_path: Path, surrogate: str, operation: str, symlink: bool, requires_symlinks
+    tmp_path: Path,
+    surrogate: str,
+    operation: str,
+    symlink: bool,
+    request: pytest.FixtureRequest,
 ) -> None:
     target = tmp_path / "original.txt"
     original = b"original\r\nuntouched\r\n"
@@ -31,6 +35,7 @@ def test_unencodable_write_preserves_existing_file(
     mode = target.stat().st_mode
     path = target
     if symlink:
+        request.getfixturevalue("requires_symlinks")
         path = tmp_path / "link.txt"
         path.symlink_to(target)
     messages: list[Message] = []
