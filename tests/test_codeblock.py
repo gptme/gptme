@@ -2063,6 +2063,579 @@ def test_thinking_tag_concatenated_then_unclosed_standalone():
     assert len(blocks) == 0
 
 
+def test_thinking_tags_inside_save_block_executed():
+    """
+    Regression test for gptme#4490: <thinking>...</thinking> tags appearing as literal
+    file content inside a save block must NOT be mistaken for a model thinking section.
+
+    The fence-aware _has_standalone check must skip occurrences inside code fences so the
+    save block is extracted and executed normally.
+    """
+    # Reproduces the exact template from the issue report
+    markdown = (
+        "```save /workspace/prompt_template.xml\n"
+        "<system>\nAssume you are a careful math tutor.\n</system>\n"
+        "<thinking>\nWork through the problem step by step here.\n</thinking>\n"
+        "<answer>\nFinal numeric answer here.\n</answer>\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}"
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>" in blocks[0].content
+    assert "</thinking>" in blocks[0].content
+    assert "<answer>" in blocks[0].content
+
+
+def test_thinking_tags_inside_save_block_with_real_thinking_before():
+    """
+    Real thinking section BEFORE a save block that contains <thinking> tags:
+    the genuine thinking section should be stripped, and the save block executed.
+    """
+    markdown = (
+        "<thinking>\nLet me plan this out...\n</thinking>\n"
+        "```save /workspace/prompt_template.xml\n"
+        "<thinking>\nWork through the problem step by step here.\n</thinking>\n"
+        "<answer>\nFinal numeric answer here.\n</answer>\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1, f"expected 1 block, got {len(blocks)}"
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>" in blocks[0].content
+
+
+def test_thinking_tag_only_inside_fence_no_close_tag_does_not_early_exit():
+    """
+    If <thinking> appears only inside a code fence and there is no </thinking> anywhere,
+    the parser must NOT early-exit — the save block should still be extracted.
+    """
+    markdown = "```save /workspace/template.xml\n<thinking>\nno closing tag here\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>" in blocks[0].content
+
+
+def test_adjacent_fences_then_unfinished_thinking_does_not_extract_inner_shell():
+    """Adjacent-fence recovery must not hide a later genuine unfinished thinking tag.
+
+    Regression for gptme/gptme#4491 Greptile P1: the naive fence helper treated
+    ` ``````shell` as a closer, so `<thinking>` looked in-fence and the shell
+    command inside unfinished thinking was extracted.
+    """
+    markdown = (
+        "```shell\necho first\n"
+        "``````shell\necho second\n```\n\n"
+        "<thinking>\nConsidering:\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert blocks == []
+
+
+def test_literal_closing_thinking_tag_only_inside_save_is_extracted():
+    """A save/patch whose content is only a literal closing tag must still extract.
+
+    Regression for gptme/gptme#4491 Greptile P1: `not _has_any` stripped the
+    block header because the prefix contained no opening tag.
+    """
+    markdown = "```save template.xml\n</thinking>\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert blocks[0].content == "</thinking>"
+
+
+def test_repeated_literal_thinking_tags_inside_save_are_extracted():
+    """Repeated literal thinking tags inside a save must not trip the concat path.
+
+    Regression for gptme/gptme#4491 Greptile P1: the first pair was skipped, but
+    `_after_concat` treated the second opening tag as unfinished thinking.
+    """
+    markdown = "```save template.xml\n<thinking>one</thinking>\n<thinking>two\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "<thinking>one</thinking>" in blocks[0].content
+    assert "<thinking>two" in blocks[0].content
+
+
+def test_literal_thinking_tags_reuse_fence_scan():
+    """Literal closers must not trigger a full fence scan for every tag.
+
+    Streaming reparses growing messages, so per-tag scans make a template's
+    cumulative parsing cost cubic. Count scans rather than timing the machine.
+    """
+    from unittest.mock import patch
+
+    from gptme.codeblock import _line_fence_states
+
+    for count in (10, 100):
+        content = "<thinking>literal</thinking>\n<think>literal</think>\n" * count
+        markdown = f"```save template.xml\n{content}```\n\n"
+        for streaming in (False, True):
+            with patch(
+                "gptme.codeblock._line_fence_states", wraps=_line_fence_states
+            ) as scan:
+                blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+            assert blocks == [Codeblock("save template.xml", content.rstrip("\n"))]
+            # One shared closer scan plus at most one standalone-opener scan
+            # for each supported tag variant, independent of the tag count.
+            assert scan.call_count <= 3
+
+
+def test_nested_thinking_examples_use_linear_tagged_fence_scan():
+    """Repeated literal examples must not rescan every remaining fence."""
+    from unittest.mock import patch
+
+    from gptme import codeblock
+
+    for tag in ("think", "thinking"):
+        for count in (10, 100):
+            content = f"```\n<{tag}>x</{tag}>\n```\nDone\n" * count
+            markdown = f"```save a.md\n{content}```\n\n"
+            for streaming in (False, True):
+                with patch(
+                    "gptme.codeblock.re.match", wraps=codeblock.re.match
+                ) as match:
+                    blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+                assert blocks == [Codeblock("save a.md", content.rstrip("\n"))]
+                # Count work instead of wall time: suffix rescans exceed this
+                # linear bound at 100 examples, even with shared fence walks.
+                assert match.call_count < 50 * len(markdown.split("\n"))
+
+
+def test_repeated_opener_after_concatenated_thinking_does_not_extract_draft():
+    """A later standalone opener must not override the earlier concat opener."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```shell\necho first\n"
+            f"```<{tag}>\n```shell\necho draft\n```\n\n"
+            f"<{tag}>\nmore\n</{tag}>\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("shell", "echo first"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
+def test_unclosed_literal_thinking_examples_use_linear_closer_search():
+    """Count substring checks too: regex-only bounds miss quadratic suffix scans."""
+    from gptme.codeblock import _line_fence_states
+
+    class CountedLine(str):
+        checks = 0
+
+        def __contains__(self, item):
+            if item in ("</think>", "</thinking>"):
+                CountedLine.checks += 1
+            return super().__contains__(item)
+
+    class CountedText(str):
+        def split(self, sep=None, maxsplit=-1):
+            return [CountedLine(line) for line in super().split(sep, maxsplit)]
+
+    for tag in ("think", "thinking"):
+        for count in (10, 100):
+            content = f"```\n<{tag}>\nexample\n```\nDone\n" * count
+            markdown = f"```save a.md\n{content}```\n\n"
+            for streaming in (False, True):
+                CountedLine.checks = 0
+                states = _line_fence_states(CountedText(markdown), streaming=streaming)
+                assert len(states) == len(markdown.split("\n"))
+                assert CountedLine.checks <= 4 * len(states)
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                    Codeblock("save a.md", content.rstrip("\n"))
+                ]
+
+
+def test_bare_fences_without_thinking_tags_skip_fence_state_walker():
+    """Standalone-tag checks must not walk fence state when no thinking tags exist.
+
+    Regression for gptme/gptme#4491 AI-review P2: `_line_fence_states` scanned
+    the remaining suffix at every nested closer, and the two standalone-tag
+    checks invoked that walker even for messages with no thinking tags.
+    `("```\\nx\\n```\\nprose\\n") * 2000` took ~5s per extraction on 6281ce98.
+    """
+    from unittest.mock import patch
+
+    from gptme.codeblock import _line_fence_states
+
+    markdown = ("```\nx\n```\nprose\n") * 200
+    for streaming in (False, True):
+        with patch(
+            "gptme.codeblock._line_fence_states", wraps=_line_fence_states
+        ) as scan:
+            blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+        assert blocks == []
+        assert scan.call_count == 0
+
+
+def test_nested_language_fence_with_think_tags_inside_save_is_extracted():
+    """A language-tagged nested fence must not close the outer save for thinking checks.
+
+    Regression for gptme/gptme#4491 AI-review P1: ` ```xml` was treated as closing
+    the save, so literal `<think>` looked standalone and the save was stripped.
+    """
+    markdown = "```save a.md\n```xml\n<think>\nx\n</think>\n```\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang.startswith("save")
+    assert "<think>" in blocks[0].content
+    assert "</think>" in blocks[0].content
+    assert "```xml" in blocks[0].content
+
+
+def test_unclosed_shell_inside_think_still_yields_later_tool_block():
+    """An unclosed fence inside reasoning must not swallow the thinking closer.
+
+    Regression for gptme/gptme#4491 in-band P1: `_closer_inside_nonthinking_fence`
+    treated `</think>` as shell content because the model left a ```shell fence
+    open inside `<think>`, then the standalone-opener check dropped the later
+    tool block.
+    """
+    markdown = "<think>\n```shell\necho draft\n</think>\n```shell\necho final\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == "echo final"
+
+
+def test_mixed_thinking_tags_do_not_extract_reasoning_commands():
+    """Stripping one thinking-tag variant must not bypass the other variant."""
+    for first, second in (("thinking", "think"), ("think", "thinking")):
+        for close_second in (False, True):
+            markdown = (
+                f"<{first}>plan</{first}>\n<{second}>\n```shell\necho draft\n```\n"
+            )
+            expected = []
+            if close_second:
+                markdown += f"</{second}>\n```shell\necho final\n```\n\n"
+                expected = [Codeblock("shell", "echo final")]
+            for streaming in (False, True):
+                assert (
+                    list(_extract_codeblocks(markdown, streaming=streaming)) == expected
+                )
+
+
+def test_tool_blocks_between_thinking_sections_are_preserved():
+    """Removing a later reasoning section must not discard earlier tool calls."""
+    for first_tag in ("think", "thinking"):
+        for second_tag in ("think", "thinking"):
+            markdown = (
+                f"<{first_tag}>a</{first_tag}>\n"
+                "```shell\necho first\n```\n"
+                f"<{second_tag}>b</{second_tag}>\n"
+                "```shell\necho second\n```\n\n"
+            )
+            for streaming in (False, True):
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                    Codeblock("shell", "echo first"),
+                    Codeblock("shell", "echo second"),
+                ]
+
+
+def test_inline_thinking_before_literal_other_variant_closer_preserves_save():
+    """An inline opener and closer must leave the next save outside reasoning."""
+    for tag, literal_tag in (("think", "thinking"), ("thinking", "think")):
+        markdown = f"<{tag}>plan</{tag}>\n```save a.xml\n</{literal_tag}>\n```\n\n"
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.xml", f"</{literal_tag}>")
+            ]
+
+
+def test_thinking_directly_after_save_preserves_following_command():
+    """A save closer followed by reasoning must not swallow a later shell call."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```save a.txt\nhello\n```\n"
+            f"<{tag}>\nplan\n</{tag}>\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.txt", "hello"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
+def test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shell():
+    """Unclosed reasoning after a completed save must not yield inner commands.
+
+    Regression for gptme/gptme#4491 AI-review P1: nested-fence lookahead treated
+    the save closer as a nested opener because a later bare fence existed inside
+    unfinished `<think>`, so `echo should-not-run` was extracted.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        "<think>\n```\ndraft\n```\n\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_unfinished_thinking_blank_lines_before_shell_does_not_extract_command():
+    """Blank lines after a nested closer must not hide a later tagged shell.
+
+    Regression for gptme/gptme#4491 Greptile P1 on 217c5beb65a3: the tagged-fence
+    search after the nested closer used a 4-line window, so five blank lines
+    made `nested_example_continues` true and extracted `echo should-not-run`.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        "<think>\n```\ndraft\n```\n"
+        "\n\n\n\n\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_repeated_thinking_openers_are_one_span():
+    """Repeated openers must strip from the first, not leave an unfinished tag.
+
+    Regression for gptme/gptme#4491 Greptile P1: the second `<think>` overwrote
+    `_standalone_start`, so the first opener survived and suppressed the shell.
+    """
+    markdown = (
+        "<think>\nplan\n<think>\nmore plan\n</think>\n\n```shell\necho final\n```\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+            Codeblock("shell", "echo final")
+        ]
+
+
+def test_literal_thinking_opener_does_not_disable_gemini_recovery():
+    """A literal `<thinking>` in a prior save must not block Gemini stripping.
+
+    Regression for gptme/gptme#4491 AI-review P1: `_has_any` counted the file
+    content tag, classified `</thinking>` as concatenated, and dropped the
+    following shell command.
+    """
+    markdown = (
+        "```save a.xml\n<thinking>\n```\n\n"
+        "```thinking>\nplan\n</thinking>\n"
+        "```shell\necho final\n```"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+            Codeblock("save a.xml", "<thinking>"),
+            Codeblock("shell", "echo final"),
+        ]
+
+
+def test_unlabelled_nested_thinking_example_preserves_save():
+    """Bare nested fences must use the extractor's lookahead, not close the save."""
+    content = "```\n<think>\nx\n</think>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+            Codeblock("save a.md", content)
+        ]
+
+
+def test_unlabelled_nested_unclosed_thinking_example_preserves_save():
+    """Unclosed <think> as the first nested-example line must not drop the save.
+
+    Regression for gptme/gptme#4491 AI-review P1 on 76a93bfc717a: fence-state
+    recovery treated the save closer as complete because thinking was unclosed,
+    even though lookahead confirmed a nested example. Extraction then
+    early-exited with no blocks. Closed-tag nested examples already pass above;
+    a following tagged shell after the nested closer still early-exits
+    (`test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shell`).
+    """
+    for tag in ("think", "thinking"):
+        content = f"intro\n```\n<{tag}>\nexample\n```\nDone"
+        markdown = f"```save a.md\n{content}\n```\n\n"
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.md", content)
+            ]
+
+
+def test_nested_unclosed_think_save_later_command_fail_closed():
+    """A later tagged command after nested unclosed-think is fail-closed.
+
+    That shape is indistinguishable from unfinished reasoning that leaks a
+    shell (`test_unfinished_thinking_prose_before_nested_fence_does_not_extract_shell`).
+    Nested unclosed-think saves still extract when no later tagged command
+    follows (`test_unlabelled_nested_unclosed_thinking_example_preserves_save`).
+    """
+    for tag in ("think", "thinking"):
+        content = f"intro\n```\n<{tag}>\nexample\n```\nDone"
+        markdown = f"```save a.md\n{content}\n```\n\n```shell\necho final\n```\n\n"
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_unfinished_thinking_prose_before_nested_fence_does_not_extract_shell():
+    """Reasoning prose before a nested fence must not yield later commands.
+
+    Regression for gptme/gptme#4491 AI-review P1 f6df6a24b601: `Considering:`
+    made `nested_example_continues` true, so unfinished `<think>` was treated
+    as save content and `echo should-not-run` extracted.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        "<think>\nConsidering:\n```\ndraft\n```\n\n"
+        "```shell\necho should-not-run\n```\n\n"
+    )
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_closed_thinking_with_bare_example_after_save_preserves_commands() -> None:
+    """Closed reasoning with a fenced draft is not nested save content."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```save a.txt\nhello\n```\n"
+            f"<{tag}>\n```\ndraft\n```\n</{tag}>\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.txt", "hello"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
+def test_concatenated_thinking_inner_shell_is_not_extracted() -> None:
+    """Closed concatenated reasoning must not yield its inner commands.
+
+    Regression for gptme/gptme#4491 AI-review P1 925bab0b1373: preserving
+    markdown[:_start] left ```<think> ... echo draft ... </think> in place,
+    fence recovery split the closer, and extraction executed the draft.
+    """
+    for first, second in (("think", "thinking"), ("thinking", "think")):
+        for with_later in (False, True):
+            markdown = (
+                f"```shell\necho first\n```<{first}>\n"
+                f"```shell\necho draft\n```\n"
+                f"</{first}>\n"
+            )
+            if with_later:
+                markdown += f"<{second}>plan</{second}>\n"
+            markdown += "```shell\necho final\n```\n"
+            expected = [
+                Codeblock("shell", "echo first"),
+                Codeblock("shell", "echo final"),
+            ]
+            for streaming in (False, True):
+                assert (
+                    list(_extract_codeblocks(markdown, streaming=streaming)) == expected
+                )
+
+
+def test_concatenated_thinking_unclosed_inner_shell_then_unfinished_reasoning() -> None:
+    """An unclosed fence inside concatenated reasoning must not hide a new opener."""
+    for first_tag in ("think", "thinking"):
+        for second_tag in ("think", "thinking"):
+            markdown = (
+                f"```shell\necho first\n```<{first_tag}>\n"
+                f"```shell\necho draft\n</{first_tag}>\n"
+                f"<{second_tag}>\n```\n\n"
+                "```shell\necho should-not-run\n```\n\n"
+            )
+            for streaming in (False, True):
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_same_line_closer_then_opener_does_not_extract_shell():
+    """A `<think>` after `</think>` on the same line is a new unclosed section.
+
+    Regression for gptme/gptme#4491 AI-review P1 e8d692a6c72c: `_has_any`
+    searched the whole closer line, counted the second opener as preceding
+    `</think>`, took concatenated recovery, and extracted `echo draft`.
+    """
+    markdown = "plan</think><think>\n```shell\necho draft\n```\n"
+    for streaming in (False, True):
+        assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_streaming_nested_thinking_example_waits_for_outer_closer() -> None:
+    """Closed literal tags do not confirm an unfinished nested save's closure."""
+    for tag in ("think", "thinking"):
+        prefix = f"```save a.md\nintro\n```\n<{tag}>x</{tag}>\n\n"
+        assert list(_extract_codeblocks(prefix, streaming=True)) == []
+        content = f"intro\n```\n<{tag}>x</{tag}>\n\n```\nDone"
+        completed = f"```save a.md\n{content}\n```\n\n"
+        for end in range(1, len(completed)):
+            assert list(_extract_codeblocks(completed[:end], streaming=True)) == []
+        assert list(_extract_codeblocks(completed, streaming=True)) == [
+            Codeblock("save a.md", content)
+        ]
+
+
+def test_thinking_span_followed_by_prose_preserves_tool_boundaries() -> None:
+    """Removing reasoning leaves a separator before inline trailing prose."""
+    for tag in ("think", "thinking"):
+        markdown = (
+            "```save a.txt\nhello\n```\n"
+            f"<{tag}>plan</{tag}>Now running it.\n"
+            "```shell\necho final\n```\n\n"
+        )
+        for streaming in (False, True):
+            assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                Codeblock("save a.txt", "hello"),
+                Codeblock("shell", "echo final"),
+            ]
+
+
+def test_shell_heredoc_thinking_tags_remain_literal():
+    """Thinking recovery must not close a shell fence inside its heredoc body."""
+    for lang in ("shell", "bash", "sh"):
+        for terminator in ("EOF", "'EOF'", '"EOF"'):
+            for tag in ("think", "thinking"):
+                content = f"cat <<{terminator} > a.md\n```\n<{tag}>\nexample\nEOF"
+                markdown = f"```{lang}\n{content}\n```\n\n"
+                assert list(_extract_codeblocks(markdown)) == [Codeblock(lang, content)]
+
+                # With a balanced nested example, both extraction modes can
+                # confirm completion; later unfinished reasoning still blocks it.
+                content = content.replace("example\nEOF", "example\n```\nEOF")
+                markdown = f"```{lang}\n{content}\n```\n\n"
+                for streaming in (False, True):
+                    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+                        Codeblock(lang, content)
+                    ]
+                    unfinished = markdown + "<think>\n```shell\necho draft\n```\n\n"
+                    assert (
+                        list(_extract_codeblocks(unfinished, streaming=streaming)) == []
+                    )
+
+
+def test_shell_quoted_fence_does_not_hide_later_unfinished_thinking():
+    """A quoted fence must not hide the genuine unfinished reasoning after shell."""
+    for lang in ("shell", "bash", "sh"):
+        for assignment in ("s='\n```\n'", 's="\n```\n"', "s=$'\n```\n'"):
+            markdown = (
+                f"```{lang}\n{assignment}\necho done\n```\n\n"
+                "<think>\n```shell\necho draft\n```"
+            )
+            for streaming in (False, True):
+                assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+def test_ipython_quoted_fence_does_not_hide_later_unfinished_thinking():
+    """A bare fence inside an IPython triple-quoted string is not a block closer.
+
+    Regression for gptme/gptme#4491 in-band P1: the fence walker closed the
+    ipython block at the string's ```, so a later unfinished <think> looked
+    in-fence and a shell command inside reasoning was extracted.
+    """
+    markdown = (
+        '```ipython\ns = """\n```\n"""\n```\n\n<think>\n```shell\necho draft\n```'
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert blocks == []
+
+
 def test_adjacent_fences_bare_multifence_content_line():
     """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
     # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.
@@ -2362,3 +2935,103 @@ def test_extract_codeblocks_shell_ansi_c_escaped_quote_does_not_hide_closer():
     assert blocks_stream == expected, (
         "Streaming must still close after a complete ANSI-C string"
     )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("prose_lines", [1, 30])
+@pytest.mark.parametrize("shell_fence", ["```shell", "``````shell"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_prose_before_unfinished_thinking_does_not_expose_draft(
+    tag: str, prose_lines: int, shell_fence: str, streaming: bool
+) -> None:
+    """Prose after a save closer must not hide unfinished reasoning.
+
+    Regression for gptme/gptme#4491 finding f2719f3a488c. The opener
+    need not be on the line immediately after the completed save.
+    """
+    markdown = (
+        "```save a.txt\nhello\n```\n"
+        + "Considering:\n" * prose_lines
+        + f"<{tag}>\n{shell_fence}\necho draft\n```\n\n"
+    )
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_thinking_example_with_introductory_prose_preserves_save(
+    tag: str, streaming: bool
+) -> None:
+    """Recovery through prose still preserves a confirmed nested example."""
+    content = f"intro\n```\nExample:\n<{tag}>x</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+        Codeblock("save a.md", content)
+    ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("bare_fence", ["````", "`````", "``````", "````  "])
+def test_bare_long_fence_after_thinking_example_preserves_save(
+    tag: str, streaming: bool, bare_fence: str
+) -> None:
+    """Long bare fences are literal content, not evidence of a later tool call."""
+    content = f"intro\n```\n<{tag}>\nexample\n```\nDone\n{bare_fence}"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+        Codeblock("save a.md", content)
+    ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_output_before_unfinished_thinking_does_not_expose_draft(
+    tag: str, streaming: bool
+) -> None:
+    markdown = (
+        "```save a.txt\nhello\n```\nHere is output:\n```output\nx\n```\n"
+        f"<{tag}>\n``````shell\necho DRAFT\n```\n\n"
+    )
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == []
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_thinking_with_tagged_example_does_not_truncate_save(
+    tag: str, streaming: bool
+) -> None:
+    content = f"intro\n```\n<{tag}>\n```shell\necho example\n```\n</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == [
+        Codeblock("save a.md", content)
+    ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_streaming_nested_tagged_thinking_example_never_writes_prefix(tag: str) -> None:
+    content = f"intro\n```\n<{tag}>\n```shell\necho example\n```\n</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n"
+    for end in range(1, len(markdown) + 1):
+        blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
+        assert all(block == Codeblock("save a.md", content) for block in blocks), (
+            end,
+            blocks,
+        )
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_nested_tagged_thinking_example_with_later_command_never_truncates(
+    tag: str, streaming: bool
+) -> None:
+    content = f"intro\n```\n<{tag}>\n```shell\necho example\n```\n</{tag}>\n```\nDone"
+    markdown = f"```save a.md\n{content}\n```\n\n```shell\necho final\n```\n\n"
+    # Non-streaming remains fail-closed on this ambiguous shape. Streaming
+    # confirms the complete literal save; neither mode may write just "intro".
+    expected = (
+        [Codeblock("save a.md", content), Codeblock("shell", "echo final")]
+        if streaming
+        else []
+    )
+    assert list(_extract_codeblocks(markdown, streaming=streaming)) == expected
