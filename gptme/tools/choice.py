@@ -2,6 +2,7 @@
 Gives the assistant the ability to present multiple-choice options to the user for selection.
 """
 
+import re
 from collections.abc import Generator
 
 from ..message import Message
@@ -129,10 +130,7 @@ def execute_choice(
     # Strip out 1., 2., 3., etc numbers from options if they are present
     def _strip_numbering(opt: str) -> str:
         """Strip leading '1.', '2.' etc numbering from option text."""
-        parts = opt.split()
-        if parts and opt[0].isdigit() and "." in parts[0]:
-            return " ".join(parts[1:])
-        return opt
+        return re.sub(r"^\d+\.\s+", "", opt, count=1)
 
     options = [_strip_numbering(opt) if opt and opt.strip() else opt for opt in options]
 
