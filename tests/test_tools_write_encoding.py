@@ -11,6 +11,8 @@ from gptme.tools.patch import execute_patch_impl
 from gptme.tools.save import execute_append_impl, execute_save_impl
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
     from gptme.message import Message
 
 
@@ -39,7 +41,9 @@ def test_unencodable_write_preserves_existing_file(
         path = tmp_path / "link.txt"
         path.symlink_to(target)
     messages: list[Message] = []
-    handler = execute_save_impl if operation == "save" else execute_patch_impl
+    handler: Callable[[str, Path | None], Generator[Message, None, None]] = (
+        execute_save_impl if operation == "save" else execute_patch_impl
+    )
     content = "replacement" + surrogate
     if operation == "patch":
         content = _patch_content(content)
@@ -93,7 +97,9 @@ def test_valid_unicode_write_preserves_newlines_and_symlink(
     path = tmp_path / "link.txt"
     path.symlink_to(target)
     content = replacement + "\r\nsecond\r\n"
-    handler = execute_save_impl
+    handler: Callable[[str, Path | None], Generator[Message, None, None]] = (
+        execute_save_impl
+    )
     if operation == "patch":
         content = _patch_content(content.rstrip("\r\n"))
         handler = execute_patch_impl
