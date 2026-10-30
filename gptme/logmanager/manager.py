@@ -1191,6 +1191,10 @@ def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
             and _generation(merged[-1]) == _generation(msg)
             and not _has_compaction_block(msg)
             and not _has_compaction_block(merged[-1])
+            # Responses assistant items carry distinct phases/boundaries. Concat
+            # keeps only the first metadata and would silently discard the rest.
+            and not (msg.metadata or {}).get("responses_output")
+            and not (merged[-1].metadata or {}).get("responses_output")
         ):
             merged[-1] = merged[-1].concat(msg)
         else:

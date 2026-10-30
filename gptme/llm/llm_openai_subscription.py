@@ -58,6 +58,7 @@ from .openai_responses import (
     _stream_responses_events,
     _tool_spec_to_responses_tool,
 )
+from .responses_phase import ResponsesPhaseCapture
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import retry_delay_for_error
 
@@ -824,12 +825,16 @@ def stream(
 
     # The parser can raise while the event generator is suspended at yield.
     # Close it explicitly so retained exception tracebacks do not hold sockets.
+    phases = ResponsesPhaseCapture()
+    output: list[str] = []
     with closing(_sse_events()) as events:
-        yield from _stream_responses_events(
-            events,
+        for chunk in _stream_responses_events(
+            phases.events(events),
             usage_callback=_capture_usage,
             model_callback=_capture_model,
-        )
+        ):
+            output.append(chunk)
+            yield chunk
 
     # Return usage metadata so _StreamWithMetadata can attach it to the message.
     # _StreamWithMetadata adds the full provider-prefixed model name automatically.
@@ -842,6 +847,7 @@ def stream(
         # Model id exactly as the ChatGPT backend reported it (e.g.
         # "gpt-5.6-sol"), recorded even when it matches the requested model.
         effort_meta["served_model"] = _served_model
+    effort_meta = phases.metadata(effort_meta, "".join(output)) or effort_meta
     if not _usage_holder:
         return effort_meta
     counts = _extract_usage_token_counts(_usage_holder[0])
