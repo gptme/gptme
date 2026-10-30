@@ -53,6 +53,10 @@ def forbid_admission(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(convert.subprocess, "run", unexpected)
 
 
+def source_diagnostic(src: Path) -> str:
+    return "not a regular file" if src.exists() else "not found"
+
+
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_router_rejects_invalid_source_before_inspection(
     invalid_source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
@@ -62,6 +66,7 @@ def test_router_rejects_invalid_source_before_inspection(
     result = convert.convert_file(invalid_source, dest, dry_run=dry_run)
     assert not result.success
     assert result.error and "input" in result.error.lower()
+    assert source_diagnostic(invalid_source) in result.error
     assert not dest.parent.exists()
 
 
@@ -69,7 +74,7 @@ def test_find_converter_rejects_invalid_source_before_inspection(
     invalid_source: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     forbid_admission(monkeypatch)
-    with pytest.raises(ValueError, match="[Ii]nput"):
+    with pytest.raises(ValueError, match=source_diagnostic(invalid_source)):
         convert.find_converter(invalid_source, "txt")
 
 
@@ -95,6 +100,7 @@ def test_concrete_converter_rejects_invalid_source_before_backend(
     result = converter().convert(invalid_source, dest)
     assert not result.success
     assert result.error and "input" in result.error.lower()
+    assert source_diagnostic(invalid_source) in result.error
     assert dest.read_bytes() == b"valuable existing output"
 
 
@@ -114,13 +120,18 @@ def test_structured_rejects_invalid_source(
         },
     )
     assert "input" in result.content.lower()
+    assert source_diagnostic(invalid_source) in result.content
     assert "error" in result.content.lower() or "failed" in result.content.lower()
     assert not dest.exists()
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_cli_rejects_invalid_source(
-    invalid_source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dry_run: bool
+    invalid_source: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dry_run: bool,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     forbid_admission(monkeypatch)
     dest = tmp_path / "out.txt"
@@ -128,6 +139,7 @@ def test_cli_rejects_invalid_source(
     if dry_run:
         args.append("--dry-run")
     assert convert.main(args) == 1
+    assert source_diagnostic(invalid_source) in capsys.readouterr().out
     assert not dest.exists()
 
 
