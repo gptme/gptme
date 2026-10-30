@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     from gptme.message import Message
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="requires POSIX RLIMIT_FSIZE")
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="requires POSIX RLIMIT_FSIZE and supported existing-file replacement",
+)
 @pytest.mark.parametrize("operation", ["save", "patch"])
 def test_real_file_size_failure_preserves_original(
     tmp_path: Path, operation: str
@@ -240,6 +243,38 @@ def test_xattr_inspection_errors_preserve_original(
     assert target.read_bytes() == b"PRIVATE\n"
     assert target.stat().st_ino == before.st_ino
     assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="POSIX directory modes"
+)
+@pytest.mark.parametrize("mode", [0o770, 0o777, 0o1777])
+@pytest.mark.parametrize("exists", [False, True])
+def test_shared_writable_parent_refused_before_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int, exists: bool
+) -> None:
+    from gptme.util import file_write
+
+    parent = tmp_path / "shared"
+    parent.mkdir()
+    target = parent / "target"
+    if exists:
+        target.write_text("ORIGINAL\n")
+    parent.chmod(mode)
+    real_open = os.open
+    staged = []
+
+    def track_open(path, flags, *args, **kwargs):
+        if flags & os.O_CREAT:
+            staged.append(path)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(file_write.os, "open", track_open)
+    with pytest.raises(ValueError, match="directory writable by other users"):
+        file_write.write_text_preserving_original(target, "REPLACEMENT\n", newline="")
+    assert not staged
+    assert target.read_text() == "ORIGINAL\n" if exists else not target.exists()
+    assert sorted(p.name for p in parent.iterdir()) == (["target"] if exists else [])
 
 
 @pytest.mark.parametrize("phase", ["write", "close", "replace"])

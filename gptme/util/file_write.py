@@ -62,6 +62,16 @@ def write_text_preserving_original(path: Path, content: str, *, newline: str) ->
         permission_fd = os.open(path, os.O_WRONLY)
         os.close(permission_fd)
 
+    if os.name == "posix":
+        parent = path.parent.stat()
+        # A different directory owner can change its mode; group/other writers
+        # can replace the staging name even while its private fd remains open.
+        # POSIX ACL write grants are also reflected in the group class mask.
+        if parent.st_uid != os.geteuid() or parent.st_mode & 0o022:
+            raise ValueError(
+                f"Cannot safely stage in directory writable by other users `{path.parent}`"
+            )
+
     temporary = path.with_name(f".gptme-write-{uuid.uuid4().hex}.tmp")
     mode = 0o600 if info is not None else 0o666
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
