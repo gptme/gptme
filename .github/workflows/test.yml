@@ -261,6 +261,7 @@ jobs:
           tests/test_logmanager_locking.py `
           tests/test_file_publication.py::test_windows_existing_destination_refused_before_open `
           tests/test_file_publication.py::test_windows_new_destination_still_created `
+          tests/test_file_publication.py::test_macos_existing_destination_refused_before_open `
           tests/test_config.py::test_custom_tool_file_allowlist_preserved `
           tests/test_config.py::test_custom_tool_file_mixed_allowlist `
           tests/test_llm_openai.py::TestIsProxy `

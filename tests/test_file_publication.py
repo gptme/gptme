@@ -126,6 +126,8 @@ def test_windows_new_destination_still_created(
 def test_macos_existing_destination_refused_before_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
 ) -> None:
+    from types import SimpleNamespace
+
     from gptme.tools.patch import execute_patch_impl
     from gptme.tools.save import execute_save_impl
     from gptme.util import file_write
@@ -140,10 +142,19 @@ def test_macos_existing_destination_refused_before_open(
         opened.append(args[0])
         return real_open(*args, **kwargs)
 
-    monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr(file_write.os, "open", track_open)
+    # Isolate both platform values without changing pathlib's host OS selection.
     # macOS may expose no xattrs even when the file has a deny ACL.
-    monkeypatch.setattr(file_write.os, "listxattr", lambda path: [], raising=False)
+    monkeypatch.setattr(file_write, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(
+        file_write,
+        "os",
+        SimpleNamespace(
+            **(
+                vars(os)
+                | {"name": "posix", "open": track_open, "listxattr": lambda path: []}
+            )
+        ),
+    )
     with pytest.raises(ValueError, match="macOS ACL"):
         if operation == "helper":
             file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
