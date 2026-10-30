@@ -1324,7 +1324,8 @@ def chat(
                         parts.append(_obj_get(part, "refusal", ""))
                 # Preserve intra-message content boundaries without inventing a
                 # newline between parts. Legacy unphased output is unchanged.
-                result.extend(["".join(parts)] if preserve_items else parts)
+                if parts:
+                    result.extend(["".join(parts)] if preserve_items else parts)
 
         if not result:
             raise ValueError("Responses API returned no usable output items")

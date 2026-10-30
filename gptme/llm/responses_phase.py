@@ -11,7 +11,8 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from ..tools.base import ToolUse, find_json_end
+from ..message import _strip_think_sig
+from ..tools.base import ToolUse, find_json_end, toolcall_re
 from ..tools.native_names import native_tool_name
 from .openai_responses import _obj_get
 
@@ -26,11 +27,43 @@ if TYPE_CHECKING:
     )
 
 
-def _visible(content: str) -> str:
-    """Match the existing reasoning-strip transform, without storing reasoning."""
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-    content = re.sub(r"<thinking>.*?</thinking>", "", content, flags=re.DOTALL)
-    return re.sub(r"\n\n\n+", "\n\n", content).strip()
+def _prose(content: str) -> str:
+    """Normalize only prose; never apply reasoning regexes to native JSON."""
+    if re.search(r"<think(?:ing)?>", content):
+        from ..context import strip_reasoning
+
+        # The shared utility strips edges too. Retain separators around native
+        # calls so removing reasoning cannot glue prose to an @call header.
+        leading = content[: len(content) - len(content.lstrip())]
+        trailing = content[len(content.rstrip()) :]
+        content, _ = strip_reasoning(content)
+        # An interrupted reasoning block is not replayable visible text either.
+        content = re.sub(r"<think(?:ing)?>.*$", "", content, flags=re.DOTALL)
+        content = leading + content + trailing
+    return _strip_think_sig(content)
+
+
+def _native_parts(content: str) -> tuple[list[str], list[ToolUse], list[str]] | None:
+    """Parse unchanged content, returning outside prose and exact native spans."""
+    calls = [
+        call for call in ToolUse.iter_from_content(content, "tool") if call.call_id
+    ]
+    prose: list[str] = []
+    raw_calls: list[str] = []
+    cursor = 0
+    for call in calls:
+        start = call.start
+        if start is None or start < cursor:
+            return None
+        match = toolcall_re.match(content, start)
+        end = find_json_end(content, match.start(3)) if match else None
+        if end is None:
+            return None
+        prose.append(content[cursor:start])
+        raw_calls.append(content[start:end])
+        cursor = end
+    prose.append(content[cursor:])
+    return prose, calls, raw_calls
 
 
 def _digest(content: str) -> str:
@@ -58,23 +91,13 @@ def replay_responses_output(
     captured = output.get("items")
     if not isinstance(captured, list):
         return None
-    visible = _visible(content)
-    calls = [c for c in ToolUse.iter_from_content(visible, "tool") if c.call_id]
-    # Remove only native calls actually accepted by the parser. Never source a
-    # call or its arguments from terminal metadata.
-    text_parts: list[str] = []
-    cursor = 0
-    for call in calls:
-        start = call.start
-        if start is None or start < cursor:
-            return None
-        end = find_json_end(visible, visible.find("{", start))
-        if end is None:
-            return None
-        text_parts.append(visible[cursor:start])
-        cursor = end
-    text_parts.append(visible[cursor:])
-    remaining = "".join(text_parts).strip()
+    parts = _native_parts(content)
+    if parts is None:
+        return None
+    text_parts, calls, _ = parts
+    # Calls and kwargs come from UNCHANGED current content. Strip reasoning only
+    # after removing their spans, so literal tags/signatures in JSON survive.
+    remaining = _prose("".join(text_parts)).strip()
     items: list[dict[str, Any]] = []
     call_index = 0
     for item in captured:
@@ -86,6 +109,7 @@ def replay_responses_output(
                 return None
             # Item whitespace is retained in replay, while display separators
             # and reasoning-strip whitespace are not item content.
+            text = _prose(text)
             match = re.sub(r"\n\n\n+", "\n\n", text).strip()
             remaining = remaining.lstrip()
             if not remaining.startswith(match):
@@ -174,26 +198,32 @@ class ResponsesPhaseCapture:
             return metadata
         # A terminal function item is not proof that the parser accepted it.
         # Keep only anchors for native calls actually present in current output.
-        calls = [
-            c.call_id
-            for c in ToolUse.iter_from_content(_visible(content), "tool")
-            if c.call_id
-        ]
+        parts = _native_parts(content)
+        if parts is None:
+            return metadata
+        prose, parsed_calls, raw_calls = parts
+        calls = [call.call_id for call in parsed_calls]
         filtered: list[ResponsesTextItem | ResponsesCallItem] = []
         for item in ordered:
             if item["type"] == "function_call":
                 if item["call_id"] not in calls:
                     continue
                 calls.remove(item["call_id"])
+            else:
+                item = {**item, "text": _prose(item["text"])}
             filtered.append(item)
         output: ResponsesOutput = {
             "content_digest": _digest(content),
             "items": filtered,
         }
-        # Only the exact existing reasoning-strip transform is an allowed edit.
-        # Other changes (including whitespace) must not resurrect captured text.
-        stripped = _visible(content)
-        if re.search(r"<think(?:ing)?>", content):
+        # Allow a prose-only reasoning-strip edit, never a transform of argument
+        # strings. Every native span is copied byte-for-byte into this anchor.
+        normalized = [_prose(text) for text in prose]
+        if normalized != prose:
+            stripped = "".join(
+                text + (raw_calls[i] if i < len(raw_calls) else "")
+                for i, text in enumerate(normalized)
+            ).strip()
             output["reasoning_stripped_digest"] = _digest(stripped)
         if replay_responses_output(content, output) is None:
             return metadata

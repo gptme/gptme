@@ -592,10 +592,10 @@ class Message:
             + call_id_toml
         ).strip()
 
-        # doublequotes need to be escaped
-        # content = self.content.replace('"', '\\"')
-        content = escape_string(self.content)
-        content = content.replace("\\n", "\n")
+        # Escape each real line separately: replacing escaped \\n globally also
+        # changes literal backslash-n (e.g. JSON arguments) into TOML line
+        # continuations, silently corrupting the content on reload.
+        content = "\n".join(escape_string(line) for line in self.content.split("\n"))
         # Don't strip - preserve whitespace for data integrity
 
         return f'''[message]

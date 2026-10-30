@@ -973,3 +973,23 @@ def test_message_metadata_migration_nests_reasoning_tokens():
     )
     assert migrated["usage"] == {"output_tokens": 40, "reasoning_tokens": 25}
     assert "reasoning_tokens" not in migrated
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        'Text\n@shell(call_1): {"command": "printf \\\n"}',
+        "Text\n@shell(call_1): "
+        + json.dumps(
+            {
+                "command": "printf '<think>keep</think>'\n<!-- think-sig: literal\nvalue -->"
+            }
+        ),
+        r"literal \n and \\n plus \t and C:\new\notes",
+    ],
+)
+def test_toml_preserves_literal_backslashes_and_real_newlines(content: str) -> None:
+    """Escaped JSON newlines are data, not TOML line-continuation markers."""
+    msg = Message("assistant", content)
+    assert Message.from_toml(msg.to_toml()).content == content
+    assert toml_to_msgs(msgs_to_toml([msg]))[0].content == content

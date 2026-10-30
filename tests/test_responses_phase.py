@@ -378,3 +378,72 @@ def test_rejected_call_not_reinstated_and_no_opaque_data() -> None:
     assert not any(
         i.get("type") == "function_call" for i in _prepare(incomplete, "subscription")
     )
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("source", ["terminal", "both"])
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_review_native_argument_reasoning_tags_are_literal(
+    monkeypatch: pytest.MonkeyPatch, provider: str, source: str, tag: str
+) -> None:
+    """4423052665 / 4423410407: never strip tags inside current JSON values."""
+    command = f"printf '<{tag}>keep</{tag}>'\n<!-- think-sig: literal\nvalue -->"
+    items = [
+        _message("Running", "commentary"),
+        {
+            "type": "function_call",
+            "id": "fc_1",
+            "name": "shell",
+            "call_id": "call_1",
+            "arguments": json.dumps({"command": command}),
+        },
+    ]
+    msg = _reload(_generate(monkeypatch, provider, items, source), "toml")
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider)
+        assert replay[0].get("phase") == "commentary"
+        assert json.loads(replay[1]["arguments"]) == {"command": command}
+        edited = msg.replace(content=msg.content.replace("keep", "edited"))
+        updated = _prepare(edited, replay_provider)
+        assert "phase" not in updated[0]
+        calls = [item for item in updated if item.get("type") == "function_call"]
+        assert json.loads(calls[0]["arguments"]) == {
+            "command": command.replace("keep", "edited")
+        }
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("source", ["terminal", "deltas", "both"])
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_review_inline_reasoning_keeps_phase_without_persisting_reasoning(
+    monkeypatch: pytest.MonkeyPatch, provider: str, source: str, tag: str
+) -> None:
+    """4423052674: capture and comparison must normalize the same prose."""
+    raw = f"<{tag}>private plan\n<!-- think-sig: secret\nsignature -->\n</{tag}>Hello"
+    msg = _reload(
+        _generate(monkeypatch, provider, [_message(raw, "final_answer")], source),
+        "json",
+    )
+    assert "private plan" not in json.dumps(msg.metadata)
+    assert "secret" not in json.dumps(msg.metadata)
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider)
+        assert replay[0] == {
+            "role": "assistant",
+            "content": "Hello",
+            "phase": "final_answer",
+        }
+        stripped = msg.replace(content="Hello")
+        assert _prepare(stripped, replay_provider)[0] == replay[0]
+        edited = msg.replace(content=msg.content.replace("Hello", "Edited"))
+        assert "phase" not in _prepare(edited, replay_provider)[0]
+
+
+def test_review_empty_phased_nonstream_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """4423410416: an item boundary alone is not usable completion content."""
+    item = _message("", "final_answer")
+    item["content"] = []
+    with pytest.raises(ValueError, match="no usable output"):
+        _generate(monkeypatch, "sdk_nonstream", [item], "terminal")
