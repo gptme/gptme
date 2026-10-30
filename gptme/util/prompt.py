@@ -614,9 +614,6 @@ def get_prompt_session() -> PromptSession:
             from ..util.clipboard import paste_image
 
             data = event.data
-            # Normalize line endings (iTerm2 sends \r\n in bracketed paste)
-            data = data.replace("\r\n", "\n").replace("\r", "\n")
-
             logger.debug(f"BracketedPaste handler triggered ({len(data)} chars)")
 
             # First, check OS clipboard for image content directly.
@@ -628,6 +625,18 @@ def get_prompt_session() -> PromptSession:
                 logger.debug(f"BracketedPaste: found image in clipboard: {image_path}")
                 event.current_buffer.insert_text(_clipboard_image_reference(image_path))
                 return
+
+            # Check the original filesystem identity before CR normalization can
+            # turn an existing unsafe image path into a nonexistent LF alias.
+            # URLs and ordinary text retain their existing normalization below.
+            if "\r" in data and not re.match(r"https?://", data.strip()):
+                original_image = _check_clipboard_for_image(data)
+                if original_image:
+                    event.current_buffer.insert_text(original_image)
+                    return
+
+            # Normalize line endings (iTerm2 sends \r\n in bracketed paste).
+            data = data.replace("\r\n", "\n").replace("\r", "\n")
 
             # Check if pasted text is an image URL or path
             image_text = _check_clipboard_for_image(data)

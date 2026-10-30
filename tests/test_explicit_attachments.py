@@ -191,7 +191,7 @@ def test_explicit_reference_inside_code_or_xml_is_not_attached(tmp_path, monkeyp
 
 @pytest.mark.parametrize("key", ["control-v", "bracketed-paste"])
 @pytest.mark.parametrize("native_image", [False, True])
-@pytest.mark.parametrize("unsafe_name", [False, True])
+@pytest.mark.parametrize("unsafe_name", ["", "backtick", "lf", "cr"])
 def test_clipboard_handler_emits_working_attachment(
     tmp_path, monkeypatch, key, native_image, unsafe_name
 ):
@@ -205,9 +205,17 @@ def test_clipboard_handler_emits_working_attachment(
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "secret.txt").write_text("synthetic-wrong-file-marker")
-    name = "photo `@secret.txt` album.png" if unsafe_name else "clipboard picture.png"
-    picture = tmp_path / name
+    names = {
+        "": "clipboard picture.png",
+        "backtick": "photo `@secret.txt` album.png",
+        "lf": "photo\n@secret.txt\nalbum.png",
+        "cr": "photo\r@secret.txt\ralbum.png",
+    }
+    picture = tmp_path / names[unsafe_name]
     Image.new("RGB", (2, 2), "blue").save(picture)
+    if unsafe_name == "cr":
+        # Isolate CR identity: an LF alias would hide pre-detection normalization.
+        assert not Path(str(picture).replace("\r", "\n")).exists()
     monkeypatch.setattr(prompt, "_prompt_session", None)
     monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
     monkeypatch.setattr(
@@ -560,6 +568,7 @@ async def test_cli_aborted_directory_completion_does_not_authorize_next_prompt(
     ("text", "expected"),
     [
         ("ordinary clipboard text", "ordinary clipboard text"),
+        ("first\r\nsecond\rthird", "first\r\nsecond\rthird"),
         (
             "https://example.com/image.png",
             "View this image: https://example.com/image.png",
@@ -596,4 +605,6 @@ def test_clipboard_image_rejection_preserves_text_and_urls(
     keys = (Keys.ControlV if key == "control-v" else Keys.BracketedPaste,)
     assert session.key_bindings is not None
     session.key_bindings.get_bindings_for_keys(keys)[0].handler(event)
+    if key == "bracketed-paste":
+        expected = expected.replace("\r\n", "\n").replace("\r", "\n")
     assert buffer.text == expected
