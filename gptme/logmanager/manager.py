@@ -1113,6 +1113,8 @@ class LogManager:
     def branch(self, name: str) -> None:
         """Switches to a branch."""
         self.write()
+        if name == self.current_branch:
+            return
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
             self._branches[name] = self.log.replace(persisted=())

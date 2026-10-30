@@ -860,3 +860,14 @@ def test_branch_edit_matches_changed_result_by_call_id_with_equal_timestamps(tmp
     manager.edit([second.replace(content="edited")])
     assert "edited" in recall_result(2)
     assert "not a tool result" in recall_result(1)
+
+
+def test_reselect_current_branch_keeps_active_compacted_view(tmp_path):
+    manager = LogManager(_messages(), logdir=tmp_path / "reselect", lock=False)
+    manager.branch("alternative")
+    summary = Message("system", "Keep this checkpoint")
+    manager.create_view("compacted-001", [summary])
+    manager.switch_view("compacted-001")
+    manager.branch("alternative")
+    assert manager.current_view == "compacted-001"
+    assert manager.log.messages == [summary]
