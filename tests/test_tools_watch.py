@@ -1249,3 +1249,92 @@ def test_server_step_drains_only_its_watch_branch(
     finally:
         session.acp_runtime = None
         SessionManager.remove_session(session.id)
+
+
+@pytest.mark.parametrize(("pattern_text", "stable"), [(None, 0.01), ("ready", 0)])
+@pytest.mark.parametrize(
+    "stderr", ["can't find pane: missing", "no server running", "", "x" * 2000]
+)
+def test_tmux_nonzero_capture_never_reports_success(
+    monkeypatch, pattern_text, stable, stderr
+):
+    import re
+    import subprocess
+
+    w = Watch(
+        id="capture",
+        kind="tmux",
+        description="missing",
+        created=time.time(),
+        deadline=time.time() + 0.1,
+    )
+    calls = []
+
+    def capture(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args[0], 1, "ready", stderr)
+
+    monkeypatch.setattr(_watch_mod.subprocess, "run", capture)
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    pattern = re.compile(pattern_text) if pattern_text else None
+    _watch_mod._poll_tmux(w, "missing", pattern, stable)
+    assert w.fired
+    assert len(calls) == 1
+    assert len(w.events) == 1
+    assert w.events[0].startswith("tmux capture failed:")
+    assert "exit 1" in w.events[0]
+    assert len(w.events[0]) < 600
+    if stderr:
+        assert stderr[:100] in w.events[0]
+
+
+@pytest.mark.parametrize(
+    ("output", "pattern_text"), [("", None), ("idle", None), ("ready", "ready")]
+)
+def test_tmux_successful_capture_preserves_empty_stability_and_match(
+    monkeypatch, output, pattern_text
+):
+    import re
+    import subprocess
+
+    w = Watch(
+        id="capture",
+        kind="tmux",
+        description="control",
+        created=time.time(),
+        deadline=time.time() + 3,
+    )
+    monkeypatch.setattr(
+        _watch_mod.subprocess,
+        "run",
+        lambda *args, **kw: subprocess.CompletedProcess(args[0], 0, output, ""),
+    )
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    _watch_mod._poll_tmux(
+        w, "control", re.compile(pattern_text) if pattern_text else None, 0.01
+    )
+    assert w.fired
+    assert len(w.events) == 1
+    assert w.events[0].startswith(
+        "pattern matched:" if pattern_text else "pane output stable"
+    )
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_tmux_cancelled_or_expired_watch_does_not_capture(monkeypatch, cancelled):
+    w = Watch(
+        id="capture",
+        kind="tmux",
+        description="control",
+        created=time.time(),
+        deadline=time.time() - 1,
+        cancelled=cancelled,
+    )
+
+    def unexpected_capture(*args, **kwargs):
+        pytest.fail("An expired or cancelled watch must not capture")
+
+    monkeypatch.setattr(_watch_mod.subprocess, "run", unexpected_capture)
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    _watch_mod._poll_tmux(w, "control", None, 0.01)
+    assert list(w.events) == ([] if cancelled else ["expired without match"])
