@@ -170,7 +170,7 @@ _LITERAL_OR_THINK_RE = re.compile(
     r"(?P<native>" + _NATIVE_HEADER_RE.pattern + r")"
     r"|(?P<fence>^`{3,}|^~{3,})[^\n]*"
     r"|(?P<inline>`+)"
-    r"|(?P<xml><(?:tool-use|function_calls)(?=\s|>)[^>]*>)"
+    r"|(?P<xml>(?i:<(?:tool-use|function_calls)(?=\s|>)[^>]*>))"
     r"|(?P<thinking><think(?:ing)?(?:\s[^>]*)?>)",
     re.MULTILINE,
 )
@@ -638,11 +638,14 @@ def _streaming_all_segments(buffer: str) -> list[tuple[str, str]]:
                 if is_native:
                     out.append(("tool_call", native_part))
                     continue
-                for is_tool, seg in _split_streaming_markdown_tool_calls(native_part):
-                    if is_tool:
-                        out.append(("tool_call", seg))
+                # XML bodies likewise own nested Markdown examples, just as
+                # they do in finalized rendering. The XML scanner itself skips
+                # openers quoted inside earlier Markdown literal regions.
+                for is_xml, xml_part in _split_streaming_xml_tool_calls(native_part):
+                    if is_xml:
+                        out.append(("tool_call", xml_part))
                         continue
-                    for is_call, part in _split_streaming_xml_tool_calls(seg):
+                    for is_call, part in _split_streaming_markdown_tool_calls(xml_part):
                         if part.strip():
                             out.append(("tool_call" if is_call else "prose", part))
     return out

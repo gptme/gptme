@@ -312,3 +312,39 @@ def test_longer_closing_fence_recovers_reasoning_and_native_call(fence: str) -> 
 def test_xml_examples_remain_streaming_prose(example: str) -> None:
     assert _streaming_all_segments(example) == [("prose", example)]
     assert _split_all_tool_calls(example) == [(False, "prose", example)]
+
+
+@pytest.mark.parametrize(
+    ("wrapper", "body"),
+    [
+        (
+            "tool-use",
+            '<save path="report.md">\n```shell\necho example\n```\nTAIL\n</save>',
+        ),
+        (
+            "function_calls",
+            '<invoke name="save">\n```shell\necho example\n```\nTAIL\n</invoke>',
+        ),
+    ],
+)
+def test_xml_payload_owns_nested_markdown_tools(wrapper: str, body: str) -> None:
+    call = f"<{wrapper}>\n{body}\n</{wrapper}>"
+    assert _streaming_all_segments(call) == [("tool_call", call)]
+    assert _split_all_tool_calls(call) == [(True, "xml", call)]
+    assert _split_thinking(call) == [(False, call)]
+
+
+@pytest.mark.parametrize("wrapper", ["TOOL-USE", "FUNCTION_CALLS"])
+def test_uppercase_xml_wrappers_preserve_literal_tags(wrapper: str) -> None:
+    call = (
+        f'<{wrapper}><save path="report.xml"><think>literal</think></save></{wrapper}>'
+    )
+    assert _split_thinking(call) == [(False, call)]
+    assert _strip_thinking(call) == call
+    assert _streaming_all_segments(call) == [("tool_call", call)]
+    assert _split_all_tool_calls(call) == [(True, "xml", call)]
+    surrounded = "<think>before</think>\n" + call + "\n<thinking>after</thinking>"
+    assert [text for thinking, text in _split_thinking(surrounded) if thinking] == [
+        "before",
+        "after",
+    ]
