@@ -880,9 +880,28 @@ class LogManager:
         if isinstance(new_log, list):
             new_log = Log(new_log)
         self._save_backup_branch(type="edit")
+        self._reconcile_branch_history(self.log, new_log)
         self.log = new_log
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_EDIT)
+
+    def _reconcile_branch_history(self, previous: Log, updated: Log) -> None:
+        """Retain hidden inherited history, but replace edited visible messages.
+
+        The backup branch retains the original archive. Main's existing recall
+        archive contract is unchanged; this reconciles only branch-owned history.
+        """
+        if self.current_branch not in self._branch_lossless_logs:
+            return
+        archive = self._branch_lossless_logs[self.current_branch]
+        visible = {(msg.timestamp, msg.content) for msg in previous}
+        inherited = [
+            msg for msg in archive if (msg.timestamp, msg.content) not in visible
+        ]
+        # Summaries absent from the archive are context, not hidden operations.
+        self._branch_lossless_logs[self.current_branch] = Log(
+            inherited + updated.messages
+        )
 
     def undo(self, n: int = 1, quiet=False) -> None:
         """Removes the last message from the log."""
@@ -902,6 +921,7 @@ class LogManager:
 
         if not quiet:
             print("[yellow]Undoing messages:[/yellow]")
+        previous = self.log
         for _ in range(n):
             if not self.log:
                 break
@@ -912,6 +932,7 @@ class LogManager:
                     f"[red]  {undid.role}: {textwrap.shorten(undid.content.strip(), width=50, placeholder='...')}[/]",
                 )
             peek = self.log[-1] if self.log else None
+        self._reconcile_branch_history(previous, self.log)
         self.write()
         self._write_event_log(eventlog.EVENT_UNDO, n=n)
 

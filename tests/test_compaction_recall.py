@@ -467,13 +467,15 @@ def test_manual_compaction_on_branch_preserves_catalog_source(tmp_path):
         )
     )
 
-    assert any("[result #3," in m.content for m in manager.log.messages)
+    assert any("[result #4," in m.content for m in manager.log.messages)
+    assert not any("[result #3," in m.content for m in manager.log.messages)
     assert manager.master_log.messages == messages
-    assert "0123456789" in recall_result(3)
+    assert "different result" in recall_result(4)
     manager.switch_to_master()
-    assert "0123456789" in recall_result(3)
+    assert "different result" in recall_result(4)
     manager.write()
-    reloaded = LogManager.load(logdir, lock=False)
+    reloaded = LogManager.load(logdir, branch="experiment", lock=False)
+    assert "different result" in recall_result(4)
     assert reloaded.master_log.messages == messages
 
 
@@ -701,3 +703,29 @@ def test_quiet_markdown_tool_result_remains_recallable(tmp_path):
     assert stub is not None
     assert "[result #3," in stub.content
     assert "quiet saved output" in recall_result(3)
+
+
+def test_compacted_branch_catalog_and_recall_use_owned_archive(tmp_path):
+    from gptme.logmanager import Log
+    from gptme.tools.autocompact.resume import _build_dropped_result_stubs
+    from gptme.tools.recall import recall_result
+
+    manager = LogManager(_messages(), logdir=tmp_path / "branch-recall", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.append(Message("assistant", "branch call"))
+    manager.append(Message("system", "branch result", call_id="branch"))
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Branch summary")])
+    manager.write()
+    manager.branch("main")
+    manager.append(Message("assistant", "main call"))
+    manager.append(Message("system", "divergent main result", call_id="main"))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "branch result" in recall_result(7)
+    assert "divergent main result" not in recall_result(7)
+    stub = _build_dropped_result_stubs(resumed, retained=[], model="gpt-4")
+    assert stub is not None
+    assert "[result #7," in stub.content
+    assert "[result #3," in stub.content

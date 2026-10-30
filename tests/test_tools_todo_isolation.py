@@ -1347,3 +1347,28 @@ def test_compacted_backup_branch_inherits_todo_prefix(
     list(ensure_todo_state(resumed))
     assert "Inherited" in _todoread()
     assert "Keep in backup" in [m.content for m in resumed.log]
+
+
+@pytest.mark.parametrize("operation", ["edit", "undo"])
+def test_branch_replay_does_not_restore_removed_todo(
+    tmp_path: Path, operation: str
+) -> None:
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    manager = start(
+        tmp_path / "removed",
+        [Message("assistant", "```todo write\nadd Inherited\n```")],
+    )
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.append(Message("assistant", "```todo write\nadd Removed\n```"))
+    if operation == "edit":
+        manager.edit(manager.log.messages[:-1])
+    else:
+        manager.undo(1)
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    list(ensure_todo_state(resumed))
+    assert "Inherited" in _todoread()
+    assert "Removed" not in _todoread()
