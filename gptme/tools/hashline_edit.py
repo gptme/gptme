@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -967,6 +968,8 @@ def execute_hashline_edit(
             # universal-newline mode, so it is LF-only here.
             with os.fdopen(tmp_fd, "w", encoding="utf-8", newline=newline) as fh:
                 fh.write(updated.replace("\r\n", "\n"))
+            # mkstemp creates the file as 0600; keep the original's mode.
+            shutil.copymode(resolved, tmp_name)
         except Exception:
             os.unlink(tmp_name)
             raise

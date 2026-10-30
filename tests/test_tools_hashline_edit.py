@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -571,6 +573,18 @@ class TestExecuteHashlineEdit:
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
         assert "applied" in msgs[0].lower()
         assert f.read_bytes() == eol.join([b"alpha", b"BETA", b"gamma", b""])
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    def test_preserves_file_mode(self, tmp_path: Path):
+        f = tmp_path / "run.sh"
+        f.write_text("#!/bin/sh\necho a\n")
+        f.chmod(0o755)
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 2.=2:\n+echo b\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower()
+        assert f.read_text() == "#!/bin/sh\necho b\n"
+        assert stat.S_IMODE(f.stat().st_mode) == 0o755
 
     def test_tag_mismatch_rejected(self, tmp_path: Path):
         f = tmp_path / "f.txt"
