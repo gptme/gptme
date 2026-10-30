@@ -69,6 +69,8 @@ def preview_morph(content: str, path: Path | None) -> str | None:
     """Prepare preview content for morph operation."""
     if not path or not path.exists():
         return "File does not exist"
+    if not path.is_file():
+        return f"Cannot morph `{path}`: not a regular file"
 
     try:
         # Read original content
@@ -127,6 +129,10 @@ def execute_morph(
                 f"Path traversal detected: {path_display} resolves to {file_path} "
                 f"which is outside current directory {cwd}"
             ) from err
+
+    if file_path.exists() and not file_path.is_file():
+        yield Message("system", f"Cannot morph `{path_display}`: not a regular file")
+        return
 
     try:
         # Read the original file
@@ -189,6 +195,11 @@ def execute_morph_impl(
     """Actual morph implementation - writes the edited content to file."""
     if not path:
         raise ValueError("Error: No file path provided")
+    # Confirmation may have left time for the source to become a FIFO or device.
+    # This admission check is not an atomic guarantee against later path swaps.
+    if path.exists() and not path.is_file():
+        yield Message("system", f"Cannot morph `{path}`: not a regular file")
+        return
 
     try:
         # Read current content to verify it hasn't changed
