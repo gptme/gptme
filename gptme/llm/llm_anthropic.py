@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import threading
@@ -1019,7 +1020,8 @@ def chat(
             )
         elif block.type == "tool_use":
             parsed_block.append(
-                f"\n@{canonical_tool_name(block.name)}({block.id}): {block.input}"
+                f"\n@{canonical_tool_name(block.name)}({block.id}): "
+                f"{json.dumps(block.input, ensure_ascii=False)}"
             )
         else:
             logger.warning("Unknown block: %s", str(block))
