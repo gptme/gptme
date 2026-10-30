@@ -232,6 +232,7 @@ def _deliver(watch: Watch, text: str) -> None:
             woke = SessionManager.request_watch_wake(
                 conversation_id,
                 Message("system", f"Watch {watch.id} ({watch.kind}) fired: {text}"),
+                branch=watch.branch,
             )
             if woke:
                 return
@@ -250,13 +251,20 @@ def _deliver(watch: Watch, text: str) -> None:
 def take_queued_watch_events(
     logdir: Path | None, *, branch: str | None = None
 ) -> list[tuple[str, str]]:
-    """Pop offline-queued watch events for `logdir` (server retry path).
+    """Pop events for delivery to a consumer that already owns its branch."""
+    return [
+        (watch_id, text)
+        for watch_id, text, _ in take_queued_watch_events_with_branches(
+            logdir, branch=branch
+        )
+    ]
 
-    Mirrors ``take_queued_completions``: the server re-attempts a live wake
-    when a conversation goes idle, so an event that arrived mid-step is not
-    stranded waiting for a turn that never starts.
-    """
-    returned: list[tuple[str, str]] = []
+
+def take_queued_watch_events_with_branches(
+    logdir: Path | None, *, branch: str | None = None
+) -> list[tuple[str, str, str]]:
+    """Pop events with their captured branches for lossless server retries."""
+    returned: list[tuple[str, str, str]] = []
     with _pending_lock:
         retained = type(_pending_deliveries)()
         for item in _pending_deliveries:
@@ -264,7 +272,7 @@ def take_queued_watch_events(
             if (logdir is None or item_logdir == logdir) and (
                 branch is None or (origin[0] if origin else "main") == branch
             ):
-                returned.append((watch_id, text))
+                returned.append((watch_id, text, origin[0] if origin else "main"))
             else:
                 retained.append(item)
         _pending_deliveries.clear()
@@ -272,10 +280,12 @@ def take_queued_watch_events(
     return returned
 
 
-def requeue_watch_event(logdir: Path | None, watch_id: str, text: str) -> None:
+def requeue_watch_event(
+    logdir: Path | None, watch_id: str, text: str, *, branch: str = "main"
+) -> None:
     """Put an event back at the head of the offline queue after a failed retry."""
     with _pending_lock:
-        _pending_deliveries.appendleft((logdir, watch_id, text))
+        _pending_deliveries.appendleft((logdir, watch_id, text, branch))
 
 
 def _fire(watch: Watch, text: str, once: bool = True) -> None:

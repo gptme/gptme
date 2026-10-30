@@ -512,6 +512,95 @@ def test_deferred_watch_wakes_requeue_whole_batch_when_busy(tmp_path, monkeypatc
     assert take_queued_watch_events(logdir) == [("w1", "a"), ("w2", "b")]
 
 
+@pytest.mark.parametrize("wake_succeeds", [False, True])
+def test_deferred_watch_wakes_preserve_branches(tmp_path, monkeypatch, wake_succeeds):
+    """Retry must neither send a foreign branch to main nor relabel it on failure."""
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    logdir = (tmp_path / "conv").resolve()
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    with _pending_lock:
+        _pending_deliveries.extend(
+            [(logdir, "w1", "a", "other"), (logdir, "w2", "b", "other")]
+        )
+    calls = []
+
+    def wake(cls, conversation_id, message, *, branch="main"):
+        calls.append((branch, message.content))
+        return wake_succeeds
+
+    monkeypatch.setattr(SessionManager, "request_watch_wake", classmethod(wake))
+    SessionManager.retry_deferred_watch_wakes("conv")
+    assert len(calls) == 1
+    assert calls[0][0] == "other"
+    assert "Watch w1 fired: a" in calls[0][1]
+    assert "Watch w2 fired: b" in calls[0][1]
+    assert take_queued_watch_events(logdir, branch="main") == []
+    assert take_queued_watch_events(logdir, branch="other") == (
+        [] if wake_succeeds else [("w1", "a"), ("w2", "b")]
+    )
+
+
+def test_deferred_watch_wakes_keep_mixed_branch_order(tmp_path, monkeypatch):
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    logdir = (tmp_path / "conv").resolve()
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    events: list[tuple[Path | None, str, str] | tuple[Path | None, str, str, str]] = [
+        (logdir, "w1", "a", "other"),
+        (logdir, "w2", "b", "main"),
+        (logdir, "w3", "c", "other"),
+        (logdir, "w4", "d"),  # legacy entries still belong to main
+    ]
+    with _pending_lock:
+        _pending_deliveries.extend(events)
+    calls = []
+
+    def wake(cls, conversation_id, message, *, branch="main"):
+        calls.append((branch, message.content))
+        return False
+
+    monkeypatch.setattr(SessionManager, "request_watch_wake", classmethod(wake))
+    SessionManager.retry_deferred_watch_wakes("conv")
+    assert calls == [
+        ("other", "Watch w1 fired: a\nWatch w3 fired: c"),
+        ("main", "Watch w2 fired: b\nWatch w4 fired: d"),
+    ]
+    assert take_queued_watch_events(logdir) == [
+        ("w1", "a"),
+        ("w2", "b"),
+        ("w3", "c"),
+        ("w4", "d"),
+    ]
+
+
+def test_deliver_live_wake_preserves_branch(tmp_path, monkeypatch):
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    calls = []
+    monkeypatch.setattr(SessionManager, "add_event", lambda *args: None)
+
+    def wake(cls, conversation_id, message, *, branch="main"):
+        calls.append(branch)
+        return True
+
+    monkeypatch.setattr(SessionManager, "request_watch_wake", classmethod(wake))
+    watch = Watch(
+        id="branch-watch",
+        kind="timer",
+        description="test",
+        created=time.time(),
+        logdir=tmp_path / "conv",
+        branch="other",
+    )
+    _deliver(watch, "ready")
+    assert calls == ["other"]
+    assert take_queued_watch_events(watch.logdir) == []
+
+
 def test_command_from_watch_content():
     from gptme.tools.watch import _command_from_watch_content
 

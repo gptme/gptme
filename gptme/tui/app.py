@@ -4242,8 +4242,10 @@ class GptmeApp(App):
 
     def action_interrupt(self) -> None:
         self._dismiss_dialog()
+        # An idle parent can still have children or watches in flight. Keep
+        # their notifications visible, but suppress autowake until a user turn.
+        self._interrupt_event.set()
         if self.generating:
-            self._interrupt_event.set()
             self._set_state("interrupting…")
             self._interrupt_step()
 

@@ -279,13 +279,22 @@ async def test_final_worker_exit_window_and_interrupt(tmp_path, monkeypatch):
         assert calls == [1, 1]
         assert sum("exit-window" in m.content for m in manager.log) == 1
         assert not any("Error:" in m.content for m in manager.log)
-        app._interrupt_event.set()
+        await pilot.press("escape")
         notify_completion(
             "interrupted", "success", "no forced restart", parent_logdir=manager.logdir
         )
         await settle(app, pilot)
         assert calls == [1, 1]
         assert sum("interrupted" in m.content for m in manager.log) == 1
+        # An explicit user turn re-enables continuation for later events.
+        app._send(Message("user", "resume"), None)
+        await settle(app, pilot)
+        assert calls == [1, 1, 1]
+        notify_completion(
+            "resumed", "success", "continue again", parent_logdir=manager.logdir
+        )
+        await settle(app, pilot)
+        assert calls == [1, 1, 1, 1]
 
 
 @pytest.mark.asyncio
