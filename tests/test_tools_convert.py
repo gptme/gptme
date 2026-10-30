@@ -1301,3 +1301,81 @@ def test_imagemagick_pdf_output_argv(tmp_path, avail_imagemagick_only):
     assert result.success
     command = run.call_args.args[0]
     assert command == ["convert", "-density", "150", f"{_im_src(src)}[0]", _arg(dest)]
+
+
+@pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
+@pytest.mark.parametrize("extension", ["png", "jpg", "jpeg"])
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("animated", [False, True])
+def test_real_single_frame_image_output(
+    tmp_path, monkeypatch, avail_none, backend, extension, existing, animated
+):
+    """Single-frame formats write the first frame at exactly the requested path."""
+    image_module = pytest.importorskip("PIL.Image")
+    for executable in (
+        ["ffmpeg", "convert"]
+        if backend == "both"
+        else ["convert" if backend == "imagemagick" else "ffmpeg"]
+    ):
+        if not shutil.which(executable):
+            pytest.skip(f"{executable} not installed")
+    avail_none.ffmpeg = backend in ("ffmpeg", "both")
+    avail_none.imagemagick = backend in ("imagemagick", "both")
+    monkeypatch.setattr("gptme.tools.convert.get_availability", lambda: avail_none)
+    monkeypatch.chdir(tmp_path)
+    # Exercise literal brackets and option-shaped paths as well as frame selection.
+    src = Path("-input[0].gif" if animated else "-input[0].png")
+    first_frame = image_module.new("RGB", (16, 16), "red")
+    if animated:
+        first_frame.save(
+            src,
+            save_all=True,
+            append_images=[image_module.new("RGB", (16, 16), "blue")],
+            duration=100,
+            loop=0,
+        )
+    else:
+        first_frame.save(src)
+    # Retain master's literal-output contract alongside first-frame selection.
+    dest = Path(f"-requested%03d[0].{extension}")
+    if existing:
+        image_module.new("RGB", (16, 16), "green").save(dest)
+    before = set(tmp_path.iterdir())
+
+    result = convert_file(src, dest)
+
+    assert result.success, result.error
+    assert result.output_path == dest
+    # The dual-backend path must succeed directly, not rely on FFmpeg leftovers.
+    assert result.converter_used == ("ffmpeg" if backend == "both" else backend)
+    assert dest.is_file(), "successful conversion must create the requested output"
+    assert set(tmp_path.iterdir()) == before | {tmp_path / dest}
+    with image_module.open(dest) as output:
+        assert output.size == (16, 16)
+        assert getattr(output, "n_frames", 1) == 1
+        red, green, blue = output.convert("RGB").getpixel((0, 0))
+        assert red > 240 and green < 15 and blue < 15
+
+
+@pytest.mark.skipif(not shutil.which("convert"), reason="ImageMagick not installed")
+def test_real_imagemagick_gif_retains_animation(tmp_path, avail_imagemagick_only):
+    """First-frame selection must not flatten an animation-capable target."""
+    image_module = pytest.importorskip("PIL.Image")
+    src, dest = tmp_path / "input.gif", tmp_path / "output.gif"
+    image_module.new("RGB", (16, 16), "red").save(
+        src,
+        save_all=True,
+        append_images=[image_module.new("RGB", (16, 16), "blue")],
+        duration=100,
+        loop=0,
+    )
+    with patch(
+        "gptme.tools.convert.get_availability", return_value=avail_imagemagick_only
+    ):
+        result = convert_file(src, dest)
+    assert result.success, result.error
+    with image_module.open(dest) as output:
+        assert output.n_frames == 2
+        assert output.convert("RGB").getpixel((0, 0)) == (255, 0, 0)
+        output.seek(1)
+        assert output.convert("RGB").getpixel((0, 0)) == (0, 0, 255)

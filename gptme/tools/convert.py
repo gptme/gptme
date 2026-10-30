@@ -6,7 +6,8 @@ graceful degradation when specific converters are unavailable.
 Supported conversions:
 
   - PDF → PNG/JPEG (Poppler/pdftoppm, ImageMagick fallback)
-  - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback)
+  - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback).
+    PNG/JPEG output selects the first frame of animated input.
   - DOCX → text/markdown (python-docx, LibreOffice headless fallback)
   - MP4/video → JPEG thumbnail (FFmpeg)
   - PDF → text (pypdf, Poppler/pdftotext fallback)
@@ -400,9 +401,12 @@ class ImageConverter(Converter):
         dest_ext = dest.suffix.lstrip(".").lower()
         q = self._QUALITY.get(quality, 80)
         lossy = dest_ext in ("jpg", "jpeg", "webp")
+        single_frame = dest_ext in ("png", "jpg", "jpeg")
 
         if avail.ffmpeg:
             cmd = ["ffmpeg", "-y", "-i", _arg(src)]
+            if single_frame:
+                cmd += ["-frames:v", "1"]
             if dest_ext != "gif":
                 # The image2 muxer otherwise expands %d/%03d into numbered files.
                 # GIF uses its own muxer, which already treats the path literally.
@@ -429,11 +433,12 @@ class ImageConverter(Converter):
             )
 
         if avail.imagemagick:
+            source = f"{_im_src(src)}[0]" if single_frame else _arg(src)
             # Normalize pixels and reset EXIF orientation before writing, including
             # formats that cannot retain orientation metadata (e.g. BMP).
             cmd = [
                 "convert",
-                _arg(src),
+                source,
                 "-auto-orient",
                 "-define",
                 "filename:literal=true",
