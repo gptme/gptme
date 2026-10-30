@@ -396,6 +396,9 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
             and _RE_CONTINUATION_CLAUSE.match(line.lstrip())
         ):
             end = i + 1  # absorb the continuation clause header itself
+            # Continuation headers can span lines just like the initial header.
+            # Carry their lexical state into the same scan/EOF guard above.
+            bracket_depth, open_quote = _scan_line(line)
             i += 1
         else:
             break  # same or lower indent, not a continuation clause: block is complete
