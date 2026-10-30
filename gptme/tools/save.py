@@ -12,6 +12,7 @@ from ..hooks import confirm
 from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
+from ..util.file_write import write_text_preserving_original
 from .base import (
     Parameter,
     ToolSpec,
@@ -252,7 +253,7 @@ def execute_save_impl(
     newline = file_newline(path) if original_content else ""
     if original_content:
         content = content.replace("\r\n", "\n")
-    # Validate before opening with "w", which would truncate even on encoding failure.
+    # Validate UTF-8 before staging the replacement.
     try:
         content.encode("utf-8")
     except UnicodeEncodeError as e:
@@ -260,8 +261,7 @@ def execute_save_impl(
             f"Cannot save to {path_display}: content is not encodable as UTF-8 "
             f"at character {e.start}."
         ) from None
-    with open(path, "w", encoding="utf-8", newline=newline) as f:
-        f.write(content)
+    write_text_preserving_original(path, content, newline=newline)
 
     # Trigger post-save hooks (file.save.post)
     if post_save_msgs := trigger_hook(

@@ -259,6 +259,9 @@ jobs:
         uv run pytest -v `
           tests/test_dirs.py `
           tests/test_logmanager_locking.py `
+          tests/test_file_publication.py `
+          tests/test_tools_patch.py::test_execute_patch `
+          tests/test_tools_patch.py::test_execute_patch_size_warning `
           tests/test_config.py::test_custom_tool_file_allowlist_preserved `
           tests/test_config.py::test_custom_tool_file_mixed_allowlist `
           tests/test_llm_openai.py::TestIsProxy `

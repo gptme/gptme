@@ -17,6 +17,7 @@ from ..config import get_config
 from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
+from ..util.file_write import write_text_preserving_original
 from .base import (
     Parameter,
     ToolSpec,
@@ -365,10 +366,9 @@ def execute_patch_impl(
         # for LF). Skipping this on LF files would let model-emitted \r\n create
         # mixed line endings.
         text = patched_content.replace("\r\n", "\n")
-        # Validate before opening with "w", which would truncate on encoding failure.
+        # Validate UTF-8 before staging the replacement.
         text.encode("utf-8")
-        with open(path, "w", encoding="utf-8", newline=newline) as f:
-            f.write(text)
+        write_text_preserving_original(path, text, newline=newline)
 
         # Return success message with any warnings
         warnings_str = "\n".join(warnings)
