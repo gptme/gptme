@@ -2,19 +2,29 @@ import importlib.util
 import io
 import tarfile
 import zipfile
-from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
+
+
+class _ReleaseValidator(Protocol):
+    _RUNTIME_ASSETS: tuple[str, ...]
+
+    def main(self) -> int: ...
+
+    def validate_package(self, path: Path) -> None: ...
+
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts/validate_release_package.py"
 _SPEC = importlib.util.spec_from_file_location("validate_release_package", _SCRIPT)
 assert _SPEC and _SPEC.loader
 validate_release_package = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(validate_release_package)
-main: Callable[[], int] = validate_release_package.main
-validate_package: Callable[[Path], None] = validate_release_package.validate_package
-_RUNTIME_ASSETS: tuple[str, ...] = validate_release_package._RUNTIME_ASSETS
+_validator = cast(_ReleaseValidator, validate_release_package)
+main = _validator.main
+validate_package = _validator.validate_package
+_RUNTIME_ASSETS = _validator._RUNTIME_ASSETS
 
 
 @pytest.mark.parametrize("archive_type", ["wheel", "sdist"])

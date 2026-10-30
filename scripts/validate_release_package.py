@@ -64,10 +64,14 @@ def validate_package(path: Path) -> None:
         )
 
 
+class _Arguments(argparse.Namespace):
+    archives: list[Path]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archives", nargs="+", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=_Arguments())
 
     try:
         for archive in args.archives:
