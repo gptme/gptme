@@ -443,54 +443,61 @@ def execute_tmux(
     escaped = False
     in_comment = False
     at_word_start = True
-    shell_scopes: list[tuple[bool, str | None]] = []
-    substitution_start = False
+    command_word: list[str] = []
+    command_word_done = False
+    is_shell_command = False
+    substitution_ends: dict[int, int] = {}
+    if "$(" in cmd:
+        # Reuse the Bash grammar rather than counting parentheses: case patterns
+        # and nested quoting scopes are not ordinary parenthesis nesting.
+        from .shell import _parse_bash
+
+        nodes = [_parse_bash(cmd.encode("utf-8"))]
+        while nodes:
+            node = nodes.pop()
+            if node.type == "command_substitution":
+                substitution_ends[node.start_byte] = node.end_byte
+            else:
+                nodes.extend(node.named_children)
+    byte_offset = 0
+    substitution_end = 0
 
     for char in cmd:
-        opens_substitution = substitution_start and char == "("
-        substitution_start = False
+        start_byte = byte_offset
+        byte_offset += len(char.encode("utf-8"))
+        if start_byte < substitution_end:
+            current.append(char)
+            continue
+        if not command_word_done:
+            if char.isspace() and command_word:
+                command_word_done = True
+                is_shell_command = "".join(command_word) == "new-session"
+            elif not char.isspace():
+                command_word.append(char)
         if in_comment and char != "\n":
             current.append(char)
             continue
         if char == "\n":
             in_comment = False
         if escaped:
-            current.append(char)
             escaped = False
-            at_word_start = False
-            continue
+            # Literal tmux keys such as C-\\ retain their fallback at a batch
+            # newline. Shell commands still support backslash-newline joining.
+            if char != "\n" or in_quotes or is_shell_command:
+                current.append(char)
+                at_word_start = False
+                continue
         if char == "\\" and quote_char != "'":
             # Preserve escapes for send_keys' shlex parsing or new_session's shell.
             current.append(char)
             escaped = True
             continue
-        is_shell_command = "".join(current).split(maxsplit=1)[0:1] == ["new-session"]
-        if (
-            is_shell_command
-            and char == "("
-            and (
-                (opens_substitution and quote_char != "'")
-                or (shell_scopes and not in_quotes)
-            )
-        ):
-            # Command substitutions have independent quoting scopes. Parentheses
-            # within them also keep their separators out of the tmux dispatcher.
-            shell_scopes.append((in_quotes, quote_char))
-            in_quotes, quote_char = False, None
-            at_word_start = True
-            current.append(char)
-            continue
-        if shell_scopes and char == ")" and not in_quotes:
-            in_quotes, quote_char = shell_scopes.pop()
+        if is_shell_command and start_byte in substitution_ends:
+            substitution_end = substitution_ends[start_byte]
             at_word_start = False
             current.append(char)
             continue
-        if (
-            char == "#"
-            and not in_quotes
-            and "".join(current).split(maxsplit=1)[0:1] == ["new-session"]
-            and at_word_start
-        ):
+        if char == "#" and not in_quotes and is_shell_command and at_word_start:
             # Only new-session forwards shell syntax; send-keys treats # literally.
             in_comment = True
             current.append(char)
@@ -502,17 +509,16 @@ def execute_tmux(
                 in_quotes = False
                 quote_char = None
             current.append(char)
-        elif char == "\n" and not in_quotes and not shell_scopes:
+        elif char in "\n;" and not in_quotes:
             if current:
                 commands.append("".join(current).strip())
                 current = []
-        elif char == ";" and not in_quotes and not shell_scopes:
-            if current:
-                commands.append("".join(current).strip())
-                current = []
+            command_word = []
+            command_word_done = False
+            is_shell_command = False
         else:
             current.append(char)
-        substitution_start = char == "$" and quote_char != "'"
+
         at_word_start = not in_quotes and (char.isspace() or char in ";|&()<>")
 
     # Leave shell validation to Bash and preserve send_keys' existing literal

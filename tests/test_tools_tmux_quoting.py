@@ -200,6 +200,22 @@ def test_new_session_preserves_nested_shell_quotes(
     pytest.fail("new-session did not execute the nested shell quotes")
 
 
+def test_case_pattern_substitution_keeps_outer_batch(private_tmux: None) -> None:
+    command = (
+        "new-session printf '%s-%s\\n' case "
+        "\"$(case '((' in [(][(]) printf ok;; esac)\"; list-sessions"
+    )
+    assert "case-ok" not in command
+    messages = list(tmux.execute_tmux(command, [], None))
+    assert len(messages) == 2
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if "case-ok" in tmux._capture_pane("gptme_2"):
+            return
+        time.sleep(0.01)
+    pytest.fail("case substitution did not execute in the private shell")
+
+
 def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
     # The completed output is absent from the submitted command, so terminal echo
     # cannot satisfy the assertion before the shell executes printf.
@@ -242,6 +258,30 @@ def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
         (
             'new-session echo "\\$(literal"; list-sessions',
             ['echo "\\$(literal"', "list"],
+        ),
+        (
+            'new-session echo "$(case x in [(][(]) echo no;; esac)"; list-sessions',
+            ['echo "$(case x in [(][(]) echo no;; esac)"', "list"],
+        ),
+        (
+            "send-keys 1 C-\\\nlist-sessions",
+            ["C-\\", "list"],
+        ),
+        (
+            'send-keys 1 "λ" Enter; new-session echo "$(printf " # tag")"; list-sessions',
+            ['"λ" Enter', 'echo "$(printf " # tag")"', "list"],
+        ),
+        (
+            'new-session echo "$(case x in [)]) echo no;; *) echo yes;; esac)"; list-sessions',
+            ['echo "$(case x in [)]) echo no;; *) echo yes;; esac)"', "list"],
+        ),
+        (
+            'new-session echo "$( (printf "%s" ok) )"; list-sessions',
+            ['echo "$( (printf "%s" ok) )"', "list"],
+        ),
+        (
+            "send-keys 1 C-\\;list-sessions",
+            ["C-\\;list-sessions"],
         ),
         (r"new-session echo \#tag", [r"echo \#tag"]),
         (r"new-session echo word\ #tag", [r"echo word\ #tag"]),
