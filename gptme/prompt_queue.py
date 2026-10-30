@@ -5,14 +5,14 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Literal, cast
+from pathlib import Path
+from typing import Any, Literal, cast
 
 from .message import Message, MessageMetadata
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,17 @@ def requeue_prompts(
                 if line.strip()
             ]
         lines = new_lines + existing if prepend else existing + new_lines
-        queue_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # Publish only a complete replacement: ENOSPC during parking must not
+        # truncate prompts that were already durable. Keep the stable lock
+        # held across staging and rename so concurrent appenders stay ordered.
+        fd, name = tempfile.mkstemp(prefix=".prompt-queue-", dir=logdir)
+        staged = Path(name)
+        try:
+            os.close(fd)
+            staged.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            staged.replace(queue_path)
+        finally:
+            staged.unlink(missing_ok=True)
     return len(records)
 
 

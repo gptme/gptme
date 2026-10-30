@@ -179,3 +179,38 @@ def test_requeue_prompts_unknown_role_defaults_to_user(
     (message,) = drain_prompt_queue(tmp_path)
     assert message.role == "user"
     assert message.content == "mystery"
+
+
+@pytest.mark.parametrize("failure", ["write", "replace"])
+def test_requeue_failure_preserves_existing_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """A partial staging write or failed publish cannot erase durable intent."""
+    queue_prompt(tmp_path, "already durable")
+    queue_path = get_prompt_queue_path(tmp_path)
+    original = queue_path.read_bytes()
+    write_text = Path.write_text
+
+    def fail_write(path: Path, text: str, *args, **kwargs) -> int:
+        # Model ENOSPC after truncation and a partial write, not before open.
+        write_text(path, text[:7], *args, **kwargs)
+        raise OSError("synthetic disk full")
+
+    def fail_replace(*args, **kwargs) -> None:
+        raise OSError("synthetic publish failure")
+
+    if failure == "write":
+        monkeypatch.setattr(Path, "write_text", fail_write)
+    else:
+        monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="synthetic"):
+        requeue_prompts(tmp_path, [Message("user", "parked intent")])
+
+    assert queue_path.read_bytes() == original
+    assert {path.name for path in tmp_path.iterdir()} == {
+        "prompt-queue.jsonl",
+        ".prompt-queue.lock",
+    }
+    assert [message.content for message in drain_prompt_queue(tmp_path)] == [
+        "already durable"
+    ]
