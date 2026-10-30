@@ -78,6 +78,33 @@ def test_directory_rejected_before_open(tmp_path: Path, entry: str):
     api.assert_not_called()
 
 
+@pytest.mark.parametrize("entry", ["execute", "preview", "apply"])
+@pytest.mark.parametrize("metadata_check", ["exists", "is_file"])
+def test_metadata_permission_denied_retains_error(
+    tmp_path: Path, entry: str, metadata_check: str
+):
+    target = tmp_path / "file"
+    target.write_text("old", encoding="utf-8")
+    with (
+        patch.object(Path, metadata_check, side_effect=PermissionError("denied")),
+        patch("builtins.open", side_effect=AssertionError("read after denied stat")),
+        patch.object(morph, "_chat_complete") as api,
+    ):
+        if entry == "execute":
+            messages = list(morph.execute_morph("edit", [str(target)], None))
+            assert len(messages) == 1
+            assert messages[0].content == (
+                f"Error: Permission denied reading file: {target}"
+            )
+        elif entry == "preview":
+            assert morph.preview_morph("new", target) == "Preview failed: denied"
+        else:
+            with pytest.raises(ValueError, match="Morph failed: Permission denied"):
+                list(morph.execute_morph_impl("new", target, "old"))
+    api.assert_not_called()
+    assert target.read_text(encoding="utf-8") == "old"
+
+
 @pytest.mark.parametrize("symlink", [False, True])
 def test_regular_file_and_symlink_still_work(tmp_path: Path, symlink: bool):
     file = tmp_path / "file"

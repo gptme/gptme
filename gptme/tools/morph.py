@@ -67,12 +67,12 @@ def is_openrouter_available() -> bool:
 
 def preview_morph(content: str, path: Path | None) -> str | None:
     """Prepare preview content for morph operation."""
-    if not path or not path.exists():
-        return "File does not exist"
-    if not path.is_file():
-        return f"Cannot morph `{path}`: not a regular file"
-
     try:
+        if not path or not path.exists():
+            return "File does not exist"
+        if not path.is_file():
+            return f"Cannot morph `{path}`: not a regular file"
+
         # Read original content
         with open(path, encoding="utf-8") as f:
             original_content = f.read()
@@ -130,11 +130,13 @@ def execute_morph(
                 f"which is outside current directory {cwd}"
             ) from err
 
-    if file_path.exists() and not file_path.is_file():
-        yield Message("system", f"Cannot morph `{path_display}`: not a regular file")
-        return
-
     try:
+        if file_path.exists() and not file_path.is_file():
+            yield Message(
+                "system", f"Cannot morph `{path_display}`: not a regular file"
+            )
+            return
+
         # Read the original file
         with open(file_path, encoding="utf-8") as f:
             original_content = f.read()
@@ -195,13 +197,13 @@ def execute_morph_impl(
     """Actual morph implementation - writes the edited content to file."""
     if not path:
         raise ValueError("Error: No file path provided")
-    # Confirmation may have left time for the source to become a FIFO or device.
-    # This admission check is not an atomic guarantee against later path swaps.
-    if path.exists() and not path.is_file():
-        yield Message("system", f"Cannot morph `{path}`: not a regular file")
-        return
-
     try:
+        # Confirmation may have left time for the source to become a FIFO or device.
+        # This admission check is not an atomic guarantee against later path swaps.
+        if path.exists() and not path.is_file():
+            yield Message("system", f"Cannot morph `{path}`: not a regular file")
+            return
+
         # Read current content to verify it hasn't changed
         with open(path, encoding="utf-8") as f:
             current_content = f.read()
