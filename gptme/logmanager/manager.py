@@ -743,6 +743,10 @@ class LogManager:
         for branch, archive in self._branch_lossless_logs.items():
             if not branches and branch != self.current_branch:
                 continue
+            archive_path = self.logdir / "branches" / branch / "lossless.jsonl"
+            # A prior append may have written without syncing. Keep unchanged
+            # archives in the final durability barrier without rewriting them.
+            paths.add(archive_path)
             # A loaded, locally unchanged archive is not ours to rewrite: another
             # manager may have appended since load. Disk-size drift must not turn
             # this no-op into a stale full rewrite via Log._can_append().
@@ -750,12 +754,10 @@ class LogManager:
                 old is new for old, new in zip(archive.persisted, archive)
             ):
                 continue
-            archive_path = self.logdir / "branches" / branch / "lossless.jsonl"
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             self._branch_lossless_logs[branch] = archive.write_jsonl(
                 archive_path, append=True
             )
-            paths.add(archive_path)
 
         # Write the underlying current branch, not its compacted view.
         # Views are persisted separately in views/; main stays in conversation.jsonl.

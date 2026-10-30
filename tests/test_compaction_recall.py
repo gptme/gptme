@@ -1,5 +1,10 @@
 """Tests for lossless tool-result recall after checkpoint compaction."""
 
+import os
+from pathlib import Path
+
+import pytest
+
 from gptme.logmanager import LogManager
 from gptme.message import Message
 
@@ -845,6 +850,49 @@ def test_append_does_not_overwrite_unchanged_sibling_archive(tmp_path):
     stale.append(Message("user", "Main-only addition"))
     LogManager.load(manager.logdir, branch="alternative", lock=False)
     assert "new branch output" in recall_result(6)
+
+
+@pytest.mark.parametrize("branches", [False, True])
+@pytest.mark.parametrize("fail_sync", [False, True])
+def test_final_sync_includes_unchanged_branch_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, branches: bool, fail_sync: bool
+) -> None:
+    from gptme.logmanager import Log
+
+    manager = LogManager(_messages(), logdir=tmp_path / "final-sync", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.append(Message("system", "branch output", call_id="new"))
+    archive_path = manager.logdir / "branches" / "alternative" / "lossless.jsonl"
+    original = archive_path.read_bytes()
+    archive_stat = archive_path.stat()
+    fsync = os.fsync
+    write_jsonl = Log.write_jsonl
+    archive_synced = False
+
+    def record_sync(fd: int) -> None:
+        nonlocal archive_synced
+        stat = os.fstat(fd)
+        if (stat.st_dev, stat.st_ino) == (archive_stat.st_dev, archive_stat.st_ino):
+            archive_synced = True
+            if fail_sync:
+                raise OSError("archive sync failed")
+        fsync(fd)
+
+    def no_archive_rewrite(self: Log, path: Path, *args, **kwargs) -> Log:
+        assert path != archive_path, "unchanged archive must not be rewritten"
+        return write_jsonl(self, path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fsync", record_sync)
+    monkeypatch.setattr(Log, "write_jsonl", no_archive_rewrite)
+    if fail_sync:
+        with pytest.raises(OSError, match="archive sync failed"):
+            manager.write(branches=branches, sync=True)
+    else:
+        manager.write(branches=branches, sync=True)
+    assert archive_synced, "final durability barrier skipped the branch archive"
+    assert archive_path.read_bytes() == original
 
 
 def test_branch_edit_matches_changed_result_by_call_id_with_equal_timestamps(tmp_path):
