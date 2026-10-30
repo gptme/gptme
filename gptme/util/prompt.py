@@ -405,7 +405,11 @@ class GptmeCompleter(Completer):
                     reference = f"@{completed}" if quoted else f"`@{completed}"
                     self._open_directory_completions.add(prefix + reference)
                 if quoted:
-                    if path_seg.startswith("@") and not completed.endswith("/"):
+                    if (
+                        path_seg.startswith("@")
+                        and not completed.endswith("/")
+                        and not document.text_after_cursor.startswith("`")
+                    ):
                         yield Completion(
                             completion.text + "`",
                             start_position=completion.start_position,

@@ -608,3 +608,43 @@ def test_clipboard_image_rejection_preserves_text_and_urls(
     if key == "bracketed-paste":
         expected = expected.replace("\r\n", "\n").replace("\r", "\n")
     assert buffer.text == expected
+
+
+@pytest.mark.parametrize("first_name", ["first.txt", "first file.txt"])
+def test_cli_completion_reuses_closing_backtick_and_preserves_suffix(
+    tmp_path, monkeypatch, first_name: str
+) -> None:
+    """Editing a closed reference must not corrupt a later spaced attachment."""
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    from gptme.util import prompt
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        prompt, "llm_suggest", lambda text: pytest.fail("unexpected inference")
+    )
+    (tmp_path / first_name).write_text("synthetic-first-file-marker")
+    (tmp_path / "second file.txt").write_text("synthetic-second-file-marker")
+    prompt.clear_path_cache()
+    try:
+        prefix = "see `@fir"
+        suffix = "` and `@second file.txt` keep trailing prose"
+        buffer = Buffer(document=Document(prefix + suffix, cursor_position=len(prefix)))
+        completion = next(
+            iter(
+                prompt.GptmeCompleter().get_completions(
+                    buffer.document, CompleteEvent()
+                )
+            )
+        )
+        buffer.apply_completion(completion)
+        assert buffer.text == f"see `@{first_name}{suffix}"
+        assert buffer.document.text_after_cursor == suffix
+        result = context._include_paths(Message("user", buffer.text))
+        assert result.content.count("synthetic-first-file-marker") == 1
+        assert result.content.count("synthetic-second-file-marker") == 1
+        assert "keep trailing prose" in result.content
+    finally:
+        prompt.clear_path_cache()
