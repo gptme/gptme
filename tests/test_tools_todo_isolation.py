@@ -1165,3 +1165,185 @@ def test_mixed_format_equal_offsets_keep_completed_call(
     assert "1. 🔲 Markdown" in _todoread()
     assert f"2. 🔲 {'Edited' if edited else 'Native'}" in _todoread()
     assert "Summary: 2 total" in _todoread()
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_compacted_branch_inherits_only_its_origin_history(
+    tmp_path: Path, tool_format: Literal["markdown", "xml", "tool"]
+) -> None:
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    set_tool_format(tool_format)
+
+    def add(text: str) -> Message:
+        call = (
+            ToolUse("todo", None, None, kwargs={"command": f'write add "{text}"'})
+            if tool_format == "tool"
+            else ToolUse("todo", ["write"], f'add "{text}"')
+        )
+        return Message(
+            "assistant",
+            call.to_output(tool_format).replace("@todo:", "@todo(call):", 1),
+            metadata={"tool_format": tool_format},
+        )
+
+    manager = start(tmp_path / "inherited", [add("Inherited plan")])
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Main summary")])
+    manager.branch("alternative")
+    list(ensure_todo_state(manager))
+    assert "Inherited plan" in _todoread()
+    manager.append(add("Alternative only"))
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Alternative summary")])
+    manager.preserve_lossless_log()  # Repeated compaction retains original calls.
+    manager.write()
+    manager.branch("main")
+    manager.append(add("Later main only"))
+    manager.branch("sibling")
+    manager.append(add("Sibling only"))
+    manager.branch("alternative")
+    manager.branch("nested")
+    manager.append(add("Nested only"))
+    list(clear_todo_state(manager))
+    for branch, expected, excluded in [
+        (
+            "main",
+            ["Inherited plan", "Later main only"],
+            ["Alternative only", "Sibling only", "Nested only"],
+        ),
+        (
+            "alternative",
+            ["Inherited plan", "Alternative only"],
+            ["Later main only", "Sibling only", "Nested only"],
+        ),
+        (
+            "nested",
+            ["Inherited plan", "Alternative only", "Nested only"],
+            ["Later main only", "Sibling only"],
+        ),
+    ]:
+        resumed = LogManager.load(manager.logdir, branch=branch, lock=False)
+        list(ensure_todo_state(resumed))
+        result = _todoread()
+        for text in expected:
+            assert text in result
+        for text in excluded:
+            assert text not in result
+        list(clear_todo_state(resumed))
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_compacted_branch_pending_call_after_reload(
+    tmp_path: Path, tool_format: Literal["markdown", "xml", "tool"]
+) -> None:
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state
+
+    set_tool_format(tool_format)
+    inherited = Message("assistant", '```todo write\nadd "Inherited"\n```')
+    manager = start(tmp_path / "pending-branch", [inherited])
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    call = (
+        ToolUse("todo", None, None, kwargs={"command": 'write add "Pending"'})
+        if tool_format == "tool"
+        else ToolUse("todo", ["write"], 'add "Pending"')
+    )
+    pending = Message(
+        "assistant",
+        call.to_output(tool_format).replace("@todo:", "@todo(pending):", 1),
+        metadata={"tool_format": tool_format},
+    )
+    manager.append(pending)
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    tooluse = next(ToolUse.iter_from_content(resumed.log.messages[-1].content))
+    list(tooluse.execute(log=resumed.log))
+    assert "1. 🔲 Inherited" in _todoread()
+    assert "2. 🔲 Pending" in _todoread()
+    assert "Summary: 2 total" in _todoread()
+
+
+def test_branch_created_from_compacted_view_owns_its_history(tmp_path: Path) -> None:
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    manager = start(
+        tmp_path / "view-branch",
+        [Message("assistant", '```todo write\nadd "Before view"\n```')],
+    )
+    manager.create_view("compacted-001", [Message("system", "View summary")])
+    manager.switch_view("compacted-001")
+    manager.branch("alternative")
+    assert manager.current_view is None
+    manager.append(Message("assistant", '```todo write\nadd "Branch only"\n```'))
+    manager.branch("main")
+    assert "Branch only" not in "\n".join(m.content for m in manager.master_log)
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    list(ensure_todo_state(resumed))
+    assert "Before view" in _todoread()
+    assert "Branch only" in _todoread()
+
+
+def test_nonmain_view_retains_branch_todos_without_main_writes(tmp_path: Path) -> None:
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    manager = start(
+        tmp_path / "branch-view",
+        [Message("assistant", '```todo write\nadd "Inherited"\n```')],
+    )
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Main summary")])
+    manager.branch("alternative")
+    manager.create_view("compacted-001", [Message("system", "Branch summary")])
+    manager.switch_view("compacted-001")
+    manager.append(Message("assistant", '```todo write\nadd "Alternative only"\n```'))
+    list(clear_todo_state(manager))
+    for branch in ("main", "alternative"):
+        resumed = LogManager.load(manager.logdir, branch=branch, lock=False)
+        list(ensure_todo_state(resumed))
+        assert "Inherited" in _todoread()
+        assert ("Alternative only" in _todoread()) == (branch == "alternative")
+        list(clear_todo_state(resumed))
+
+
+def test_main_view_branch_roundtrip_does_not_restore_stale_context(
+    tmp_path: Path,
+) -> None:
+    manager = start(tmp_path / "view-roundtrip", [Message("user", "Original")])
+    manager.create_view("compacted-001", [Message("system", "Summary")])
+    manager.switch_view("compacted-001")
+    manager.branch("alternative")
+    manager.branch("main")
+    manager.append(Message("user", "New main context"))
+    resumed = LogManager.load(manager.logdir, lock=False)
+    assert "New main context" in [m.content for m in resumed.log]
+
+
+@pytest.mark.parametrize("operation", ["edit", "undo"])
+def test_compacted_backup_branch_inherits_todo_prefix(
+    tmp_path: Path, operation: str
+) -> None:
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    manager = start(
+        tmp_path / "backup-history",
+        [Message("assistant", '```todo write\nadd "Inherited"\n```')],
+    )
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.append(Message("user", "Keep in backup"))
+    if operation == "edit":
+        manager.edit([Message("user", "Edited")])
+    else:
+        manager.undo(1)
+    manager.branch(f"alternative-{operation}-0")
+    manager.write()
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, branch=manager.current_branch, lock=False)
+    list(ensure_todo_state(resumed))
+    assert "Inherited" in _todoread()
+    assert "Keep in backup" in [m.content for m in resumed.log]

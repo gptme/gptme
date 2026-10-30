@@ -334,6 +334,14 @@ class LogManager:
                 messages=self.snapshot_message_files(lossless_log.messages)
             )
 
+        # Non-main archives belong to the branch, never the shared main history.
+        self._branch_lossless_logs: dict[str, Log] = {}
+        for archive in self.logdir.glob("branches/*/lossless.jsonl"):
+            branch_log = Log.read_jsonl(archive)
+            self._branch_lossless_logs[archive.parent.name] = branch_log.replace(
+                messages=self.snapshot_message_files(branch_log.messages)
+            )
+
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
         views_dir = self.logdir / "views"
@@ -632,20 +640,24 @@ class LogManager:
         """Appends a message to the log, writes the log, prints the message.
 
         When on a view branch, implements dual-write:
-        - Appends to master branch (preserves full history)
+        - Appends to the current branch (preserves full history)
         - Appends to current view (maintains compacted context)
         """
         # Store files by content hash and update message with hashes
         msg = self._store_message_files(msg)
 
-        # If on a view branch, dual-write to both master AND view
+        # If on a view branch, dual-write to both its branch AND view
         if self.current_view and self.current_view in self._views:
-            # Append to master (main branch) for full history preservation
-            if "main" in self._branches:
-                self._branches["main"] = self._branches["main"].append(msg)
-            # Keep lossless snapshot current (manual-compact path: lossless + view)
-            if self._lossless_log is not None:
+            # A compacted view is a projection of its current branch, not main.
+            self._branches[self.current_branch] = self._branches[
+                self.current_branch
+            ].append(msg)
+            if self._lossless_log is not None and self.current_branch == "main":
                 self._lossless_log = self._lossless_log.append(msg)
+            elif self.current_branch in self._branch_lossless_logs:
+                self._branch_lossless_logs[self.current_branch] = (
+                    self._branch_lossless_logs[self.current_branch].append(msg)
+                )
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
@@ -655,6 +667,10 @@ class LogManager:
             # Keep lossless snapshot current when on main (manual-compact path)
             if self._lossless_log is not None and self.current_branch == "main":
                 self._lossless_log = self._lossless_log.append(msg)
+            elif self.current_branch in self._branch_lossless_logs:
+                self._branch_lossless_logs[self.current_branch] = (
+                    self._branch_lossless_logs[self.current_branch].append(msg)
+                )
 
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
@@ -724,14 +740,22 @@ class LogManager:
             )
             paths.add(lossless_path)
 
-        # write current branch (or main branch if on a view)
-        # When on a view, conversation.jsonl must always contain the full main
-        # branch history — the view is persisted separately in views/ directory.
+        for branch, archive in self._branch_lossless_logs.items():
+            archive_path = self.logdir / "branches" / branch / "lossless.jsonl"
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            self._branch_lossless_logs[branch] = archive.write_jsonl(
+                archive_path, append=True
+            )
+            paths.add(archive_path)
+
+        # Write the underlying current branch, not its compacted view.
+        # Views are persisted separately in views/; main stays in conversation.jsonl.
         if self.current_view is not None:
-            main_path = self.logdir / "conversation.jsonl"
-            main_log = self._branches["main"]
-            self._branches["main"] = main_log.write_jsonl(main_path, append=True)
-            paths.add(main_path)
+            branch_log = self._branches[self.current_branch]
+            self._branches[self.current_branch] = branch_log.write_jsonl(
+                self.logfile, append=True
+            )
+            paths.add(self.logfile)
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
             paths.add(self.logfile)
@@ -845,7 +869,10 @@ class LogManager:
         """backup the current log to a new branch, usually before editing/undoing"""
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
-        self._branches[f"{branch_prefix}{n}"] = self.log.replace(persisted=())
+        name = f"{branch_prefix}{n}"
+        self._branches[name] = self.log.replace(persisted=())
+        if self.full_log is not self.log:
+            self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -940,20 +967,27 @@ class LogManager:
         return manager
 
     def preserve_lossless_log(self) -> None:
-        """Write the full lossless history to lossless.jsonl.
+        """Write the current branch's full history to its lossless.jsonl.
 
         Call before manual compaction to ensure the original transcript is
-        preserved even after conversation.jsonl is replaced.  Raises on
-        failure so callers can abort before touching conversation.jsonl.
+        preserved even after the active branch log is replaced. Raises on
+        failure so callers can abort before touching the active transcript.
         """
         if not self.logdir:
             return
-        lossless_path = self.logdir / "lossless.jsonl"
+        lossless_path = (
+            self.logdir / "lossless.jsonl"
+            if self.current_branch == "main"
+            else self.logdir / "branches" / self.current_branch / "lossless.jsonl"
+        )
         lossless_path.parent.mkdir(parents=True, exist_ok=True)
-        # Re-compaction must not overwrite the existing full transcript with
-        # the already compacted active branch. Recall IDs address this archive.
-        written = self.master_log.write_jsonl(lossless_path, append=True)
-        self._lossless_log = written
+        # Re-compaction must not overwrite the branch's full transcript with
+        # its already compacted active log, or import divergent main history.
+        written = self.full_log.write_jsonl(lossless_path, append=True)
+        if self.current_branch == "main":
+            self._lossless_log = written
+        else:
+            self._branch_lossless_logs[self.current_branch] = written
 
     def branch(self, name: str) -> None:
         """Switches to a branch."""
@@ -961,7 +995,12 @@ class LogManager:
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
             self._branches[name] = self.log.replace(persisted=())
+            if self.full_log is not self.log:
+                self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
         self.current_branch = name
+        self.current_view = None
+        if name == "main":
+            self._restore_current_view()
 
     def diff(self, branch: str) -> str | None:
         """Prints the diff between the current branch and another branch."""
@@ -1082,6 +1121,15 @@ class LogManager:
         ]
         next_num = max(existing, default=0) + 1
         return f"compacted-{next_num:03d}"
+
+    @property
+    def full_log(self) -> Log:
+        """Full history owned by the current branch, including its inherited prefix."""
+        if self.current_branch == "main":
+            return self.master_log
+        return self._branch_lossless_logs.get(
+            self.current_branch, self._branches[self.current_branch]
+        )
 
     @property
     def master_log(self) -> Log:

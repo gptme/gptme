@@ -515,10 +515,11 @@ def test_view_on_non_main_branch_persists_each_destination(tmp_path: Path, monke
     main = Log.read_jsonl(logdir / "conversation.jsonl")
     branch = Log.read_jsonl(logdir / "branches" / "dev.jsonl")
     view = Log.read_jsonl(logdir / "views" / "compacted-001.jsonl")
-    assert [message.content for message in main] == ["main history", "view message"]
+    assert [message.content for message in main] == ["main history"]
     assert [message.content for message in branch] == [
         "main history",
         "branch history",
+        "view message",
     ]
     assert [message.content for message in view] == ["summary", "view message"]
 
