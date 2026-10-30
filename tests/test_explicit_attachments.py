@@ -340,13 +340,16 @@ def test_cli_completes_explicit_attachment_prefix(tmp_path, monkeypatch):
     assert "child-content-marker" in child_result.content
 
 
+@pytest.mark.parametrize("separator", [" ", "\t"])
 @pytest.mark.parametrize("legacy", [False, True])
-def test_legacy_command_backticks_expand_embedded_path(tmp_path, monkeypatch, legacy):
+def test_legacy_command_backticks_expand_embedded_path(
+    tmp_path, monkeypatch, legacy, separator: str
+):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
     (tmp_path / "main.py").write_text("legacy-source-marker")
     url = "https://example.com/page"
-    msg = Message("user", f"Explain `./main.py --help {url}`")
+    msg = Message("user", f"Explain `./main.py{separator}--help{separator}{url}`")
     with patch.object(
         context, "_resource_to_codeblock", wraps=context._resource_to_codeblock
     ) as read:
@@ -380,22 +383,28 @@ def test_overlong_explicit_path_does_not_drop_sibling_attachment(tmp_path, monke
     assert "keep-this-marker" in result.content
 
 
-def test_explicit_command_backticks_do_not_expand_embedded_path(tmp_path, monkeypatch):
+@pytest.mark.parametrize("separator", [" ", "\t"])
+def test_explicit_command_backticks_do_not_expand_embedded_path(
+    tmp_path, monkeypatch, separator: str
+):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1")
     (tmp_path / "main.py").write_text("legacy-source-marker")
-    msg = Message("user", "Explain `@./main.py --help`")
+    msg = Message("user", f"Explain `@./main.py{separator}--help`")
     result = context._include_paths(msg)
     assert result is msg
     assert "legacy-source-marker" not in result.content
 
 
+@pytest.mark.parametrize("separator", [" ", "\t"])
 @pytest.mark.parametrize("legacy", [False, True])
-def test_quoted_prose_url_respects_interactive_consent(monkeypatch, legacy):
+def test_quoted_prose_url_respects_interactive_consent(
+    monkeypatch, legacy, separator: str
+):
     monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
     monkeypatch.setattr(context, "_is_interactive_mode", lambda: True)
     url = "https://example.com/page"
-    msg = Message("user", f"Read `see {url}`")
+    msg = Message("user", f"Read `see{separator}{url}`")
     with (
         patch.object(context, "_confirm_urls", return_value=[]) as confirm,
         patch.object(

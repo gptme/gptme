@@ -826,7 +826,7 @@ class _DiscoveredPath(NamedTuple):
 
 def _legacy_command_phrase(word: str) -> bool:
     """True for implicit ``./file --help`` phrases, not quoted URL prose."""
-    if " " not in word:
+    if not any(char.isspace() for char in word):
         return False
     for token in word.split():
         token = token.rstrip("?.,!")
