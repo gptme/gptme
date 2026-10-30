@@ -253,7 +253,31 @@ def new_session(command: str) -> Message:
 
 
 def send_keys(pane_id: str, keys: str) -> Message:
-    if not pane_id.startswith("gptme_"):
+    if pane_id.startswith("%") and pane_id[1:].isdigit():
+        # Native pane IDs cannot be prefixed. Check ownership before accepting
+        # them so this shorthand does not grant access to unrelated sessions.
+        try:
+            owner = subprocess.run(
+                ["tmux", "display-message", "-p", "-t", pane_id, "#{session_name}"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            return Message(
+                "system", f"Failed to send keys to tmux pane `{pane_id}`: timed out"
+            )
+        if owner.returncode != 0:
+            return Message(
+                "system", f"Failed to find tmux pane `{pane_id}`: {owner.stderr}"
+            )
+        if not owner.stdout.strip().startswith("gptme_"):
+            return Message(
+                "system",
+                f"Failed to send keys to tmux pane `{pane_id}`: outside the gptme_ session namespace",
+            )
+    elif not pane_id.startswith("gptme_"):
         pane_id = f"gptme_{pane_id}"
     # Parse keys into separate arguments to avoid shell injection
     # shlex.split properly handles quoted strings and escapes
