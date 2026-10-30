@@ -204,6 +204,70 @@ class TestRoots:
 
 
 class TestLegacySavePublication:
+    @pytest.mark.parametrize("first_writer", ["save", "update_index_line"])
+    @pytest.mark.parametrize("second_writer", ["save", "update_index_line"])
+    def test_shared_index_serializes_roots(
+        self, tmp_path, monkeypatch, first_writer, second_writer
+    ):
+        from gptme.memory import store as store_module
+
+        target = tmp_path / "index.md"
+        target.write_text("# Curated\n\nKeep me.\n")
+        roots = [tmp_path / "a", tmp_path / "b"]
+        for root in roots:
+            root.mkdir()
+            try:
+                (root / "MEMORY.md").symlink_to("../index.md")
+            except OSError as exc:
+                pytest.skip(f"symlinks unavailable: {exc}")
+        first_read = threading.Event()
+        release_first = threading.Event()
+        second_started = threading.Event()
+        second_read = threading.Event()
+        real_render = store_module._legacy_index_text
+
+        def render(path, entry):
+            text = real_render(path, entry)
+            if entry.name == "first":
+                first_read.set()
+                assert release_first.wait(timeout=5)
+            else:
+                second_read.set()
+            return text
+
+        def write(root, writer, name):
+            if name == "second":
+                second_started.set()
+            if writer == "save":
+                MemoryStore([MemoryRoot("explicit", root)]).save(name, name)
+            else:
+                update_index_line(root, MemoryEntry(name=name, description=name))
+
+        monkeypatch.setattr(store_module, "_legacy_index_text", render)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(write, roots[0], first_writer, "first")
+            try:
+                assert first_read.wait(timeout=5)
+                second = pool.submit(write, roots[1], second_writer, "second")
+                assert second_started.wait(timeout=5)
+                read_while_locked = second_read.wait(timeout=0.2)
+                if read_while_locked:
+                    # Complete the competing publication before releasing the
+                    # first snapshot, avoiding a same-process temp-file race.
+                    second.result(timeout=5)
+            finally:
+                release_first.set()
+            first.result(timeout=5)
+            second.result(timeout=5)
+        assert not read_while_locked
+        assert target.read_text() == (
+            "# Curated\n\nKeep me.\n"
+            "- [first](first.md) — first\n"
+            "- [second](second.md) — second\n"
+        )
+        assert all((root / "MEMORY.md").is_symlink() for root in roots)
+        assert not list(tmp_path.rglob(".*.tmp"))
+
     @pytest.mark.parametrize("writer", ["save", "update_index_line"])
     @pytest.mark.parametrize("target_exists", [False, True])
     def test_symlinked_index_updates_target(self, tmp_path, writer, target_exists):
@@ -221,6 +285,7 @@ class TestLegacySavePublication:
             index.symlink_to("../shared/index.md")
         except OSError as exc:
             pytest.skip(f"symlinks unavailable: {exc}")
+        original_mode = stat.S_IMODE(target.stat().st_mode) if target_exists else None
         store = MemoryStore([MemoryRoot("explicit", root)])
         if writer == "save":
             store.save("fact", "Changed", "New body")
@@ -231,7 +296,7 @@ class TestLegacySavePublication:
         expected = curated if target_exists else "# Persistent Memory\n\n"
         assert target.read_text() == expected + "- [fact](fact.md) — Changed\n"
         if target_exists:
-            assert stat.S_IMODE(target.stat().st_mode) == 0o640
+            assert stat.S_IMODE(target.stat().st_mode) == original_mode
         assert not list(tmp_path.rglob(".*.tmp"))
 
     @pytest.mark.parametrize("existing", [False, True])
@@ -484,11 +549,13 @@ class TestStore:
         locked_root = store_module._locked_root
 
         @contextmanager
-        def pause_before_index_lock(root: Path) -> Iterator[None]:
+        def pause_before_index_lock(
+            root: Path, *, lock_name: str = store_module.LOCK_FILENAME
+        ) -> Iterator[None]:
             if threading.current_thread() is not main_thread:
                 index_waiting.set()
                 assert mutation_done.wait(10), "concurrent mutation did not finish"
-            with locked_root(root):
+            with locked_root(root, lock_name=lock_name):
                 yield
 
         monkeypatch.setattr(store_module, "_locked_root", pause_before_index_lock)

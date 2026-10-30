@@ -134,7 +134,7 @@ except ImportError:  # pragma: no cover - POSIX
 
 
 @contextmanager
-def _locked_root(root_path: Path):
+def _locked_root(root_path: Path, *, lock_name: str = LOCK_FILENAME):
     """Exclusive lock covering one memory root's read-validate-commit window.
 
     Index updates and paired entry/index saves replace ``MEMORY.md`` atomically,
@@ -145,7 +145,7 @@ def _locked_root(root_path: Path):
     sidecar (same pattern as ``gptme.logmanager.eventlog``).
     """
     root_path.mkdir(parents=True, exist_ok=True)
-    with open(root_path / LOCK_FILENAME, "a+b") as lock:
+    with open(root_path / lock_name, "a+b") as lock:
         if _fcntl is not None:
             _fcntl.flock(lock, _fcntl.LOCK_EX)
         elif _msvcrt is not None:  # pragma: no cover - Windows
@@ -162,6 +162,19 @@ def _locked_root(root_path: Path):
             elif _msvcrt is not None:  # pragma: no cover - Windows
                 lock.seek(0)
                 _msvcrt.locking(lock.fileno(), _msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def _locked_legacy_index(index_path: Path):
+    """Lock the resolved target across rendering, publication and rollback.
+
+    Different roots can share an index through symlinks. Its stable sidecar,
+    rather than the replaced index inode or either root lock, serializes them.
+    Callers acquire their root lock first; this lock never acquires a root lock.
+    """
+    target = index_path.resolve()
+    with _locked_root(target.parent, lock_name=f".{target.name}.memory.lock"):
+        yield target
 
 
 def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
@@ -197,23 +210,20 @@ def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     clobbered; full regeneration is the explicit ``index --write`` path.
 
     The file name is the key, so renaming an entry's title updates the same
-    line instead of adding a duplicate. The caller holds the root lock to
-    serialise concurrent writers across atomic index replacements.
+    line instead of adding a duplicate. The caller holds the root lock; the
+    target sidecar also serialises roots sharing a symlinked index.
     """
-    index_path = memory_dir / INDEX_FILENAME
-    # Legacy index writes followed symlinks before publication became atomic.
-    if index_path.is_symlink():
-        index_path = index_path.resolve()
-    index_text = _legacy_index_text(index_path, entry)
-    if index_text is not None:
-        _atomic_write(index_path, index_text)
+    with _locked_legacy_index(memory_dir / INDEX_FILENAME) as index_path:
+        index_text = _legacy_index_text(index_path, entry)
+        if index_text is not None:
+            _atomic_write(index_path, index_text)
 
 
 def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
     """Render one legacy pointer update without publishing it.
 
-    Callers hold the root lock so reading the curated index and committing its
-    replacement are serialized even when its inode changes.
+    Callers hold the root and resolved-target locks so reading the curated index
+    and committing its replacement are serialized even when its inode changes.
     """
     try:
         content = index_path.read_text(encoding="utf-8")
@@ -375,14 +385,12 @@ class MemoryStore:
             text = entry.to_markdown()
             entry = entry_from_text(text, path=path, scope=root.scope, strict=True)
             if policy is None:
-                index_path = self.index_path(scope)
-                if index_path.is_symlink():
-                    index_path = index_path.resolve()
-                index_text = _legacy_index_text(index_path, entry)
-                replacements = [(path, text)]
-                if index_text is not None:
-                    replacements.append((index_path, index_text))
-                _commit_replacements(replacements)
+                with _locked_legacy_index(self.index_path(scope)) as index_path:
+                    index_text = _legacy_index_text(index_path, entry)
+                    replacements = [(path, text)]
+                    if index_text is not None:
+                        replacements.append((index_path, index_text))
+                    _commit_replacements(replacements)
             else:
                 entries = [e for e in self.index_entries(scope) if e.path != path]
                 entries.append(entry)

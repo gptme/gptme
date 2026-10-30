@@ -213,9 +213,11 @@ permission bits are preserved, but atomic replacement is authorized by the
 parent directory: a read-only index file in a writable directory can still be
 replaced, just as in a managed root. Legacy ``save`` and direct pointer updates
 follow a symlinked ``MEMORY.md`` and atomically replace its target, leaving the
-link intact. The target's parent directory authorizes that replacement. The
-root lock does not coordinate other roots or external writers sharing that
-target.
+link intact. The target's parent directory authorizes that replacement. Both
+legacy writers hold a stable ``.<target-name>.memory.lock`` sidecar beside the
+resolved index target from reading through publication and rollback, so roots
+sharing that target serialize their updates. Writers that do not use this
+sidecar remain uncoordinated.
 
 Supersession and audit
 ~~~~~~~~~~~~~~~~~~~~~~
