@@ -155,6 +155,10 @@ def test_until_accepts_high_pipe_descriptor(monkeypatch, output_fd):
     import os
 
     fcntl = pytest.importorskip("fcntl")
+    resource = pytest.importorskip("resource")
+    soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft_limit != resource.RLIM_INFINITY and soft_limit <= 1024:
+        pytest.skip("requires a pipe descriptor above 1023")
     monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
     popen = _watch_mod.subprocess.Popen
 
@@ -205,12 +209,18 @@ def test_until_bounds_output_before_retaining_it(monkeypatch, fd):
         created=time.time(),
         deadline=time.time() + 10,
     )
-    tracemalloc.start()
+    already_tracing = tracemalloc.is_tracing()
+    if not already_tracing:
+        tracemalloc.start()
+    baseline, _ = tracemalloc.get_traced_memory()
+    tracemalloc.reset_peak()
     try:
         _watch_mod._poll_until(watch, command, 0.01)
         _, peak = tracemalloc.get_traced_memory()
+        peak -= baseline
     finally:
-        tracemalloc.stop()
+        if not already_tracing:
+            tracemalloc.stop()
     assert watch.fired
     assert watch.events[-1].startswith("condition met: prefix")
     assert len(watch.events[-1]) <= 515
@@ -219,7 +229,7 @@ def test_until_bounds_output_before_retaining_it(monkeypatch, fd):
 
 def test_until_waits_for_exit_after_output_eof(monkeypatch):
     monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
-    command = shlex.join(
+    command = "exec " + shlex.join(
         [
             sys.executable,
             "-c",
