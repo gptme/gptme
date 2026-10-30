@@ -19,6 +19,7 @@ import importlib.util
 import logging
 import mimetypes
 import shutil
+import stat
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
@@ -184,6 +185,22 @@ class ConversionResult:
 # ---------------------------------------------------------------------------
 
 
+def _source_error(src: Path) -> str | None:
+    """Check source shape without opening it; follow regular-file symlinks.
+
+    This pathname check does not prevent a source being replaced afterwards.
+    """
+    try:
+        mode = src.stat().st_mode
+    except FileNotFoundError:
+        return f"Input file not found: {src}"
+    except OSError as exc:
+        return f"Could not inspect input file {src}: {exc}"
+    if not stat.S_ISREG(mode):
+        return f"Input is not a regular file: {src}"
+    return None
+
+
 class Converter(ABC):
     name: ClassVar[str] = "base"
     # Supported (source_mime_prefix, target_ext) pairs
@@ -236,6 +253,8 @@ class PDFToImageConverter(Converter):
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         dpi = self._DPI.get(quality, 150)
         dest_ext = dest.suffix.lstrip(".").lower()
@@ -396,6 +415,8 @@ class ImageConverter(Converter):
                 error=f"Destination is an existing directory: {dest}",
             )
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         dest_ext = dest.suffix.lstrip(".").lower()
         q = self._QUALITY.get(quality, 80)
@@ -491,6 +512,8 @@ class PDFToTextConverter(Converter):
                 error=f"Destination is an existing directory: {dest}",
             )
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         warnings: list[str] = []
 
@@ -589,6 +612,8 @@ class DocumentToTextConverter(Converter):
                 error=f"Destination is an existing directory: {dest}",
             )
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         warnings: list[str] = []
 
@@ -713,6 +738,8 @@ class VideoThumbnailConverter(Converter):
                 error=f"Destination is an existing directory: {dest}",
             )
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         if not avail.ffmpeg:
             return ConversionResult(
@@ -777,6 +804,9 @@ def _detect_mime(path: Path) -> str:
 def find_converter(
     src: Path, dest_ext: str, avail: ToolAvailability | None = None
 ) -> Converter | None:
+    """Select a converter for a regular source; raise ValueError for invalid input."""
+    if error := _source_error(src):
+        raise ValueError(error)
     if avail is None:
         avail = get_availability()
     src_mime = _detect_mime(src)
@@ -801,11 +831,16 @@ def convert_file(
         quality: One of 'low', 'medium', 'high'.
         dry_run: If True, return converter plan without executing.
     """
+    if error := _source_error(src):
+        return ConversionResult(False, None, "none", error=error)
     avail = get_availability()
     src_mime = _detect_mime(src)
     dest_ext = dest.suffix.lstrip(".")
 
-    conv = find_converter(src, dest_ext, avail)
+    try:
+        conv = find_converter(src, dest_ext, avail)
+    except ValueError as e:
+        return ConversionResult(False, None, "none", error=str(e))
     if conv is None:
         return ConversionResult(
             success=False,
