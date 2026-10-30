@@ -632,6 +632,7 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#asynchronous-work">Asynchronous work</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
@@ -670,6 +671,19 @@ summary by default (like HTML <code class="docutils literal notranslate"><span c
 </ul>
 <p>It also provides a persistent status bar showing the current model, token
 usage relative to the context window, and agent state.</p>
+<section id="asynchronous-work">
+<h2>Asynchronous work<a class="headerlink" href="#asynchronous-work" title="Link to this heading">#</a></h2>
+<p>Child-agent results and fired watches appear in their originating conversation
+and branch, including after the agent has finished its turn. By default they
+also resume an idle agent without another prompt. Progress updates are displayed
+without starting generation. Unsent text and its cursor position are preserved;
+results arriving during generation, a command or a confirmation wait for a safe
+boundary. Results for another branch wait until you return to that branch.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">watch_autowake</span> <span class="pre">=</span> <span class="pre">false</span></code> under <code class="docutils literal notranslate"><span class="pre">[chat]</span></code> in the conversation’s
+<code class="docutils literal notranslate"><span class="pre">config.toml</span></code> for notification-only delivery. Tool and URL confirmations still
+apply to any resumed generation. An interrupt suppresses automatic continuation.
+This does not change plain CLI wakeups or non-interactive shutdown policy.</p>
+</section>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
 <p>The TUI requires the <code class="docutils literal notranslate"><span class="pre">tui</span></code> extra:</p>
@@ -870,6 +884,7 @@ keep using <code class="docutils literal notranslate"><span class="pre">gptme</s
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#asynchronous-work">Asynchronous work</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inline-mode-experimental">Inline mode (experimental)</a></li>
