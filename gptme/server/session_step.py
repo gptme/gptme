@@ -623,14 +623,16 @@ async def _acp_step(
                     with session.step_lock:
                         owns_step = session.step_seq == my_step_seq
                     if owns_step:
-                        _run_turn_post_on_step_pre_complete(manager, session)
-                        with session.step_lock:
-                            session.generating = False
-                            session.generating_since = None
-                            SessionManager.add_event(
-                                conversation_id, {"type": "step_complete"}
-                            )
-                            released = True
+                        try:
+                            _run_turn_post_on_step_pre_complete(manager, session)
+                        finally:
+                            with session.step_lock:
+                                session.generating = False
+                                session.generating_since = None
+                                SessionManager.add_event(
+                                    conversation_id, {"type": "step_complete"}
+                                )
+                                released = True
                 if released:
                     SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise
@@ -1035,16 +1037,18 @@ def step(
                 with session.step_lock:
                     owns_step = session.step_seq == my_step_seq
                 if owns_step:
-                    _run_turn_post_on_step_pre_complete(manager, session)
-                    with session.step_lock:
-                        session.finish_skill_turn("abandoned")
-                        session.generating = False
-                        session.generating_since = None
-                        # Keep reservation release and its event atomic.
-                        SessionManager.add_event(
-                            conversation_id, {"type": "step_complete"}
-                        )
-                        released = True
+                    try:
+                        _run_turn_post_on_step_pre_complete(manager, session)
+                    finally:
+                        with session.step_lock:
+                            session.finish_skill_turn("abandoned")
+                            session.generating = False
+                            session.generating_since = None
+                            # Keep reservation release and its event atomic.
+                            SessionManager.add_event(
+                                conversation_id, {"type": "step_complete"}
+                            )
+                            released = True
             if released:
                 SessionManager.retry_deferred_watch_wakes(conversation_id)
         raise

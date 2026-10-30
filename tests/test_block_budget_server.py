@@ -101,7 +101,7 @@ def test_step_pre_completion_retries_wakes_only_after_owned_release(
 
 
 @pytest.mark.parametrize("backend", ["inprocess", "acp"])
-@pytest.mark.parametrize("post_failure", [None, "load", "hook"])
+@pytest.mark.parametrize("post_failure", [None, "load", "hook", "interrupt"])
 def test_step_pre_completion_runs_turn_post(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -164,6 +164,8 @@ def test_step_pre_completion_runs_turn_post(
             # Arbitrary hooks must not run under the non-reentrant step lock.
             assert session.step_lock.acquire(blocking=False)
             session.step_lock.release()
+            if post_failure == "interrupt":
+                raise KeyboardInterrupt
             if post_failure == "hook":
                 raise RuntimeError("post-turn hook failed")
             return [Message("system", "turn-post-ran", hide=True)]
@@ -180,7 +182,10 @@ def test_step_pre_completion_runs_turn_post(
     monkeypatch.setattr(
         SessionManager, "retry_deferred_watch_wakes", lambda conversation_id: None
     )
-    with pytest.raises(SessionCompleteException, match="policy block budget exhausted"):
+    expected = (
+        KeyboardInterrupt if post_failure == "interrupt" else SessionCompleteException
+    )
+    with pytest.raises(expected):
         if backend == "acp":
             asyncio.run(
                 session_step._acp_step("budget-conversation", session, tmp_path)
