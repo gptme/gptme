@@ -276,6 +276,8 @@ nitpick_ignore = [
     ("py:class", "gptme.tools.subagent.SubtaskDef"),
     ("py:class", "gptme.tools.shell.BackgroundJob"),
     ("py:class", "gptme.tools.shell.ShellSession"),
+    # Save's confirmation baseline is private, not a public autodoc target.
+    ("py:class", "gptme.tools.save._SaveBaseline"),
     # convert/patch_many docstrings: ConversionResult is an undocumented
     # dataclass in the same module, and Patch is re-exported from patch.py.
     ("py:class", "gptme.tools.convert.ConversionResult"),

@@ -185,7 +185,8 @@ def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     """Update a legacy pointer, or regenerate a policy-managed root's view.
 
     **Legacy root (no .memory-index.json)**: upserts a ``- [title](file) —
-    description`` pointer in ``MEMORY.md``, identical to the old behaviour.
+    description`` pointer in ``MEMORY.md`` for living entries, or removes the
+    pointer for retired entries without rewriting unrelated index prose.
 
     **Policy-managed root**: regenerates the full selected view from
     ``.memory-index.json``.  Only the explicitly selected entries appear in the
@@ -206,7 +207,7 @@ def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
 
 
 def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
-    """Upsert one ``- [title](file) — description`` line in ``MEMORY.md``.
+    """Upsert a living entry's pointer, or remove a retired entry's pointer.
 
     This is the Claude Code convention: append a pointer line, never rewrite
     the whole index. It is what ``save`` does so a hand-curated index is never
@@ -217,14 +218,19 @@ def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     concurrent writers.
     """
     index_path = memory_dir / INDEX_FILENAME
+    if not entry.is_living and not index_path.exists():
+        return
     line = entry.index_line()
-    pattern = rf"^- \[[^\]]*\]\({re.escape(entry.filename)}\).*$"
+    # Allow brackets in titles, but never cross the leading link's destination.
+    pattern = rf"^- \[(?:(?!\]\().)*\]\({re.escape(entry.filename)}\).*$"
     with open(index_path, "a+", encoding="utf-8") as f:
         _lock_exclusive(f)
         try:
             f.seek(0)
             content = f.read()
-            if not content:
+            if not entry.is_living:
+                new_content = re.sub(pattern + r"\n?", "", content, flags=re.MULTILINE)
+            elif not content:
                 new_content = f"{INDEX_HEADER}\n\n{line}\n"
             elif re.search(pattern, content, re.MULTILINE):
                 new_content = re.sub(
@@ -346,7 +352,8 @@ class MemoryStore:
 
         A policy-managed root regenerates its selected view within the stored
         budget, committing entry and index together. New entries remain available
-        to recall but are not selected automatically. Legacy roots upsert a line.
+        to recall but are not selected automatically. Legacy roots upsert living
+        pointers and remove retired pointers, preserving unrelated index prose.
 
         The root lock serialises this write against concurrent ``supersede`` calls.
         ``supersede`` replaces ``MEMORY.md`` via ``os.replace``, which would drop

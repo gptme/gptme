@@ -28,9 +28,9 @@ from .base import (
 instructions = """
 To patch/modify files, we use an adapted version of git conflict markers.
 
-Multiple ORIGINAL/UPDATED blocks can make several changes in one patch.
-Keep patches small. Scope each change to a function/class. Avoid placeholders
-in ORIGINAL blocks; they must match the file exactly or the patch will fail.
+Keep patches small. ORIGINAL must match the file exactly, including ellipsis
+comments (`# ...`): these are literal, not wildcards. Use separate
+ORIGINAL/UPDATED blocks to skip unchanged code.
 
 ### When to use patch vs save
 
@@ -263,22 +263,9 @@ class Patch:
 
     @classmethod
     def from_codeblock(cls, codeblock: str) -> Generator["Patch", None, None]:
-        for patch in cls._from_codeblock(codeblock):
-            original, updated = patch.original, patch.updated
-            re_placeholder = re.compile(r"^[ \t]*(#|//|\") \.\.\. ?.*$", re.MULTILINE)
-            if re_placeholder.search(original) or re_placeholder.search(updated):
-                originals = re_placeholder.split(original)
-                modifieds = re_placeholder.split(updated)
-                if len(originals) != len(modifieds):
-                    raise ValueError(
-                        "different number of placeholders in original and modified chunks"
-                    )
-                for orig, mod in zip(originals, modifieds):
-                    if orig == mod:
-                        continue
-                    yield Patch(orig, mod)
-            else:
-                yield patch
+        # Keep comment text literal; implicit omission markers discard edits and
+        # let mismatched ORIGINAL context pass as a wildcard.
+        yield from cls._from_codeblock(codeblock)
 
 
 def apply(codeblock: str, content: str) -> str:

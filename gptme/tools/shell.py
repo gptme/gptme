@@ -258,25 +258,21 @@ is_macos = sys.platform == "darwin"
 
 
 instructions = f"""
-The given command will be executed in a stateful bash shell.
-The shell tool will respond with the output of the execution.
-
-These programs are available, among others:
+Stateful Bash: foreground `cd`, exports and variables persist.
+Inspect files/git; run tests/commands. Prefer repo evidence.
+Available programs:
 {shell_programs_str}
 
-### When to use the shell
-
-Use the shell to inspect the workspace, search files, check git state, or run
-existing commands and tests. Prefer the repo over answering from memory.
-
-### Background Jobs
-
-Use `background: true` for work you already know will run long — dev servers,
-builds, test suites. A foreground command that outruns the soft timeout is
-promoted to background job N; its exit code and output arrive automatically.
-A leading `timeout DURATION` keeps a command in the foreground that long.
-Manage jobs with `output N`, `wait N [timeout]`, `kill N`, `jobs`: not bash,
-so send each as the entire command, never piped or inside a script.
+Use `background: true` for known long work: a separate shell inherits the
+Python parent's cwd and environment, not foreground exports/variables.
+Do not rely on prior foreground `cd`: CLI may change Python cwd;
+workspace/server sessions keep it separate. Each job must `cd` to an absolute
+path with `&&`, set variables and verify its checkout.
+At the soft timeout, foreground automatic promotion keeps the running command/state.
+Bash `&` inherits shell state. Managed jobs report exit/output automatically.
+`timeout DURATION` keeps work foreground that long.
+Job controls: `output N`, `wait N [timeout]`, `kill N`, `jobs`.
+Send each as an entire tool call, never in Bash pipelines/scripts.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -897,8 +893,10 @@ class ShellSession:
                 # on the stuck-bash fallback), so do not wipe a verified cwd.
                 self._invalidate_cwd()
             if res_code != 0:
-                return res_code, res_stdout, res_stderr
-        return res_code, res_stdout, res_stderr
+                break
+        # Trim presentation-only blank lines after concatenation: each command's
+        # trailing/leading newlines may be meaningful inside the combined stream.
+        return res_code, trim_blank_lines(res_stdout), trim_blank_lines(res_stderr)
 
     def _needs_tty(self, command: str) -> bool:
         """Check if a command needs a TTY (e.g. sudo password prompt) and we're interactive."""
@@ -941,7 +939,12 @@ class ShellSession:
         return False
 
     def _run_with_tty(
-        self, command: str, output: bool = True, timeout: float | None = None
+        self,
+        command: str,
+        output: bool = True,
+        timeout: float | None = None,
+        *,
+        trim_output: bool = True,
     ) -> tuple[int | None, str, str]:
         """Run a command with /dev/tty as stdin for interactive password prompts (e.g. sudo).
 
@@ -1110,8 +1113,12 @@ class ShellSession:
                                 finish_readers(stop=True)
                                 return (
                                     -124,
-                                    trim_blank_lines("".join(stdout_chunks)),
-                                    trim_blank_lines("".join(stderr_chunks)),
+                                    trim_blank_lines("".join(stdout_chunks))
+                                    if trim_output
+                                    else "".join(stdout_chunks),
+                                    trim_blank_lines("".join(stderr_chunks))
+                                    if trim_output
+                                    else "".join(stderr_chunks),
                                 )
                             # Child exited just before the deadline; honour
                             # the real exit code rather than returning -124.
@@ -1158,8 +1165,12 @@ class ShellSession:
 
         return (
             exit_code,
-            trim_blank_lines("".join(stdout_chunks)),
-            trim_blank_lines("".join(stderr_chunks)),
+            trim_blank_lines("".join(stdout_chunks))
+            if trim_output
+            else "".join(stdout_chunks),
+            trim_blank_lines("".join(stderr_chunks))
+            if trim_output
+            else "".join(stderr_chunks),
         )
 
     def detach(self) -> None:
@@ -1176,7 +1187,9 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         # Use TTY-based execution for interactive sudo commands
         if self._needs_tty(command):
-            return self._run_with_tty(command, output=output, timeout=timeout)
+            return self._run_with_tty(
+                command, output=output, timeout=timeout, trim_output=False
+            )
         return self._run_pipe(command, output=output, tries=tries, timeout=timeout)
 
     def _run_pipe(
@@ -1387,7 +1400,9 @@ class ShellSession:
         err_tail = stderr_decoder.decode(b"", final=True)
         self._capture_output(stdout, out_tail, stream=sys.stdout, output=output)
         self._capture_output(stderr, err_tail, stream=sys.stderr, output=output)
-        return result[0], result[1] + out_tail, result[2] + err_tail
+        # Readers format their return values, but these capture buffers retain
+        # exact command boundaries (including decoder tails). run() trims once.
+        return result[0], "".join(stdout), "".join(stderr)
 
     def _decode_output(self, fd: int, raw: bytes) -> str:
         # Direct reader tests and recovery helpers can bypass _run_pipe.
@@ -4038,7 +4053,12 @@ tool = ToolSpec(
         Parameter(
             name="background",
             type="boolean",
-            description="Run the whole tool call as a background job.",
+            description=(
+                "Run the whole tool call in a separate shell with the Python "
+                "parent's cwd/environment. Do not rely on prior foreground "
+                "cd/export or shell-local variables; initialize paths and variables "
+                "in this call."
+            ),
             required=False,
         ),
     ],

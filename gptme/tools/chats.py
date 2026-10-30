@@ -2,6 +2,7 @@
 List, search, and summarize past conversation logs.
 """
 
+import bisect
 import json as json_mod
 import logging
 import statistics
@@ -92,6 +93,9 @@ def search_chats(
     """
     Search past conversation logs for the given query and print a summary of the results.
 
+    Displayed message numbers are 1-based original-log positions, including
+    hidden system messages. Pass them directly to read_chat(start_message=...).
+
     Args:
         query (str): The search query.
         max_results (int): Maximum number of conversations to display.
@@ -150,7 +154,7 @@ def search_chats(
             f"\n{i}. {conversation.name} ({len(result['matching_messages'])} matches):"
         )
         for j, (msg_idx, msg) in enumerate(matches, 1):
-            print(f"\n  Match {j} (message {msg_idx}, {msg.role}):")
+            print(f"\n  Match {j} (message {msg_idx + 1}, {msg.role}):")
             match_str = _format_message_with_context(
                 msg.content, query, context_lines=context_lines, max_matches=max_matches
             )
@@ -185,6 +189,34 @@ def _discover_cursor_sessions(cursor_dir: Path | None = None) -> list[Path]:
     return results
 
 
+def _matching_excerpt(content: str, query: str, budget: int = 500) -> str:
+    """Keep the first matching substring, expanding the budget for long queries."""
+    lowered = content.lower()
+    needle = query.lower()
+    start = lowered.find(needle)
+    if start < 0:
+        return content[:budget]
+    end = start + len(needle)
+    if len(lowered) != len(content):
+        # Unicode lowercasing can expand characters (e.g. İ → i + dot).
+        # Translate offsets back to the original text before slicing it.
+        boundaries = [0]
+        for character in content:
+            boundaries.append(boundaries[-1] + len(character.lower()))
+        start = bisect.bisect_right(boundaries, start) - 1
+        end = bisect.bisect_left(boundaries, end)
+    width = max(budget, end - start)
+    while True:
+        left = max(0, start - (width - (end - start)) // 2)
+        left = min(left, max(0, len(content) - width))
+        excerpt = content[left : left + width]
+        if needle in excerpt.lower():
+            return excerpt
+        # Slicing can change context-sensitive lowercase forms (e.g. Σ).
+        # Grow context until the original match survives the next search pass.
+        width = min(len(content), width * 2)
+
+
 def _search_cursor_session(path: Path, query: str) -> list[dict]:
     """Search a single Cursor ``conversation.json`` for *query*.
 
@@ -213,7 +245,7 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
             results.append(
                 {
                     "role": role,
-                    "content": content[:500],
+                    "content": _matching_excerpt(content, query),
                     "session_title": data.get("title", path.parent.name),
                 }
             )
@@ -239,7 +271,7 @@ def _search_cursor_session(path: Path, query: str) -> list[dict]:
                     results.append(
                         {
                             "role": role,
-                            "content": content[:500],
+                            "content": _matching_excerpt(content, query),
                             "session_title": conv.get("composerId", path.parent.name),
                         }
                     )
@@ -299,7 +331,7 @@ def _search_codex_session(path: Path, query: str) -> list[dict]:
                 results.append(
                     {
                         "role": role,
-                        "content": content[:500],
+                        "content": _matching_excerpt(content, query),
                         "session_title": path.stem,
                     }
                 )
@@ -388,7 +420,7 @@ def search_external_chats(
         title = matches[0]["session_title"] if matches else result["path"].stem
         print(f"\n{i}. [{agent}] {title} ({len(matches)} match(es)):")
         for match in matches[:1]:
-            snippet = match["content"][:200].replace("\n", " ")
+            snippet = _matching_excerpt(match["content"], query, 200).replace("\n", " ")
             print(f"   ({match['role']}): {snippet}…")
 
 
@@ -497,18 +529,40 @@ def read_chat(
     incl_system: bool = False,
     context_messages: int = 0,
     start_message: int | None = None,
+    full: bool = False,
+    content_offset: int = 0,
+    max_chars: int = 10000,
 ) -> None:
-    """
-    Read a specific conversation log.
+    """Read a conversation, previewing one line per message unless full=True.
 
     Args:
-        id (str): The id of the conversation to read.
-        max_results (int): Maximum number of messages to display.
-        incl_system (bool): Whether to include system messages.
-        context_messages (int): Number of messages to show before start_message.
-        start_message (int | None): Start from this message number (1-indexed), if specified.
+        id: Conversation ID.
+        max_results: Visible message limit, including context.
+        incl_system: Show system messages.
+        context_messages: Visible messages before start_message.
+        start_message: 1-based original-log position, matching search even with
+            hidden system messages. Defaults to the beginning.
+        full: Emit verbatim multiline content, capped by max_chars per message.
+        content_offset: Zero-based character offset; requires full=True,
+            max_results=1 and no context. Follow emitted hints to continue.
+        max_chars: Full-mode character cap (1..100000).
     """
     from ..logmanager import LogManager, get_conversation_by_id  # fmt: skip
+
+    if max_results < 1 or context_messages < 0:
+        raise ValueError(
+            "max_results must be positive and context_messages nonnegative"
+        )
+    if start_message is not None and start_message < 1:
+        raise ValueError("start_message must be a positive 1-based message number")
+    if content_offset < 0 or not 1 <= max_chars <= 100000:
+        raise ValueError(
+            "content_offset must be nonnegative and max_chars in 1..100000"
+        )
+    if content_offset and (not full or max_results != 1 or context_messages):
+        raise ValueError(
+            "content_offset requires full=True, max_results=1 and no context"
+        )
 
     # Look up by id across ALL conversations. Using list_conversations() here
     # would only scan the 20 most recent, so any older conversation was reported
@@ -521,13 +575,32 @@ def read_chat(
     log_path = Path(conv.path)
     logmanager = LogManager.load(log_path, lock=False)
     print(f"Reading conversation: {conv.name} ({conv.id})")
-    messages = [msg for msg in logmanager.log if msg.role != "system" or incl_system]
-    start_idx = 0
-    if start_message is not None:
-        start_idx = max(0, start_message - 1 - context_messages)
-        messages = messages[start_idx:]
-    for i, msg in enumerate(messages[:max_results]):
-        print(f"{start_idx + i + 1}. {msg.format(max_length=100)}")
+    messages = [
+        (number, msg)
+        for number, msg in enumerate(logmanager.log, 1)
+        if msg.role != "system" or incl_system
+    ]
+    start = start_message or 1
+    anchor = next(
+        (i for i, (number, _) in enumerate(messages) if number >= start),
+        len(messages),
+    )
+    # An out-of-range start is an empty page, even if context was requested.
+    if start > len(logmanager.log):
+        return
+    first = max(0, anchor - context_messages)
+    for number, msg in messages[first : first + max_results]:
+        if not full:
+            print(f"{number}. {msg.format(max_length=100)}")
+            continue
+        end = min(len(msg.content), content_offset + max_chars)
+        print(f"{number}. {msg.role}:\n{msg.content[content_offset:end]}")
+        if end < len(msg.content):
+            print(
+                f"[message {number} truncated; continue with start_message={number}, "
+                f"max_results=1, full=True, incl_system={incl_system}, "
+                f"content_offset={end}]"
+            )
 
 
 def find_empty_conversations(
@@ -1006,12 +1079,9 @@ Assistant: Certainly! I'll search our past conversations for mentions of "python
 instructions = """
 ### When to use chats
 
-Use chats when the user asks about or wants to reference a past conversation:
-- "remember when we discussed X?" → search_chats('X')
-- "find our earlier chat about Y" → search_chats('Y')
-- "what did we say about Z last week?" → search_chats('Z')
-- Listing recent sessions to give the user an overview → list_chats()
-- Reading a specific prior conversation by ID → read_chat(id)
+For past conversations, use list_chats() for recent sessions, search_chats(query)
+for content, and read_chat(id) for a saved conversation. Search message numbers
+pass directly to start_message; full=True recovers bounded multiline text.
 
 Do **not** use chats for:
 - The current conversation — its content is already in the context window.

@@ -215,6 +215,9 @@ class MessageMetadata(TypedDict, total=False):
     """
 
     model: str
+    # Parser active when the assistant message was generated. Replay must not
+    # infer executable syntax from examples in another tool format.
+    tool_format: Literal["markdown", "xml", "tool"]
     # The subprovider that actually served the request, in @provider suffix form
     # (e.g. "openrouter/deepseek/deepseek-v4-flash-0731@together"). Only set when
     # it differs from `model`, i.e. when OpenRouter auto-routed to a provider
@@ -332,20 +335,33 @@ def _format_toml_value(value: object) -> str:
     """Format a value for TOML inline table, properly escaping strings."""
     if isinstance(value, str):
         return f'"{escape_string(value)}"'
+    if isinstance(value, bool):
+        # Not str(value): Python renders booleans as "True"/"False", TOML wants
+        # the lowercase literals.
+        return "true" if value else "false"
     if isinstance(value, float):
         return f"{value:.6f}"
     return str(value)
 
 
 def _format_toml_inline_table(d: dict) -> str:
-    """Format a dict as a TOML inline table, recursing into nested dicts/lists."""
-    items = [f'"{k}" = {_format_toml_member(v)}' for k, v in d.items()]
+    """Format a dict as a TOML inline table, recursing into nested dicts/lists.
+
+    Members whose value is ``None`` are omitted: TOML has no null literal, and
+    an absent key is what the ``total=False`` metadata types read back as
+    ``None``.
+    """
+    items = [f'"{k}" = {_format_toml_member(v)}' for k, v in d.items() if v is not None]
     return f"{{ {', '.join(items)} }}"
 
 
 def _format_toml_array(lst: list) -> str:
-    """Format a list as a TOML array, recursing into nested dicts/lists."""
-    return f"[{', '.join(_format_toml_member(v) for v in lst)}]"
+    """Format a list as a TOML array, recursing into nested dicts/lists.
+
+    ``None`` members are dropped like the inline-table keys above; metadata
+    arrays are value lists (artifacts, panel hints), not positional ones.
+    """
+    return f"[{', '.join(_format_toml_member(v) for v in lst if v is not None)}]"
 
 
 def _format_toml_member(value: object) -> str:
@@ -363,8 +379,7 @@ def _format_metadata_toml(metadata: MessageMetadata) -> str:
     Handles scalars, nested dicts (e.g. ``usage``), and lists of inline tables
     (e.g. ``artifacts``) so all metadata round-trips through hand-editing.
     """
-    meta_items = [f'"{k}" = {_format_toml_member(v)}' for k, v in metadata.items()]
-    return f"metadata = {{ {', '.join(meta_items)} }}"
+    return f"metadata = {_format_toml_inline_table(dict(metadata))}"
 
 
 @dataclass(frozen=True, eq=False)

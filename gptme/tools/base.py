@@ -923,6 +923,10 @@ class ToolUse:
     call_id: str | None = None
     start: int | None = None
     _format: ToolFormat | None = "markdown"
+    _occurrence: int | None = None
+    # Parser provenance, not command equality: identical independent calls
+    # must not be mistaken for a pending call in a persisted message.
+    _source_content: str | None = field(default=None, compare=False, repr=False)
 
     def execute(
         self,
@@ -986,12 +990,14 @@ class ToolUse:
                     # via get_current_tool_use() or implicitly in get_confirmation()
                     token = _current_tool_use.set(self)
                     try:
-                        ex = tool.execute(
-                            self.content,
-                            self.args,
-                            self.kwargs,
+                        with LogManager.preserve_current():
+                            ex = tool.execute(self.content, self.args, self.kwargs)
+                            tool_owner = LogManager.get_current_log()
+                        generator_result = (
+                            preserve_generator_owner(ex, tool_owner)
+                            if isinstance(ex, Generator)
+                            else None
                         )
-                        generator_result = ex if isinstance(ex, Generator) else None
                         single_result = (
                             None
                             if generator_result is not None
@@ -1138,7 +1144,32 @@ class ToolUse:
                         )
                     )
 
-        yield from _execute_tool()
+        from ..logmanager import LogManager, _current_log_var
+
+        def preserve_generator_owner(
+            generator: Generator[Message, None, None], owner: LogManager | None
+        ) -> Generator[Message, None, None]:
+            # Preserve only conversation ownership: tools intentionally update
+            # other context state (shell sessions, enabled tools, etc.).
+            try:
+                while True:
+                    with LogManager.preserve_current():
+                        _current_log_var.set(owner)
+                        try:
+                            msg = next(generator)
+                        except StopIteration:
+                            return
+                        finally:
+                            owner = LogManager.get_current_log()
+                    yield msg
+            finally:
+                with LogManager.preserve_current():
+                    _current_log_var.set(owner)
+                    generator.close()
+
+        yield from preserve_generator_owner(
+            _execute_tool(), LogManager.get_current_log()
+        )
 
     @property
     def is_runnable(self) -> bool:
@@ -1221,6 +1252,12 @@ class ToolUse:
         tool_uses: list[ToolUse] = []
         if active_format == "xml":
             tool_uses = list(cls._iter_from_xml(content))
+            # XML start offsets can repeat for the same tag. Keep an explicit
+            # occurrence so identical calls remain distinguishable on resume.
+            tool_uses = [
+                dataclasses.replace(call, _occurrence=index)
+                for index, call in enumerate(tool_uses)
+            ]
         if active_format in ("markdown", "tool"):
             # Always try markdown parsing: "tool" format also needs to parse
             # markdown blocks for /impersonate content and user-provided tool calls
@@ -1229,7 +1266,8 @@ class ToolUse:
         # return them in the order they appear
         # sort by position; tools with unknown position (None) go last
         tool_uses.sort(key=lambda x: x.start if x.start is not None else len(content))
-        yield from tool_uses
+        for call in tool_uses:
+            yield dataclasses.replace(call, _source_content=content)
 
         # don't continue unless tool format (or override allows it)
         if active_format != "tool":
@@ -1278,6 +1316,7 @@ class ToolUse:
                     call_id=call_id,
                     start=match.start(),
                     _format="tool",
+                    _source_content=content,
                 )
             except json.JSONDecodeError:
                 logger.debug(f"Failed to parse JSON: {json_str}")

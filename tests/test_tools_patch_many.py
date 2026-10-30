@@ -336,8 +336,8 @@ def test_markdown_multihunk_path_header_format(tmp_path):
     assert "also_old" not in content
 
 
-def test_simple_format_placeholder_patch_round_trip(tmp_path):
-    """Simple markdown format should accept placeholder-based multi-edit patches."""
+def test_simple_format_placeholder_patch_rejected(tmp_path):
+    """Omission placeholders must not bypass literal ORIGINAL context checks."""
     f = tmp_path / "module.py"
     f.write_text(
         """
@@ -366,14 +366,12 @@ if __name__ == "__main__":
 """.strip(),
     )
 
+    original = f.read_text()
     messages = list(execute_patch_many(code, [str(f)], None))
     assert messages
-    assert "atomically" in messages[0].content.lower()
-    content = f.read_text()
-    assert "def hello_world()" in content
-    assert "hello_world()" in content
-    assert "def hello():" not in content
-    assert "    hello()" not in content
+    assert "aborted" in messages[0].content.lower()
+    assert "not found" in messages[0].content.lower()
+    assert f.read_text() == original
 
 
 def test_execute_patch_many_markdown_round_trip(tmp_path):
