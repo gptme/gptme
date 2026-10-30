@@ -80,6 +80,7 @@ from ..lessons.skill_events import (
     skill_invocation_owner,
 )
 from ..llm.models import ModelMeta, get_default_model
+from ..llm.recovery import RetryNotice, recovery_notifications
 from ..logmanager import LogManager
 from ..message import Message
 from ..prompt_queue import drain_prompt_queue
@@ -3881,29 +3882,32 @@ class GptmeApp(App):
                         if self._interrupt_event.is_set() or self._quitting:
                             break
                         self._in_step = True
-                    for msg in step(
-                        manager.log,
-                        stream=True,
-                        tool_format=self.tool_format,
-                        workspace=self.workspace,
-                        logdir=manager.logdir,
-                        on_token=self._on_token,
-                        on_thinking=self._on_thinking,
-                        on_before_tool_execution=lambda m: self.call_from_thread(
-                            self._on_before_tool_execution, m
-                        ),
+                    with recovery_notifications(
+                        lambda notice: self.call_from_thread(self._on_retry, notice)
                     ):
-                        # each yield may follow a tool execution that reset
-                        # the tty (e.g. ipython init) — reassert raw mode
-                        # immediately, not just at end of step, so later
-                        # confirmations in the same step get a sane terminal
-                        self._restore_terminal()
-                        manager.append(msg)
-                        if msg.role == "assistant":
-                            response = msg
-                        if msg.content == DECLINED_CONTENT:
-                            declined = True
-                        self.call_from_thread(self._on_step_message, msg)
+                        for msg in step(
+                            manager.log,
+                            stream=True,
+                            tool_format=self.tool_format,
+                            workspace=self.workspace,
+                            logdir=manager.logdir,
+                            on_token=self._on_token,
+                            on_thinking=self._on_thinking,
+                            on_before_tool_execution=lambda m: self.call_from_thread(
+                                self._on_before_tool_execution, m
+                            ),
+                        ):
+                            # each yield may follow a tool execution that reset
+                            # the tty (e.g. ipython init) — reassert raw mode
+                            # immediately, not just at end of step, so later
+                            # confirmations in the same step get a sane terminal
+                            self._restore_terminal()
+                            manager.append(msg)
+                            if msg.role == "assistant":
+                                response = msg
+                            if msg.content == DECLINED_CONTENT:
+                                declined = True
+                            self.call_from_thread(self._on_step_message, msg)
                 except KeyboardInterrupt:
                     interrupted = True
                 finally:
@@ -3969,6 +3973,28 @@ class GptmeApp(App):
         # on_worker_state_changed, which fires only after this thread has
         # fully exited self._chat_ctx — dispatching from here would make the
         # next worker re-enter a still-entered Context and crash.
+
+    def _on_retry(self, notice: RetryNotice) -> None:
+        """Discard only the failed attempt's preview before streaming restarts.
+
+        Runs synchronously on the UI thread: no failed buffered tokens may be
+        flushed into the next attempt. Committed messages, tools, and queued
+        steering remain untouched.
+        """
+        self._clear_stream_view()
+        with self._stream_lock:
+            self._stream_flush_scheduled = False
+        detail = (
+            "Failed preview discarded; restarting response. "
+            if self.inline and notice.partial_output
+            else ""
+        )
+        self._show_info(
+            f"{detail}Retrying after failed attempt "
+            f"{notice.attempt}/{notice.max_attempts} "
+            f"in {notice.delay:g}s: {type(notice.error).__name__}"
+        )
+        self._begin_stream()
 
     def _on_token(self, token: str) -> None:
         # called from the worker thread, per streamed line/chunk: buffer it and

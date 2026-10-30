@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 from gptme.llm.openai_responses import ResponsesStreamError, _stream_responses_events
@@ -244,11 +245,16 @@ def test_truncated_or_nonobject_arguments_never_become_tools(
         _event("output_item.added", output_index=0, item=_call()),
         _event("function_call_arguments.delta", output_index=0, delta=arguments),
     ]
-    if terminal != "eof":
+    if terminal == "eof":
+        emitted: list[str] = []
+        with pytest.raises(httpx.RemoteProtocolError, match="terminal"):
+            emitted.extend(_stream_responses_events(events))
+        assert not _tools("".join(emitted))
+    else:
         events.append(
             _event(terminal, response={"output": [_call(arguments=arguments)]})
         )
-    assert not _tools(_render(events))
+        assert not _tools(_render(events))
 
 
 def test_complete_call_without_terminal_output_retains_legacy_support() -> None:

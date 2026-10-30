@@ -589,6 +589,20 @@ def _transform_to_codex_request(
     return body
 
 
+class SubscriptionStreamIncompleteError(requests.exceptions.ChunkedEncodingError):
+    """HTTP-200 SSE ended without a terminal Responses event or [DONE].
+
+    Event receipt includes metadata and buffered native arguments; it does not
+    imply output reached the caller. Neither flag authorizes replaying a request
+    after partial output (which may already have triggered tool execution).
+    """
+
+    def __init__(self, *, received_events: bool, emitted_output: bool) -> None:
+        self.received_events = received_events
+        self.emitted_output = emitted_output
+        super().__init__("Subscription stream ended before a terminal response event")
+
+
 def _is_retryable_status(error: requests.HTTPError) -> bool:
     """429 and 5xx from the Codex backend are transient; other statuses are not."""
     status = getattr(error.response, "status_code", None)
@@ -719,14 +733,23 @@ def stream(
     except ValueError:
         max_stream_retries = 3
     max_stream_retries = max(0, min(max_stream_retries, 100))
+    # reply() owns the recovery loop when active; nested adapter retries must
+    # not multiply its request allowance. Keep the direct-adapter policy intact.
+    from .recovery import recovery_active, reserve_recovery_request
+
+    if recovery_active():
+        max_stream_retries = 0
 
     def _open_response() -> requests.Response:
+        reserve_recovery_request()
         resp = _http_session.post(
             CODEX_ENDPOINT,
             json=request_body,
             headers=headers,
             stream=True,
             timeout=(30, read_timeout),
+            # A 307/308 can resend the POST outside the physical-send budget.
+            allow_redirects=not recovery_active(),
         )
         if resp.status_code != 200:
             try:
@@ -766,10 +789,21 @@ def stream(
                         if data is None:
                             continue
                         if data.get("done"):
+                            # Preserve the subscription sentinel contract while
+                            # giving the shared parser an explicit terminal event.
+                            yield {"type": "response.done"}
                             return
                         yielded_any = True
                         yield data
-                    return
+                    # The shared parser stops at completed/done/incomplete;
+                    # closing this generator there (or on a consumer tool break)
+                    # bypasses EOF validation. Only natural, unterminated EOF is
+                    # a transport failure. Raise before the parser can reconcile
+                    # buffered native JSON into an executable tool call.
+                    raise SubscriptionStreamIncompleteError(
+                        received_events=yielded_any,
+                        emitted_output=any(output),
+                    )
                 except (
                     requests.exceptions.Timeout,
                     requests.exceptions.ConnectionError,
