@@ -1,9 +1,23 @@
 """Publish a complete single-file replacement without truncating its original."""
 
+import errno
 import os
 import stat
+import sys
 import uuid
 from pathlib import Path
+
+
+def _listxattr(path: Path) -> list[str]:
+    """Inspect xattrs; Linux ENOTSUP means this filesystem has none to retain."""
+    if not hasattr(os, "listxattr"):
+        raise ValueError(f"Cannot inspect extended metadata for `{path}`")
+    try:
+        return os.listxattr(path)
+    except OSError as exc:
+        if sys.platform.startswith("linux") and exc.errno == errno.ENOTSUP:
+            return []
+        raise
 
 
 def write_text_preserving_original(path: Path, content: str, *, newline: str) -> None:
@@ -27,19 +41,21 @@ def write_text_preserving_original(path: Path, content: str, *, newline: str) ->
             raise ValueError(
                 f"Cannot safely preserve Windows security descriptor for `{path}`"
             )
+        # macOS hides security-bearing ACL metadata from listxattr(). Until a
+        # native ACL-preserving implementation exists, do not replace its inode.
+        if sys.platform == "darwin":
+            raise ValueError(f"Cannot safely preserve macOS ACL metadata for `{path}`")
         if not stat.S_ISREG(info.st_mode):
             raise ValueError(f"Cannot replace non-regular file `{path}`")
         if info.st_nlink > 1:
             raise ValueError(f"Cannot safely replace hard-linked file `{path}`")
-        # Do not silently drop security-bearing inode metadata. Extended ACLs
-        # and labels are exposed as xattrs on supported POSIX filesystems.
-        if hasattr(os, "listxattr") and os.listxattr(path):
+        # Do not silently drop security-bearing inode metadata. Linux extended
+        # ACLs and labels are exposed as xattrs; inspection errors fail closed.
+        if _listxattr(path):
             raise ValueError(
                 f"Cannot safely replace file with extended metadata `{path}`"
             )
-        if hasattr(os, "listxattr") and "system.posix_acl_default" in os.listxattr(
-            path.parent
-        ):
+        if "system.posix_acl_default" in _listxattr(path.parent):
             raise ValueError(f"Cannot safely stage inherited ACL metadata for `{path}`")
         # Replacement requires directory access too; do not use it to bypass an
         # existing destination's write permissions.

@@ -9,8 +9,12 @@ and hard-linked destinations are refused. The parent directory must be writable.
 Replacement creates a new inode. As with save, extended metadata, inherited
 default ACLs and ownership that cannot be retained cause a safe refusal instead
 of silent metadata loss. On Windows, existing-file replacement is refused before
-staging because its security descriptor cannot be retained safely. No power-loss
-durability or concurrent-writer guarantee is implied.
+staging because its security descriptor cannot be retained safely. macOS also
+refuses existing-file replacement because its ACLs cannot be reliably inspected
+through extended-attribute listings. Platforms without extended-attribute
+inspection fail closed too. Linux filesystems that report unsupported extended
+attributes remain supported; other metadata inspection errors still refuse the
+write. No power-loss durability or concurrent-writer guarantee is implied.
 
 .. automodule:: gptme.tools.patch
     :members:

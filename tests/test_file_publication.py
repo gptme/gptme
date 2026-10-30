@@ -119,6 +119,129 @@ def test_windows_new_destination_still_created(
     assert sorted(p.name for p in tmp_path.iterdir()) == ["new.txt"]
 
 
+@pytest.mark.parametrize("operation", ["helper", "save", "patch"])
+def test_macos_existing_destination_refused_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from gptme.tools.patch import execute_patch_impl
+    from gptme.tools.save import execute_save_impl
+    from gptme.util import file_write
+
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"PRIVATE\n")
+    before = target.stat()
+    opened = []
+    real_open = os.open
+
+    def track_open(*args, **kwargs):
+        opened.append(args[0])
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(file_write.os, "open", track_open)
+    # macOS may expose no xattrs even when the file has a deny ACL.
+    monkeypatch.setattr(file_write.os, "listxattr", lambda path: [], raising=False)
+    with pytest.raises(ValueError, match="macOS ACL"):
+        if operation == "helper":
+            file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
+        elif operation == "save":
+            list(execute_save_impl("PUBLIC\n", target))
+        else:
+            list(
+                execute_patch_impl(
+                    "<<<<<<< ORIGINAL\nPRIVATE\n=======\nPUBLIC\n>>>>>>> UPDATED",
+                    target,
+                )
+            )
+    assert not opened
+    assert target.read_bytes() == b"PRIVATE\n"
+    assert target.stat().st_ino == before.st_ino
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
+@pytest.mark.parametrize("operation", ["helper", "save"])
+def test_macos_new_destination_still_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from gptme.tools.save import execute_save_impl
+    from gptme.util.file_write import write_text_preserving_original
+
+    target = tmp_path / "new.txt"
+    monkeypatch.setattr(sys, "platform", "darwin")
+    if operation == "helper":
+        write_text_preserving_original(target, "NEW\n", newline="")
+    else:
+        list(execute_save_impl("NEW\n", target))
+    assert target.read_bytes() == b"NEW\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["new.txt"]
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Linux xattr semantics"
+)
+@pytest.mark.parametrize("operation", ["save", "patch"])
+@pytest.mark.parametrize("location", ["file", "parent"])
+def test_unsupported_xattrs_allow_plain_file_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, location: str
+) -> None:
+    import errno
+
+    from gptme.tools.patch import execute_patch_impl
+    from gptme.tools.save import execute_save_impl
+    from gptme.util import file_write
+
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"ORIGINAL\n")
+    target.chmod(0o640)
+
+    def listxattr(path):
+        if path == (target if location == "file" else tmp_path):
+            raise OSError(errno.ENOTSUP, "Extended attributes not supported")
+        return []
+
+    monkeypatch.setattr(file_write.os, "listxattr", listxattr)
+    if operation == "save":
+        list(execute_save_impl("REPLACEMENT\n", target))
+    else:
+        list(
+            execute_patch_impl(
+                "<<<<<<< ORIGINAL\nORIGINAL\n=======\nREPLACEMENT\n>>>>>>> UPDATED",
+                target,
+            )
+        )
+    assert target.read_bytes() == b"REPLACEMENT\n"
+    assert target.stat().st_mode & 0o777 == 0o640
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Linux xattr semantics"
+)
+@pytest.mark.parametrize("error", [13, 5])  # EACCES, EIO
+@pytest.mark.parametrize("location", ["file", "parent"])
+def test_xattr_inspection_errors_preserve_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: int, location: str
+) -> None:
+    from gptme.util import file_write
+
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"PRIVATE\n")
+    before = target.stat()
+
+    def listxattr(path):
+        if path == (target if location == "file" else tmp_path):
+            raise OSError(error, "Cannot inspect metadata")
+        return []
+
+    monkeypatch.setattr(file_write.os, "listxattr", listxattr)
+    with pytest.raises(OSError, match="Cannot inspect metadata") as exc:
+        file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
+    assert exc.value.errno == error
+    assert target.read_bytes() == b"PRIVATE\n"
+    assert target.stat().st_ino == before.st_ino
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
 @pytest.mark.parametrize("phase", ["write", "close", "replace"])
 @pytest.mark.parametrize("exists", [True, False])
 def test_failure_cleans_staging_and_preserves_destination(
