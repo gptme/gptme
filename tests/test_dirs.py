@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from gptme import dirs
 
 # ── _get_env_path helper ──────────────────────────────────────────────────
@@ -274,6 +276,72 @@ class TestGetProjectGitDir:
 
 
 # ── Workspace detection ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("name", ["repo", "开源"])
+@pytest.mark.parametrize("resolver", ["get_workspace", "_get_project_git_dir_call"])
+def test_git_root_with_legacy_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, resolver: str
+) -> None:
+    """Real Git paths must round-trip independently of the process locale."""
+    repo = tmp_path / name
+    subprocess.run([dirs.GIT_CMD, "init", str(repo)], check=True, capture_output=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("GPTME_WORKSPACE", raising=False)
+    # Reproduce a native Windows GBK locale on every platform. Git emits UTF-8
+    # paths, but subprocess defaults to the locale when no encoding is given.
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
+
+    assert getattr(dirs, resolver)().resolve() == repo.resolve()
+
+
+def test_git_superproject_with_legacy_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decode the parent path from a real submodule, not just its Git root."""
+    parent = tmp_path / "开源"
+    source = tmp_path / "source"
+    for repo in (parent, source):
+        subprocess.run(
+            [dirs.GIT_CMD, "init", str(repo)], check=True, capture_output=True
+        )
+    subprocess.run(
+        [
+            dirs.GIT_CMD,
+            "-C",
+            str(source),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            dirs.GIT_CMD,
+            "-C",
+            str(parent),
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(source),
+            "child",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.chdir(parent / "child")
+    monkeypatch.delenv("GPTME_WORKSPACE", raising=False)
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
+
+    assert dirs.get_workspace().resolve() == parent.resolve()
 
 
 class TestGetWorkspace:
