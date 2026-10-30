@@ -29,6 +29,7 @@ from gptme.memory import (
 from gptme.memory.recall import RecallHit
 from gptme.memory.roots import default_write_root
 from gptme.memory.schema import entry_from_text
+from gptme.memory.store import update_index_line
 
 CC_FILE = """---
 name: prefer-short-answers
@@ -588,6 +589,138 @@ class TestStore:
         store.save("my fact", "Changed.", type="project")
         index = (tmp_path / "project" / "MEMORY.md").read_text()
         assert index.count("my-fact.md") == 1 and "Changed." in index
+
+    @pytest.mark.parametrize("scope", ["project", "user"])
+    def test_legacy_resave_superseded_entry_keeps_it_out_of_index(
+        self, tmp_path: Path, scope: str
+    ) -> None:
+        store = self._store(tmp_path)
+        for root_scope in ("project", "user"):
+            store.save("old", "Old belief", "Old body", scope=root_scope)
+            store.save("new", "New belief", "New body", scope=root_scope)
+        store.supersede("old", "new", scope=scope)
+        root = tmp_path / scope
+        index_path = root / "MEMORY.md"
+        # Supersede regenerates the index; add hand-curated prose afterwards.
+        prose = "\n## Compatibility notes\nKeep this hand-curated guidance.\n"
+        index_before = index_path.read_text() + prose
+        index_path.write_text(index_before, encoding="utf-8")
+        other_root = tmp_path / ("user" if scope == "project" else "project")
+        untouched = {
+            name: (other_root / name).read_bytes()
+            for name in ("old.md", "new.md", "MEMORY.md")
+        }
+        replacement_before = (root / "new.md").read_bytes()
+
+        path = store.save("old", "Revised retired belief", "Revised body", scope=scope)
+
+        retired = parse_entry(path, strict=True)
+        assert path == root / "old.md"
+        assert retired.description == "Revised retired belief"
+        assert retired.body == "Revised body"
+        assert retired.status == "superseded"
+        assert retired.superseded_by == "new"
+        assert not retired.is_living
+        assert parse_entry(root / "new.md", strict=True).supersedes == ["old"]
+        assert (root / "new.md").read_bytes() == replacement_before
+        assert {
+            name: (other_root / name).read_bytes() for name in untouched
+        } == untouched
+        index = index_path.read_text()
+        assert "old.md" not in index
+        assert "new.md" in index
+        assert index == index_before
+
+    @pytest.mark.parametrize("title", ["Original title", "Use [cache] carefully"])
+    def test_legacy_resave_living_entry_updates_body_and_pointer(
+        self, tmp_path: Path, title: str
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("living", "Original", "Original body", title=title)
+        index_path = path.parent / "MEMORY.md"
+        prose = "\n## Compatibility notes\nKeep this hand-curated guidance.\n"
+        index_path.write_text(index_path.read_text() + prose, encoding="utf-8")
+
+        store.save("living", "Revised", "Revised body", title="Revised title")
+
+        entry = parse_entry(path, strict=True)
+        assert entry.is_living
+        assert entry.description == "Revised"
+        assert entry.body == "Revised body"
+        index = index_path.read_text()
+        assert index.count("living.md") == 1
+        assert "- [Revised title](living.md) — Revised" in index
+        assert "Original" not in index
+        assert prose in index
+
+    @pytest.mark.parametrize("status", ["superseded", "historical"])
+    @pytest.mark.parametrize("existing_index", [True, False])
+    @pytest.mark.parametrize("title", [None, "Use [cache] carefully"])
+    def test_update_legacy_index_line_excludes_retired_entry(
+        self, tmp_path: Path, existing_index: bool, status: str, title: str | None
+    ) -> None:
+        store = self._store(tmp_path)
+        store.save("old", "Old belief", "Old body")
+        store.save("new", "New belief", "New body")
+        retired, replacement = store.supersede("old", "new")
+        root = tmp_path / "project"
+        retired.status = status
+        retired.title = title
+        (root / "old.md").write_text(retired.to_markdown(), encoding="utf-8")
+        retired = parse_entry(root / "old.md", strict=True)
+        index_path = root / "MEMORY.md"
+        unrelated = (
+            "# Hand-curated memory\n\nKeep this compatibility prose.\n\n"
+            + replacement.index_line()
+            + "\n\nDo not regenerate this footer.\n"
+        )
+        if existing_index:
+            # Simulate a stale pointer left in an otherwise hand-curated index.
+            index_path.write_text(
+                unrelated + retired.index_line() + "\n", encoding="utf-8"
+            )
+        else:
+            index_path.unlink()
+
+        update_index_line(root, retired)
+
+        index = index_path.read_text() if index_path.exists() else ""
+        assert "old.md" not in index
+        if existing_index:
+            assert index == unrelated
+        assert parse_entry(root / "old.md", strict=True).status == status
+
+    @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
+    @pytest.mark.parametrize("existing_pointer", [True, False])
+    @pytest.mark.parametrize("title", ["Old", "Use [cache] carefully"])
+    def test_update_legacy_index_matches_only_leading_pointer(
+        self,
+        tmp_path: Path,
+        status: str,
+        existing_pointer: bool,
+        title: str,
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original", title=title)
+        entry = parse_entry(path, strict=True)
+        entry.status = status
+        index_path = path.parent / "MEMORY.md"
+        unrelated = (
+            "# Hand-curated memory\n\n"
+            "- [Current [cache] advice](current.md) — See [Old](old.md)\n"
+            "\nKeep this footer with [Old](old.md).\n"
+        )
+        index_path.write_text(
+            unrelated + (entry.index_line() + "\n" if existing_pointer else ""),
+            encoding="utf-8",
+        )
+        entry.title = "Updated title"
+        entry.description = "Updated description"
+
+        update_index_line(path.parent, entry)
+
+        expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
+        assert index_path.read_text() == expected
 
     def test_save_to_scope_and_unknown_scope(self, tmp_path):
         store = self._store(tmp_path)
