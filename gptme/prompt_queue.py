@@ -50,6 +50,57 @@ def _prompt_queue_lock(logdir: Path):
                 fcntl.flock(fd, fcntl.LOCK_UN)
 
 
+def _record_from_message(message: Message) -> dict | None:
+    """Serialize a queued user message for durable storage."""
+    content = str(message.content).strip()
+    if not content:
+        return None
+    record: dict = {
+        "content": content,
+        "queued_at": datetime.now(timezone.utc).isoformat(),
+    }
+    metadata = message.metadata or {}
+    skill_invocation_id = metadata.get("skill_invocation_id")
+    if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
+        record["skill_invocation_id"] = skill_invocation_id
+    if metadata.get("steer") is True:
+        record["steer"] = True
+    return record
+
+
+def requeue_prompts(
+    logdir: Path, messages: list[Message], *, prepend: bool = True
+) -> int:
+    """Write in-memory queued prompts back to disk without executing them.
+
+    Interactive exhaustion parks remaining intent here so the chat loop can
+    return control without discarding work or immediately retrying under a
+    fresh budget. Prepend keeps already-drained FIFO order ahead of prompts
+    that were still on disk.
+    """
+    records = [
+        record
+        for message in messages
+        if (record := _record_from_message(message)) is not None
+    ]
+    if not records:
+        return 0
+
+    queue_path = get_prompt_queue_path(logdir)
+    new_lines = [json.dumps(record) for record in records]
+    with _prompt_queue_lock(logdir):
+        existing: list[str] = []
+        if queue_path.exists():
+            existing = [
+                line
+                for line in queue_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        lines = new_lines + existing if prepend else existing + new_lines
+        queue_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return len(records)
+
+
 def queue_prompt(
     logdir: Path,
     content: str,

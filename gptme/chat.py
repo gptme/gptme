@@ -38,7 +38,7 @@ from .message import (
     len_tokens,
     set_output_format,
 )
-from .prompt_queue import drain_prompt_queue
+from .prompt_queue import drain_prompt_queue, requeue_prompts
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
     ToolFormat,
@@ -408,12 +408,18 @@ def _run_chat_loop(
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
+    # After an exhausted interactive provider failure, skip one drain/consume
+    # pass so remaining intent is not immediately retried under a fresh budget.
+    hold_queued_prompts = False
     while True:
-        _drain_external_prompt_queue(manager, prompt_queue)
+        consume_queue = not hold_queued_prompts
+        if consume_queue:
+            _drain_external_prompt_queue(manager, prompt_queue)
+        hold_queued_prompts = False
         msg: Message | None = None
         try:
             # Process next message (either from prompt queue or user input)
-            if prompt_queue:
+            if consume_queue and prompt_queue:
                 msg = prompt_queue.pop(0)
                 assert msg is not None, "prompt_queue contained None"
                 msg = include_paths(msg, manager.workspace)
@@ -566,14 +572,27 @@ def _run_chat_loop(
             # to the user, who can retry or switch model.  Only errors tagged at
             # the provider call inside `reply()` qualify — tool/hook SDK errors
             # must not be swallowed.  Non-interactive runs still fail loudly.
-            if not interactive or not is_llm_reply_error(e):
+            if not is_llm_reply_error(e):
+                raise
+            # Park remaining intent before interactive continue or headless
+            # raise so a later explicit resume can recover it. Consuming the
+            # in-memory queue here would retry those prompts under a fresh
+            # recovery budget while the provider is still failing.
+            parked = _park_remaining_prompts(manager, prompt_queue, logdir)
+            if parked:
+                prompt_queue.clear()
+            if not interactive:
                 raise
             logger.error("%s %s", LLM_REQUEST_FAILED_PREFIX, e)
             if not is_output_json() and not is_output_quiet():
                 console.log(f"[red]{LLM_REQUEST_FAILED_PREFIX}[/red] {e}")
             manager.append(Message("system", f"{LLM_REQUEST_FAILED_PREFIX} {e}"))
-            # Drop queued prompts — they were meant for the failed turn.
-            prompt_queue.clear()
+            hold_queued_prompts = True
+            if parked and not is_output_json() and not is_output_quiet():
+                console.log(
+                    f"[yellow]Held {parked} queued prompt(s) after provider "
+                    "failure; they will run after your next message.[/yellow]"
+                )
             continue
 
     # Trigger session end hooks when exiting normally
@@ -582,6 +601,35 @@ def _run_chat_loop(
     ):
         for msg in session_end_msgs:
             manager.append(msg)
+
+
+def _park_remaining_prompts(
+    manager: LogManager,
+    prompt_queue: list[Message],
+    logdir: Path | None,
+) -> int:
+    """Persist remaining in-memory prompts so exhaustion does not discard them."""
+    remaining = [message for message in prompt_queue if message is not None]
+    if not remaining:
+        return 0
+    # Drain reads manager.logdir; park to the same path so resume can find it.
+    target = getattr(manager, "logdir", None)
+    if target is None:
+        target = logdir
+    if target is None:
+        logger.warning(
+            "Cannot park %d queued prompt(s) after provider failure: no logdir",
+            len(remaining),
+        )
+        return 0
+    parked = requeue_prompts(target, remaining)
+    if parked:
+        logger.info(
+            "Parked %d queued prompt(s) after LLM request failure in %s",
+            parked,
+            target,
+        )
+    return parked
 
 
 def _drain_external_prompt_queue(

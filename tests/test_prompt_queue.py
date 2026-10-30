@@ -7,14 +7,17 @@ must survive a drain cycle rather than being silently deleted.
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from gptme.message import Message, MessageMetadata
 from gptme.prompt_queue import (
     drain_prompt_queue,
     drain_steer_prompts,
     get_prompt_queue_path,
     queue_prompt,
+    requeue_prompts,
 )
 
 
@@ -126,3 +129,34 @@ def test_skill_invocation_metadata_survives_partial_drain(tmp_path: Path) -> Non
     assert steer_message.content == "steering prompt"
     assert steer_message.metadata is None
     assert not get_prompt_queue_path(tmp_path).exists()
+
+
+def test_requeue_prompts_prepends_and_preserves_metadata(tmp_path: Path) -> None:
+    queue_prompt(tmp_path, "already on disk")
+    parked = [
+        Message("user", "parked first", metadata={"skill_invocation_id": "inv-1"}),
+        Message(
+            "user",
+            "parked steer",
+            metadata=cast(MessageMetadata, {"steer": True}),
+        ),
+        Message("user", "   "),
+    ]
+
+    assert requeue_prompts(tmp_path, parked) == 2
+    assert [message.content for message in drain_prompt_queue(tmp_path)] == [
+        "parked first",
+        "already on disk",
+    ]
+    (steer_message,) = drain_steer_prompts(tmp_path)
+    assert steer_message.content == "parked steer"
+    assert not get_prompt_queue_path(tmp_path).exists()
+
+
+def test_requeue_prompts_append_keeps_existing_ahead(tmp_path: Path) -> None:
+    queue_prompt(tmp_path, "already on disk")
+    assert requeue_prompts(tmp_path, [Message("user", "later")], prepend=False) == 1
+    assert [message.content for message in drain_prompt_queue(tmp_path)] == [
+        "already on disk",
+        "later",
+    ]

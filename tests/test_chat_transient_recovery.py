@@ -251,3 +251,144 @@ def test_real_overflow_view_restored_when_shared_send_budget_exhausted(
     assert manager.current_view is None
     assert manager.log.messages == original
     execute.assert_not_called()
+
+
+def test_interactive_exhaustion_parks_pending_intent(offline, monkeypatch, tmp_path):
+    """Failed turns must not discard queued intent or auto-retry it."""
+    from gptme.logmanager import Log
+    from gptme.prompt_queue import drain_prompt_queue, get_prompt_queue_path
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message(
+        "user",
+        "queued follow-through must remain recoverable",
+        metadata={"skill_invocation_id": "invocation-123"},
+    )
+    queue = [Message("user", "initial work"), pending]
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    process = Mock(side_effect=error)
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *args: False)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "_get_user_input", Mock(return_value=None))
+
+    chat._run_chat_loop(
+        manager,
+        queue,
+        stream=False,
+        interactive=True,
+        logdir=tmp_path,
+    )
+
+    assert process.call_count == 1, (
+        "exhaustion must return control, not restart a queue loop"
+    )
+    parked = drain_prompt_queue(tmp_path)
+    assert [msg.content for msg in parked] == [pending.content]
+    assert parked[0].metadata == {"skill_invocation_id": "invocation-123"}
+    assert pending not in queue
+    assert all(msg.content != pending.content for msg in manager.log)
+    assert not get_prompt_queue_path(tmp_path).exists()
+    assert any("LLM request failed" in msg.content for msg in manager.log)
+
+
+def test_interactive_resume_runs_parked_prompt_once(offline, monkeypatch, tmp_path):
+    """Parked intent runs after an explicit next user message, not immediately."""
+    from gptme.logmanager import Log
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message("user", "parked follow-through")
+    queue = [Message("user", "initial work"), pending]
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    calls: list[str] = []
+
+    def process(*args, **kwargs):
+        last = manager.log[-1]
+        if not calls:
+            calls.append("fail")
+            raise error
+        calls.append(last.content)
+        manager.append(Message("assistant", f"ok:{last.content}"))
+
+    inputs = [Message("user", "resume after failure")]
+
+    def get_input(*args, **kwargs):
+        return inputs.pop(0) if inputs else None
+
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *args: False)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "_get_user_input", get_input)
+
+    chat._run_chat_loop(
+        manager,
+        queue,
+        stream=False,
+        interactive=True,
+        logdir=tmp_path,
+    )
+
+    assert calls == ["fail", "resume after failure", "parked follow-through"]
+    assert [msg.content for msg in manager.log if msg.role == "user"] == [
+        "initial work",
+        "resume after failure",
+        "parked follow-through",
+    ]
+
+
+def test_headless_exhaustion_parks_then_exits(offline, monkeypatch, tmp_path):
+    """Headless exhaustion stays failed and nonzero, with remaining intent parked."""
+    from gptme.logmanager import Log
+    from gptme.prompt_queue import drain_prompt_queue
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message("user", "headless follow-through")
+    queue = [Message("user", "initial work"), pending]
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    process = Mock(side_effect=error)
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *args: False)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    prompt = Mock(return_value=None)
+    monkeypatch.setattr(chat, "_get_user_input", prompt)
+
+    with pytest.raises(httpx.RemoteProtocolError):
+        chat._run_chat_loop(
+            manager,
+            queue,
+            stream=False,
+            interactive=False,
+            logdir=tmp_path,
+        )
+
+    assert process.call_count == 1
+    prompt.assert_not_called()
+    assert [msg.content for msg in drain_prompt_queue(tmp_path)] == [pending.content]
+    assert all("LLM request failed" not in msg.content for msg in manager.log)
