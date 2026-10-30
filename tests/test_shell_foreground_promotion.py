@@ -564,3 +564,28 @@ def test_log_of_trimmed_background_job_is_not_called_full(
     assert "Full output" not in content
     assert "chars were not retained" in content
     assert job.log_path is not None and job.log_path.exists()
+
+
+def test_promoted_multiline_completion_preserves_output_boundaries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Promote during the final command, after both prefix commands finish.
+    monkeypatch.setenv("GPTME_SHELL_FOREGROUND_TIMEOUT", "1")
+    set_shell(ShellSession(cwd=str(tmp_path)))
+    messages = list(
+        execute_shell_impl(
+            "printf 'FIRST\\n\\n'\n"
+            "printf 'ERR-FIRST\\n\\n' >&2\n"
+            "sleep 2; printf 'LAST'; printf 'ERR-LAST' >&2",
+            logdir=None,
+            timeout=5,
+        )
+    )
+    assert "Promoted to background shell job #1" in messages[-1].content
+    job = list_background_jobs()[0]
+    job.process.wait(timeout=5)
+    completions = _wait_for_completion()
+    assert len(completions) == 1
+    assert job.get_output() == ("FIRST\n\nLAST", "ERR-FIRST\n\nERR-LAST")
+    assert "FIRST\n\nLAST" in completions[0].content
+    assert "ERR-FIRST\n\nERR-LAST" in completions[0].content
