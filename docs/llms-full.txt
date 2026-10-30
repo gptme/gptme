@@ -14080,10 +14080,24 @@ Tool Lifecycle Hooks
 File Operation Hooks
 ~~~~~~~~~~~~~~~~~~~~~
 
-- ``FILE_SAVE_PRE``: Before saving a file
-- ``FILE_SAVE_POST``: After saving a file
+- ``FILE_SAVE_PRE``: Before saving or appending to a file
+- ``FILE_SAVE_POST``: After successfully saving or appending to a file
 - ``FILE_PATCH_PRE``: Before patching a file
 - ``FILE_PATCH_POST``: After patching a file
+
+For ``save`` and ``append``, PRE receives the requested ``content`` before
+newline normalization. POST receives the content passed to the text writer,
+before platform/file newline translation. For ``append`` this is **only the
+appended chunk**, including any inserted leading separator and final newline,
+not the resulting full file. Read ``path`` to inspect the full file after a write.
+Both events receive the resolved absolute ``path``; POST also receives ``created``.
+For append, ``created`` records whether the destination was absent before its
+creation prompts and hooks. Hook messages are propagated to the conversation.
+
+Append dispatches PRE after confirmation but before creating or writing the
+file, and POST only after a successful write and close. Refused or failed writes
+do not emit POST. These are notification hooks, not a veto, rollback, or
+transaction API; hook failures retain the registry's normal error handling.
 
 Session Lifecycle Hooks
 ~~~~~~~~~~~~~~~~~~~~~~~~

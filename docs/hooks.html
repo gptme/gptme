@@ -726,11 +726,23 @@ multiple times inside one turn if the assistant keeps calling tools.</p>
 <section id="file-operation-hooks">
 <h3>File Operation Hooks<a class="headerlink" href="#file-operation-hooks" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_PRE</span></code>: Before saving a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_POST</span></code>: After saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_PRE</span></code>: Before saving or appending to a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_POST</span></code>: After successfully saving or appending to a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_PRE</span></code>: Before patching a file</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_POST</span></code>: After patching a file</p></li>
 </ul>
+<p>For <code class="docutils literal notranslate"><span class="pre">save</span></code> and <code class="docutils literal notranslate"><span class="pre">append</span></code>, PRE receives the requested <code class="docutils literal notranslate"><span class="pre">content</span></code> before
+newline normalization. POST receives the content passed to the text writer,
+before platform/file newline translation. For <code class="docutils literal notranslate"><span class="pre">append</span></code> this is <strong>only the
+appended chunk</strong>, including any inserted leading separator and final newline,
+not the resulting full file. Read <code class="docutils literal notranslate"><span class="pre">path</span></code> to inspect the full file after a write.
+Both events receive the resolved absolute <code class="docutils literal notranslate"><span class="pre">path</span></code>; POST also receives <code class="docutils literal notranslate"><span class="pre">created</span></code>.
+For append, <code class="docutils literal notranslate"><span class="pre">created</span></code> records whether the destination was absent before its
+creation prompts and hooks. Hook messages are propagated to the conversation.</p>
+<p>Append dispatches PRE after confirmation but before creating or writing the
+file, and POST only after a successful write and close. Refused or failed writes
+do not emit POST. These are notification hooks, not a veto, rollback, or
+transaction API; hook failures retain the registry’s normal error handling.</p>
 </section>
 <section id="session-lifecycle-hooks">
 <h3>Session Lifecycle Hooks<a class="headerlink" href="#session-lifecycle-hooks" title="Link to this heading">#</a></h3>
