@@ -221,7 +221,8 @@ def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     if not entry.is_living and not index_path.exists():
         return
     line = entry.index_line()
-    pattern = rf"^- \[.*\]\({re.escape(entry.filename)}\).*$"
+    # Allow brackets in titles, but never cross the leading link's destination.
+    pattern = rf"^- \[(?:(?!\]\().)*\]\({re.escape(entry.filename)}\).*$"
     with open(index_path, "a+", encoding="utf-8") as f:
         _lock_exclusive(f)
         try:

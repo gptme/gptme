@@ -690,6 +690,38 @@ class TestStore:
             assert index == unrelated
         assert parse_entry(root / "old.md", strict=True).status == status
 
+    @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
+    @pytest.mark.parametrize("existing_pointer", [True, False])
+    @pytest.mark.parametrize("title", ["Old", "Use [cache] carefully"])
+    def test_update_legacy_index_matches_only_leading_pointer(
+        self,
+        tmp_path: Path,
+        status: str,
+        existing_pointer: bool,
+        title: str,
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original", title=title)
+        entry = parse_entry(path, strict=True)
+        entry.status = status
+        index_path = path.parent / "MEMORY.md"
+        unrelated = (
+            "# Hand-curated memory\n\n"
+            "- [Current [cache] advice](current.md) — See [Old](old.md)\n"
+            "\nKeep this footer with [Old](old.md).\n"
+        )
+        index_path.write_text(
+            unrelated + (entry.index_line() + "\n" if existing_pointer else ""),
+            encoding="utf-8",
+        )
+        entry.title = "Updated title"
+        entry.description = "Updated description"
+
+        update_index_line(path.parent, entry)
+
+        expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
+        assert index_path.read_text() == expected
+
     def test_save_to_scope_and_unknown_scope(self, tmp_path):
         store = self._store(tmp_path)
         assert store.save("u", "d", scope="user").parent == tmp_path / "user"
