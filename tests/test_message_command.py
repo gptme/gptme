@@ -46,14 +46,14 @@ def test_is_message_command_integration(monkeypatch):
 
     try:
         # Test that /shell command doesn't trigger file reading
-        msg = Message("user", f"/shell {temp_file.name}")
+        msg = Message("user", f"/shell @{temp_file}")
         result = include_paths(msg)
         # The message should be unchanged (not expanded with file contents)
         assert result.content == msg.content
         assert "Hello, World!" not in result.content
 
-        # Test that a file path without /command does trigger file reading
-        msg = Message("user", str(temp_file))
+        # An explicit attachment without /command triggers file reading.
+        msg = Message("user", f"@{temp_file}")
         result = include_paths(msg)
         # The message should be expanded with file contents
         assert "Hello, World!" in result.content

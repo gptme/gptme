@@ -477,7 +477,7 @@ gptme 'render mandelbrot set to mandelbrot.png'
 gptme 'suggest improvements to my vimrc'
 
 # Process media files
-gptme 'convert to h265 and adjust the volume' video.mp4
+gptme 'convert to h265 and adjust the volume' @video.mp4
 
 # Code assistance from git diffs
 git diff | gptme 'complete the TODOs in this diff'
@@ -525,13 +525,19 @@ For all options, see the [configuration docs][docs-config].
 ```sh
 gptme                                   # start an interactive chat
 gptme 'fix the failing tests'           # start with a prompt
-gptme 'review this' main.py README.md   # include files (or URLs, or a GitHub PR) as context
+gptme 'review this' @main.py @README.md # attach files as context
 gptme -m anthropic/claude-sonnet-4-6    # pick a model for this session
 gptme -t read-only 'summarize the repo' # restrict which tools are available
 gptme -y 'run the tests and fix them'   # auto-approve tool calls, stay in the loop
 gptme -n 'summarize the git diff'       # fully non-interactive, for scripts and CI
 gptme -r                                # resume the most recent conversation
 ```
+
+Use `@path` to attach a local file or directory. Ordinary path mentions stay as
+text; for spaces, enclose the reference in backticks (`` `@my notes.txt` ``).
+Set `GPTME_AUTO_INCLUDE_PATHS=1` to restore legacy implicit path inclusion.
+See the [attachment guide](https://gptme.org/docs/usage.html#prompt-attachments)
+for URL consent, clipboard images, and automation.
 
 During a conversation, `/help` lists the slash-commands — `/undo`, `/backtrack`,
 `/tools`, `/tokens`, `/compact`, `/model`, and more. `gptme --help` shows every

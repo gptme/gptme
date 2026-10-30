@@ -290,13 +290,35 @@ class GptmeCompleter(Completer):
 
     def __init__(self):
         self.path_completer = PathCompleter2(expanduser=True)
+        self._open_directory_completions: set[str] = set()
+
+    def reset_submission(self) -> None:
+        """Discard completion authorization when starting an independent prompt."""
+        self._open_directory_completions.clear()
+
+    def finish_submission(self, text: str) -> str:
+        """Close only an unchanged open directory reference we just completed.
+
+        Keep the editing buffer open for child completion, without teaching the
+        attachment parser to interpret arbitrary unclosed backtick prose.
+        """
+        completed_directory = text in self._open_directory_completions
+        self._open_directory_completions.clear()
+        return text + "`" if completed_directory else text
 
     def get_completions(self, document, complete_event):
         from ..commands import get_command_completer, get_user_commands  # fmt: skip
 
+        # Automatic completion may run again after Tab inserts the directory.
+        # Retain that exact buffer as a submit candidate while offering children.
+        self._open_directory_completions.intersection_update({document.text})
         document.get_word_before_cursor()
         text = document.text_before_cursor
-        path_seg = text.split(" ")[-1]
+        quoted = text.count("`") % 2 == 1
+        path_seg = text[text.rindex("`") + 1 :] if quoted else text.split(" ")[-1]
+        # Explicit attachments keep the @ in the buffer; complete the path
+        # after it so `@REA` matches README.md the same way `REA` does.
+        complete_seg = path_seg.removeprefix("@")
 
         completions = get_user_commands()  # Already includes "/" prefix
 
@@ -350,21 +372,74 @@ class GptmeCompleter(Completer):
         # Path completion
         elif (
             # Handle absolute/home/parent paths
-            any(path_seg.startswith(prefix) for prefix in ["../", "~/", "./", "/"])
+            any(complete_seg.startswith(prefix) for prefix in ["../", "~/", "./", "/"])
             or
             # Handle simple files in pwd using cache
             (
-                "/" not in path_seg
-                and "\\" not in path_seg
-                and any(f.startswith(path_seg) for f in _get_pwd_files())
+                "/" not in complete_seg
+                and "\\" not in complete_seg
+                and any(f.startswith(complete_seg) for f in _get_pwd_files())
             )
             or
             # Handle partial paths that might match files in subdirectories
-            any(Path.cwd().glob(f"{path_seg}*"))
+            any(Path.cwd().glob(f"{complete_seg}*"))
         ):
-            yield from self.path_completer.get_completions(
-                Document(path_seg), complete_event
-            )
+            for completion in self.path_completer.get_completions(
+                Document(complete_seg), complete_event
+            ):
+                completed = (
+                    complete_seg[: len(complete_seg) + completion.start_position]
+                    + completion.text
+                )
+                # Nested ticks would close the wrapper early and expose an
+                # inner `@path` token. Skip those names; the user can type them.
+                if "`" in completed:
+                    continue
+                if (
+                    path_seg.startswith("@")
+                    and completed.endswith("/")
+                    and document.is_cursor_at_the_end
+                    and (quoted or any(ch.isspace() for ch in completed))
+                ):
+                    prefix = text[: -len(path_seg)]
+                    reference = f"@{completed}" if quoted else f"`@{completed}"
+                    self._open_directory_completions.add(prefix + reference)
+                if quoted:
+                    if (
+                        path_seg.startswith("@")
+                        and (
+                            not completed.endswith("/")
+                            or not document.is_cursor_at_the_end
+                        )
+                        and not document.text_after_cursor.startswith("`")
+                    ):
+                        yield Completion(
+                            completion.text + "`",
+                            start_position=completion.start_position,
+                            display=completion.display,
+                            display_meta=completion.display_meta,
+                        )
+                    else:
+                        yield completion
+                    continue
+                if not path_seg.startswith("@"):
+                    yield completion
+                    continue
+                if not any(ch.isspace() for ch in completed):
+                    yield completion
+                    continue
+                # Only end-of-input directories stay open for child completion.
+                # Before trailing prose, close now (or reuse an existing close).
+                close_reference = (
+                    not completed.endswith("/") or not document.is_cursor_at_the_end
+                ) and not document.text_after_cursor.startswith("`")
+                wrapped = f"`@{completed}" + ("`" if close_reference else "")
+                yield Completion(
+                    wrapped,
+                    start_position=-len(path_seg),
+                    display=completion.display,
+                    display_meta=completion.display_meta,
+                )
 
         # LLM suggestions
         elif len(text) > 2:
@@ -468,12 +543,22 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Meta-ENTER (Esc+Enter)."""
             event.current_buffer.insert_text("\n")
 
+        def _clipboard_image_reference(path: str | Path) -> str:
+            """Reject names that cannot safely fit the attachment delimiter.
+
+            Return a nonempty notice so rejected image paths never fall through
+            to raw text paste, which could expose an inner attachment token.
+            """
+            if any(char in str(path) for char in ("`", "\n", "\r")):
+                return "[Image paste rejected: rename the file without backticks or line breaks.]"
+            return f"`@{path}`"
+
         def _check_clipboard_for_image(text: str | None) -> str | None:
             """Check if text looks like an image URL or existing image path.
 
             For image URLs: returns 'View this image: <url>' to prompt the model to view it.
-            For local image file paths: returns the bare path, so include_paths() can
-            auto-attach the image as binary data (model sees it directly via vision).
+            For local image paths: returns an explicit attachment reference so
+            include_paths() attaches binary data for the model's vision input.
             """
             if not text:
                 return None
@@ -490,9 +575,7 @@ def get_prompt_session() -> PromptSession:
                 in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
                 and Path(text_stripped).exists()
             ):
-                # Return bare path — include_paths() will auto-attach as binary image
-                # data, so the model sees it directly without needing to call view_image()
-                return text_stripped
+                return _clipboard_image_reference(text_stripped)
             return None
 
         @kb.add("c-v")  # Ctrl+V for pasting images or text
@@ -506,9 +589,9 @@ def get_prompt_session() -> PromptSession:
             image_result = paste_image()
             if image_result:
                 logger.debug(f"Pasted image from clipboard: {image_result}")
-                # Insert bare path — include_paths() auto-attaches the image as
-                # binary data so the model sees it directly via vision
-                event.current_buffer.insert_text(str(image_result))
+                event.current_buffer.insert_text(
+                    _clipboard_image_reference(image_result)
+                )
                 return
 
             # No image - check if clipboard text is an image URL or path
@@ -541,9 +624,6 @@ def get_prompt_session() -> PromptSession:
             from ..util.clipboard import paste_image
 
             data = event.data
-            # Normalize line endings (iTerm2 sends \r\n in bracketed paste)
-            data = data.replace("\r\n", "\n").replace("\r", "\n")
-
             logger.debug(f"BracketedPaste handler triggered ({len(data)} chars)")
 
             # First, check OS clipboard for image content directly.
@@ -553,10 +633,20 @@ def get_prompt_session() -> PromptSession:
             image_path = paste_image()
             if image_path:
                 logger.debug(f"BracketedPaste: found image in clipboard: {image_path}")
-                # Insert bare path — include_paths() auto-attaches the image as
-                # binary data so the model sees it directly via vision
-                event.current_buffer.insert_text(str(image_path))
+                event.current_buffer.insert_text(_clipboard_image_reference(image_path))
                 return
+
+            # Check the original filesystem identity before CR normalization can
+            # turn an existing unsafe image path into a nonexistent LF alias.
+            # URLs and ordinary text retain their existing normalization below.
+            if "\r" in data and not re.match(r"https?://", data.strip()):
+                original_image = _check_clipboard_for_image(data)
+                if original_image:
+                    event.current_buffer.insert_text(original_image)
+                    return
+
+            # Normalize line endings (iTerm2 sends \r\n in bracketed paste).
+            data = data.replace("\r\n", "\n").replace("\r", "\n")
 
             # Check if pasted text is an image URL or path
             image_text = _check_clipboard_for_image(data)
@@ -594,7 +684,9 @@ def get_prompt_session() -> PromptSession:
                     # No closing bracket yet - insert newline
                     event.current_buffer.insert_text("\n")
             else:
-                # Normal mode - submit on enter
+                # Finalize only unchanged directory completions, not arbitrary
+                # open backticks typed as prose or an unfinished child path.
+                event.current_buffer.text = completer.finish_submission(text)
                 event.current_buffer.validate_and_handle()
 
         _prompt_session = PromptSession(
@@ -607,6 +699,9 @@ def get_prompt_session() -> PromptSession:
             multiline=True,
             key_bindings=kb,
         )
+        # PromptSession reuses its completer across reads, including Ctrl-C.
+        # Application reset runs for each new prompt, not for child suggestions.
+        _prompt_session.app.on_reset += lambda app: completer.reset_submission()
     return _prompt_session
 
 

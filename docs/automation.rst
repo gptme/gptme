@@ -15,8 +15,8 @@ which runs a prompt non-interactively and exits:
 
 .. code-block:: bash
 
-   gptme -n "summarize this" README.md
-   gptme -n "what bugs can you spot?" src/main.py
+   gptme -n "summarize this" @README.md
+   gptme -n "what bugs can you spot?" @src/main.py
 
 For longer tasks that involve multiple files or steps, chain prompts with ``-``
 separators (each ``-`` starts a new turn that triggers another assistant response):
@@ -40,11 +40,10 @@ gptme's non-interactive mode writes assistant responses to stdout:
 .. code-block:: bash
 
    # Save the output to a file
-   gptme -n "summarize this codebase in 3 bullet points" README.md > summary.txt
+   gptme -n "summarize this codebase in 3 bullet points" @README.md > summary.txt
 
-   # Use in a pipeline (mapfile avoids word-splitting on paths with spaces)
-   mapfile -t pyfiles < <(find . -name "*.py")
-   gptme -n "extract all TODO comments" "${pyfiles[@]}" | tee todos.txt
+   # Let the assistant discover and read files through tools
+   gptme -n "find Python files and extract all TODO comments" | tee todos.txt
 
    # Exit code reflects success (0) or failure (non-zero)
    if gptme -n "run the tests and report pass/fail"; then
@@ -52,7 +51,7 @@ gptme's non-interactive mode writes assistant responses to stdout:
    fi
 
    # --output-format json gives structured output (one JSON object per message)
-   gptme -n "check the logs" app.log --output-format json
+   gptme -n "check the logs" @app.log --output-format json
 
 
 Exit Codes
