@@ -88,7 +88,7 @@ def test_docx_omitted_grid_positions(
     for column in range(3):
         if column < before or column >= 3 - after:
             expected_rows[short_row][column] = ""
-    assert len(row.cells) == 3 - before - after
+    assert len(row._tr.tc_lst) == 3 - before - after
 
     if extension == "txt":
         expected = "\n".join("\t".join(values) for values in expected_rows)
@@ -155,4 +155,66 @@ def test_docx_vertical_merge_repeats_grid_text(tmp_path: Path, extension: str) -
         "| Shared | A |\n| --- | --- |\n| Shared | B |"
         if extension == "md"
         else "Shared\tA\nShared\tB"
+    )
+
+
+@pytest.mark.parametrize("extension", ["txt", "md"])
+def test_docx_without_row_grid_properties(
+    tmp_path: Path, extension: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Table extraction also works with the python-docx 1.1.0 row API."""
+    from docx.table import _Row
+
+    document = docx.Document()
+    document.add_paragraph("Before")
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "Cell"
+    monkeypatch.delattr(_Row, "grid_cols_before", raising=False)
+    monkeypatch.delattr(_Row, "grid_cols_after", raising=False)
+    text = convert(document, tmp_path, extension)
+    assert text == (
+        "Before\n\n| Cell |\n| --- |" if extension == "md" else "Before\nCell"
+    )
+
+
+@pytest.mark.parametrize(
+    ("literal", "escaped"),
+    [
+        ("[draft](https://example.com)", r"\[draft\](https://example.com)"),
+        (
+            "*required* _literal_ ~~deleted~~",
+            r"\*required\* \_literal\_ \~\~deleted\~\~",
+        ),
+        ("`code` ![image](path)", r"\`code\` !\[image\](path)"),
+    ],
+)
+def test_docx_markdown_literal_cell_text(
+    tmp_path: Path, literal: str, escaped: str
+) -> None:
+    document = docx.Document()
+    table = document.add_table(rows=2, cols=1)
+    table.cell(0, 0).text = literal
+    table.cell(1, 0).text = literal + "\nnext"
+    assert convert(document, tmp_path, "md") == (
+        f"| {escaped} |\n| --- |\n| {escaped}<br>next |"
+    )
+
+
+@pytest.mark.parametrize("extension", ["txt", "md"])
+def test_docx_merged_cells_after_omitted_column(tmp_path: Path, extension: str) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = docx.Document()
+    table = document.add_table(rows=3, cols=3)
+    table.cell(0, 1).merge(table.cell(2, 2)).text = "Shared"
+    for row in table.rows:
+        prop = OxmlElement("w:gridBefore")
+        prop.set(qn("w:val"), "1")
+        row._tr.get_or_add_trPr().append(prop)
+        row._tr.remove(row._tr.tc_lst[0])
+    assert convert(document, tmp_path, extension) == (
+        "|  | Shared | Shared |\n| --- | --- | --- |\n"
+        "|  | Shared | Shared |\n|  | Shared | Shared |"
+        if extension == "md"
+        else "\tShared\tShared\n\tShared\tShared\n\tShared\tShared"
     )
