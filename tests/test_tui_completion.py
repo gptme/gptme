@@ -636,3 +636,40 @@ async def test_queued_local_commands_retry_deferred_notifications(
         assert sum(marker in m.content for m in manager.log) == 1
         assert seen == ([1] if enabled else [])
         assert not app.generating
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during", ["hook", "notification-render"])
+async def test_interrupt_at_step_pre_prevents_model_request(
+    tmp_path, monkeypatch, during
+):
+    from gptme.hooks import HookType, register_hook
+
+    manager = LogManager(
+        [Message("user", "delegate")], logdir=tmp_path / "parent", lock=False
+    )
+    calls: list[int] = []
+    monkeypatch.setattr("gptme.tui.app.step", lambda *a, **kw: record_step(calls))
+    app = GptmeApp(manager, workspace=tmp_path)
+
+    def boundary(manager):
+        if during == "hook":
+            app.call_from_thread(app.action_interrupt)
+        yield Message("system", "boundary notification")
+
+    register_hook("test_interrupt_boundary", HookType.STEP_PRE, boundary)
+    original = app._on_step_message
+
+    def render(msg):
+        original(msg)
+        if during == "notification-render" and msg.content == "boundary notification":
+            app.action_interrupt()
+
+    monkeypatch.setattr(app, "_on_step_message", render)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._start_generation()
+        await settle(app, pilot)
+        assert not calls
+        assert sum(m.content == "boundary notification" for m in manager.log) == 1
+        assert not app.generating

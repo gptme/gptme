@@ -3759,6 +3759,8 @@ class GptmeApp(App):
                 ):
                     manager.append(msg)
                     self.call_from_thread(self._on_step_message, msg)
+                if self._interrupt_event.is_set() or self._quitting:
+                    break
                 self.call_from_thread(self._begin_stream)
                 interrupted = False
                 declined = False
@@ -3769,6 +3771,8 @@ class GptmeApp(App):
                 self._step_processes = start_tracking()
                 try:
                     with self._step_lock:
+                        if self._interrupt_event.is_set() or self._quitting:
+                            break
                         self._in_step = True
                     for msg in step(
                         manager.log,

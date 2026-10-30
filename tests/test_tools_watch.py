@@ -959,3 +959,65 @@ def test_stream_ends_when_parent_exits_even_if_grandchild_holds_pipe(
         except OSError:
             pass
         _kill_proc(proc)
+
+
+@pytest.mark.parametrize("branch", ["main", "feature"])
+@pytest.mark.parametrize("execution", ["in-process", "acp"])
+def test_server_step_drains_only_its_watch_branch(
+    tmp_path, monkeypatch, branch, execution
+):
+    import asyncio
+    from unittest.mock import MagicMock
+
+    pytest.importorskip("flask")
+    from gptme.config import ChatConfig
+    from gptme.hooks import HookType
+    from gptme.llm.models import ModelMeta
+    from gptme.logmanager import LogManager
+    from gptme.server import session_step
+    from gptme.server.session_models import SessionManager
+    from gptme.tools.watch import take_queued_watch_events_with_branches
+
+    monkeypatch.chdir(tmp_path)
+    manager = LogManager(
+        [Message("user", "watch work")] if execution == "in-process" else [],
+        logdir=tmp_path / "parent",
+        lock=False,
+    )
+    manager.branch(branch)
+    session = SessionManager.create_session("parent")
+    config = ChatConfig(_logdir=manager.logdir, workspace=tmp_path)
+    monkeypatch.setattr(
+        session_step, "prepare_execution_environment", lambda **kw: None
+    )
+    monkeypatch.setattr(session_step.LogManager, "load", lambda *a, **kw: manager)
+    monkeypatch.setattr(session_step.ChatConfig, "load_or_create", lambda *a: config)
+    monkeypatch.setattr(
+        "gptme.llm.models.get_model", lambda *a: ModelMeta("local", "test", 4096)
+    )
+    # Stop before inference, after the real STEP_PRE watch drain has run.
+    monkeypatch.setattr(session_step, "prepare_messages", lambda *a, **kw: [])
+
+    def hooks(hook_type, **kwargs):
+        if hook_type == HookType.STEP_PRE:
+            return list(_watch_drain_hook(**kwargs))
+        return []
+
+    monkeypatch.setattr(session_step, "trigger_hook", hooks)
+    for origin in ("main", "feature"):
+        requeue_watch_event(manager.logdir, origin, f"ready-{origin}", branch=origin)
+    try:
+        if execution == "acp":
+            session.acp_runtime = MagicMock()
+            asyncio.run(session_step._acp_step("parent", session, tmp_path))
+        else:
+            session_step.step("parent", session, "local/test", tmp_path, branch=branch)
+        delivered = [m.content for m in manager.log if m.content.startswith("Watch ")]
+        assert delivered == [f"Watch {branch} fired: ready-{branch}"]
+        other = "feature" if branch == "main" else "main"
+        assert take_queued_watch_events_with_branches(manager.logdir) == [
+            (other, f"ready-{other}", other)
+        ]
+    finally:
+        session.acp_runtime = None
+        SessionManager.remove_session(session.id)
