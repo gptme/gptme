@@ -919,3 +919,38 @@ def test_reselect_current_branch_keeps_active_compacted_view(tmp_path):
     manager.branch("alternative")
     assert manager.current_view == "compacted-001"
     assert manager.log.messages == [summary]
+
+
+def test_new_empty_branch_archive_is_written_before_final_sync(tmp_path: Path) -> None:
+    from gptme.logmanager import Log
+
+    manager = LogManager([], logdir=tmp_path / "empty-archive", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.write(sync=True)
+    archive_path = manager.logdir / "branches" / "alternative" / "lossless.jsonl"
+    assert archive_path.read_bytes() == b""
+    reloaded = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert reloaded.full_log.messages == []
+
+
+def test_branch_edit_rejects_ambiguous_same_time_replacement(tmp_path: Path) -> None:
+    from gptme.logmanager import Log
+
+    first = Message("assistant", "```todo write\nadd First\n```")
+    clear = Message("assistant", "```todo write\nclear\n```")
+    second = Message(
+        "assistant", "```todo write\nadd Second\n```", timestamp=first.timestamp
+    )
+    manager = LogManager(
+        [first, clear, second], logdir=tmp_path / "ambiguous-edit", lock=False
+    )
+    manager.preserve_lossless_log()
+    manager.log = Log([first, second])
+    manager.branch("alternative")
+    original_history = list(manager.full_log.messages)
+    with pytest.raises(ValueError, match="ambiguous"):
+        manager.edit([second.replace(content="```todo write\nadd Edited\n```")])
+    assert manager.full_log.messages == original_history
+    assert manager.log.messages == [first, second]

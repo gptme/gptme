@@ -750,8 +750,10 @@ class LogManager:
             # A loaded, locally unchanged archive is not ours to rewrite: another
             # manager may have appended since load. Disk-size drift must not turn
             # this no-op into a stale full rewrite via Log._can_append().
-            if len(archive.persisted) == len(archive) and all(
-                old is new for old, new in zip(archive.persisted, archive)
+            if (
+                archive.persisted_path == archive_path.resolve()
+                and len(archive.persisted) == len(archive)
+                and all(old is new for old, new in zip(archive.persisted, archive))
             ):
                 continue
             archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -941,16 +943,19 @@ class LogManager:
                     None,
                 )
                 if match is None:
-                    match = next(
-                        (
-                            (i, position)
-                            for i, (position, old) in enumerate(available)
-                            if old.timestamp == message.timestamp
-                            and old.role == message.role
-                            and old.call_id == message.call_id
-                        ),
-                        None,
-                    )
+                    candidates = [
+                        (i, position)
+                        for i, (position, old) in enumerate(available)
+                        if old.timestamp == message.timestamp
+                        and old.role == message.role
+                        and old.call_id == message.call_id
+                    ]
+                    if len(candidates) > 1:
+                        raise ValueError(
+                            "Cannot apply an ambiguous replacement inside compacted "
+                            "branch history; retain the original message identity."
+                        )
+                    match = candidates[0] if candidates else None
                 if match is None:
                     additions.append(message)
                     continue
