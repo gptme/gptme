@@ -986,7 +986,9 @@ def step(
     # Notify clients about generation status
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
 
-    tool_format = chat_config.tool_format or model_meta.default_tool_format
+    tool_format = (
+        chat_config.tool_format or model_meta.default_tool_format or "markdown"
+    )
     tools = None
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]
@@ -1132,7 +1134,11 @@ def step(
             # Persist the assistant message. Anchor the *resolved* model (e.g.
             # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
             # compaction compares against; the raw request name can differ.
-            msg = Message("assistant", output, metadata=metadata)
+            replay_metadata: MessageMetadata = {
+                **(metadata or {}),
+                "tool_format": tool_format,
+            }
+            msg = Message("assistant", output, metadata=replay_metadata)
             anchor_context_usage(msg, input_count, input_digest, model_meta.full)
 
             return msg

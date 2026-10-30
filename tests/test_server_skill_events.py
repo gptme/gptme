@@ -503,3 +503,21 @@ def test_conversation_delete_ends_tracker_under_lock(
     assert response.status_code == 200
     assert owned_at_calls, "delete must call CostTracker.end_session"
     assert owned_at_calls[0] is True
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_server_records_replay_format_without_tool_calls(
+    skill_conversation, monkeypatch, tool_format
+):
+    from gptme.config import ChatConfig
+
+    name, _, initial_manager = skill_conversation
+    config = ChatConfig.from_logdir(initial_manager.logdir)
+    config.tool_format = tool_format
+    config.save()
+    run_step(skill_conversation, monkeypatch)
+    manager = LogManager.load(name, lock=False)
+    assistant = next(
+        msg for msg in reversed(manager.log.messages) if msg.role == "assistant"
+    )
+    assert (assistant.metadata or {}).get("tool_format") == tool_format

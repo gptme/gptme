@@ -1059,6 +1059,11 @@ def step(
                 logdir=logdir,
                 max_tokens=max_tokens,
             )
+        # Retain the parser even for replies with no calls: XML examples in a
+        # markdown explanation must not become writes after a format switch.
+        msg_response = msg_response.replace(
+            metadata={**(msg_response.metadata or {}), "tool_format": tool_format}
+        )
         # Overflow recovery may have switched the active LogManager to a
         # compacted view. Use that active log for tool execution below.
         manager = LogManager.get_current_log()

@@ -29,7 +29,14 @@ from ..hooks import HookType
 from ..hooks.types import ToolExecutePreData
 from ..logmanager import LogManager
 from ..message import Message
-from .base import Parameter, ToolSpec, ToolUse, _codeblock_char_ranges, find_json_end
+from .base import (
+    Parameter,
+    ToolSpec,
+    ToolUse,
+    _codeblock_char_ranges,
+    find_json_end,
+    get_tool_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +238,11 @@ def _restore_todos(
                 end = find_json_end(msg.content, start)
                 if end is not None:
                     excluded.append((start, end))
+        # Legacy logs have no parser metadata. Inline code is documentation,
+        # not evidence that the message executed in XML mode.
+        excluded.extend(
+            match.span() for match in re.finditer(r"`[^`\n]*`", msg.content)
+        )
         xml_content = msg.content
         for start, end in sorted(excluded, reverse=True):
             xml_content = xml_content[:start] + " " * (end - start) + xml_content[end:]
@@ -266,11 +278,29 @@ def _restore_todos(
             )
             for call in native_calls
         )
-        calls = (
-            list(ToolUse.iter_from_content(msg.content, tool_format_override="xml"))
-            if xml and not has_non_xml_call
-            else native_calls
-        )
+        recorded_format = (msg.metadata or {}).get("tool_format")
+        if recorded_format in ("markdown", "xml", "tool"):
+            calls = list(
+                ToolUse.iter_from_content(
+                    msg.content, tool_format_override=recorded_format
+                )
+            )
+        elif (
+            xml
+            and (not has_non_xml_call or get_tool_format() == "xml")
+            and (
+                get_tool_format() == "xml"
+                or re.search(r"(?m)^\s*<(tool-use|function_calls)>", xml_content)
+            )
+        ):
+            # Both syntaxes may be present in old logs. Without provenance,
+            # use the active parser to break that ambiguity, not precedence
+            # that turns a fenced example into an executed write.
+            calls = list(
+                ToolUse.iter_from_content(msg.content, tool_format_override="xml")
+            )
+        else:
+            calls = native_calls
         for tooluse in calls:
             if (
                 stop_before is not None

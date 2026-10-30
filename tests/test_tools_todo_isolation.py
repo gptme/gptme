@@ -7,7 +7,7 @@ from typing import Literal
 import pytest
 
 from gptme.logmanager import Log, LogManager
-from gptme.message import Message
+from gptme.message import Message, MessageMetadata
 from gptme.tools import set_tools
 from gptme.tools.todo import (
     _todoread,
@@ -1037,3 +1037,91 @@ def test_direct_pending_call_from_separately_loaded_history(
     assert f"3. 🔲 {'Edited' if edited else 'Pending'}" in _todoread()
     assert "Later call" not in _todoread()
     assert "Summary: 3 total" in _todoread()
+
+
+@pytest.mark.parametrize("quoted", [False, True])
+@pytest.mark.parametrize("recorded_format", [False, True])
+@pytest.mark.parametrize("tool_format", ["markdown", "xml"])
+@pytest.mark.parametrize("wrapper", ["tool-use", "function_calls"])
+def test_restore_examples_follow_execution_format(
+    tmp_path: Path,
+    recorded_format: bool,
+    quoted: bool,
+    tool_format: Literal["markdown", "xml"],
+    wrapper: str,
+) -> None:
+    from gptme.tools.base import set_tool_format
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    xml_add = (
+        '<todo args="write">add Real</todo>'
+        if wrapper == "tool-use"
+        else '<invoke name="todo" args="write">add Real</invoke>'
+    )
+    xml_clear = (
+        '<todo args="write">clear</todo>'
+        if wrapper == "tool-use"
+        else '<invoke name="todo" args="write">clear</invoke>'
+    )
+    content = (
+        f"```todo write\nclear\n```\n<{wrapper}>{xml_add}</{wrapper}>"
+        if tool_format == "xml"
+        else f"Example: `<{wrapper}>{xml_clear}</{wrapper}>`"
+    )
+    if not quoted:
+        content = content.replace("`<", "<").replace(">`", ">")
+    # The example-only markdown message executed no calls at all.
+    metadata: MessageMetadata | None = (
+        {"tool_format": tool_format} if recorded_format else None
+    )
+    messages = [
+        Message("assistant", "```todo write\nadd Saved\n```"),
+        Message("assistant", content, metadata=metadata),
+    ]
+    set_tool_format(tool_format)
+    manager = start(tmp_path / "format-examples", messages)
+    manager.write()
+    list(clear_todo_state(manager))
+    if recorded_format:
+        # Reload and switch formats: provenance must survive both.
+        manager = LogManager.load(manager.logdir, lock=False)
+        set_tool_format("markdown" if tool_format == "xml" else "xml")
+    list(ensure_todo_state(manager))
+    assert "1. 🔲 Saved" in _todoread()
+    if tool_format == "xml":
+        assert "2. 🔲 Real" in _todoread()
+        assert "Summary: 2 total" in _todoread()
+    else:
+        assert "Summary: 1 total" in _todoread()
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_cli_step_records_replay_format_even_without_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_format: Literal["markdown", "xml", "tool"],
+) -> None:
+    import importlib
+
+    from gptme.tools.base import set_tool_format
+
+    chat = importlib.import_module("gptme.chat")
+    manager = start(tmp_path / "generated-format")
+    set_tool_format(tool_format)
+    monkeypatch.setattr(chat, "prepare_messages", lambda messages, *_a, **_k: messages)
+    monkeypatch.setattr(
+        chat, "reply", lambda *_a, **_k: Message("assistant", "No tool call.")
+    )
+    messages = list(
+        chat.step(
+            manager.log,
+            stream=False,
+            tool_format=tool_format,
+            model="openai/gpt-4o-mini",
+        )
+    )
+    assistant = next(msg for msg in messages if msg.role == "assistant")
+    assert (assistant.metadata or {}).get("tool_format") == tool_format
+    manager.append(assistant)
+    loaded = LogManager.load(manager.logdir, lock=False)
+    assert (loaded.log.messages[-1].metadata or {}).get("tool_format") == tool_format
