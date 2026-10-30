@@ -229,7 +229,199 @@ def _categorise_files(files: list[str]) -> str:
 
 
 def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
-    """Count tool calls by tool name across all *messages*."""
+    """Count assistant tool syntax without initializing the live tool registry."""
+    from contextvars import copy_context
+
+    from ..codeblock import Codeblock
+    from ..tools.base import (
+        ToolUse,
+        _codeblock_char_ranges,
+        find_json_end,
+        toolcall_re,
+    )
+
+    # Offline exports have no loaded tools. Recognize built-in Markdown tags
+    # without discovery/importing tool modules (which may check availability or
+    # connect to services). Explicit XML/native calls can retain plugin names.
+    # Keep the historical `python` dataset key; `py` is an ipython block alias.
+    markdown_tools = {
+        name: name
+        for name in (
+            "shell python ipython save append patch patch_many read hashline_edit "
+            "todo form memory complete clarify morph tmux vent choice progress "
+            "watch elicit restart gh mcp request_tool_change"
+        ).split()
+    }
+    markdown_tools["py"] = "ipython"
+
+    from ..tools import get_tools
+
+    # Consult only already-loaded registrations; never discover/import plugins.
+    loaded_markdown_tools = {
+        tag: tool.name
+        for tool in copy_context().run(get_tools)
+        for tag in tool.block_types
+    }
+
+    class DatasetToolUse(ToolUse):
+        @classmethod
+        def _from_codeblock(cls, codeblock: Codeblock) -> ToolUse | None:
+            tag = codeblock.lang.split(" ")[0]
+            if name := markdown_tools.get(tag) or loaded_markdown_tools.get(tag):
+                return cls(name, None, codeblock.content, start=codeblock.start)
+            return None
+
+    def parse(content: str) -> list[ToolUse]:
+        # The outer syntax owns its body: XML can contain fenced/native examples,
+        # and native JSON arguments can contain XML examples (and vice versa).
+        def fence_ranges(text: str) -> list[tuple[int, int]]:
+            # Extend basic example-fence bounds with heredoc/string-aware
+            # blocks. Check prefixes ending at closers as well: later prose
+            # otherwise changes Codeblock's Markdown nesting look-ahead.
+            lines = text.split("\n")
+            offsets = [0]
+            for line in lines:
+                offsets.append(offsets[-1] + len(line) + 1)
+            recovered: dict[int, int] = {}
+            prefix_start = 0
+            for i, line in enumerate(lines):
+                if not re.fullmatch(r"`{3,}[ \t]*", line):
+                    continue
+                # Thinking-tag stripping makes Codeblock.start relative to a
+                # shortened string. Neutralize only those delimiters for this
+                # position pass, preserving all offsets and line boundaries.
+                prefix = re.sub(
+                    r"</?(?:think|thinking)>",
+                    lambda m: " " * len(m.group()),
+                    "\n".join(lines[prefix_start : i + 1]),
+                )
+                next_prefix_start = prefix_start
+                for block in Codeblock.iter_from_markdown(prefix):
+                    if block.start is not None:
+                        body_lines = (
+                            block.content.count("\n") + 1 if block.content else 0
+                        )
+                        start_line = prefix_start + block.start
+                        close_line = start_line + body_lines + 1
+                        start = offsets[start_line]
+                        end = min(offsets[close_line + 1], len(text))
+                        recovered[start] = max(recovered.get(start, end), end)
+                        # Executable blocks close unambiguously outside their
+                        # heredocs/strings. Later prose cannot extend them, so
+                        # do not replay them at every subsequent closing fence.
+                        if (
+                            block.lang in {"shell", "ipython"}
+                            and "<<" not in block.content
+                        ):
+                            next_prefix_start = close_line + 1
+                prefix_start = next_prefix_start
+            # A recovered block owns its literal fences, including apparent
+            # openers whose basic range extends beyond the real closing fence.
+            # Rescan the suffix instead of merging those false overlapping
+            # ranges: the next real block may not have been discovered at all.
+            ranges: list[tuple[int, int]] = []
+            basic = iter(_codeblock_char_ranges(text))
+            scan_start = 0
+            while entry := next(basic, None):
+                start, end = entry
+                start += scan_start
+                end += scan_start
+                recovered_end = max(end, recovered.get(start, end))
+                ranges.append((start, recovered_end))
+                if recovered_end != end:
+                    # Only changed ownership invalidates the remaining basic
+                    # ranges. Ordinary blocks share one scan, not N suffix scans.
+                    scan_start = recovered_end
+                    basic = iter(_codeblock_char_ranges(text[scan_start:]))
+            return ranges
+
+        def body_ranges(text: str) -> list[tuple[int, int]]:
+            fenced_ranges = fence_ranges(text)
+            ranges = list(fenced_ranges)
+            search_from = 0
+            while match := toolcall_re.search(text, search_from):
+                block_end = next(
+                    (
+                        end
+                        for start, end in fenced_ranges
+                        if start <= match.start() < end
+                    ),
+                    None,
+                )
+                if block_end is not None:
+                    search_from = block_end
+                    continue
+                end = find_json_end(text, match.start(3))
+                if end is None:
+                    break
+                ranges.append((match.start(), end))
+                search_from = end
+            return ranges
+
+        non_xml = content
+        ranges = body_ranges(non_xml)
+        xml_ranges: list[tuple[int, int]] = []
+        # Consume comments/CDATA as units both outside and inside wrappers.
+        # Skip openers owned by native/fenced bodies before consuming their
+        # apparent closing delimiter, which may belong to a later real call.
+        xml_pattern = re.compile(
+            r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(tool-use|function_calls)>"
+            r"(?><!\[CDATA\[.*?\]\]>|<!--.*?-->|(?!<!\[CDATA\[|<!--).)*?</\1>"
+            r"|^<(?P<thought>think|thinking)>.*?(?:</(?P=thought)>|\Z)",
+            re.DOTALL | re.MULTILINE,
+        )
+        search_from = 0
+        while match := xml_pattern.search(content, search_from):
+            body_end = next(
+                (end for start, end in ranges if start <= match.start() < end),
+                None,
+            )
+            if body_end is not None:
+                search_from = body_end
+                continue
+            # Reasoning owns its examples just like comments do. Only accept
+            # standalone tags outside fenced/native bodies; literal tags saved
+            # by a tool must not hide subsequent real calls.
+            if match.group("thought") is None:
+                xml_ranges.append((match.start(), match.end()))
+            # Mask the outer region before rebuilding body ranges: a fence
+            # opener in its body may have hidden a later real fenced block.
+            # Preserve offsets and line boundaries for every remaining pass.
+            masked = re.sub(r"[^\n]", " ", match.group())
+            non_xml = non_xml[: match.start()] + masked + non_xml[match.end() :]
+            if "```" in match.group() or toolcall_re.search(match.group()):
+                ranges = body_ranges(non_xml)
+            search_from = match.end()
+        calls: list[ToolUse] = []
+        for start, end in xml_ranges:
+            xml_content = re.sub(
+                r"<!\[CDATA\[.*?\]\]>|<!--.*?-->",
+                lambda match: re.sub(r"[^\n]", " ", match.group()),
+                content[start:end],
+                flags=re.DOTALL,
+            )
+            calls.extend(DatasetToolUse.iter_from_content(xml_content, "xml"))
+        for start, end in fence_ranges(non_xml):
+            # Thinking regions outside tools were already masked. Delimiters
+            # inside a surviving fenced body are literal tool arguments.
+            block_content = re.sub(
+                r"</?(?:think|thinking)>",
+                lambda match: " " * len(match.group()),
+                non_xml[start:end],
+            )
+            calls.extend(DatasetToolUse.iter_from_content(block_content, "markdown"))
+        # The native parser uses a simpler fence scanner. Mask complete parsed
+        # blocks first so literal fences cannot expose native examples either.
+        native_content = non_xml
+        for start, end in fence_ranges(non_xml):
+            native_content = (
+                native_content[:start]
+                + re.sub(r"[^\n]", " ", native_content[start:end])
+                + native_content[end:]
+            )
+        calls.extend(DatasetToolUse.iter_from_content(native_content, "tool"))
+        return calls
+
     counts: Counter[str] = Counter()
     for msg in messages:
         role = msg.get("role", "")
@@ -237,9 +429,12 @@ def _extract_tool_call_counts(messages: list[dict]) -> dict[str, int]:
             continue
         content = msg.get("content", "")
         if isinstance(content, str):
-            # Markdown tool-use pattern: ```tool_name\n...```
-            for m in re.finditer(r"```(\w[\w-]*)\n", content):
-                counts[m.group(1)] += 1
+            # Native alias resolution reads the context registry; on a cold
+            # context get_tools() creates an empty list. Isolate that lazy write
+            # while retaining any existing transport-name aliases for replay.
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
+            for call in copy_context().run(parse, content):
+                counts[markdown_tools.get(call.tool, call.tool)] += 1
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
