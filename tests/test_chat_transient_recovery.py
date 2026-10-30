@@ -129,3 +129,125 @@ def test_overflow_and_transient_calls_share_scope(offline, monkeypatch):
     assert observed[0] is observed[1] and observed[0] is not None
     assert observed[0].requests == 2
     assert recovery.get_recovery_budget() is None
+
+
+@pytest.mark.parametrize("interactive", [True, False])
+def test_overflow_budget_exhaustion_returns_to_interactive_prompt(
+    offline, monkeypatch, tmp_path, interactive
+):
+    """A smaller overflow view cannot send again or crash interactive chat."""
+    from gptme.logmanager import Log
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+
+    def append(message):
+        manager.log = manager.log.append(message)
+
+    manager.append.side_effect = append
+    monkeypatch.setattr(recovery, "get_max_retries", lambda: 1)
+    sends = []
+
+    def complete(*args, **kwargs):
+        recovery.reserve_recovery_request()
+        sends.append(1)
+        response = httpx.Response(
+            400, request=httpx.Request("POST", "https://offline.invalid")
+        )
+        raise httpx.HTTPStatusError(
+            "context length exceeded", request=response.request, response=response
+        )
+
+    monkeypatch.setattr(llm, "_chat_complete", complete)
+
+    def process(*args):
+        # Equivalent to the overflow policy's second, smaller request view:
+        # both calls share the budget, and only the first can physically send.
+        with recovery.recovery_scope():
+            with pytest.raises(httpx.HTTPStatusError):
+                llm.reply([Message("user", "large request")], "openai/gpt-4o")
+            llm.reply([Message("user", "smaller request")], "openai/gpt-4o")
+
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "include_paths", lambda message, *args: message)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *args: False)
+    prompt = Mock(return_value=None)
+    monkeypatch.setattr(chat, "_get_user_input", prompt)
+
+    def run():
+        chat._run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "hello")],
+            stream=False,
+            tool_format="markdown",
+            model="openai/gpt-4o",
+            interactive=interactive,
+        )
+
+    if interactive:
+        run()
+        prompt.assert_called_once()
+        assert any("LLM request failed" in message.content for message in manager.log)
+    else:
+        with pytest.raises(recovery.RecoveryBudgetExceeded):
+            run()
+        prompt.assert_not_called()
+    assert sends == [1]
+    assert not recovery.recovery_active()
+
+
+def test_real_overflow_view_restored_when_shared_send_budget_exhausted(
+    offline, monkeypatch, tmp_path
+):
+    from gptme.logmanager import LogManager
+
+    chat = offline
+    manager = LogManager(
+        [
+            Message("system", "system prompt"),
+            Message("user", "task"),
+            Message("system", "large tool result " * 1000),
+        ],
+        logdir=tmp_path / "conversation",
+    )
+    original = list(manager.log.messages)
+    sends = []
+    monkeypatch.setattr(recovery, "get_max_retries", lambda: 1)
+    monkeypatch.setattr(
+        "gptme.tools.autocompact.recovery.compact_for_overflow",
+        lambda active_manager: active_manager.log.messages[:2],
+    )
+
+    def complete(*args, **kwargs):
+        recovery.reserve_recovery_request()
+        sends.append(1)
+        response = httpx.Response(
+            400, request=httpx.Request("POST", "https://offline.invalid")
+        )
+        raise httpx.HTTPStatusError(
+            "maximum context length exceeded",
+            request=response.request,
+            response=response,
+        )
+
+    monkeypatch.setattr(llm, "_chat_complete", complete)
+    execute = Mock()
+    monkeypatch.setattr(chat, "execute_msg", execute)
+    with pytest.raises(recovery.RecoveryBudgetExceeded) as caught:
+        list(
+            chat.step(
+                manager.log,
+                stream=False,
+                model="openai/gpt-4o",
+                logdir=manager.logdir,
+            )
+        )
+    assert llm.is_llm_reply_error(caught.value)
+    assert sends == [1]
+    assert manager.current_view is None
+    assert manager.log.messages == original
+    execute.assert_not_called()

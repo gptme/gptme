@@ -356,8 +356,11 @@ def is_llm_reply_error(e: BaseException) -> bool:
     if not getattr(e, _LLM_REPLY_ORIGIN_ATTR, False):
         return False
     from .llm_openai import DegenerationDetected  # fmt: skip
+    from .recovery import RecoveryBudgetExceeded
 
-    return is_provider_error(e) or isinstance(e, DegenerationDetected)
+    return is_provider_error(e) or isinstance(
+        e, (DegenerationDetected, RecoveryBudgetExceeded)
+    )
 
 
 def is_provider_error(e: BaseException) -> bool:

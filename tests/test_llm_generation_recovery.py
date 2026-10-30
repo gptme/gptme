@@ -361,3 +361,21 @@ def test_legacy_test_ceiling_never_increases_policy(monkeypatch, limit, expected
     monkeypatch.setenv("GPTME_TEST_MAX_RETRIES", limit)
     with recovery.recovery_scope() as budget:
         assert budget.max_attempts == expected
+
+
+def test_recovery_disabled_keeps_budget_and_restores_replay(monkeypatch):
+    error = httpx.ReadError("non-resettable preview")
+    calls, _ = install_stream(monkeypatch, [["partial\n", error], ["ok"]])
+    with recovery.recovery_disabled(), pytest.raises(httpx.ReadError) as caught:
+        llm.reply([Message("user", "hi")], MODEL, stream=True)
+    assert caught.value is error and len(calls) == 1
+    assert llm.reply([Message("user", "hi")], MODEL, stream=True).content == "ok"
+    assert len(calls) == 2
+
+
+def test_untagged_recovery_budget_error_is_not_failed_reply():
+    error = recovery.RecoveryBudgetExceeded("consumer error")
+    assert not llm.is_llm_reply_error(error)
+    llm.mark_llm_reply_origin(error)
+    assert llm.is_llm_reply_error(error)
+    assert not recovery.is_transient_provider_error(error)

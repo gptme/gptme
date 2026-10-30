@@ -48,6 +48,14 @@ class RecoveryBudgetExceeded(RuntimeError):
     """An adapter tried to send after its shared allowance/deadline was spent."""
 
 
+def _budget_error(message: str) -> RecoveryBudgetExceeded:
+    from . import mark_llm_reply_origin
+
+    error = RecoveryBudgetExceeded(message)
+    mark_llm_reply_origin(error)
+    return error
+
+
 @dataclass(frozen=True)
 class RetryNotice:
     """A failed attempt is discarded; the next attempt has not started yet."""
@@ -63,9 +71,24 @@ _budget: ContextVar[RecoveryBudget | None] = ContextVar(
     "llm_recovery_budget", default=None
 )
 _recovering: ContextVar[bool] = ContextVar("llm_recovering", default=False)
+_replay_enabled: ContextVar[bool] = ContextVar("llm_replay_enabled", default=True)
 _notification: ContextVar[Callable[[RetryNotice], None] | None] = ContextVar(
     "llm_recovery_notification", default=None
 )
+
+
+@contextmanager
+def recovery_disabled() -> Iterator[None]:
+    """Keep request accounting, but forbid replay for non-resettable consumers.
+
+    Bind in the context that actually consumes the generation (e.g. ACP's
+    worker thread), not merely around construction of a lazy step iterator.
+    """
+    token = _replay_enabled.set(False)
+    try:
+        yield
+    finally:
+        _replay_enabled.reset(token)
 
 
 def get_recovery_budget() -> RecoveryBudget | None:
@@ -125,9 +148,9 @@ def reserve_recovery_request() -> None:
     if budget is None:
         return
     if time.monotonic() >= budget.deadline:
-        raise RecoveryBudgetExceeded("LLM recovery deadline exceeded")
+        raise _budget_error("LLM recovery deadline exceeded")
     if budget.requests >= budget.max_attempts:
-        raise RecoveryBudgetExceeded("LLM recovery provider request budget exhausted")
+        raise _budget_error("LLM recovery provider request budget exhausted")
     budget.requests += 1
 
 
@@ -234,20 +257,19 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
     try:
         while True:
             if time.monotonic() >= budget.deadline:
-                raise RecoveryBudgetExceeded("LLM recovery deadline exceeded")
+                raise _budget_error("LLM recovery deadline exceeded")
             if (
                 budget.attempts >= attempt_limit
                 or budget.requests >= budget.max_attempts
             ):
-                raise RecoveryBudgetExceeded(
-                    "LLM recovery provider request budget exhausted"
-                )
+                raise _budget_error("LLM recovery provider request budget exhausted")
             budget.attempts += 1
             try:
                 return generate()
             except Exception as error:
                 if (
-                    not is_transient_provider_error(error)
+                    not _replay_enabled.get()
+                    or not is_transient_provider_error(error)
                     or budget.attempts >= attempt_limit
                     or budget.requests >= budget.max_attempts
                 ):
