@@ -1064,7 +1064,12 @@ def _poll_subprocess_progress(
     POLL_INTERVAL = 0.5
 
     def _notify(agent_id: str, message: str) -> None:
-        notify_progress(agent_id, message, parent_logdir=subagent.parent_logdir)
+        notify_progress(
+            agent_id,
+            message,
+            parent_logdir=subagent.parent_logdir,
+            parent_branch=subagent.parent_branch,
+        )
 
     def _drain() -> None:
         nonlocal file_pos

@@ -80,13 +80,16 @@ class Watch:
     lock: threading.Lock = field(default_factory=threading.Lock)
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
+    branch: str = "main"  # captured when armed, not when the event fires
 
 
 _watches: dict[str, Watch] = {}
 _watches_lock = threading.Lock()
 _watch_seq = 0
 # Offline fallback queue drained at STEP_PRE: (logdir, watch_id, text)
-_pending_deliveries: deque[tuple[Path | None, str, str]] = deque()
+_pending_deliveries: deque[
+    tuple[Path | None, str, str] | tuple[Path | None, str, str, str]
+] = deque()
 _pending_lock = threading.Lock()
 
 
@@ -229,6 +232,7 @@ def _deliver(watch: Watch, text: str) -> None:
             woke = SessionManager.request_watch_wake(
                 conversation_id,
                 Message("system", f"Watch {watch.id} ({watch.kind}) fired: {text}"),
+                branch=watch.branch,
             )
             if woke:
                 return
@@ -238,23 +242,37 @@ def _deliver(watch: Watch, text: str) -> None:
         except Exception:
             logger.debug("server delivery failed for %s", watch.id, exc_info=True)
     with _pending_lock:
-        _pending_deliveries.append((watch.logdir, watch.id, text))
+        _pending_deliveries.append((watch.logdir, watch.id, text, watch.branch))
+    from ..util.notification_ready import signal
+
+    signal(watch.logdir)
 
 
-def take_queued_watch_events(logdir: Path | None) -> list[tuple[str, str]]:
-    """Pop offline-queued watch events for `logdir` (server retry path).
+def take_queued_watch_events(
+    logdir: Path | None, *, branch: str | None = None
+) -> list[tuple[str, str]]:
+    """Pop events for delivery to a consumer that already owns its branch."""
+    return [
+        (watch_id, text)
+        for watch_id, text, _ in take_queued_watch_events_with_branches(
+            logdir, branch=branch
+        )
+    ]
 
-    Mirrors ``take_queued_completions``: the server re-attempts a live wake
-    when a conversation goes idle, so an event that arrived mid-step is not
-    stranded waiting for a turn that never starts.
-    """
-    returned: list[tuple[str, str]] = []
+
+def take_queued_watch_events_with_branches(
+    logdir: Path | None, *, branch: str | None = None
+) -> list[tuple[str, str, str]]:
+    """Pop events with their captured branches for lossless server retries."""
+    returned: list[tuple[str, str, str]] = []
     with _pending_lock:
         retained = type(_pending_deliveries)()
         for item in _pending_deliveries:
-            item_logdir, watch_id, text = item
-            if logdir is None or item_logdir == logdir:
-                returned.append((watch_id, text))
+            item_logdir, watch_id, text, *origin = item
+            if (logdir is None or item_logdir == logdir) and (
+                branch is None or (origin[0] if origin else "main") == branch
+            ):
+                returned.append((watch_id, text, origin[0] if origin else "main"))
             else:
                 retained.append(item)
         _pending_deliveries.clear()
@@ -262,10 +280,12 @@ def take_queued_watch_events(logdir: Path | None) -> list[tuple[str, str]]:
     return returned
 
 
-def requeue_watch_event(logdir: Path | None, watch_id: str, text: str) -> None:
+def requeue_watch_event(
+    logdir: Path | None, watch_id: str, text: str, *, branch: str = "main"
+) -> None:
     """Put an event back at the head of the offline queue after a failed retry."""
     with _pending_lock:
-        _pending_deliveries.appendleft((logdir, watch_id, text))
+        _pending_deliveries.appendleft((logdir, watch_id, text, branch))
 
 
 def _fire(watch: Watch, text: str, once: bool = True) -> None:
@@ -616,7 +636,9 @@ def _watch_drain_hook(manager, **kwargs) -> "Generator[Message, None, None]":
     """
 
     manager_logdir = getattr(manager, "logdir", None)
-    for watch_id, text in take_queued_watch_events(manager_logdir):
+    for watch_id, text in take_queued_watch_events(
+        manager_logdir, branch=kwargs.get("notification_branch")
+    ):
         yield Message("system", f"Watch {watch_id} fired: {text}")
 
 
@@ -1002,6 +1024,7 @@ def _watch(
 
     manager = LogManager.get_current_log()
     logdir = getattr(manager, "logdir", None) if manager else None
+    branch = getattr(manager, "current_branch", "main")
     tokens = shlex.split(code or "")
     if not tokens:
         raise ValueError(
@@ -1077,6 +1100,7 @@ def _watch(
             logdir=logdir,
         )
         w.id = _new_id()
+        w.branch = branch
         return _spawn(w, _poll_timer, seconds)
 
     if verb in ("run", "until", "stream"):
@@ -1097,6 +1121,7 @@ def _watch(
             logdir=logdir,
         )
         w.id = _new_id()
+        w.branch = branch
         if verb == "until":
             every = _parse_duration(opts.get("every", "30s"))
             return _spawn(w, _poll_until, command, every)
@@ -1151,6 +1176,7 @@ def _watch(
             logdir=logdir,
         )
         w.id = _new_id()
+        w.branch = branch
         return _spawn(w, _poll_tmux, session, pattern, stable)
 
     raise ValueError(

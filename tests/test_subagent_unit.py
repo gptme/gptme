@@ -594,7 +594,9 @@ class TestProgressNotifications:
     def test_notify_progress_adds_to_queue(self):
         notify_progress("worker-1", "Halfway done")
         assert not _progress_queue.empty()
-        parent_logdir, agent_id, message = _progress_queue.get_nowait()
+        item = _progress_queue.get_nowait()
+        assert len(item) == 3  # Unowned library progress retains the legacy shape.
+        parent_logdir, agent_id, message = item
         assert parent_logdir is None
         assert agent_id == "worker-1"
         assert message == "Halfway done"
@@ -677,7 +679,9 @@ class TestProgressTool:
             del exec_mod._thread_local.agent_id
 
         assert not _progress_queue.empty()
-        parent_logdir, agent_id, message = _progress_queue.get_nowait()
+        item = _progress_queue.get_nowait()
+        assert len(item) == 3  # Unowned library progress retains the legacy shape.
+        parent_logdir, agent_id, message = item
         assert parent_logdir is None
         assert agent_id == "thread-agent"
         assert message == "Phase 1 complete."
