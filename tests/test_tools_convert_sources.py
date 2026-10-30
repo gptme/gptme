@@ -240,3 +240,59 @@ def test_source_inspection_error_is_reported(
     assert not result.success
     assert result.error and "Could not inspect input file" in result.error
     assert "inspection denied" in result.error
+
+
+@pytest.mark.parametrize("entry", ["router", "structured", "cli"])
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("replacement", ["missing", "directory"])
+def test_source_changes_before_converter_selection_are_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    entry: str,
+    dry_run: bool,
+    replacement: str,
+) -> None:
+    src = tmp_path / "input.docx"
+    src.write_bytes(b"source")
+    dest = tmp_path / "uncreated" / "out.txt"
+    detect_mime = convert._detect_mime
+    inspections = 0
+
+    def change_after_inspection(path: Path) -> str:
+        nonlocal inspections
+        inspections += 1
+        mime = detect_mime(path)
+        src.unlink()
+        if replacement == "directory":
+            src.mkdir()
+        return mime
+
+    monkeypatch.setattr(convert, "_detect_mime", change_after_inspection)
+    diagnostic = "not found" if replacement == "missing" else "not a regular file"
+    if entry == "router":
+        result = convert.convert_file(src, dest, dry_run=dry_run)
+        assert not result.success
+        assert result.output_path is None
+        assert result.converter_used == "none"
+        assert result.error and diagnostic in result.error
+    elif entry == "structured":
+        message = convert._execute_convert(
+            None,
+            None,
+            {
+                "input_path": str(src),
+                "output_path": str(dest),
+                "dry_run": str(dry_run),
+            },
+        )
+        assert "failed" in message.content.lower()
+        assert diagnostic in message.content
+    else:
+        args = ["convert", "--input", str(src), "--output", str(dest)]
+        if dry_run:
+            args.append("--dry-run")
+        assert convert.main(args) == 1
+        assert diagnostic in capsys.readouterr().out
+    assert inspections == 1
+    assert not dest.parent.exists()

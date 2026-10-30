@@ -837,7 +837,10 @@ def convert_file(
     src_mime = _detect_mime(src)
     dest_ext = dest.suffix.lstrip(".")
 
-    conv = find_converter(src, dest_ext, avail)
+    try:
+        conv = find_converter(src, dest_ext, avail)
+    except ValueError as e:
+        return ConversionResult(False, None, "none", error=str(e))
     if conv is None:
         return ConversionResult(
             success=False,
