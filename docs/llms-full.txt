@@ -220,9 +220,9 @@ Here are some compelling examples to get you started:
     gptme 'create a performant n-body simulation in rust'
 
     # Work with files and code
-    gptme 'summarize this' README.md
-    gptme 'refactor this' main.py
-    gptme 'what do you see?' image.png  # vision
+    gptme 'summarize this' @README.md
+    gptme 'refactor this' @main.py
+    gptme 'what do you see?' @image.png  # vision
 
     # Development workflows
     git status -vv | gptme 'commit'
@@ -925,6 +925,51 @@ This will show you a list of past chats, allowing you to select one or start a n
 
 To get inspiration for your first prompt, see the :doc:`examples`.
 
+.. _prompt-attachments:
+
+Attaching Files and URLs
+------------------------
+
+Prefix a local file or directory with ``@`` to include it in your prompt.
+Ordinary mentions such as ``README.md`` or ``src/`` stay as text; the
+assistant can read them through tools when needed. In the default context mode,
+directories attach a bounded file listing, not every file's contents.
+
+.. code-block:: bash
+
+    gptme 'review this' @src/main.py @README.md
+    gptme 'what do you see?' @image.png
+    gptme 'summarize this' '`@my notes.txt`'
+
+Inside a chat, use the same backtick-wrapped reference for names with spaces:
+```@my notes.txt```. Shell single quotes in the example preserve the backticks
+literally. Clipboard image paste in the CLI inserts an explicit attachment.
+Ordinary pasted text follows the same rules as typed text.
+
+The CLI, TUI, queued prompts, and in-turn steering share this policy.
+``GPTME_AUTO_INCLUDE_PATHS=1`` restores legacy automatic inclusion of local
+path mentions. ``GPTME_DISABLE_PATH_INCLUDE=1`` takes precedence and disables
+all text-discovered local paths and URLs, including explicit ``@`` references.
+Files already attached through message metadata and configured prompt files
+remain independent of these flags.
+
+HTTP/HTTPS URLs keep their existing behavior. In the default context mode,
+interactive CLI and TUI sessions ask which URLs to fetch; non-interactive
+sessions fetch them automatically.
+Declining a URL keeps the prompt text and skips fetching it. Paths and URLs
+inside fenced code blocks or XML blocks are excluded from discovery.
+
+Inspect expansion without sending a model request with:
+
+.. code-block:: bash
+
+    gptme-util prompts expand 'review @README.md'
+    GPTME_AUTO_INCLUDE_PATHS=1 gptme-util prompts expand 'review README.md'
+
+This inspection command ignores ``GPTME_DISABLE_PATH_INCLUDE``, as before,
+but respects the explicit-attachment default and ``GPTME_AUTO_INCLUDE_PATHS``.
+It can read files and fetch URLs during expansion.
+
 .. _usage-commands:
 
 Commands
@@ -1310,9 +1355,9 @@ Everyday prompts that work well with gptme out of the box. gptme picks the right
 .. code-block:: bash
 
     # ask questions about files
-    gptme 'summarize this' README.md
-    gptme 'refactor this' main.py
-    gptme 'what do you see?' image.png  # vision
+    gptme 'summarize this' @README.md
+    gptme 'refactor this' @main.py
+    gptme 'what do you see?' @image.png  # vision
 
     # compound questions that need several tools
     gptme "Read README.md, list the project's dependencies from pyproject.toml, and tell me if any are pinned to an old major version"
@@ -1900,7 +1945,7 @@ git diff | gptme 'review this diff for bugs, missing error handling, and style i
 Add context by including related files:
 
 ```bash
-git diff | gptme 'review this diff' src/api.py src/models.py
+git diff | gptme 'review this diff' @src/api.py @src/models.py
 ```
 
 ## Review a specific commit
@@ -1926,7 +1971,7 @@ gptme 'review this PR' https://github.com/owner/repo/pull/42
 ## Review a single file for issues
 
 ```bash
-gptme 'review this file for bugs, security issues, and opportunities to simplify' src/auth.py
+gptme 'review this file for bugs, security issues, and opportunities to simplify' @src/auth.py
 ```
 
 ## Review with a checklist
@@ -1934,7 +1979,7 @@ gptme 'review this file for bugs, security issues, and opportunities to simplify
 Give gptme a specific checklist so the review is consistent:
 
 ```bash
-gptme 'review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets' src/db.py
+gptme 'review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets' @src/db.py
 ```
 
 ## Ask follow-up questions
@@ -2524,7 +2569,7 @@ Use gptme to reproduce an error, trace through it, and apply a fix — without l
 Pass the test output and the relevant files:
 
 ```bash
-python -m pytest tests/test_api.py -x 2>&1 | gptme 'fix the failing test' src/api.py tests/test_api.py
+python -m pytest tests/test_api.py -x 2>&1 | gptme 'fix the failing test' @src/api.py @tests/test_api.py
 ```
 
 The `-x` flag stops at the first failure so the output is focused.
@@ -2534,13 +2579,13 @@ The `-x` flag stops at the first failure so the output is focused.
 Pipe the error and the source file:
 
 ```bash
-python myapp.py 2>&1 | gptme 'explain this traceback and fix the root cause' myapp.py
+python myapp.py 2>&1 | gptme 'explain this traceback and fix the root cause' @myapp.py
 ```
 
 ## Reproduce and fix a bug from a description
 
 ```bash
-gptme 'users report that login fails when the username contains a space; reproduce the bug and fix it' src/auth.py tests/test_auth.py
+gptme 'users report that login fails when the username contains a space; reproduce the bug and fix it' @src/auth.py @tests/test_auth.py
 ```
 
 gptme will write a failing test, run it, trace the error, and apply the fix.
@@ -2548,19 +2593,19 @@ gptme will write a failing test, run it, trace the error, and apply the fix.
 ## Trace a performance issue
 
 ```bash
-python -m cProfile -s cumulative myapp.py 2>&1 | gptme 'identify the bottleneck and suggest a fix' myapp.py
+python -m cProfile -s cumulative myapp.py 2>&1 | gptme 'identify the bottleneck and suggest a fix' @myapp.py
 ```
 
 ## Add debug logging and re-run
 
 ```bash
-gptme 'add temporary debug logging to trace the request path, run the failing test, then remove the logging' src/handler.py
+gptme 'add temporary debug logging to trace the request path, run the failing test, then remove the logging' @src/handler.py
 ```
 
 ## Investigate a flaky test
 
 ```bash
-gptme 'this test fails intermittently; find the source of flakiness and fix it' tests/test_cache.py src/cache.py
+gptme 'this test fails intermittently; find the source of flakiness and fix it' @tests/test_cache.py @src/cache.py
 ```
 
 Useful pattern: tell gptme to run the test multiple times and look for patterns.
@@ -2592,7 +2637,7 @@ Use this guide when you want targeted edits — not a full rewrite.
 Point gptme at the file and describe the change:
 
 ```bash
-gptme 'in utils.py, change parse_date to also accept ISO 8601 strings' utils.py
+gptme 'in utils.py, change parse_date to also accept ISO 8601 strings' @utils.py
 ```
 
 gptme will read the relevant section, apply a targeted patch, and show you the diff.
@@ -2602,7 +2647,7 @@ gptme will read the relevant section, apply a targeted patch, and show you the d
 Pass multiple files and describe what spans them:
 
 ```bash
-gptme 'rename the `config` parameter to `cfg` everywhere in these files' api.py client.py tests/test_api.py
+gptme 'rename the `config` parameter to `cfg` everywhere in these files' @api.py @client.py @tests/test_api.py
 ```
 
 gptme reads all three, makes consistent edits, and summarises the changes.
@@ -2620,13 +2665,13 @@ git diff main..feature | gptme 'apply this diff to the current branch, resolving
 Pipe the error message and the file:
 
 ```bash
-python myapp.py 2>&1 | gptme 'fix the error' myapp.py
+python myapp.py 2>&1 | gptme 'fix the error' @myapp.py
 ```
 
 ## Add type annotations to an existing function
 
 ```bash
-gptme 'add full type annotations to all public functions in this file' mymodule.py
+gptme 'add full type annotations to all public functions in this file' @mymodule.py
 ```
 
 ## Review the edit before committing
@@ -2646,7 +2691,7 @@ gptme 'add type annotations to public functions in mymodule.py' - 'run mypy on i
 ## Tips
 
 - **Be specific about what to keep**: "change X to Y but keep Z" works well.
-- **Use the file as context**: always pass the file as an argument; gptme won't assume it knows the current content.
+- **Use the file as context**: pass an explicit attachment such as `@utils.py`; gptme won't assume it knows the current content.
 - **Chain prompts** with ` - ` to edit → test → commit in one command.
 
 
@@ -2885,13 +2930,13 @@ gptme 'rename UserRecord to User and change its constructor to take keyword argu
 ## Extract a helper function
 
 ```bash
-gptme 'the validation logic in process_order() is repeated; extract it into a validate_order() function' src/orders.py
+gptme 'the validation logic in process_order() is repeated; extract it into a validate_order() function' @src/orders.py
 ```
 
 ## Split a large module
 
 ```bash
-gptme 'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)' src/monolith.py
+gptme 'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)' @src/monolith.py
 ```
 
 ## Change an API's interface
@@ -2910,7 +2955,7 @@ gptme 'remove all code marked with the TODO: deprecated comment and update calle
 ## Add a new parameter to a function with a default
 
 ```bash
-gptme 'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers' src/http.py src/client.py
+gptme 'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers' @src/http.py @src/client.py
 ```
 
 ## Restructure a directory
@@ -3742,6 +3787,8 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_SESSION_BUDGET_USD`` - Optional per-session cost budget in USD. When set, gptme warns once the current session crosses ``GPTME_BUDGET_WARN_PCT`` of the budget.
 - ``GPTME_SESSION_BUDGET_TOKENS`` - Optional per-session token budget. Counts input, output, cache-read, and cache-creation tokens.
 - ``GPTME_BUDGET_WARN_PCT`` - Percentage of the configured session budget that triggers the warning (default: 80).
+- ``GPTME_AUTO_INCLUDE_PATHS`` - Restore legacy implicit local-path inclusion in prompts (default: false). Otherwise use explicit ``@path`` attachments; see :ref:`prompt-attachments`.
+- ``GPTME_DISABLE_PATH_INCLUDE`` - Disable all text-discovered local paths and URLs, including explicit ``@path`` attachments (default: false). Overrides ``GPTME_AUTO_INCLUDE_PATHS``; configured prompt files and existing message attachments remain independent.
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
 - ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response.
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)
@@ -7894,8 +7941,8 @@ which runs a prompt non-interactively and exits:
 
 .. code-block:: bash
 
-   gptme -n "summarize this" README.md
-   gptme -n "what bugs can you spot?" src/main.py
+   gptme -n "summarize this" @README.md
+   gptme -n "what bugs can you spot?" @src/main.py
 
 For longer tasks that involve multiple files or steps, chain prompts with ``-``
 separators (each ``-`` starts a new turn that triggers another assistant response):
@@ -7918,11 +7965,10 @@ gptme's non-interactive mode writes assistant responses to stdout:
 .. code-block:: bash
 
    # Save the output to a file
-   gptme -n "summarize this codebase in 3 bullet points" README.md > summary.txt
+   gptme -n "summarize this codebase in 3 bullet points" @README.md > summary.txt
 
-   # Use in a pipeline (mapfile avoids word-splitting on paths with spaces)
-   mapfile -t pyfiles < <(find . -name "*.py")
-   gptme -n "extract all TODO comments" "${pyfiles[@]}" | tee todos.txt
+   # Let the assistant discover and read files through tools
+   gptme -n "find Python files and extract all TODO comments" | tee todos.txt
 
    # Exit code reflects success (0) or failure (non-zero)
    if gptme -n "run the tests and report pass/fail"; then
@@ -7930,7 +7976,7 @@ gptme's non-interactive mode writes assistant responses to stdout:
    fi
 
    # --output-format json gives structured output (one JSON object per message)
-   gptme -n "check the logs" app.log --output-format json
+   gptme -n "check the logs" @app.log --output-format json
 
 Exit Codes
 ~~~~~~~~~~
@@ -8636,7 +8682,7 @@ Common invocations
 .. code-block:: bash
 
     gptme                                   # pick or start a conversation
-    gptme "summarize this" README.md        # start with a prompt, and a file as context
+    gptme "summarize this" @README.md        # start with a prompt, and a file as context
     gptme -r                                # resume the most recent conversation
     gptme -n "run the tests and fix failures"   # non-interactive: no confirmations
     gptme --help                            # all options
@@ -9019,9 +9065,11 @@ shown inline in the conversation. ``/quit`` is a TUI-local alias for
 ``/exit``, and ``/display`` (see `Display settings`_) is TUI-only.
 
 Outside commands, Tab completes the last word as a file path, adding a
-trailing ``/`` to directories. A path in your message (``journal/``,
-``./notes.md``, ``README.md``) is attached to it; a bare word like
-``journal`` is left as text.
+trailing ``/`` to directories. Prefix a path with ``@`` to attach it:
+``@journal/``, ``@./notes.md``, or ``@README.md``. Completion preserves that
+prefix and wraps names with spaces in backticks, such as ```@my notes.txt```.
+Bare paths remain text, including when completed with Tab. See
+:ref:`prompt-attachments` for the shared CLI/TUI policy and legacy opt-in.
 
 Limitations
 -----------

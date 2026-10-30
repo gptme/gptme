@@ -658,7 +658,7 @@
 <section id="fix-a-failing-test">
 <h2>Fix a failing test<a class="headerlink" href="#fix-a-failing-test" title="Link to this heading">#</a></h2>
 <p>Pass the test output and the relevant files:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/test_api.py<span class="w"> </span>-x<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'fix the failing test'</span><span class="w"> </span>src/api.py<span class="w"> </span>tests/test_api.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests/test_api.py<span class="w"> </span>-x<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'fix the failing test'</span><span class="w"> </span>@src/api.py<span class="w"> </span>@tests/test_api.py
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">-x</span></code> flag stops at the first failure so the output is focused.</p>
@@ -666,32 +666,32 @@
 <section id="debug-a-traceback">
 <h2>Debug a traceback<a class="headerlink" href="#debug-a-traceback" title="Link to this heading">#</a></h2>
 <p>Pipe the error and the source file:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'explain this traceback and fix the root cause'</span><span class="w"> </span>myapp.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'explain this traceback and fix the root cause'</span><span class="w"> </span>@myapp.py
 </pre></div>
 </div>
 </section>
 <section id="reproduce-and-fix-a-bug-from-a-description">
 <h2>Reproduce and fix a bug from a description<a class="headerlink" href="#reproduce-and-fix-a-bug-from-a-description" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'users report that login fails when the username contains a space; reproduce the bug and fix it'</span><span class="w"> </span>src/auth.py<span class="w"> </span>tests/test_auth.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'users report that login fails when the username contains a space; reproduce the bug and fix it'</span><span class="w"> </span>@src/auth.py<span class="w"> </span>@tests/test_auth.py
 </pre></div>
 </div>
 <p>gptme will write a failing test, run it, trace the error, and apply the fix.</p>
 </section>
 <section id="trace-a-performance-issue">
 <h2>Trace a performance issue<a class="headerlink" href="#trace-a-performance-issue" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>cProfile<span class="w"> </span>-s<span class="w"> </span>cumulative<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'identify the bottleneck and suggest a fix'</span><span class="w"> </span>myapp.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>cProfile<span class="w"> </span>-s<span class="w"> </span>cumulative<span class="w"> </span>myapp.py<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'identify the bottleneck and suggest a fix'</span><span class="w"> </span>@myapp.py
 </pre></div>
 </div>
 </section>
 <section id="add-debug-logging-and-re-run">
 <h2>Add debug logging and re-run<a class="headerlink" href="#add-debug-logging-and-re-run" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add temporary debug logging to trace the request path, run the failing test, then remove the logging'</span><span class="w"> </span>src/handler.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add temporary debug logging to trace the request path, run the failing test, then remove the logging'</span><span class="w"> </span>@src/handler.py
 </pre></div>
 </div>
 </section>
 <section id="investigate-a-flaky-test">
 <h2>Investigate a flaky test<a class="headerlink" href="#investigate-a-flaky-test" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'this test fails intermittently; find the source of flakiness and fix it'</span><span class="w"> </span>tests/test_cache.py<span class="w"> </span>src/cache.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'this test fails intermittently; find the source of flakiness and fix it'</span><span class="w"> </span>@tests/test_cache.py<span class="w"> </span>@src/cache.py
 </pre></div>
 </div>
 <p>Useful pattern: tell gptme to run the test multiple times and look for patterns.</p>

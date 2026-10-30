@@ -661,7 +661,7 @@
 </pre></div>
 </div>
 <p>Add context by including related files:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'review this diff'</span><span class="w"> </span>src/api.py<span class="w"> </span>src/models.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">'review this diff'</span><span class="w"> </span>@src/api.py<span class="w"> </span>@src/models.py
 </pre></div>
 </div>
 </section>
@@ -684,14 +684,14 @@
 </section>
 <section id="review-a-single-file-for-issues">
 <h2>Review a single file for issues<a class="headerlink" href="#review-a-single-file-for-issues" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this file for bugs, security issues, and opportunities to simplify'</span><span class="w"> </span>src/auth.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this file for bugs, security issues, and opportunities to simplify'</span><span class="w"> </span>@src/auth.py
 </pre></div>
 </div>
 </section>
 <section id="review-with-a-checklist">
 <h2>Review with a checklist<a class="headerlink" href="#review-with-a-checklist" title="Link to this heading">#</a></h2>
 <p>Give gptme a specific checklist so the review is consistent:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets'</span><span class="w"> </span>src/db.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets'</span><span class="w"> </span>@src/db.py
 </pre></div>
 </div>
 </section>

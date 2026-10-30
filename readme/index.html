@@ -474,7 +474,7 @@ gptme 'render mandelbrot set to mandelbrot.png'
 gptme 'suggest improvements to my vimrc'
 
 # Process media files
-gptme 'convert to h265 and adjust the volume' video.mp4
+gptme 'convert to h265 and adjust the volume' @video.mp4
 
 # Code assistance from git diffs
 git diff | gptme 'complete the TODOs in this diff'
@@ -513,13 +513,18 @@ response_preference = "Don't explain basic concepts"
 <h2 id="-usage" class="group relative"><a class="absolute -left-[1.1em] font-normal text-muted opacity-0 group-hover:opacity-100" href="#-usage" aria-hidden="true" tabindex="-1">#</a>🛠 Usage</h2>
 <pre><code class="language-sh">gptme                                   # start an interactive chat
 gptme 'fix the failing tests'           # start with a prompt
-gptme 'review this' main.py README.md   # include files (or URLs, or a GitHub PR) as context
+gptme 'review this' @main.py @README.md # attach files as context
 gptme -m anthropic/claude-sonnet-4-6    # pick a model for this session
 gptme -t read-only 'summarize the repo' # restrict which tools are available
 gptme -y 'run the tests and fix them'   # auto-approve tool calls, stay in the loop
 gptme -n 'summarize the git diff'       # fully non-interactive, for scripts and CI
 gptme -r                                # resume the most recent conversation
 </code></pre>
+<p>Use <code>@path</code> to attach a local file or directory. Ordinary path mentions stay as
+text; for spaces, enclose the reference in backticks (<code>`@my notes.txt`</code>).
+Set <code>GPTME_AUTO_INCLUDE_PATHS=1</code> to restore legacy implicit path inclusion.
+See the <a href="https://gptme.org/docs/usage.html#prompt-attachments">attachment guide</a>
+for URL consent, clipboard images, and automation.</p>
 <p>During a conversation, <code>/help</code> lists the slash-commands — <code>/undo</code>, <code>/backtrack</code>,
 <code>/tools</code>, <code>/tokens</code>, <code>/compact</code>, <code>/model</code>, and more. <code>gptme --help</code> shows every
 flag, and <code>gptme &lt;subcommand&gt;</code> reaches the other CLIs (<code>gptme tools list</code>,

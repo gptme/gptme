@@ -674,13 +674,13 @@
 </section>
 <section id="extract-a-helper-function">
 <h2>Extract a helper function<a class="headerlink" href="#extract-a-helper-function" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'the validation logic in process_order() is repeated; extract it into a validate_order() function'</span><span class="w"> </span>src/orders.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'the validation logic in process_order() is repeated; extract it into a validate_order() function'</span><span class="w"> </span>@src/orders.py
 </pre></div>
 </div>
 </section>
 <section id="split-a-large-module">
 <h2>Split a large module<a class="headerlink" href="#split-a-large-module" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)'</span><span class="w"> </span>src/monolith.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)'</span><span class="w"> </span>@src/monolith.py
 </pre></div>
 </div>
 </section>
@@ -699,7 +699,7 @@
 </section>
 <section id="add-a-new-parameter-to-a-function-with-a-default">
 <h2>Add a new parameter to a function with a default<a class="headerlink" href="#add-a-new-parameter-to-a-function-with-a-default" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers'</span><span class="w"> </span>src/http.py<span class="w"> </span>src/client.py
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers'</span><span class="w"> </span>@src/http.py<span class="w"> </span>@src/client.py
 </pre></div>
 </div>
 </section>

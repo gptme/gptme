@@ -666,9 +666,9 @@
 <h2>Quick examples<a class="headerlink" href="#quick-examples" title="Link to this heading">#</a></h2>
 <p>Everyday prompts that work well with gptme out of the box. gptme picks the right <a class="reference internal" href="tools.html"><span class="doc">tools</span></a> (shell, file editing, Python, browser, …) on its own — you describe the outcome, not the steps.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># ask questions about files</span>
-gptme<span class="w"> </span><span class="s1">'summarize this'</span><span class="w"> </span>README.md
-gptme<span class="w"> </span><span class="s1">'refactor this'</span><span class="w"> </span>main.py
-gptme<span class="w"> </span><span class="s1">'what do you see?'</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
+gptme<span class="w"> </span><span class="s1">'summarize this'</span><span class="w"> </span>@README.md
+gptme<span class="w"> </span><span class="s1">'refactor this'</span><span class="w"> </span>@main.py
+gptme<span class="w"> </span><span class="s1">'what do you see?'</span><span class="w"> </span>@image.png<span class="w">  </span><span class="c1"># vision</span>
 
 <span class="c1"># compound questions that need several tools</span>
 gptme<span class="w"> </span><span class="s2">"Read README.md, list the project's dependencies from pyproject.toml, and tell me if any are pinned to an old major version"</span>

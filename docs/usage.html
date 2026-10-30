@@ -633,6 +633,7 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attaching-files-and-urls">Attaching Files and URLs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-conversations">Managing Conversations</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interfaces">Interfaces</a></li>
@@ -670,6 +671,41 @@
 </div>
 <p>This will show you a list of past chats, allowing you to select one or start a new one.</p>
 <p>To get inspiration for your first prompt, see the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a>.</p>
+<section id="attaching-files-and-urls">
+<span id="prompt-attachments"></span><h2>Attaching Files and URLs<a class="headerlink" href="#attaching-files-and-urls" title="Link to this heading">#</a></h2>
+<p>Prefix a local file or directory with <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> to include it in your prompt.
+Ordinary mentions such as <code class="docutils literal notranslate"><span class="pre">README.md</span></code> or <code class="docutils literal notranslate"><span class="pre">src/</span></code> stay as text; the
+assistant can read them through tools when needed. In the default context mode,
+directories attach a bounded file listing, not every file’s contents.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">'review this'</span><span class="w"> </span>@src/main.py<span class="w"> </span>@README.md
+gptme<span class="w"> </span><span class="s1">'what do you see?'</span><span class="w"> </span>@image.png
+gptme<span class="w"> </span><span class="s1">'summarize this'</span><span class="w"> </span><span class="s1">'`@my notes.txt`'</span>
+</pre></div>
+</div>
+<p>Inside a chat, use the same backtick-wrapped reference for names with spaces:
+<code class="docutils literal notranslate"><span class="pre">`&#64;my</span> <span class="pre">notes.txt`</span></code>. Shell single quotes in the example preserve the backticks
+literally. Clipboard image paste in the CLI inserts an explicit attachment.
+Ordinary pasted text follows the same rules as typed text.</p>
+<p>The CLI, TUI, queued prompts, and in-turn steering share this policy.
+<code class="docutils literal notranslate"><span class="pre">GPTME_AUTO_INCLUDE_PATHS=1</span></code> restores legacy automatic inclusion of local
+path mentions. <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_PATH_INCLUDE=1</span></code> takes precedence and disables
+all text-discovered local paths and URLs, including explicit <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> references.
+Files already attached through message metadata and configured prompt files
+remain independent of these flags.</p>
+<p>HTTP/HTTPS URLs keep their existing behavior. In the default context mode,
+interactive CLI and TUI sessions ask which URLs to fetch; non-interactive
+sessions fetch them automatically.
+Declining a URL keeps the prompt text and skips fetching it. Paths and URLs
+inside fenced code blocks or XML blocks are excluded from discovery.</p>
+<p>Inspect expansion without sending a model request with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>prompts<span class="w"> </span>expand<span class="w"> </span><span class="s1">'review @README.md'</span>
+<span class="nv">GPTME_AUTO_INCLUDE_PATHS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>gptme-util<span class="w"> </span>prompts<span class="w"> </span>expand<span class="w"> </span><span class="s1">'review README.md'</span>
+</pre></div>
+</div>
+<p>This inspection command ignores <code class="docutils literal notranslate"><span class="pre">GPTME_DISABLE_PATH_INCLUDE</span></code>, as before,
+but respects the explicit-attachment default and <code class="docutils literal notranslate"><span class="pre">GPTME_AUTO_INCLUDE_PATHS</span></code>.
+It can read files and fetch URLs during expansion.</p>
+</section>
 <section id="commands">
 <span id="usage-commands"></span><h2>Commands<a class="headerlink" href="#commands" title="Link to this heading">#</a></h2>
 <p>gptme provides slash-commands for various actions within the chat.
@@ -1073,6 +1109,7 @@ def my_function(x: int, y: int) -> int:
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attaching-files-and-urls">Attaching Files and URLs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commands">Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#managing-conversations">Managing Conversations</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#interfaces">Interfaces</a></li>

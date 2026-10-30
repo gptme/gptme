@@ -825,9 +825,11 @@ by routing them through the shared command registry. Command output is
 shown inline in the conversation. <code class="docutils literal notranslate"><span class="pre">/quit</span></code> is a TUI-local alias for
 <code class="docutils literal notranslate"><span class="pre">/exit</span></code>, and <code class="docutils literal notranslate"><span class="pre">/display</span></code> (see <a class="reference internal" href="#display-settings">Display settings</a>) is TUI-only.</p>
 <p>Outside commands, Tab completes the last word as a file path, adding a
-trailing <code class="docutils literal notranslate"><span class="pre">/</span></code> to directories. A path in your message (<code class="docutils literal notranslate"><span class="pre">journal/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">./notes.md</span></code>, <code class="docutils literal notranslate"><span class="pre">README.md</span></code>) is attached to it; a bare word like
-<code class="docutils literal notranslate"><span class="pre">journal</span></code> is left as text.</p>
+trailing <code class="docutils literal notranslate"><span class="pre">/</span></code> to directories. Prefix a path with <code class="docutils literal notranslate"><span class="pre">&#64;</span></code> to attach it:
+<code class="docutils literal notranslate"><span class="pre">&#64;journal/</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;./notes.md</span></code>, or <code class="docutils literal notranslate"><span class="pre">&#64;README.md</span></code>. Completion preserves that
+prefix and wraps names with spaces in backticks, such as <code class="docutils literal notranslate"><span class="pre">`&#64;my</span> <span class="pre">notes.txt`</span></code>.
+Bare paths remain text, including when completed with Tab. See
+<a class="reference internal" href="usage.html#prompt-attachments"><span class="std std-ref">Attaching Files and URLs</span></a> for the shared CLI/TUI policy and legacy opt-in.</p>
 </section>
 <section id="limitations">
 <h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
