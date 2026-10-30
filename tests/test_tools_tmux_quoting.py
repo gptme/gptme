@@ -203,7 +203,7 @@ def test_new_session_preserves_nested_shell_quotes(
 def test_case_pattern_substitution_keeps_outer_batch(private_tmux: None) -> None:
     command = (
         "new-session printf '%s-%s\\n' case "
-        "\"$(case '((' in [(][(]) printf ok;; esac)\"; list-sessions"
+        "\"$(case '((' in \\(\\() printf ok;; esac)\"; list-sessions"
     )
     assert "case-ok" not in command
     messages = list(tmux.execute_tmux(command, [], None))
