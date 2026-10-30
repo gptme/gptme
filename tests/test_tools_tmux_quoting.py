@@ -283,6 +283,10 @@ def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
             "send-keys 1 C-\\;list-sessions",
             ["C-\\;list-sessions"],
         ),
+        (
+            "send-keys 1 #literal Enter; new-session echo $(printf hi; printf there); list-sessions",
+            ["#literal Enter", "echo $(printf hi; printf there)", "list"],
+        ),
         (r"new-session echo \#tag", [r"echo \#tag"]),
         (r"new-session echo word\ #tag", [r"echo word\ #tag"]),
         (r"new-session echo word\|#tag", [r"echo word\|#tag"]),

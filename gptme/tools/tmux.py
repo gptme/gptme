@@ -447,18 +447,7 @@ def execute_tmux(
     command_word_done = False
     is_shell_command = False
     substitution_ends: dict[int, int] = {}
-    if "$(" in cmd:
-        # Reuse the Bash grammar rather than counting parentheses: case patterns
-        # and nested quoting scopes are not ordinary parenthesis nesting.
-        from .shell import _parse_bash
-
-        nodes = [_parse_bash(cmd.encode("utf-8"))]
-        while nodes:
-            node = nodes.pop()
-            if node.type == "command_substitution":
-                substitution_ends[node.start_byte] = node.end_byte
-            else:
-                nodes.extend(node.named_children)
+    source = cmd.encode("utf-8")
     byte_offset = 0
     substitution_end = 0
 
@@ -472,6 +461,21 @@ def execute_tmux(
             if char.isspace() and command_word:
                 command_word_done = True
                 is_shell_command = "".join(command_word) == "new-session"
+                if is_shell_command and b"$(" in source[start_byte:]:
+                    # Parse only this shell suffix: earlier send-keys text is
+                    # literal tmux input, not Bash comments or quoting syntax.
+                    from .shell import _parse_bash
+
+                    substitution_ends = {}
+                    nodes = [_parse_bash(source[start_byte:])]
+                    while nodes:
+                        node = nodes.pop()
+                        if node.type == "command_substitution":
+                            substitution_ends[start_byte + node.start_byte] = (
+                                start_byte + node.end_byte
+                            )
+                        else:
+                            nodes.extend(node.named_children)
             elif not char.isspace():
                 command_word.append(char)
         if in_comment and char != "\n":
