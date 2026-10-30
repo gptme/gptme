@@ -4,6 +4,8 @@ import importlib
 import multiprocessing
 import os
 import stat
+import struct
+import sys
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -204,6 +206,73 @@ class TestRoots:
 
 
 class TestLegacySavePublication:
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
+    )
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    def test_preserves_index_access_acl(self, tmp_path, writer):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n")
+        # Linux POSIX ACL: owning group has no access, while a named user can
+        # read. stat's group bits represent the ACL mask, not group access.
+        acl = struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, perm, uid)
+            for tag, perm, uid in [
+                (1, 6, 0xFFFFFFFF),
+                (2, 4, os.getuid() + 1),
+                (4, 0, 0xFFFFFFFF),
+                (16, 4, 0xFFFFFFFF),
+                (32, 0, 0xFFFFFFFF),
+            ]
+        )
+        try:
+            os.setxattr(index, "system.posix_acl_access", acl)
+        except OSError as exc:
+            pytest.skip(f"POSIX access ACL unavailable: {exc}")
+        expected = os.getxattr(index, "system.posix_acl_access")
+        if writer == "save":
+            MemoryStore([MemoryRoot("explicit", root)]).save("fact", "Changed")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        assert os.getxattr(index, "system.posix_acl_access") == expected
+        assert "fact.md" in index.read_text()
+
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
+    )
+    @pytest.mark.parametrize("failure", ["read", "copy"])
+    def test_acl_error_leaves_legacy_save_unpublished(
+        self, tmp_path, monkeypatch, failure
+    ):
+        root = tmp_path / "legacy"
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = store.save("fact", "Original", "Original body")
+        index = root / "MEMORY.md"
+        before = {path: path.read_bytes() for path in (entry, index)}
+        real_get = os.getxattr
+        real_set = os.setxattr
+
+        def get_acl(path, name):
+            if Path(path) == index:
+                if failure == "read":
+                    raise PermissionError("ACL read denied")
+                return b"existing ACL"
+            return real_get(path, name)
+
+        def set_acl(path, name, value):
+            if Path(path).name.startswith(".MEMORY.md."):
+                raise PermissionError("ACL copy denied")
+            return real_set(path, name, value)
+
+        monkeypatch.setattr(os, "getxattr", get_acl)
+        monkeypatch.setattr(os, "setxattr", set_acl)
+        with pytest.raises(PermissionError, match=f"ACL {failure} denied"):
+            store.save("fact", "Changed", "Changed body")
+        assert {path: path.read_bytes() for path in (entry, index)} == before
+        assert not list(root.glob(".*.tmp"))
+
     @pytest.mark.parametrize("first_writer", ["save", "update_index_line"])
     @pytest.mark.parametrize("second_writer", ["save", "update_index_line"])
     def test_shared_index_serializes_roots(

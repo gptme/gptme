@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import importlib
 import logging
 import os
 import re
 import stat
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -36,11 +38,21 @@ LOCK_FILENAME = ".memory.lock"
 
 
 def _preserve_mode(tmp: Path, dest: Path) -> None:
-    """Copy dest's permission bits onto tmp so ``os.replace`` does not widen access."""
+    """Copy access ACL and mode before publishing; fail closed on ACL errors."""
     try:
         mode = stat.S_IMODE(dest.stat().st_mode)
     except FileNotFoundError:
         return
+    if sys.platform == "linux":
+        try:
+            acl = os.getxattr(dest, "system.posix_acl_access")
+        except OSError as exc:
+            if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                raise
+        else:
+            # Apply the ACL before chmod: stat's group bits are the ACL mask,
+            # not the owning group's permissions. chmod alone can widen access.
+            os.setxattr(tmp, "system.posix_acl_access", acl)
     os.chmod(tmp, mode)
 
 

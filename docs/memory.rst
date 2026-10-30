@@ -209,7 +209,9 @@ includes living entries with an optional one-shot truncating budget. Legacy
 ``save`` stages the entry and index before replacing either and rolls back an
 already-published entry if index publication fails. This handles ordinary write
 errors, not process crashes or uncooperative external writers. Existing file
-permission bits are preserved, but atomic replacement is authorized by the
+permission bits and Linux POSIX access ACLs are preserved; ACL read/copy errors
+abort before publication. Other platform-specific ACLs are not covered by this
+guarantee. Atomic replacement is authorized by the
 parent directory: a read-only index file in a writable directory can still be
 replaced, just as in a managed root. Legacy ``save`` and direct pointer updates
 follow a symlinked ``MEMORY.md`` and atomically replace its target, leaving the
