@@ -233,9 +233,14 @@ def _literal_region_end(content: str, match: re.Match[str]) -> int:
     start = match.start()
     while start > 0 and content[start - 1] == "\\":
         start -= 1
+    delimiter = match.group()
     if (match.start() - start) % 2:
-        return match.end()
-    closing = re.compile(r"(?<!`)" + re.escape(match.group()) + r"(?!`)")
+        # Markdown escapes one character, not the whole run: any remaining
+        # backticks can still open a shorter inline span.
+        delimiter = delimiter[1:]
+        if not delimiter:
+            return match.end()
+    closing = re.compile(r"(?<!`)" + re.escape(delimiter) + r"(?!`)")
     # Inline code can include soft line breaks, but cannot consume another
     # paragraph. An unrelated later backtick must not hide real reasoning.
     paragraph_end = re.search(r"\r?\n[ \t]*\r?\n", content[match.end() :])

@@ -419,3 +419,23 @@ def test_line_endings_and_escaped_backticks_do_not_hide_reasoning(example: str) 
 def test_backtick_after_escaped_backslash_still_opens_literal_code() -> None:
     example = r"Escaped slash \\`<think>literal</think>`"
     assert _split_thinking(example) == [(False, example)]
+
+
+@pytest.mark.parametrize("slashes", [1, 2, 3, 4])
+@pytest.mark.parametrize("ticks", [1, 2, 3, 4])
+def test_backslash_escapes_only_first_tick_in_run(slashes: int, ticks: int) -> None:
+    effective_ticks = ticks - (slashes % 2)
+    example = (
+        "prefix "
+        + "\\" * slashes
+        + "`" * ticks
+        + "<think>literal</think>"
+        + "`" * max(effective_ticks, 1)
+    )
+    if effective_ticks:
+        assert _split_thinking(example) == [(False, example)]
+        assert _strip_thinking(example) == example
+    else:
+        assert [body for thinking, body in _split_thinking(example) if thinking] == [
+            "literal"
+        ]
