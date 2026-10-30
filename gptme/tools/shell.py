@@ -897,8 +897,10 @@ class ShellSession:
                 # on the stuck-bash fallback), so do not wipe a verified cwd.
                 self._invalidate_cwd()
             if res_code != 0:
-                return res_code, res_stdout, res_stderr
-        return res_code, res_stdout, res_stderr
+                break
+        # Trim presentation-only blank lines after concatenation: each command's
+        # trailing/leading newlines may be meaningful inside the combined stream.
+        return res_code, trim_blank_lines(res_stdout), trim_blank_lines(res_stderr)
 
     def _needs_tty(self, command: str) -> bool:
         """Check if a command needs a TTY (e.g. sudo password prompt) and we're interactive."""
@@ -941,7 +943,12 @@ class ShellSession:
         return False
 
     def _run_with_tty(
-        self, command: str, output: bool = True, timeout: float | None = None
+        self,
+        command: str,
+        output: bool = True,
+        timeout: float | None = None,
+        *,
+        trim_output: bool = True,
     ) -> tuple[int | None, str, str]:
         """Run a command with /dev/tty as stdin for interactive password prompts (e.g. sudo).
 
@@ -1110,8 +1117,12 @@ class ShellSession:
                                 finish_readers(stop=True)
                                 return (
                                     -124,
-                                    trim_blank_lines("".join(stdout_chunks)),
-                                    trim_blank_lines("".join(stderr_chunks)),
+                                    trim_blank_lines("".join(stdout_chunks))
+                                    if trim_output
+                                    else "".join(stdout_chunks),
+                                    trim_blank_lines("".join(stderr_chunks))
+                                    if trim_output
+                                    else "".join(stderr_chunks),
                                 )
                             # Child exited just before the deadline; honour
                             # the real exit code rather than returning -124.
@@ -1158,8 +1169,12 @@ class ShellSession:
 
         return (
             exit_code,
-            trim_blank_lines("".join(stdout_chunks)),
-            trim_blank_lines("".join(stderr_chunks)),
+            trim_blank_lines("".join(stdout_chunks))
+            if trim_output
+            else "".join(stdout_chunks),
+            trim_blank_lines("".join(stderr_chunks))
+            if trim_output
+            else "".join(stderr_chunks),
         )
 
     def detach(self) -> None:
@@ -1176,7 +1191,9 @@ class ShellSession:
     ) -> tuple[int | None, str, str]:
         # Use TTY-based execution for interactive sudo commands
         if self._needs_tty(command):
-            return self._run_with_tty(command, output=output, timeout=timeout)
+            return self._run_with_tty(
+                command, output=output, timeout=timeout, trim_output=False
+            )
         return self._run_pipe(command, output=output, tries=tries, timeout=timeout)
 
     def _run_pipe(
@@ -1387,7 +1404,9 @@ class ShellSession:
         err_tail = stderr_decoder.decode(b"", final=True)
         self._capture_output(stdout, out_tail, stream=sys.stdout, output=output)
         self._capture_output(stderr, err_tail, stream=sys.stderr, output=output)
-        return result[0], result[1] + out_tail, result[2] + err_tail
+        # Readers format their return values, but these capture buffers retain
+        # exact command boundaries (including decoder tails). run() trims once.
+        return result[0], "".join(stdout), "".join(stderr)
 
     def _decode_output(self, fd: int, raw: bytes) -> str:
         # Direct reader tests and recovery helpers can bypass _run_pipe.
