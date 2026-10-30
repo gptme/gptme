@@ -16,11 +16,15 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
 from gptme import dirs
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ── _get_env_path helper ──────────────────────────────────────────────────
 
@@ -279,9 +283,14 @@ class TestGetProjectGitDir:
 
 
 @pytest.mark.parametrize("name", ["repo", "开源"])
-@pytest.mark.parametrize("resolver", ["get_workspace", "_get_project_git_dir_call"])
+@pytest.mark.parametrize(
+    "resolver", [dirs.get_workspace, dirs._get_project_git_dir_call]
+)
 def test_git_root_with_legacy_locale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, resolver: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    resolver: Callable[[], Path | None],
 ) -> None:
     """Real Git paths must round-trip independently of the process locale."""
     repo = tmp_path / name
@@ -292,7 +301,9 @@ def test_git_root_with_legacy_locale(
     # paths, but subprocess defaults to the locale when no encoding is given.
     monkeypatch.setattr(subprocess, "_text_encoding", lambda: "gbk")
 
-    assert getattr(dirs, resolver)().resolve() == repo.resolve()
+    result = resolver()
+    assert result is not None
+    assert result.resolve() == repo.resolve()
 
 
 def test_git_superproject_with_legacy_locale(
