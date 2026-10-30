@@ -93,16 +93,60 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
             f"Image size: {dimensions[0]}x{dimensions[1]}, {file_size / 1024:.1f}KB"
         ]
 
+        normalized: Image.Image | None = None
         if file_size <= MAX_SIZE:
-            msg_parts.append("No scaling required (under 1MB)")
-            return Message(
-                "system",
-                f"Viewing image at `{image_path}`\n" + "\n".join(msg_parts),
-                files=[image_path.absolute()],
+            # Provider serializers infer MIME from the suffix and only accept
+            # these containers. Pillow can also read BMP/TIFF and renamed files.
+            supported_suffixes = {
+                "JPEG": {".jpg", ".jpeg"},
+                "PNG": {".png"},
+                "GIF": {".gif"},
+                "WEBP": {".webp"},
+            }
+            if image_path.suffix.lower() in supported_suffixes.get(
+                img.format or "", set()
+            ):
+                msg_parts.append("No scaling required (under 1MB)")
+                return Message(
+                    "system",
+                    f"Viewing image at `{image_path}`\n" + "\n".join(msg_parts),
+                    files=[image_path.absolute()],
+                )
+
+            # Normalize displayed pixels losslessly for small readable containers.
+            # Close the handle before encoding (also works on Windows).
+            oriented = ImageOps.exif_transpose(img)
+            mode = (
+                "RGBA"
+                if "A" in oriented.getbands() or "transparency" in oriented.info
+                else "RGB"
             )
+            normalized = oriented.convert(mode)
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                normalized_path = Path(tmp.name)
+            try:
+                normalized.save(normalized_path, "PNG")
+                normalized_size = normalized_path.stat().st_size
+            except BaseException:
+                normalized_path.unlink(missing_ok=True)
+                raise
+            if normalized_size <= MAX_SIZE:
+                _temp_files.append(normalized_path)
+                msg_parts.append(f"Normalized to PNG: {normalized_size / 1024:.1f}KB")
+                return Message(
+                    "system",
+                    f"Viewing normalized image ({normalized.width}x{normalized.height}) from `{image_path}`\n"
+                    + "\n".join(msg_parts),
+                    files=[normalized_path.absolute()],
+                )
+            # A small compressed source may expand as PNG; keep the existing
+            # JPEG compression/scaling path rather than bypassing its size gate.
+            normalized_path.unlink(missing_ok=True)
 
         # JPEG output drops orientation metadata, so apply it to pixels first.
-        oriented = ImageOps.exif_transpose(img)
+        oriented = (
+            normalized if normalized is not None else ImageOps.exif_transpose(img)
+        )
         dimensions = oriented.size
 
         # Convert RGBA to RGB if needed (convert both branches to ensure Image type)
