@@ -648,3 +648,46 @@ def test_cli_completion_reuses_closing_backtick_and_preserves_suffix(
         assert "keep trailing prose" in result.content
     finally:
         prompt.clear_path_cache()
+
+
+@pytest.mark.parametrize("quoted", [False, True])
+@pytest.mark.parametrize("existing_close", [False, True])
+def test_cli_directory_completion_before_prose_closes_reference(
+    tmp_path, monkeypatch, quoted: bool, existing_close: bool
+) -> None:
+    """Mid-prompt directory completion preserves prose and the next attachment."""
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    from gptme.util import prompt
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        prompt, "llm_suggest", lambda text: pytest.fail("unexpected inference")
+    )
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "child.md").write_text("must-not-read-directory-child")
+    (tmp_path / "second file.txt").write_text("synthetic-second-file-marker")
+    prompt.clear_path_cache()
+    try:
+        prefix = "see " + ("`" if quoted else "") + "@my"
+        prose = " and explain `@second file.txt` keep trailing prose"
+        suffix = ("`" if existing_close else "") + prose
+        buffer = Buffer(document=Document(prefix + suffix, cursor_position=len(prefix)))
+        completer = prompt.GptmeCompleter()
+        completion = next(
+            iter(completer.get_completions(buffer.document, CompleteEvent()))
+        )
+        buffer.apply_completion(completion)
+        assert buffer.text == "see `@my dir/`" + prose
+        assert buffer.document.text_after_cursor == suffix
+        submitted = completer.finish_submission(buffer.text)
+        assert submitted == buffer.text
+        result = context._include_paths(Message("user", submitted))
+        assert "child.md" in result.content
+        assert "must-not-read-directory-child" not in result.content
+        assert result.content.count("synthetic-second-file-marker") == 1
+        assert "keep trailing prose" in result.content
+    finally:
+        prompt.clear_path_cache()

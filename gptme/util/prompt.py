@@ -407,7 +407,10 @@ class GptmeCompleter(Completer):
                 if quoted:
                     if (
                         path_seg.startswith("@")
-                        and not completed.endswith("/")
+                        and (
+                            not completed.endswith("/")
+                            or not document.is_cursor_at_the_end
+                        )
                         and not document.text_after_cursor.startswith("`")
                     ):
                         yield Completion(
@@ -425,9 +428,12 @@ class GptmeCompleter(Completer):
                 if not any(ch.isspace() for ch in completed):
                     yield completion
                     continue
-                # Directories stay in an open quote so the next Tab can
-                # complete children; files close the reference.
-                wrapped = f"`@{completed}" + ("" if completed.endswith("/") else "`")
+                # Only end-of-input directories stay open for child completion.
+                # Before trailing prose, close now (or reuse an existing close).
+                close_reference = (
+                    not completed.endswith("/") or not document.is_cursor_at_the_end
+                ) and not document.text_after_cursor.startswith("`")
+                wrapped = f"`@{completed}" + ("`" if close_reference else "")
                 yield Completion(
                     wrapped,
                     start_position=-len(path_seg),
