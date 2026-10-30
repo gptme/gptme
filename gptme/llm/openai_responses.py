@@ -563,23 +563,27 @@ def _stream_responses_events(
         yield chunk
 
     response_obj = terminal.get("response")
-    recovered: list[str] = []
-    ordered_calls: list[_ResponseFunctionCall] = []
+    ordered_output: list[str | _ResponseFunctionCall] = []
     for index, item in enumerate(_obj_get(response_obj, "output", None) or []):
         if _obj_get(item, "type") == "function_call":
             call = calls.get({"output_index": index}, item)
             call.snapshot(item)
-            if not any(previous is call for previous in ordered_calls):
-                ordered_calls.append(call)
+            if not any(previous is call for previous in ordered_output):
+                ordered_output.append(call)
         elif not emitted and _obj_get(item, "type") == "message":
-            recovered.extend(_completed_output_chunks({"output": [item]}))
+            ordered_output.extend(_completed_output_chunks({"output": [item]}))
     # Terminal order is authoritative; retain calls from delta-only providers.
-    ordered_calls.extend(
+    ordered_output.extend(
         call
         for call in calls.calls
-        if not any(previous is call for previous in ordered_calls)
+        if not any(previous is call for previous in ordered_output)
     )
-    recovered.extend(chunk for call in ordered_calls if (chunk := call.chunk()))
+    # Render only after all snapshots: a later item can invalidate an earlier call.
+    recovered: list[str] = []
+    for part in ordered_output:
+        chunk = part.chunk() if isinstance(part, _ResponseFunctionCall) else part
+        if chunk:
+            recovered.append(chunk)
     if recovered:
         logger.debug(
             "Responses stream reconciled %d chunk(s) from function calls/terminal output",
