@@ -643,7 +643,12 @@ class DocumentToTextConverter(Converter):
                     out_files = list(Path(tmpdir).glob("*.txt"))
                     if out_files:
                         try:
-                            out_files[0].replace(dest)
+                            # Stage on the destination filesystem before replacing
+                            # so cross-device output and failed copies are safe.
+                            with tempfile.TemporaryDirectory(dir=dest.parent) as stage:
+                                staged = Path(stage) / "output.txt"
+                                shutil.copyfile(out_files[0], staged)
+                                staged.replace(dest)
                         except OSError as e:
                             return ConversionResult(
                                 success=False,
