@@ -778,6 +778,18 @@ def find_converter(
     return None
 
 
+def _is_same_existing_file(src: Path, dest: Path) -> bool:
+    """True when src and dest name the same existing inode.
+
+    ``Path.resolve()`` follows symlinks but treats two hardlinks as distinct.
+    A missing destination is a new output, not an identity alias.
+    """
+    try:
+        return src.exists() and dest.exists() and src.samefile(dest)
+    except OSError:
+        return False
+
+
 def convert_file(
     src: Path,
     dest: Path,
@@ -809,6 +821,14 @@ def convert_file(
             ),
         )
 
+    if _is_same_existing_file(src, dest):
+        return ConversionResult(
+            success=False,
+            output_path=None,
+            converter_used="none",
+            error="Source and destination paths must be different",
+        )
+
     if dry_run:
         # Match the concrete converters: a directory destination cannot succeed.
         # Dry-run used to skip this check and report a possible conversion.
@@ -824,14 +844,6 @@ def convert_file(
             output_path=dest,
             converter_used=conv.name,
             metadata={"dry_run": True, "src_mime": src_mime, "dest_ext": dest_ext},
-        )
-
-    if src.resolve() == dest.resolve():
-        return ConversionResult(
-            success=False,
-            output_path=None,
-            converter_used="none",
-            error="Source and destination paths must be different",
         )
 
     try:
