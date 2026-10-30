@@ -1,4 +1,5 @@
 import atexit
+import json
 import logging
 import os
 import re
@@ -750,14 +751,27 @@ def _do_load_browser_state(browser: Browser | None, path: str) -> str:
             "Save a session first with save_browser_state(path), then reload."
         )
 
-    # Close the current page + context so the next open_page() creates a fresh
-    # context that will pick up the loaded storage state.
-    _close_current_page()
+    # Read and prepare the candidate before changing any working session state.
+    state = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(state, dict) or any(
+        not isinstance(state.get(key, []), list) for key in ("cookies", "origins")
+    ):
+        raise ValueError("Browser state must contain cookie and origin lists")
+    options = get_context_options()
+    options["storage_state"] = state
+    replacement = browser.new_context(**options) if browser is not None else None
+    cdp = _is_cdp_connection() and _browser is not None
+    if not cdp and replacement is not None:
+        # Launched mode creates its actual context on the next open_page().
+        # Closing this validation context can itself fail; keep the old page then.
+        replacement.close()
+    if cdp and replacement is None:
+        raise ValueError("browser required in CDP mode")
 
-    # Register the override so get_context_options() uses it on the next context.
+    _close_current_page()
     set_storage_state_override(resolved)
 
-    if _is_cdp_connection() and _browser is not None:
+    if cdp and _browser is not None:
         if _browser._session_context is not None:
             try:
                 _browser._session_context.close()
@@ -767,8 +781,7 @@ def _do_load_browser_state(browser: Browser | None, path: str) -> str:
 
         # CDP mode reuses a session context for future tabs; refresh it now so
         # the next open_page() does not keep using the pre-load cookies.
-        assert browser is not None, "browser required in CDP mode"
-        _browser._session_context = browser.new_context(**get_context_options())
+        _browser._session_context = replacement
         return (
             f"Browser state loaded from {resolved}; CDP session context refreshed. "
             "Call open_page(url) to start a session with the restored cookies and localStorage."

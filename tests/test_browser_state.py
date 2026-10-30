@@ -221,7 +221,10 @@ def test_load_browser_state_refreshes_cdp_session_context(tmp_path, monkeypatch)
     assert old_context.closed
     assert thread._session_context is fake_browser.context
     assert fake_browser.context_kwargs
-    assert fake_browser.context_kwargs[0]["storage_state"] == str(state_file)
+    assert fake_browser.context_kwargs[0]["storage_state"] == {
+        "cookies": [],
+        "origins": [],
+    }
     assert browser_thread._override_storage_state == state_file
     assert "CDP session context refreshed" in result
 
