@@ -3144,7 +3144,9 @@ def test_patch_many_empty_patches_does_not_crash():
 
 
 @pytest.mark.parametrize("prefix", ["#", "//", '"'])
-def test_patch_preview_preserves_literal_comments(prefix):
+@pytest.mark.parametrize("tool_name", ["patch", "patch_many"])
+@pytest.mark.parametrize("mixed", [False, True])
+def test_patch_preview_preserves_literal_comments(prefix, tool_name, mixed):
     """Literal ellipsis comments must remain visible before approval."""
     import json
 
@@ -3159,12 +3161,17 @@ def test_patch_preview_preserves_literal_comments(prefix):
         "tail\n"
         ">>>>>>> UPDATED"
     )
-    title, code, lang = _tool_call_renderable(
-        "@patch(c1): " + json.dumps({"path": "a.py", "patch": patch})
-    )
-    assert title == "▶ patch: a.py"
+    if not mixed:
+        patch = patch.replace("old\n", "").replace("new\n", "").replace("tail\n", "")
+    if tool_name == "patch":
+        arguments = json.dumps({"path": "a.py", "patch": patch})
+    else:
+        arguments = json.dumps({"patches": [{"path": "a.py", "patch": patch}]})
+    title, code, lang = _tool_call_renderable(f"@{tool_name}(c1): " + arguments)
+    assert title == f"▶ {tool_name}: a.py"
     assert lang == "diff"
-    assert "-old" in code and "+new" in code
+    if mixed:
+        assert "-old" in code and "+new" in code
     assert f"-    {prefix} ... old explanation" in code
     assert f"+    {prefix} ... new explanation" in code
 
