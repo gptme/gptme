@@ -307,6 +307,14 @@ def test_cli_completes_explicit_attachment_prefix(tmp_path, monkeypatch):
     tick_result = context._include_paths(Message("user", tick_completed))
     assert "must-not-attach" not in tick_result.content
     assert "spaced-content-marker" in tick_result.content
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "child.md").write_text("child-content-marker")
+    directory = _apply_first_completion("see @my")
+    assert directory == "see `@my dir/"
+    child = _apply_first_completion(directory + "ch")
+    assert child == "see `@my dir/child.md`"
+    child_result = context._include_paths(Message("user", child))
+    assert "child-content-marker" in child_result.content
 
 
 @pytest.mark.parametrize("legacy", [False, True])

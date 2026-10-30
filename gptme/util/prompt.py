@@ -296,7 +296,8 @@ class GptmeCompleter(Completer):
 
         document.get_word_before_cursor()
         text = document.text_before_cursor
-        path_seg = text.split(" ")[-1]
+        quoted = text.count("`") % 2 == 1
+        path_seg = text[text.rindex("`") + 1 :] if quoted else text.split(" ")[-1]
         # Explicit attachments keep the @ in the buffer; complete the path
         # after it so `@REA` matches README.md the same way `REA` does.
         complete_seg = path_seg.removeprefix("@")
@@ -368,9 +369,6 @@ class GptmeCompleter(Completer):
             for completion in self.path_completer.get_completions(
                 Document(complete_seg), complete_event
             ):
-                if not path_seg.startswith("@"):
-                    yield completion
-                    continue
                 completed = (
                     complete_seg[: len(complete_seg) + completion.start_position]
                     + completion.text
@@ -379,11 +377,28 @@ class GptmeCompleter(Completer):
                 # inner `@path` token. Skip those names; the user can type them.
                 if "`" in completed:
                     continue
+                if quoted:
+                    if path_seg.startswith("@") and not completed.endswith("/"):
+                        yield Completion(
+                            completion.text + "`",
+                            start_position=completion.start_position,
+                            display=completion.display,
+                            display_meta=completion.display_meta,
+                        )
+                    else:
+                        yield completion
+                    continue
+                if not path_seg.startswith("@"):
+                    yield completion
+                    continue
                 if not any(ch.isspace() for ch in completed):
                     yield completion
                     continue
+                # Directories stay in an open quote so the next Tab can
+                # complete children; files close the reference.
+                wrapped = f"`@{completed}" + ("" if completed.endswith("/") else "`")
                 yield Completion(
-                    f"`@{completed}`",
+                    wrapped,
                     start_position=-len(path_seg),
                     display=completion.display,
                     display_meta=completion.display_meta,
