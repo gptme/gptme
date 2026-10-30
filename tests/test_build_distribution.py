@@ -80,7 +80,7 @@ def test_build_distribution_roundtrip(tmp_path: Path) -> None:
     build(source, dist, "--sdist")
     wheel = _wheel_files(next(dist.glob("*.whl")))
     expected = {
-        str(path.relative_to(source)): path.read_bytes()
+        path.relative_to(source).as_posix(): path.read_bytes()
         for path in (source / "gptme").rglob("*")
         if path.is_file()
     }
