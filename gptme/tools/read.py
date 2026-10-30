@@ -340,7 +340,15 @@ def _read_one(
     total_exact = True
     has_invalid_utf8 = False
     try:
-        content = _read_text_bounded(path)
+        try:
+            content = _read_text_bounded(path)
+        except UnicodeDecodeError:
+            if start_line == 1 and end_line is None:
+                raise
+            # Explicit ranges use the same bounded decoder for damaged small
+            # files as for large files. Unselected bytes must not reject the
+            # requested text; no full, exact snapshot exists in this case.
+            content = None
         if content is None:
             if start_line == 1 and end_line is None:
                 size = path.stat().st_size
