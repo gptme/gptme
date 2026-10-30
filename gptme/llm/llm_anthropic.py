@@ -3,13 +3,15 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    ParamSpec,
     TypedDict,
+    TypeVar,
     Union,
     cast,
 )
@@ -614,17 +616,21 @@ def _handle_anthropic_transient_error(
         raise e
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
 def retry_on_overloaded(
     max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
-):
+) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Decorator to retry functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
     """
 
-    def decorator(func):
+    def decorator(func: Callable[_P, _R]) -> Callable[_P, _R]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
             # Capture the retry generation once per call: if test teardown
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
@@ -983,7 +989,7 @@ def chat(
             "anthropic",
             {"messages": messages_dicts, "system": system_messages},
         )
-        response = send_client.messages.create(
+        response: anthropic.types.Message = send_client.messages.create(
             model=api_model,
             messages=messages_dicts,
             system=system_messages,
