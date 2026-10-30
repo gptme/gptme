@@ -292,6 +292,10 @@ class GptmeCompleter(Completer):
         self.path_completer = PathCompleter2(expanduser=True)
         self._open_directory_completions: set[str] = set()
 
+    def reset_submission(self) -> None:
+        """Discard completion authorization when starting an independent prompt."""
+        self._open_directory_completions.clear()
+
     def finish_submission(self, text: str) -> str:
         """Close only an unchanged open directory reference we just completed.
 
@@ -664,6 +668,9 @@ def get_prompt_session() -> PromptSession:
             multiline=True,
             key_bindings=kb,
         )
+        # PromptSession reuses its completer across reads, including Ctrl-C.
+        # Application reset runs for each new prompt, not for child suggestions.
+        _prompt_session.app.on_reset += lambda app: completer.reset_submission()
     return _prompt_session
 
 

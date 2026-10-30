@@ -207,7 +207,11 @@ def test_clipboard_handler_emits_working_attachment(
     monkeypatch.setattr(prompt, "_prompt_session", None)
     monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
     monkeypatch.setattr(
-        prompt, "PromptSession", lambda **kwargs: SimpleNamespace(**kwargs)
+        prompt,
+        "PromptSession",
+        lambda **kwargs: SimpleNamespace(
+            app=SimpleNamespace(on_reset=MagicMock()), **kwargs
+        ),
     )
     monkeypatch.setattr(
         clipboard, "paste_image", lambda: picture if native_image else None
@@ -466,4 +470,75 @@ async def test_cli_completed_directory_submit(
     with set_app(session.app):
         enter.handler(event)
     assert submitted[-1] == "see `@my dir/"
+    prompt.clear_path_cache()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("follow_up", [False, True])
+async def test_cli_aborted_directory_completion_does_not_authorize_next_prompt(
+    tmp_path, monkeypatch, follow_up: bool
+) -> None:
+    """Native Tab/Ctrl-C, then paste without Tab in the reused PromptSession."""
+    import asyncio
+    from collections.abc import Callable
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    from gptme.util import prompt
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(prompt, "_prompt_session", None)
+    monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
+    monkeypatch.setattr(
+        prompt, "llm_suggest", lambda text: pytest.fail("unexpected inference")
+    )
+    monkeypatch.setattr("gptme.util.clipboard.paste_image", lambda: None)
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "child.md").write_text("synthetic-child-marker")
+    prompt.clear_path_cache()
+
+    async def wait_until(predicate: Callable[[], bool]) -> None:
+        async def poll() -> None:
+            while not predicate():
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(poll(), timeout=3)
+
+    with create_pipe_input() as pipe:
+        with patch(
+            "gptme.util.prompt.PromptSession",
+            side_effect=lambda **kw: PromptSession(
+                input=pipe, output=DummyOutput(), **kw
+            ),
+        ):
+            session = prompt.get_prompt_session()
+
+        async def read_prompt() -> str | None:
+            try:
+                return await session.prompt_async()
+            except KeyboardInterrupt:
+                return None
+
+        first = asyncio.create_task(read_prompt())
+        await wait_until(lambda: session.app.is_running)
+        pipe.send_text("see @my\t")
+        await wait_until(lambda: session.default_buffer.text == "see `@my dir/")
+        if follow_up:
+            await asyncio.sleep(0.1)
+        pipe.send_bytes(b"\x03")
+        assert await asyncio.wait_for(first, timeout=3) is None
+
+        second = asyncio.create_task(read_prompt())
+        await wait_until(lambda: session.app.is_running)
+        pipe.send_text("\x1b[200~see `@my dir/\x1b[201~")
+        await wait_until(lambda: session.default_buffer.text == "see `@my dir/")
+        if follow_up:
+            await asyncio.sleep(0.1)
+        pipe.send_text("\r")
+        submitted = await asyncio.wait_for(second, timeout=3)
+        assert submitted == "see `@my dir/"
+        result = context._include_paths(Message("user", submitted))
+        assert "child.md" not in result.content
     prompt.clear_path_cache()
