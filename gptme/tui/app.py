@@ -1635,6 +1635,10 @@ def complete_path(text: str) -> list[str]:
     are backtick-quoted. An @ prefix is preserved for explicit attachments;
     completing an ordinary path leaves it as prose. The input widget keeps the cursor inside
     a quoted directory, so it can be submitted or completed further.
+
+    Names containing backticks are skipped: wrapping them would close the
+    quote early and expose an inner ``@path`` as a separate attachment.
+    Type those names instead of completing them.
     """
     quoted = text.count("`") % 2 == 1  # completing inside an open `...
     seg = text[text.rindex("`") + 1 :] if quoted else re.split(r"\s", text)[-1]
@@ -1658,6 +1662,10 @@ def complete_path(text: str) -> list[str]:
         except OSError:  # e.g. a symlink loop
             continue
         path = at + dir_part + e.name + ("/" if is_dir else "")
+        # Nested ticks would close the wrapper early and expose an inner
+        # `@path` token. Skip those names; the user can type them.
+        if "`" in path:
+            continue
         if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
             path = "./" + path
         if quoted:
