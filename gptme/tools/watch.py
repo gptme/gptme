@@ -8,6 +8,8 @@ server session exists, else queued and drained at STEP_PRE.
 Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md
 """
 
+import codecs
+import io
 import logging
 import os
 import queue
@@ -21,6 +23,7 @@ from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -304,30 +307,54 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
             errors="replace",
         )
         watch.proc = proc
+        # Retain only the displayed prefix, but drain the pipe continuously so
+        # verbose probes cannot block on stdout or accumulate in communicate().
+        assert proc.stdout is not None
+        fd = proc.stdout.fileno()
+        poller = select.poll()
+        poller.register(fd, select.POLLIN | select.POLLHUP)
+        decoder = io.IncrementalNewlineDecoder(
+            codecs.getincrementaldecoder(cast(io.TextIOWrapper, proc.stdout).encoding)(
+                errors="replace"
+            ),
+            translate=True,
+        )
         stdout = ""
-        while True:
-            if watch.cancelled:
-                _kill_proc(proc)
-                try:
-                    proc.communicate(timeout=2)
-                except Exception:
-                    pass
-                return
-            if watch.deadline is not None and time.time() > watch.deadline:
-                _kill_proc(proc)
-                try:
-                    proc.communicate(timeout=2)
-                except Exception:
-                    pass
-                _fire(watch, f"expired without condition met ({watch.description})")
-                return
-            try:
-                stdout, _ = proc.communicate(timeout=0.2)
-                break
-            except subprocess.TimeoutExpired:
-                continue
+        seen_chars = 0
+        stripped_end = 0
+        eof = False
+        try:
+            while True:
+                if watch.cancelled:
+                    _kill_proc(proc)
+                    return
+                if watch.deadline is not None and time.time() > watch.deadline:
+                    _kill_proc(proc)
+                    _fire(watch, f"expired without condition met ({watch.description})")
+                    return
+                if eof:
+                    try:
+                        proc.wait(timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                if not poller.poll(200):
+                    continue
+                piece = os.read(fd, 4096)
+                text = decoder.decode(piece, final=not piece)
+                if not stdout:
+                    text = text.lstrip()
+                # Track where the full stream's stripped text ends, without
+                # retaining it: spaces at the prefix boundary may be internal.
+                if text.rstrip():
+                    stripped_end = min(500, seen_chars + len(text.rstrip()))
+                seen_chars = min(500, seen_chars + len(text))
+                stdout += text[: max(0, 500 - len(stdout))]
+                eof = not piece
+        finally:
+            _close_stdout(proc)
         if proc.returncode == 0:
-            out = (stdout or "").strip() or command
+            out = stdout[:stripped_end] or command
             _fire(watch, f"condition met: {out[:500]}")
             return
         delay = every
