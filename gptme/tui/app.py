@@ -216,7 +216,10 @@ def _literal_region_end(content: str, match: re.Match[str]) -> int:
     if match.group("native"):
         return find_json_end(content, match.end()) or len(content)
     if fence := match.group("fence"):
-        closing = re.compile(r"^" + re.escape(fence) + r"[ \t]*$", re.MULTILINE)
+        closing = re.compile(
+            r"^" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$",
+            re.MULTILINE,
+        )
         end = closing.search(content, match.end())
         return end.end() if end else len(content)
     if match.group("xml"):
@@ -682,18 +685,11 @@ def _split_streaming_xml_tool_calls(text: str) -> list[tuple[bool, str]]:
     """Protect closed and still-streaming XML tool bodies."""
     out: list[tuple[bool, str]] = []
     last = 0
-    for match in re.finditer(
-        r"<(tool-use|function_calls)(?=\s|>)[^>]*>", text, re.IGNORECASE
-    ):
-        if match.start() < last:
-            continue
-        if text[last : match.start()].strip():
-            out.append((False, text[last : match.start()]))
-        close = re.search(
-            r"</" + match.group(1) + r"\s*>", text[match.end() :], re.IGNORECASE
-        )
-        last = match.end() + close.end() if close else len(text)
-        out.append((True, text[match.start() : last]))
+    for start, end in _xml_call_spans(text, streaming=True):
+        if text[last:start].strip():
+            out.append((False, text[last:start]))
+        out.append((True, text[start:end]))
+        last = end
     if text[last:].strip() or not out:
         out.append((False, text[last:]))
     return out
@@ -702,16 +698,33 @@ def _split_streaming_xml_tool_calls(text: str) -> list[tuple[bool, str]]:
 _NATIVE_ARG_RE = re.compile(r'"(?:command|code|path|file)"\s*:\s*"((?:[^"\\]|\\.)*)')
 
 
+def _xml_call_spans(
+    text: str, *, streaming: bool = False
+) -> Generator[tuple[int, int], None, None]:
+    """XML calls outside earlier native payloads and Markdown examples."""
+    pos = 0
+    while match := _LITERAL_OR_THINK_RE.search(text, pos):
+        if match.group("thinking"):
+            closed = _THINK_RE.match(text, match.start())
+            pos = closed.end() if closed else len(text)
+            continue
+        pos = _literal_region_end(text, match)
+        if match.group("xml") and (
+            streaming or _XML_TOOLUSE_RE.match(text, match.start())
+        ):
+            yield match.start(), pos
+
+
 def _split_xml_tool_calls(content: str) -> list[tuple[bool, str]]:
     """Split content into (is_tool, segment) pairs for XML-format tool-call blocks."""
     segments: list[tuple[bool, str]] = []
     last_end = 0
-    for m in _XML_TOOLUSE_RE.finditer(content):
-        before = content[last_end : m.start()]
+    for start, end in _xml_call_spans(content):
+        before = content[last_end:start]
         if before.strip():
             segments.append((False, before))
-        segments.append((True, m.group(0)))
-        last_end = m.end()
+        segments.append((True, content[start:end]))
+        last_end = end
     tail = content[last_end:]
     if tail.strip():
         segments.append((False, tail))

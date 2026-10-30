@@ -282,3 +282,33 @@ def test_mcp_native_name_and_literal_json_braces() -> None:
     assert _split_all_tool_calls(call) == [(True, "tool", call)]
     assert _tool_call_renderable(call)[1] == args["code"]
     assert _split_thinking(call) == [(False, call)]
+
+
+@pytest.mark.parametrize("fence", ["`", "~"])
+def test_longer_closing_fence_recovers_reasoning_and_native_call(fence: str) -> None:
+    example = fence * 3 + "text\n<think>literal example</think>\n" + fence * 4
+    call = native_call("save", "result")
+    content = example + "\n<think>real reasoning</think>\n" + call
+    assert [text for thinking, text in _split_thinking(content) if thinking] == [
+        "real reasoning"
+    ]
+    assert "real reasoning" not in _strip_thinking(content)
+    assert _streaming_all_segments(content)[-1] == ("tool_call", call)
+    widget = AssistantMessage(content)
+    assert len(widget.result_slots) == 1
+    assert widget.call_slot(0, "literal", "tool") is widget.result_slots[0]
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "`<tool-use>` opens a call. Follow-up explanation.",
+        "```text\n<tool-use>\n```\nFollow-up explanation.",
+        "`<function_calls>` opens a call. Follow-up explanation.",
+        "```text\n<function_calls>\n```\nFollow-up explanation.",
+        "`<tool-use>literal</tool-use>` example.",
+    ],
+)
+def test_xml_examples_remain_streaming_prose(example: str) -> None:
+    assert _streaming_all_segments(example) == [("prose", example)]
+    assert _split_all_tool_calls(example) == [(False, "prose", example)]
