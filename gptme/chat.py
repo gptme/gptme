@@ -45,6 +45,7 @@ from .tools import (
     ToolSpec,
     ToolUse,
     execute_msg,
+    get_tool_format,
     get_tools,
 )
 from .tools._url_safety import set_session_allow_hosts
@@ -1062,7 +1063,7 @@ def step(
         # Retain the parser even for replies with no calls: XML examples in a
         # markdown explanation must not become writes after a format switch.
         msg_response = msg_response.replace(
-            metadata={**(msg_response.metadata or {}), "tool_format": tool_format}
+            metadata={**(msg_response.metadata or {}), "tool_format": get_tool_format()}
         )
         # Overflow recovery may have switched the active LogManager to a
         # compacted view. Use that active log for tool execution below.

@@ -1095,11 +1095,13 @@ def test_restore_examples_follow_execution_format(
         assert "Summary: 1 total" in _todoread()
 
 
+@pytest.mark.parametrize("stale_argument", [False, True])
 @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
 def test_cli_step_records_replay_format_even_without_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     tool_format: Literal["markdown", "xml", "tool"],
+    stale_argument: bool,
 ) -> None:
     import importlib
 
@@ -1116,7 +1118,9 @@ def test_cli_step_records_replay_format_even_without_calls(
         chat.step(
             manager.log,
             stream=False,
-            tool_format=tool_format,
+            tool_format=("xml" if tool_format != "xml" else "tool")
+            if stale_argument
+            else tool_format,
             model="openai/gpt-4o-mini",
         )
     )
