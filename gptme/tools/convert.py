@@ -59,10 +59,24 @@ def _para_to_md(para: object) -> str:
     Respects Heading 1/2/3 styles (→ ``#``/``##``/``###``) and list
     paragraphs (→ ``-``).  Inline bold and italic are rendered as
     ``**text**`` and ``*text*`` respectively via the paragraph's runs.
+    Hyperlinks contribute their display runs in inline order, without emitting
+    or fetching targets. Like ordinary runs, labels use the existing Markdown
+    formatting policy rather than a separate escaping policy.
     Paragraphs with no text become empty lines (blank-line separators).
     """
     style_name: str = getattr(getattr(para, "style", None), "name", "") or ""
     runs = getattr(para, "runs", [])
+    element = getattr(para, "_p", None)
+    if element is not None:
+        from docx.text.paragraph import Paragraph
+        from docx.text.run import Run
+
+        # Paragraph.runs excludes hyperlink children. Walk both kinds in XML
+        # order, using APIs available before iter_inner_content() was added.
+        if isinstance(para, Paragraph):
+            runs = [
+                Run(run, para) for run in element.xpath("./w:r | ./w:hyperlink/w:r")
+            ]
 
     # Build inline text with bold/italic from runs; fall back to para.text.
     if runs:

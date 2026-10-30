@@ -240,6 +240,7 @@ dev = [
     "types-lxml",
     "lxml",
     "pypdf",
+    "python-docx>=1.1,<2",  # real DOCX conversion regression fixtures
     "tomli>=2.4.1,<3",
 ]
 
