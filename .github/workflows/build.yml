@@ -264,6 +264,14 @@ jobs:
         cd ..
         make bundle-webui
 
+    - name: Validate wheel and source distribution payloads
+      if: runner.os == 'Linux'
+      run: |
+        uv build --wheel --sdist --out-dir build/packages
+        uv run python scripts/validate_release_package.py build/packages/*.whl build/packages/*.tar.gz
+        uv build build/packages/*.tar.gz --wheel --out-dir build/from-sdist
+        uv run python scripts/validate_release_package.py build/from-sdist/*.whl
+
     - name: Build PyInstaller executable
       run: make build-server-exe
 

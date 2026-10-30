@@ -10,6 +10,27 @@ from pathlib import Path
 
 _WEBUI_INDEX = "gptme/server/webui-dist/index.html"
 _WEBUI_ASSETS_PREFIX = "gptme/server/webui-dist/assets/"
+_RUNTIME_ASSETS = (
+    "gptme/py.typed",
+    "gptme/__init__.pyi",
+    "gptme/data/faq.yaml",
+    "gptme/eval/tbench/setup.sh",
+    "gptme/server/computer_view/computer.html",
+    "gptme/util/export_templates/index.html",
+    "gptme/util/export_templates/main.js",
+    "gptme/util/export_templates/style.css",
+    "media/bell.wav",
+    "media/camera_shutter.wav",
+    "media/chime.wav",
+    "media/drilling.wav",
+    "media/file_write.wav",
+    "media/icon-mono.svg",
+    "media/icon.svg",
+    "media/logo.png",
+    "media/page_turn.wav",
+    "media/sawing.wav",
+    "media/seashell_click.wav",
+)
 
 
 def _archive_members(path: Path) -> set[str]:
@@ -26,7 +47,7 @@ def _archive_members(path: Path) -> set[str]:
 
 
 def validate_package(path: Path) -> None:
-    """Raise ValueError when a package omits the bundled modern web UI."""
+    """Raise ValueError when a package omits required runtime assets."""
     members = _archive_members(path)
     missing: list[str] = []
     if _WEBUI_INDEX not in members:
@@ -36,6 +57,11 @@ def validate_package(path: Path) -> None:
     if missing:
         joined = ", ".join(missing)
         raise ValueError(f"{path} is missing required bundled web UI assets: {joined}")
+    missing = [name for name in _RUNTIME_ASSETS if name not in members]
+    if missing:
+        raise ValueError(
+            f"{path} is missing required runtime assets: {', '.join(missing)}"
+        )
 
 
 def main() -> int:
@@ -46,7 +72,7 @@ def main() -> int:
     try:
         for archive in args.archives:
             validate_package(archive)
-            print(f"Validated bundled web UI in {archive}")
+            print(f"Validated runtime assets in {archive}")
     except (OSError, ValueError, tarfile.TarError, zipfile.BadZipFile) as error:
         parser.exit(1, f"error: {error}\n")
     return 0

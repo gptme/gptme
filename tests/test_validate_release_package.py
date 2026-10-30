@@ -22,12 +22,33 @@ def test_validate_package_accepts_bundled_webui(
         tmp_path,
         archive_type,
         {
+            **dict.fromkeys(validate_release_package._RUNTIME_ASSETS, b"asset"),
             "gptme/server/webui-dist/index.html": b"<html>modern</html>",
             "gptme/server/webui-dist/assets/index-abc.js": b"console.log('ok')",
         },
     )
 
     validate_package(archive)
+
+
+@pytest.mark.parametrize("archive_type", ["wheel", "sdist"])
+@pytest.mark.parametrize(
+    "missing", ["media/bell.wav", "media/icon.svg", "gptme/data/faq.yaml"]
+)
+def test_validate_package_rejects_missing_runtime_asset(
+    tmp_path: Path, archive_type: str, missing: str
+) -> None:
+    """A complete web UI must not hide missing sounds, images or package data."""
+    members = {
+        **dict.fromkeys(validate_release_package._RUNTIME_ASSETS, b"asset"),
+        "gptme/server/webui-dist/index.html": b"html",
+        "gptme/server/webui-dist/assets/index-abc.js": b"js",
+    }
+    del members[missing]
+    archive = _write_archive(tmp_path, archive_type, members)
+
+    with pytest.raises(ValueError, match=missing):
+        validate_package(archive)
 
 
 @pytest.mark.parametrize(
