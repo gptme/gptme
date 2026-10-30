@@ -232,6 +232,35 @@ def _released(lock: threading.RLock):
         lock.acquire()
 
 
+def _run_turn_post_on_step_pre_complete(
+    manager: LogManager, session: ConversationSession
+) -> None:
+    """Run TURN_POST when STEP_PRE ends the session.
+
+    Server TURN_POST fires after generation and before tools, so the tool
+    batch that produced the exhausting policy blocks has not been observed
+    by autocommit/pre-commit. CLI already runs TURN_POST in this path.
+    Failures here must not hide the original SessionCompleteException.
+    """
+    try:
+        # Caller holds conversation_lock and has verified the generation epoch.
+        # Reload under that lock instead of writing the pre-hook log snapshot.
+        assert session.conversation_id is not None
+        manager = LogManager.load(
+            session.conversation_id, branch=manager.current_branch, lock=False
+        )
+        if post_msgs := trigger_hook(
+            HookType.TURN_POST,
+            manager=manager,
+            notification_branch=manager.current_branch,
+        ):
+            for hook_msg in post_msgs:
+                _append_and_notify(manager, session, hook_msg)
+            manager.write()
+    except Exception:
+        logger.exception("TURN_POST during session-complete from STEP_PRE failed")
+
+
 def _compact_after_tool_results(
     manager: LogManager,
     session: ConversationSession,
@@ -562,14 +591,51 @@ async def _acp_step(
                     _append_and_notify(manager, session, hook_msg)
                 manager.write()
 
-        if pre_msgs := trigger_hook(
-            HookType.STEP_PRE,
-            manager=manager,
-            notification_branch=manager.current_branch,
-        ):
-            for hook_msg in pre_msgs:
-                _append_and_notify(manager, session, hook_msg)
-            manager.write()
+        try:
+            if pre_msgs := trigger_hook(
+                HookType.STEP_PRE,
+                manager=manager,
+                notification_branch=manager.current_branch,
+            ):
+                for hook_msg in pre_msgs:
+                    _append_and_notify(manager, session, hook_msg)
+                manager.write()
+        except Exception as e:
+            # The STEP_PRE trigger sits outside the inner try/finally that
+            # releases the generating reservation, so a session-completion
+            # signal from a hook (e.g. the policy-block budget) would otherwise
+            # escape _acp_step with the reservation still held and no
+            # step_complete emitted — leaving the session stuck as
+            # "generating". Release it with the same compare-and-clear contract
+            # as the finally block before propagating (parity with step()).
+            from ..tools.complete import SessionCompleteException  # fmt: skip
+
+            if isinstance(e, SessionCompleteException):
+                # ACP TURN_POST runs after the prompt loop, so a STEP_PRE
+                # completion never reached it. Run post-turn hooks now so
+                # autocommit/pre-commit observe the previous turn's tools
+                # (parity with chat.py and step()).
+                released = False
+                # Serialize with interrupts, replacement reservations and log
+                # mutations. Hooks may block, so do not hold step_lock across
+                # them; conversation_lock prevents ownership changing here.
+                with SessionManager.conversation_lock(conversation_id):
+                    with session.step_lock:
+                        owns_step = session.step_seq == my_step_seq
+                    if owns_step:
+                        try:
+                            _run_turn_post_on_step_pre_complete(manager, session)
+                        finally:
+                            with session.step_lock:
+                                session.generating = False
+                                session.generating_since = None
+                                SessionManager.add_event(
+                                    conversation_id, {"type": "step_complete"}
+                                )
+                                released = True
+                if released:
+                    SessionManager.retry_deferred_watch_wakes(conversation_id)
+            raise
 
         user_messages = [m for m in manager.log.messages if m.role == "user"]
         if not user_messages:
@@ -937,16 +1003,55 @@ def step(
 
     # Trigger STEP_PRE hook BEFORE preparing messages
     # This ensures hook messages are included in the LLM input
-    if pre_msgs := trigger_hook(
-        HookType.STEP_PRE,
-        manager=manager,
-        notification_branch=manager.current_branch,
-    ):
-        for msg in pre_msgs:
-            _append_and_notify(manager, session, msg)
-        # Write messages to disk to ensure they're persisted
-        manager.write()
-        logger.debug("Wrote step.pre hook messages to disk")
+    try:
+        if pre_msgs := trigger_hook(
+            HookType.STEP_PRE,
+            manager=manager,
+            notification_branch=manager.current_branch,
+        ):
+            for msg in pre_msgs:
+                _append_and_notify(manager, session, msg)
+            # Write messages to disk to ensure they're persisted
+            manager.write()
+            logger.debug("Wrote step.pre hook messages to disk")
+    except Exception as e:
+        # This trigger sits OUTSIDE the try/finally below, so a session-
+        # completion signal from a hook (e.g. the policy-block budget) would
+        # otherwise escape step() with the generating reservation still held
+        # and no step_complete emitted — leaving the session stuck as
+        # "generating". Release it with the same compare-and-clear contract
+        # as the finally block before propagating.
+        from ..tools.complete import SessionCompleteException  # fmt: skip
+
+        if isinstance(e, SessionCompleteException):
+            # Server TURN_POST fires after generation and before tools. The
+            # policy blocks that exhausted the budget were appended during that
+            # previous step's tool execution, so those file changes have not
+            # been observed by post-turn hooks. Run TURN_POST now (CLI already
+            # does this) before releasing the reservation.
+            released = False
+            # Same lock order as interrupt and replacement-step admission.
+            # Reload only after ownership is checked: STEP_PRE may have yielded
+            # while another request appended messages to the transcript.
+            with SessionManager.conversation_lock(conversation_id):
+                with session.step_lock:
+                    owns_step = session.step_seq == my_step_seq
+                if owns_step:
+                    try:
+                        _run_turn_post_on_step_pre_complete(manager, session)
+                    finally:
+                        with session.step_lock:
+                            session.finish_skill_turn("abandoned")
+                            session.generating = False
+                            session.generating_since = None
+                            # Keep reservation release and its event atomic.
+                            SessionManager.add_event(
+                                conversation_id, {"type": "step_complete"}
+                            )
+                            released = True
+            if released:
+                SessionManager.retry_deferred_watch_wakes(conversation_id)
+        raise
 
     # A new server session has no in-memory continuation flag. Recover it
     # from the live request before the checkpoint response removes that request
