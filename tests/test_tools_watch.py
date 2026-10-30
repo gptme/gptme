@@ -313,6 +313,12 @@ def test_until_stops_quiet_probe_after_eof(monkeypatch, cancel):
 
 def test_until_decodes_split_utf8_and_newlines(monkeypatch):
     monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    popen = _watch_mod.subprocess.Popen
+
+    def utf8_popen(*args, **kwargs):
+        return popen(*args, **kwargs, encoding="utf-8")
+
+    monkeypatch.setattr(_watch_mod.subprocess, "Popen", utf8_popen)
     read = _watch_mod.os.read
     monkeypatch.setattr(_watch_mod.os, "read", lambda fd, size: read(fd, 1))
     command = shlex.join(
