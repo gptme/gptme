@@ -1,4 +1,5 @@
 import os
+import sys
 
 import pytest
 
@@ -18,8 +19,14 @@ def test_execute_patch(tmp_path):
     target.write_text("original lines")
     result = next(execute_patch(example_patch, [str(target)], None)).content
 
-    assert "successfully" in result
-    assert target.read_text() == "modified lines"
+    if sys.platform in ("win32", "darwin"):
+        reason = "Windows security descriptor" if os.name == "nt" else "macOS ACL"
+        assert reason in result
+        assert "successfully" not in result
+        assert target.read_text() == "original lines"
+    else:
+        assert "successfully" in result
+        assert target.read_text() == "modified lines"
 
 
 def test_apply_simple():
@@ -476,7 +483,14 @@ short
     target.write_text(long_original)
     result = next(execute_patch(patch, [str(target)], None)).content
 
-    assert "Note: The patch was big" in result
+    if sys.platform in ("win32", "darwin"):
+        reason = "Windows security descriptor" if os.name == "nt" else "macOS ACL"
+        assert reason in result
+        assert "Note: The patch was big" not in result
+        assert target.read_text() == long_original
+    else:
+        assert "Note: The patch was big" in result
+        assert target.read_text() == "short"
 
 
 def test_execute_patch_non_utf8_file_mentions_encoding(tmp_path):
