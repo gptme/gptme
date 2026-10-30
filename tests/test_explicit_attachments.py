@@ -293,6 +293,11 @@ def test_cli_completes_explicit_attachment_prefix(tmp_path, monkeypatch):
     assert _apply_first_completion("review @REA") == "review @README.md"
     assert _apply_first_completion("review REA") == "review README.md"
     assert _apply_first_completion("see @src/u") == "see @src/utils.py"
+    (tmp_path / "photo album.txt").write_text("spaced-content-marker")
+    completed = _apply_first_completion("see @pho")
+    assert completed == "see `@photo album.txt`"
+    result = context._include_paths(Message("user", completed))
+    assert "spaced-content-marker" in result.content
 
 
 @pytest.mark.parametrize("legacy", [False, True])

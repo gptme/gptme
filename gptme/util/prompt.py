@@ -365,9 +365,25 @@ class GptmeCompleter(Completer):
             # Handle partial paths that might match files in subdirectories
             any(Path.cwd().glob(f"{complete_seg}*"))
         ):
-            yield from self.path_completer.get_completions(
+            for completion in self.path_completer.get_completions(
                 Document(complete_seg), complete_event
-            )
+            ):
+                if not path_seg.startswith("@"):
+                    yield completion
+                    continue
+                completed = (
+                    complete_seg[: len(complete_seg) + completion.start_position]
+                    + completion.text
+                )
+                if not any(ch.isspace() for ch in completed):
+                    yield completion
+                    continue
+                yield Completion(
+                    f"`@{completed}`",
+                    start_position=-len(path_seg),
+                    display=completion.display,
+                    display_meta=completion.display_meta,
+                )
 
         # LLM suggestions
         elif len(text) > 2:
