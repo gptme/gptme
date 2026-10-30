@@ -168,7 +168,7 @@ _THINK_SIG_RE = re.compile(r"<!--\s*think-sig:.*?-->\s*", re.DOTALL)
 _NATIVE_HEADER_RE = re.compile(r"^@[^\r\n]+?\([\w\-:\.]+\):\s*(?=\{|\Z)", re.MULTILINE)
 _LITERAL_OR_THINK_RE = re.compile(
     r"(?P<native>" + _NATIVE_HEADER_RE.pattern + r")"
-    r"|(?P<fence>^`{3,}(?!`)(?=[^`\n]*(?:\n|\Z))|^~{3,})[^\n]*"
+    r"|^ {0,3}(?P<fence>`{3,}(?!`)(?=[^`\n]*(?:\n|\Z))|~{3,})[^\n]*"
     r"|(?P<inline>`+)"
     r"|(?P<xml>(?i:<(?:tool-use|function_calls)(?=\s|>)[^>]*>))"
     r"|(?P<thinking><think(?:ing)?(?:\s[^>]*)?>)",
@@ -217,7 +217,7 @@ def _literal_region_end(content: str, match: re.Match[str]) -> int:
         return find_json_end(content, match.end()) or len(content)
     if fence := match.group("fence"):
         closing = re.compile(
-            r"^" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$",
+            r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$",
             re.MULTILINE,
         )
         end = closing.search(content, match.end())

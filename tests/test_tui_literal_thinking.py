@@ -376,3 +376,28 @@ def test_unmatched_backticks_do_not_cross_paragraphs() -> None:
     # A newline within a paragraph remains valid inline code.
     literal = "`first line\n<think>literal</think>`"
     assert _split_thinking(literal) == [(False, literal)]
+
+
+@pytest.mark.parametrize("opening_indent", [0, 1, 2, 3])
+@pytest.mark.parametrize("closing_indent", [0, 1, 2, 3])
+@pytest.mark.parametrize("fence", ["`", "~"])
+def test_indented_fences_preserve_following_reasoning_and_call(
+    opening_indent: int, closing_indent: int, fence: str
+) -> None:
+    example = (
+        " " * opening_indent
+        + fence * 3
+        + "text\n<think>literal</think>\n"
+        + " " * closing_indent
+        + fence * 3
+    )
+    call = native_call("save", "result")
+    content = example + "\n<think>private reasoning</think>\n" + call
+    assert [body for thinking, body in _split_thinking(content) if thinking] == [
+        "private reasoning"
+    ]
+    assert "private reasoning" not in _strip_thinking(content)
+    assert _streaming_all_segments(content)[-1] == ("tool_call", call)
+    widget = AssistantMessage(content)
+    assert len(widget.result_slots) == 1
+    assert widget.call_slot(0, "literal", "tool") is widget.result_slots[0]
