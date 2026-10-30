@@ -7,7 +7,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 from ._url_safety import _MAX_INPUT_LENGTH, _validate_url_scheme
 
@@ -78,6 +78,7 @@ def search(query: str, engine: str = "duckduckgo") -> str:
     if not query.strip():
         raise ValueError("Search query must be non-empty.")
 
+    query = quote_plus(query)
     if engine == "google":
         # Use SOCS cookie (newer Google consent format) to bypass GDPR banner,
         # and gl=us to avoid region-specific consent redirects.
