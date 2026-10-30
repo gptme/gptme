@@ -401,3 +401,21 @@ def test_indented_fences_preserve_following_reasoning_and_call(
     widget = AssistantMessage(content)
     assert len(widget.result_slots) == 1
     assert widget.call_slot(0, "literal", "tool") is widget.result_slots[0]
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "```text\r\nexample\r\n```\r\n<think>real</think>",
+        "An unmatched ` here.\r\n\r\n<think>real</think>\r\n\r\nAnother ` here.",
+        r"Escaped \` then <think>real</think> and \`",
+    ],
+)
+def test_line_endings_and_escaped_backticks_do_not_hide_reasoning(example: str) -> None:
+    assert [body for thinking, body in _split_thinking(example) if thinking] == ["real"]
+    assert "real" not in _strip_thinking(example)
+
+
+def test_backtick_after_escaped_backslash_still_opens_literal_code() -> None:
+    example = r"Escaped slash \\`<think>literal</think>`"
+    assert _split_thinking(example) == [(False, example)]

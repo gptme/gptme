@@ -217,7 +217,7 @@ def _literal_region_end(content: str, match: re.Match[str]) -> int:
         return find_json_end(content, match.end()) or len(content)
     if fence := match.group("fence"):
         closing = re.compile(
-            r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$",
+            r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*\r?$",
             re.MULTILINE,
         )
         end = closing.search(content, match.end())
@@ -228,12 +228,17 @@ def _literal_region_end(content: str, match: re.Match[str]) -> int:
             r"</" + re.escape(tag) + r"\s*>", content[match.end() :], re.IGNORECASE
         )
         return match.end() + end.end() if end else len(content)
-    # Only complete inline-code spans protect tags; an unmatched backtick in
-    # prose must not hide subsequent genuine reasoning.
+    # Only complete inline-code spans protect tags; an unmatched or escaped
+    # backtick in prose must not hide subsequent genuine reasoning.
+    start = match.start()
+    while start > 0 and content[start - 1] == "\\":
+        start -= 1
+    if (match.start() - start) % 2:
+        return match.end()
     closing = re.compile(r"(?<!`)" + re.escape(match.group()) + r"(?!`)")
     # Inline code can include soft line breaks, but cannot consume another
     # paragraph. An unrelated later backtick must not hide real reasoning.
-    paragraph_end = re.search(r"\n[ \t]*\n", content[match.end() :])
+    paragraph_end = re.search(r"\r?\n[ \t]*\r?\n", content[match.end() :])
     limit = match.end() + paragraph_end.start() if paragraph_end else len(content)
     end = closing.search(content, match.end(), limit)
     return end.end() if end else match.end()
