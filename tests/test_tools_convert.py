@@ -480,18 +480,13 @@ class TestDocumentToTextConverter:
     def test_md_dest_produces_markdown_headings(self, avail_all, tmp_path):
         """When dest is .md, python-docx paragraphs with Heading styles must
         produce ``#``/``##`` lines, not bare text."""
+        docx = pytest.importorskip("docx")
         src = tmp_path / "doc.docx"
-        src.write_bytes(b"PK")
         dest = tmp_path / "out.md"
-
-        mock_para_h1 = _MockPara("Introduction", "Heading 1")
-        mock_para_body = _MockPara("Body text.", "Normal")
-
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = [mock_para_h1, mock_para_body]
-
-        mock_docx_module = MagicMock()
-        mock_docx_module.Document.return_value = mock_doc
+        document = docx.Document()
+        document.add_heading("Introduction", level=1)
+        document.add_paragraph("Body text.")
+        document.save(src)
 
         avail_docx_only = ToolAvailability(
             ffmpeg=False,
@@ -503,9 +498,8 @@ class TestDocumentToTextConverter:
             python_magic=False,
         )
 
-        with (
-            patch("gptme.tools.convert.get_availability", return_value=avail_docx_only),
-            patch.dict(sys.modules, {"docx": mock_docx_module}),
+        with patch(
+            "gptme.tools.convert.get_availability", return_value=avail_docx_only
         ):
             result = self.conv.convert(src, dest)
 

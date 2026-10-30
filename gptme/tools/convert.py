@@ -15,6 +15,7 @@ Supported conversions:
 from __future__ import annotations
 
 import glob as _glob
+import html
 import importlib.util
 import logging
 import mimetypes
@@ -550,6 +551,17 @@ class PDFToTextConverter(Converter):
         )
 
 
+def _markdown_table_row(cells: list[str]) -> str:
+    """Render literal cell text, keeping line breaks inside the table row."""
+    escaped = []
+    for text in cells:
+        text = html.escape(text, quote=False)
+        for character in "\\|*_~`[]":
+            text = text.replace(character, "\\" + character)
+        escaped.append(text.replace("\n", "<br>"))
+    return "| " + " | ".join(escaped) + " |"
+
+
 class DocumentToTextConverter(Converter):
     """DOCX/ODT/etc. → plain text or markdown via python-docx or LibreOffice."""
 
@@ -595,14 +607,62 @@ class DocumentToTextConverter(Converter):
         if avail.python_docx and src.suffix.lower() == ".docx":
             try:
                 import docx
+                from docx.oxml.ns import qn
+                from docx.table import Table, _Cell
+                from docx.text.paragraph import Paragraph
 
                 doc = docx.Document(str(src))
-                dest_ext = dest.suffix.lower().lstrip(".")
-
-                if dest_ext == "md":
-                    lines = [_para_to_md(para) for para in doc.paragraphs]
-                else:
-                    lines = [para.text for para in doc.paragraphs]
+                markdown = dest.suffix.lower() == ".md"
+                lines: list[str] = []
+                after_table = False
+                # Walk the body, not doc.paragraphs, which omits all tables.
+                for element in doc.element.body.iterchildren():
+                    if element.tag == qn("w:p"):
+                        para = Paragraph(element, doc)
+                        if after_table:
+                            lines.append("")
+                        lines.append(_para_to_md(para) if markdown else para.text)
+                        after_table = False
+                    elif element.tag == qn("w:tbl"):
+                        table = Table(element, doc)
+                        rows: list[list[str]] = []
+                        # Read each XML row directly: older python-docx releases
+                        # lack grid_cols_before/after and flatten row.cells across
+                        # omitted positions, potentially borrowing the next row.
+                        for row in table.rows:
+                            before = row._tr.xpath("./w:trPr/w:gridBefore/@w:val")
+                            after = row._tr.xpath("./w:trPr/w:gridAfter/@w:val")
+                            cells = [""] * (int(before[0]) if before else 0)
+                            for tc in row._tr.tc_lst:
+                                column = len(cells)
+                                if tc.vMerge == "continue" and rows:
+                                    cells.extend(
+                                        rows[-1][column : column + tc.grid_span]
+                                    )
+                                else:
+                                    cells.extend([_Cell(tc, table).text] * tc.grid_span)
+                            cells.extend([""] * (int(after[0]) if after else 0))
+                            rows.append(cells)
+                        # Omitted cells still occupy grid positions. Normalize
+                        # widths so a short header cannot hide later values.
+                        width = max(len(table.columns), max(map(len, rows), default=0))
+                        for cells in rows:
+                            cells.extend([""] * (width - len(cells)))
+                        if markdown and rows:
+                            # Markdown has no spans: repeat merged cells in each
+                            # grid position.
+                            if lines:
+                                lines.append("")
+                            lines.extend(
+                                [
+                                    _markdown_table_row(rows[0]),
+                                    "| " + " | ".join(["---"] * len(rows[0])) + " |",
+                                ]
+                                + [_markdown_table_row(row) for row in rows[1:]]
+                            )
+                            after_table = True
+                        else:
+                            lines.extend("\t".join(row) for row in rows)
 
                 try:
                     dest.write_text("\n".join(lines), encoding="utf-8")
