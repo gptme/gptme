@@ -278,7 +278,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
@@ -644,9 +644,9 @@ by seeing the actual file contents.</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>To patch/modify files, we use an adapted version of git conflict markers.
 
-Multiple ORIGINAL/UPDATED blocks can make several changes in one patch.
-Keep patches small. Scope each change to a function/class. Avoid placeholders
-in ORIGINAL blocks; they must match the file exactly or the patch will fail.
+Keep patches small. ORIGINAL must match the file exactly, including ellipsis
+comments (<span class="sb">`# ...`</span>): these are literal, not wildcards. Use separate
+ORIGINAL/UPDATED blocks to skip unchanged code.
 
 <span class="gu">### When to use patch vs save</span>
 

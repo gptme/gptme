@@ -282,7 +282,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
@@ -692,6 +692,7 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.load"><code class="docutils literal notranslate"><span class="pre">LogManager.load()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.master_log"><code class="docutils literal notranslate"><span class="pre">LogManager.master_log</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.name"><code class="docutils literal notranslate"><span class="pre">LogManager.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.preserve_current"><code class="docutils literal notranslate"><span class="pre">LogManager.preserve_current()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.preserve_lossless_log"><code class="docutils literal notranslate"><span class="pre">LogManager.preserve_lossless_log()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.read_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.read_model_trace()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.snapshot_message_files"><code class="docutils literal notranslate"><span class="pre">LogManager.snapshot_message_files()</span></code></a></li>
@@ -1068,6 +1069,12 @@ pass</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="gptme.logmanager.LogManager.preserve_current">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">preserve_current</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Iterator" title="(in Python v3.15)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.logmanager.LogManager.preserve_current" title="Link to this definition">#</a></dt>
+<dd><p>Keep incidental log reads inside a tool from replacing its caller.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="gptme.logmanager.LogManager.preserve_lossless_log">
 <span class="sig-name descname"><span class="pre">preserve_lossless_log</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.logmanager.LogManager.preserve_lossless_log" title="Link to this definition">#</a></dt>
 <dd><p>Write the full lossless history to lossless.jsonl.</p>
@@ -1410,6 +1417,7 @@ never dropped regardless of TTL.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.load"><code class="docutils literal notranslate"><span class="pre">LogManager.load()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.master_log"><code class="docutils literal notranslate"><span class="pre">LogManager.master_log</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.name"><code class="docutils literal notranslate"><span class="pre">LogManager.name</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.preserve_current"><code class="docutils literal notranslate"><span class="pre">LogManager.preserve_current()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.preserve_lossless_log"><code class="docutils literal notranslate"><span class="pre">LogManager.preserve_lossless_log()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.read_model_trace"><code class="docutils literal notranslate"><span class="pre">LogManager.read_model_trace()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.logmanager.LogManager.snapshot_message_files"><code class="docutils literal notranslate"><span class="pre">LogManager.snapshot_message_files()</span></code></a></li>

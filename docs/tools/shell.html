@@ -282,7 +282,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
@@ -632,6 +632,7 @@
             </div>
             <nav aria-label="Page">
                 <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell-state-and-background-jobs">Shell State and Background Jobs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-confirmation">Command Confirmation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-parsing">Command Parsing</a></li>
 </ul>
@@ -711,28 +712,24 @@ truncation (GPTME_SHELL_TRUNC_*) is applied on top as a second stage.</p>
 </dd>
 </dl>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>The given command will be executed in a stateful bash shell.
-The shell tool will respond with the output of the execution.
-
-These programs are available, among others:
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Stateful Bash: foreground <span class="sb">`cd`</span>, exports and variables persist.
+Inspect files/git; run tests/commands. Prefer repo evidence.
+Available programs:
 <span class="k">-</span><span class="w"> </span>apt-get
 <span class="k">-</span><span class="w"> </span>docker
 <span class="k">-</span><span class="w"> </span>git
 <span class="k">-</span><span class="w"> </span>hyperfine
 
-<span class="gu">### When to use the shell</span>
-
-Use the shell to inspect the workspace, search files, check git state, or run
-existing commands and tests. Prefer the repo over answering from memory.
-
-<span class="gu">### Background Jobs</span>
-
-Use <span class="sb">`background: true`</span> for work you already know will run long — dev servers,
-builds, test suites. A foreground command that outruns the soft timeout is
-promoted to background job N; its exit code and output arrive automatically.
-A leading <span class="sb">`timeout DURATION`</span> keeps a command in the foreground that long.
-Manage jobs with <span class="sb">`output N`</span>, <span class="sb">`wait N [timeout]`</span>, <span class="sb">`kill N`</span>, <span class="sb">`jobs`</span>: not bash,
-so send each as the entire command, never piped or inside a script.
+Use <span class="sb">`background: true`</span> for known long work: a separate shell inherits the
+Python parent's cwd and environment, not foreground exports/variables.
+Do not rely on prior foreground <span class="sb">`cd`</span>: CLI may change Python cwd;
+workspace/server sessions keep it separate. Each job must <span class="sb">`cd`</span> to an absolute
+path with <span class="sb">`&amp;&amp;`</span>, set variables and verify its checkout.
+At the soft timeout, foreground automatic promotion keeps the running command/state.
+Bash <span class="sb">`&amp;`</span> inherits shell state. Managed jobs report exit/output automatically.
+<span class="sb">`timeout DURATION`</span> keeps work foreground that long.
+Job controls: <span class="sb">`output N`</span>, <span class="sb">`wait N [timeout]`</span>, <span class="sb">`kill N`</span>, <span class="sb">`jobs`</span>.
+Send each as an entire tool call, never in Bash pipelines/scripts.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -1058,6 +1055,40 @@ contentful lines are returned verbatim, so indentation (e.g. from
 sed/head/tail of indented code) is preserved.</p>
 </dd></dl>
 
+<section id="shell-state-and-background-jobs">
+<h2>Shell State and Background Jobs<a class="headerlink" href="#shell-state-and-background-jobs" title="Link to this heading">#</a></h2>
+<p>Foreground calls share a persistent Bash session: directory changes, exported
+variables and shell-local variables remain available to later foreground calls.
+There are three distinct ways for work to continue in the background:</p>
+<ul class="simple">
+<li><p><strong>Explicit background calls</strong> (the structured <code class="docutils literal notranslate"><span class="pre">background:</span> <span class="pre">true</span></code> parameter)
+start a separate Bash process. It inherits the Python parent’s current working
+directory and environment, not the persistent foreground shell’s state.
+Foreground <code class="docutils literal notranslate"><span class="pre">cd</span></code> and <code class="docutils literal notranslate"><span class="pre">export</span></code> changes are therefore not a reliable setup
+step for these jobs; shell-local variables and functions do not transfer.
+The Python process’s directory can differ between CLI and workspace/server
+sessions, so specify the directory inside every explicit background call.</p></li>
+<li><p><strong>Automatic foreground promotion</strong> leaves the already-running command in its
+existing shell when it exceeds the soft timeout. It does not relaunch that
+command using the explicit-background inheritance rules.</p></li>
+<li><p><strong>Bash job control</strong> (<code class="docutils literal notranslate"><span class="pre">command</span> <span class="pre">&amp;</span></code>) launches from the current shell and inherits
+its state at launch. It is not the structured <code class="docutils literal notranslate"><span class="pre">background</span></code> parameter.</p></li>
+</ul>
+<p>Make explicit background calls self-contained. Use an absolute directory and
+<code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code> so a failed <code class="docutils literal notranslate"><span class="pre">cd</span></code> cannot run tests in the wrong checkout. Set required
+variables in that same call and verify a project marker or Git root before
+running a build/test command. For a disposable worktree, a harmless check is:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>--<span class="w"> </span>/absolute/path/to/disposable-worktree<span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">  </span><span class="nb">test</span><span class="w"> </span>-f<span class="w"> </span>pyproject.toml<span class="w"> </span><span class="o">&amp;&amp;</span>
+<span class="w">  </span>git<span class="w"> </span>rev-parse<span class="w"> </span>--show-toplevel
+</pre></div>
+</div>
+<p>Do not set a path variable in one foreground call and assume it exists in a
+later explicit background call. Files remain shared; shell process state does
+not. Managed jobs report their completion automatically. Inspect them with
+<code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">N</span></code>, <code class="docutils literal notranslate"><span class="pre">wait</span> <span class="pre">N</span> <span class="pre">[timeout]</span></code>, <code class="docutils literal notranslate"><span class="pre">kill</span> <span class="pre">N</span></code> or <code class="docutils literal notranslate"><span class="pre">jobs</span></code> as a complete shell-tool
+call, not as a Bash pipeline or part of a script.</p>
+</section>
 <section id="command-confirmation">
 <h2>Command Confirmation<a class="headerlink" href="#command-confirmation" title="Link to this heading">#</a></h2>
 <p>Not every shell command requires user confirmation. gptme uses a three-tier
@@ -1172,6 +1203,7 @@ and are unaffected by the parser.</p>
   </div>
   <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#shell-state-and-background-jobs">Shell State and Background Jobs</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-confirmation">Command Confirmation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#command-parsing">Command Parsing</a></li>
 </ul>

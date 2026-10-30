@@ -282,7 +282,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
@@ -814,7 +814,8 @@ can mutate a read-only root, so the TOCTOU race is not a concern there.</p>
 <dd><p>Write an entry, preserving existing lifecycle and omitted metadata.</p>
 <p>A policy-managed root regenerates its selected view within the stored
 budget, committing entry and index together. New entries remain available
-to recall but are not selected automatically. Legacy roots upsert a line.</p>
+to recall but are not selected automatically. Legacy roots upsert living
+pointers and remove retired pointers, preserving unrelated index prose.</p>
 <p>The root lock serialises this write against concurrent <code class="docutils literal notranslate"><span class="pre">supersede</span></code> calls.
 <code class="docutils literal notranslate"><span class="pre">supersede</span></code> replaces <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> via <code class="docutils literal notranslate"><span class="pre">os.replace</span></code>, which would drop
 a POSIX flock held on the old inode by a concurrent <code class="docutils literal notranslate"><span class="pre">update_index_line</span></code>.
@@ -894,7 +895,8 @@ overlap scorer only when the optional backend is unavailable. A forced
 <span class="sig-prename descclassname"><span class="pre">gptme.memory.</span></span><span class="sig-name descname"><span class="pre">update_index_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">memory_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">entry</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#gptme.memory.MemoryEntry" title="gptme.memory.MemoryEntry"><span class="pre">MemoryEntry</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.memory.update_index_line" title="Link to this definition">#</a></dt>
 <dd><p>Update a legacy pointer, or regenerate a policy-managed root’s view.</p>
 <p><strong>Legacy root (no .memory-index.json)</strong>: upserts a <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">[title](file)</span> <span class="pre">—</span>
-<span class="pre">description</span></code> pointer in <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code>, identical to the old behaviour.</p>
+<span class="pre">description</span></code> pointer in <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> for living entries, or removes the
+pointer for retired entries without rewriting unrelated index prose.</p>
 <p><strong>Policy-managed root</strong>: regenerates the full selected view from
 <code class="docutils literal notranslate"><span class="pre">.memory-index.json</span></code>.  Only the explicitly selected entries appear in the
 always-on index; <code class="docutils literal notranslate"><span class="pre">entry</span></code> is reflected only if its filename is already in

@@ -74,7 +74,7 @@
 - [gptme-mcp-server](https://gptme.org/docs/_sources/cli/gptme-mcp-server.rst)
 - [gptme-server](https://gptme.org/docs/_sources/cli/gptme-server.rst)
 - [gptme-tui](https://gptme.org/docs/_sources/cli/gptme-tui.rst)
-- [gptme-util](https://gptme.org/docs/_sources/cli/gptme-util.rst)
+- [Recovering chat message content](https://gptme.org/docs/_sources/cli/gptme-util.rst)
 - [Sessions](https://gptme.org/docs/_sources/cli/sessions.rst)
 - [Setup and Diagnostics](https://gptme.org/docs/_sources/cli/setup.rst)
 - [TUI](https://gptme.org/docs/_sources/tui.rst)

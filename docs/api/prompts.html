@@ -282,7 +282,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">gptme-util</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
@@ -940,7 +940,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4ba74d4720&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efff9ce5800&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1154,12 +1154,9 @@ To read more pages, use: <span class="sb">`read_url('...', max_pages=N)`</span> 
 
 <span class="gs">**Instructions:**</span> ### When to use chats
 
-Use chats when the user asks about or wants to reference a past conversation:
-<span class="k">-</span><span class="w"> </span>"remember when we discussed X?" → search_chats('X')
-<span class="k">-</span><span class="w"> </span>"find our earlier chat about Y" → search_chats('Y')
-<span class="k">-</span><span class="w"> </span>"what did we say about Z last week?" → search_chats('Z')
-<span class="k">-</span><span class="w"> </span>Listing recent sessions to give the user an overview → list_chats()
-<span class="k">-</span><span class="w"> </span>Reading a specific prior conversation by ID → read_chat(id)
+For past conversations, use list_chats() for recent sessions, search_chats(query)
+for content, and read_chat(id) for a saved conversation. Search message numbers
+pass directly to start_message; full=True recovers bounded multiline text.
 
 Do <span class="gs">**not**</span> use chats for:
 <span class="k">-</span><span class="w"> </span>The current conversation — its content is already in the context window.
@@ -1172,7 +1169,7 @@ The following Python functions are available:
 <span class="sb">```txt</span>
 <span class="s">list_chats(max_results: int, include_summary: bool): List recent chat conversations and optionally summarize them using an LLM.</span>
 <span class="s">search_chats(query: str, max_results: int, sort: Literal["date", "count"], context_lines: int, max_matches: int): Search past conversation logs for the given query and print a summary of the results.</span>
-<span class="s">read_chat(id: str, max_results: int, incl_system: bool, context_messages: int, start_message: Union[int, None]): Read a specific conversation log.</span>
+<span class="s">read_chat(id: str, max_results: int, incl_system: bool, context_messages: int, start_message: Union[int, None], full: bool, content_offset: int, max_chars: int): Read a conversation, previewing one line per message unless full=True.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2000,9 +1997,9 @@ If you delete a section, include surrounding context to show what is removed.
 
 <span class="gs">**Instructions:**</span> To patch/modify files, we use an adapted version of git conflict markers.
 
-Multiple ORIGINAL/UPDATED blocks can make several changes in one patch.
-Keep patches small. Scope each change to a function/class. Avoid placeholders
-in ORIGINAL blocks; they must match the file exactly or the patch will fail.
+Keep patches small. ORIGINAL must match the file exactly, including ellipsis
+comments (<span class="sb">`# ...`</span>): these are literal, not wildcards. Use separate
+ORIGINAL/UPDATED blocks to skip unchanged code.
 
 <span class="gu">### When to use patch vs save</span>
 
@@ -2320,28 +2317,24 @@ This will take a screenshot, save it to a file, and include the image in the cha
 
 <span class="gs">**Description:**</span> Executes shell commands.
 
-<span class="gs">**Instructions:**</span> The given command will be executed in a stateful bash shell.
-The shell tool will respond with the output of the execution.
-
-These programs are available, among others:
+<span class="gs">**Instructions:**</span> Stateful Bash: foreground <span class="sb">`cd`</span>, exports and variables persist.
+Inspect files/git; run tests/commands. Prefer repo evidence.
+Available programs:
 <span class="k">-</span><span class="w"> </span>apt-get
 <span class="k">-</span><span class="w"> </span>docker
 <span class="k">-</span><span class="w"> </span>git
 <span class="k">-</span><span class="w"> </span>hyperfine
 
-<span class="gu">### When to use the shell</span>
-
-Use the shell to inspect the workspace, search files, check git state, or run
-existing commands and tests. Prefer the repo over answering from memory.
-
-<span class="gu">### Background Jobs</span>
-
-Use <span class="sb">`background: true`</span> for work you already know will run long — dev servers,
-builds, test suites. A foreground command that outruns the soft timeout is
-promoted to background job N; its exit code and output arrive automatically.
-A leading <span class="sb">`timeout DURATION`</span> keeps a command in the foreground that long.
-Manage jobs with <span class="sb">`output N`</span>, <span class="sb">`wait N [timeout]`</span>, <span class="sb">`kill N`</span>, <span class="sb">`jobs`</span>: not bash,
-so send each as the entire command, never piped or inside a script.
+Use <span class="sb">`background: true`</span> for known long work: a separate shell inherits the
+Python parent's cwd and environment, not foreground exports/variables.
+Do not rely on prior foreground <span class="sb">`cd`</span>: CLI may change Python cwd;
+workspace/server sessions keep it separate. Each job must <span class="sb">`cd`</span> to an absolute
+path with <span class="sb">`&amp;&amp;`</span>, set variables and verify its checkout.
+At the soft timeout, foreground automatic promotion keeps the running command/state.
+Bash <span class="sb">`&amp;`</span> inherits shell state. Managed jobs report exit/output automatically.
+<span class="sb">`timeout DURATION`</span> keeps work foreground that long.
+Job controls: <span class="sb">`output N`</span>, <span class="sb">`wait N [timeout]`</span>, <span class="sb">`kill N`</span>, <span class="sb">`jobs`</span>.
+Send each as an entire tool call, never in Bash pipelines/scripts.
 
 <span class="gu">### Examples</span>
 
@@ -3067,7 +3060,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20254</p>
+<p>Tokens: 20227</p>
 </dd></dl>
 
 <dl class="py function">

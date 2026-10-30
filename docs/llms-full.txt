@@ -6277,6 +6277,43 @@ Shell
     :members:
     :noindex:
 
+Shell State and Background Jobs
+-------------------------------
+
+Foreground calls share a persistent Bash session: directory changes, exported
+variables and shell-local variables remain available to later foreground calls.
+There are three distinct ways for work to continue in the background:
+
+- **Explicit background calls** (the structured ``background: true`` parameter)
+  start a separate Bash process. It inherits the Python parent's current working
+  directory and environment, not the persistent foreground shell's state.
+  Foreground ``cd`` and ``export`` changes are therefore not a reliable setup
+  step for these jobs; shell-local variables and functions do not transfer.
+  The Python process's directory can differ between CLI and workspace/server
+  sessions, so specify the directory inside every explicit background call.
+- **Automatic foreground promotion** leaves the already-running command in its
+  existing shell when it exceeds the soft timeout. It does not relaunch that
+  command using the explicit-background inheritance rules.
+- **Bash job control** (``command &``) launches from the current shell and inherits
+  its state at launch. It is not the structured ``background`` parameter.
+
+Make explicit background calls self-contained. Use an absolute directory and
+``&&`` so a failed ``cd`` cannot run tests in the wrong checkout. Set required
+variables in that same call and verify a project marker or Git root before
+running a build/test command. For a disposable worktree, a harmless check is:
+
+.. code-block:: bash
+
+    cd -- /absolute/path/to/disposable-worktree &&
+      test -f pyproject.toml &&
+      git rev-parse --show-toplevel
+
+Do not set a path variable in one foreground call and assume it exists in a
+later explicit background call. Files remain shared; shell process state does
+not. Managed jobs report their completion automatically. Inspect them with
+``output N``, ``wait N [timeout]``, ``kill N`` or ``jobs`` as a complete shell-tool
+call, not as a Bash pipeline or part of a script.
+
 Command Confirmation
 --------------------
 
@@ -8719,6 +8756,29 @@ fine-tuning datasets from session trajectories. See :doc:`../evals` and
 
 
 :audience: power-user
+
+Recovering chat message content
+===============================
+
+``gptme-util chats read ID`` keeps short, one-line previews by default. Use
+``--full`` for multiline message content; each message is capped at 10,000
+characters by default (``--max-chars`` accepts 1 through 100,000). Attachments
+are not expanded into their original bytes.
+
+Text search results and ``read --start`` use **1-based original-log message
+numbers**, including system messages even when they are hidden. JSON search
+retains the zero-based ``snippets[].index`` for compatibility and adds
+``snippets[].message_number`` for direct use with ``--start``. Older text search
+used zero-based numbers, and older reads numbered only visible messages; do not
+reuse those old displayed coordinates without converting them.
+
+``--context`` counts visible messages before the selected position and is included
+in ``--limit``. Changing ``--system`` changes visibility, not message numbers.
+When full content is truncated, the continuation marker reports the same message
+number and next character offset. Continue with ``--start N --full --limit 1
+--content-offset OFFSET``. Offsets count Unicode characters, not encoded bytes;
+nonzero offsets require a single-message read with no context. As with any
+position-based read, these coordinates assume the history has not been edited.
 
 .. click:: gptme.cli.util:main
    :prog: gptme-util
