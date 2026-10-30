@@ -1159,8 +1159,8 @@ def _take_screenshot(
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             path = f.name
     else:
-        # create the directory if it doesn't exist
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        path = Path(path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     managed = _create_page(browser)
     page = managed.page
