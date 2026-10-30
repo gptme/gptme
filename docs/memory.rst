@@ -204,8 +204,14 @@ policy; creating the policy does not intercept tools that edit files themselves.
 When editing policy by hand, pause concurrent memory writers for that root.
 
 Roots without a policy retain legacy behavior: ``save`` upserts one pointer
-line, and explicit index generation includes living entries with an optional
-one-shot truncating budget.
+line, preserving unrelated hand-curated index text, and explicit index generation
+includes living entries with an optional one-shot truncating budget. Legacy
+``save`` stages the entry and index before replacing either and rolls back an
+already-published entry if index publication fails. This handles ordinary write
+errors, not process crashes or uncooperative external writers. Existing file
+permission bits are preserved, but atomic replacement is authorized by the
+parent directory: a read-only index file in a writable directory can still be
+replaced, just as in a managed root.
 
 Supersession and audit
 ~~~~~~~~~~~~~~~~~~~~~~

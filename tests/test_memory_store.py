@@ -203,6 +203,112 @@ class TestRoots:
         assert default_write_root(roots).scope == "cc"
 
 
+class TestLegacySavePublication:
+    @pytest.mark.parametrize("existing", [False, True])
+    @pytest.mark.parametrize("index_exists", [False, True])
+    @pytest.mark.parametrize("failure", ["stage", "publish"])
+    def test_failed_save_preserves_entry_and_index(
+        self, tmp_path, monkeypatch, existing, index_exists, failure
+    ):
+        from gptme.memory import store as store_module
+
+        root = tmp_path / "legacy"
+        root.mkdir()
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = root / "fact.md"
+        index = root / "MEMORY.md"
+        if existing:
+            store.save(
+                "fact",
+                "Original",
+                "Old body",
+                type="reference",
+                metadata={"owner": "original"},
+                keywords=["old"],
+            )
+            entry.chmod(0o640)
+        if index_exists:
+            index.write_text(
+                "# Hand curated\n\nKeep this prose.\n- [Fact](fact.md) — Original\n"
+            )
+            index.chmod(0o444)
+        else:
+            index.unlink(missing_ok=True)
+        before = {
+            p.name: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+            for p in root.glob("*.md")
+        }
+        real_replace = store_module.os.replace
+        real_open = store_module.os.open
+        published = []
+
+        def fail_index_publish(src, dst, *args, **kwargs):
+            if Path(dst) == index:
+                assert entry.read_text().endswith("New body\n")
+                raise OSError("index publication failed")
+            published.append(Path(dst).name)
+            return real_replace(src, dst, *args, **kwargs)
+
+        def fail_index_stage(path, *args, **kwargs):
+            if Path(path).name.startswith(".MEMORY.md."):
+                raise OSError("index staging failed")
+            return real_open(path, *args, **kwargs)
+
+        if failure == "publish":
+            monkeypatch.setattr(store_module.os, "replace", fail_index_publish)
+        else:
+            monkeypatch.setattr(store_module.os, "open", fail_index_stage)
+        with pytest.raises(OSError, match="index .* failed"):
+            store.save("fact", "Changed", "New body", metadata={"owner": "changed"})
+        assert {
+            p.name: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+            for p in root.glob("*.md")
+        } == before
+        assert not list(root.glob(".*.tmp"))
+        if failure == "publish":
+            assert "fact.md" in published
+        if existing:
+            saved = parse_entry(entry)
+            assert saved.metadata == {"owner": "original"}
+            assert saved.keywords == ["old"]
+
+    @pytest.mark.parametrize("existing", [False, True])
+    def test_directory_at_index_does_not_publish_entry(self, tmp_path, existing):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = root / "fact.md"
+        index = root / "MEMORY.md"
+        if existing:
+            store.save("fact", "Original", "Old body")
+            index.unlink()
+        index.mkdir()
+        before = entry.read_bytes() if existing else None
+        with pytest.raises(OSError, match="[Dd]irectory|[Pp]ermission|[Aa]ccess"):
+            store.save("fact", "Changed", "New body")
+        assert (entry.read_bytes() if entry.exists() else None) == before
+        assert index.is_dir()
+        assert not list(root.glob(".*.tmp"))
+
+    def test_success_preserves_curated_index_and_metadata(self, tmp_path):
+        root = tmp_path / "legacy"
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = store.save("fact", "Original", "Old body", metadata={"custom": 1})
+        entry.chmod(0o640)
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n- [Fact](fact.md) — Original\nTail.\n")
+        index.chmod(0o444)
+        store.save("fact", "Changed", "New body")
+        assert (
+            index.read_text()
+            == "# Curated\n\nKeep me.\n- [fact](fact.md) — Changed\nTail.\n"
+        )
+        assert stat.S_IMODE(entry.stat().st_mode) == 0o640
+        assert stat.S_IMODE(index.stat().st_mode) == 0o444
+        assert parse_entry(entry).metadata == {"custom": 1}
+        assert parse_entry(entry).body == "New body"
+
+
 class TestStore:
     def _store(self, tmp_path) -> MemoryStore:
         return MemoryStore(
