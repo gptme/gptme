@@ -8,6 +8,7 @@ server session exists, else queued and drained at STEP_PRE.
 Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md
 """
 
+import codecs
 import logging
 import os
 import queue
@@ -39,6 +40,9 @@ _POLL_INTERVAL = 1.0
 # Bound in-flight stream lines so a firehose cannot grow the reader queue
 # without limit while the consumer is applying storm guards.
 _STREAM_LINE_QUEUE = 256
+# Each stream event includes its loss marker within this UTF-8 byte budget.
+_STREAM_LINE_BYTES = 64 * 1024
+_STREAM_TRUNCATED = " [line truncated at 64 KiB]"
 # `run` only reports a tail; never retain the child's full stdout.
 _RUN_TAIL_CHARS = 1000
 
@@ -357,6 +361,42 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
             watch.cancel_event.wait(timeout=delay)
 
 
+class _StreamLines:
+    """Bound line carry before queueing; discard overflow until the next newline."""
+
+    def __init__(self) -> None:
+        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.buffer = bytearray()
+        self.discarding = False
+
+    def feed(self, piece: bytes, *, final: bool = False) -> Generator[str, None, None]:
+        text = self.decoder.decode(piece, final=final)
+        parts = text.split("\n")
+        for i, part in enumerate(parts):
+            if not self.discarding:
+                encoded = part.encode("utf-8")
+                remaining = _STREAM_LINE_BYTES - len(self.buffer)
+                # Slice before extending: even an unterminated line never
+                # grows the carry beyond the event budget.
+                self.buffer.extend(encoded[:remaining])
+                if len(encoded) > remaining:
+                    budget = _STREAM_LINE_BYTES - len(_STREAM_TRUNCATED.encode("utf-8"))
+                    yield (
+                        self.buffer[:budget].decode("utf-8", errors="ignore")
+                        + _STREAM_TRUNCATED
+                    )
+                    self.buffer.clear()
+                    self.discarding = True
+            if i < len(parts) - 1:
+                if not self.discarding:
+                    yield self.buffer.decode("utf-8")
+                self.buffer.clear()
+                self.discarding = False
+        if final and self.buffer:
+            yield self.buffer.decode("utf-8")
+            self.buffer.clear()
+
+
 def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     """Each stdout line is an event; process exit ends the watch.
 
@@ -364,7 +404,9 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     grandchild that inherited the pipe cannot pin us on blocking
     ``readline``. Parent exit ends the stream even if EOF never arrives.
     The queue is bounded: if the consumer cannot keep up, the watch
-    auto-cancels instead of buffering an unbounded firehose.
+    auto-cancels instead of buffering an unbounded firehose. Each line is
+    bounded to 64 KiB of UTF-8 including a visible truncation marker; excess
+    bytes are discarded until newline without growing the reader carry.
     """
     assert proc.stdout is not None
     stdout = proc.stdout
@@ -377,7 +419,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     reader_done = threading.Event()
 
     def _reader() -> None:
-        buf = ""
+        bounded = _StreamLines()
         try:
             fd = stdout.fileno()
             while not stop.is_set() and not watch.cancelled:
@@ -393,9 +435,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 piece = os.read(fd, 4096)
                 if not piece:
                     break
-                buf += piece.decode("utf-8", errors="replace")
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
+                for line in bounded.feed(piece):
                     try:
                         lines.put(line, timeout=0.5)
                     except queue.Full:
@@ -406,17 +446,18 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                             "watch %s stream queue full; auto-cancelled", watch.id
                         )
                         return
-            if buf and not stop.is_set() and not watch.cancelled:
-                try:
-                    lines.put(buf, timeout=0.5)
-                except queue.Full:
-                    with watch.lock:
-                        watch.cancelled = True
-                        watch.cancel_event.set()
-                    logger.warning(
-                        "watch %s stream queue full; auto-cancelled", watch.id
-                    )
-                    return
+            if not stop.is_set() and not watch.cancelled:
+                for line in bounded.feed(b"", final=True):
+                    try:
+                        lines.put(line, timeout=0.5)
+                    except queue.Full:
+                        with watch.lock:
+                            watch.cancelled = True
+                            watch.cancel_event.set()
+                        logger.warning(
+                            "watch %s stream queue full; auto-cancelled", watch.id
+                        )
+                        return
         except Exception:
             logger.debug("watch %s stream reader failed", watch.id, exc_info=True)
         finally:
@@ -1197,7 +1238,9 @@ tool = ToolSpec(
         "Arming a source:\n"
         "- `watch until <cmd> --every 30s`: fire once when cmd exits 0 (e.g. `gh pr checks`)\n"
         "- `watch run <cmd>`: fire when the process exits, with rc + output tail\n"
-        "- `watch stream <cmd>`: each stdout line is an event (Monitor)\n"
+        "- `watch stream <cmd>`: each stdout line is an event (Monitor); "
+        "lines over 64 KiB of UTF-8 are visibly truncated within that limit, "
+        "discarding the remainder until newline\n"
         "- `watch timer 10m [desc]`: fire once after a duration (ScheduleWakeup)\n"
         "- `watch tmux <session> --pattern <re> --stable 5s`: fire on pane match/stability\n"
         "- `watch list`\n"
