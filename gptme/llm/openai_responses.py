@@ -73,6 +73,8 @@ class MessageDict(TypedDict):
     call_id: NotRequired[str]
     reasoning_content: NotRequired[str]
     files: NotRequired[list[str]]
+    # Only the Responses preparation path populates these validated items.
+    responses_items: NotRequired[list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -304,10 +306,17 @@ def _messages_dicts_to_responses_input(
                 instructions_parts.append(text)
             continue
 
+        if role == "assistant" and "responses_items" in message:
+            items.extend(message["responses_items"])
+            continue
+
         if role == "assistant" and message.get("tool_calls"):
-            text = _content_to_text(message.get("content")).strip()
-            if text:
-                items.append({"role": "assistant", "content": text})
+            # Ordinary fallback must retain processed image parts alongside calls.
+            content = _content_to_responses_input(message.get("content"))
+            if isinstance(content, str):
+                content = content.strip()
+            if content:
+                items.append({"role": "assistant", "content": content})
             for tool_call in message["tool_calls"]:
                 function = tool_call["function"]
                 items.append(
@@ -362,6 +371,19 @@ def _messages_to_responses_input(
             continue
 
         if msg.role == "assistant":
+            from .responses_phase import replay_responses_output
+
+            captured = (msg.metadata or {}).get("responses_output")
+            # Text-only capture cannot validate attachments. Preserve this path's
+            # existing conversion (which does not yet process Message.files).
+            replay = (
+                replay_responses_output(msg.content, captured)
+                if captured and not (msg.files or msg.file_hashes)
+                else None
+            )
+            if replay is not None:
+                items.extend(replay)
+                continue
             content_parts, tool_uses = extract_tool_uses_from_assistant_message(
                 msg.content, tool_format_override="tool"
             )

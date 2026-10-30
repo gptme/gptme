@@ -19,7 +19,7 @@ from rich.markup import escape as escape_markup
 from rich.syntax import Syntax
 from rich.text import Text
 from tomlkit._utils import escape_string
-from typing_extensions import Self
+from typing_extensions import NotRequired, Self
 
 from .codeblock import Codeblock
 from .constants import role_color
@@ -169,6 +169,29 @@ class DegenerationData(TypedDict, total=False):
     retried: bool  # whether the response was retried on another subprovider
 
 
+class ResponsesTextItem(TypedDict):
+    """Replayable assistant text, not an opaque provider output object."""
+
+    type: Literal["message"]
+    text: str
+    phase: NotRequired[str]
+
+
+class ResponsesCallItem(TypedDict):
+    """An ordering anchor only; arguments always come from current content."""
+
+    type: Literal["function_call"]
+    call_id: str
+
+
+class ResponsesOutput(TypedDict):
+    """Ordered Responses items anchored to the visible generated content."""
+
+    content_digest: str
+    reasoning_stripped_digest: NotRequired[str]
+    items: list[ResponsesTextItem | ResponsesCallItem]
+
+
 class MessageMetadata(TypedDict, total=False):
     """
     Metadata stored with each message.
@@ -272,6 +295,8 @@ class MessageMetadata(TypedDict, total=False):
     # Signed Anthropic native-compaction block (compact-2026-09-04 beta),
     # round-tripped verbatim as the first content block of later requests.
     anthropic_compaction_block: dict[str, Any]
+    # Responses-only replay data. Consumers validate current content before use.
+    responses_output: ResponsesOutput
 
 
 _TOKEN_KEYS = (
@@ -582,10 +607,10 @@ class Message:
             + call_id_toml
         ).strip()
 
-        # doublequotes need to be escaped
-        # content = self.content.replace('"', '\\"')
-        content = escape_string(self.content)
-        content = content.replace("\\n", "\n")
+        # Escape each real line separately: replacing escaped \\n globally also
+        # changes literal backslash-n (e.g. JSON arguments) into TOML line
+        # continuations, silently corrupting the content on reload.
+        content = "\n".join(escape_string(line) for line in self.content.split("\n"))
         # Don't strip - preserve whitespace for data integrity
 
         return f'''[message]
