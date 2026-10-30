@@ -828,3 +828,35 @@ def test_current_branch_write_does_not_overwrite_other_branch_archive(tmp_path):
     stale.write(branches=False)
     LogManager.load(manager.logdir, branch="alternative", lock=False)
     assert "new branch output" in recall_result(6)
+
+
+def test_append_does_not_overwrite_unchanged_sibling_archive(tmp_path):
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    manager = LogManager(_messages(), logdir=tmp_path / "stale-append", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.write()
+    stale = LogManager.load(manager.logdir, lock=False)
+    writer = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    writer.append(Message("system", "new branch output", call_id="new"))
+    stale.append(Message("user", "Main-only addition"))
+    LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "new branch output" in recall_result(6)
+
+
+def test_branch_edit_matches_changed_result_by_call_id_with_equal_timestamps(tmp_path):
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    first = Message("system", "first", call_id="a")
+    second = Message("system", "second", call_id="b", timestamp=first.timestamp)
+    manager = LogManager([first, second], logdir=tmp_path / "edited-time", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log([first, second])
+    manager.branch("alternative")
+    manager.edit([second.replace(content="edited")])
+    assert "edited" in recall_result(2)
+    assert "not a tool result" in recall_result(1)
