@@ -533,6 +533,16 @@ def get_prompt_session() -> PromptSession:
             """Insert newline on Meta-ENTER (Esc+Enter)."""
             event.current_buffer.insert_text("\n")
 
+        def _clipboard_image_reference(path: str | Path) -> str:
+            """Reject names that cannot safely fit the attachment delimiter.
+
+            Return a nonempty notice so rejected image paths never fall through
+            to raw text paste, which could expose an inner attachment token.
+            """
+            if any(char in str(path) for char in ("`", "\n", "\r")):
+                return "[Image paste rejected: rename the file without backticks or line breaks.]"
+            return f"`@{path}`"
+
         def _check_clipboard_for_image(text: str | None) -> str | None:
             """Check if text looks like an image URL or existing image path.
 
@@ -555,7 +565,7 @@ def get_prompt_session() -> PromptSession:
                 in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
                 and Path(text_stripped).exists()
             ):
-                return f"`@{text_stripped}`"
+                return _clipboard_image_reference(text_stripped)
             return None
 
         @kb.add("c-v")  # Ctrl+V for pasting images or text
@@ -569,7 +579,9 @@ def get_prompt_session() -> PromptSession:
             image_result = paste_image()
             if image_result:
                 logger.debug(f"Pasted image from clipboard: {image_result}")
-                event.current_buffer.insert_text(f"`@{image_result}`")
+                event.current_buffer.insert_text(
+                    _clipboard_image_reference(image_result)
+                )
                 return
 
             # No image - check if clipboard text is an image URL or path
@@ -614,7 +626,7 @@ def get_prompt_session() -> PromptSession:
             image_path = paste_image()
             if image_path:
                 logger.debug(f"BracketedPaste: found image in clipboard: {image_path}")
-                event.current_buffer.insert_text(f"`@{image_path}`")
+                event.current_buffer.insert_text(_clipboard_image_reference(image_path))
                 return
 
             # Check if pasted text is an image URL or path

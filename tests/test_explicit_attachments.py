@@ -191,8 +191,9 @@ def test_explicit_reference_inside_code_or_xml_is_not_attached(tmp_path, monkeyp
 
 @pytest.mark.parametrize("key", ["control-v", "bracketed-paste"])
 @pytest.mark.parametrize("native_image", [False, True])
+@pytest.mark.parametrize("unsafe_name", [False, True])
 def test_clipboard_handler_emits_working_attachment(
-    tmp_path, monkeypatch, key, native_image
+    tmp_path, monkeypatch, key, native_image, unsafe_name
 ):
     from types import SimpleNamespace
 
@@ -202,7 +203,10 @@ def test_clipboard_handler_emits_working_attachment(
 
     from gptme.util import clipboard, prompt
 
-    picture = tmp_path / "clipboard picture.png"
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "secret.txt").write_text("synthetic-wrong-file-marker")
+    name = "photo `@secret.txt` album.png" if unsafe_name else "clipboard picture.png"
+    picture = tmp_path / name
     Image.new("RGB", (2, 2), "blue").save(picture)
     monkeypatch.setattr(prompt, "_prompt_session", None)
     monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
@@ -227,9 +231,16 @@ def test_clipboard_handler_emits_working_attachment(
     bindings = session.key_bindings.get_bindings_for_keys(keys)
     assert len(bindings) == 1
     bindings[0].handler(event)
-    assert buffer.text == f"`@{picture}`"
     result = context._include_paths(Message("user", buffer.text))
-    assert result.files == [picture]
+    assert "synthetic-wrong-file-marker" not in result.content
+    if unsafe_name:
+        # Reject without echoing the filename or falling back to raw paste.
+        assert "@secret.txt" not in buffer.text
+        assert str(picture) not in buffer.text
+        assert not result.files
+    else:
+        assert buffer.text == f"`@{picture}`"
+        assert result.files == [picture]
 
 
 def test_programmatic_text_attachment_survives_plain_default(tmp_path):
@@ -542,3 +553,47 @@ async def test_cli_aborted_directory_completion_does_not_authorize_next_prompt(
         result = context._include_paths(Message("user", submitted))
         assert "child.md" not in result.content
     prompt.clear_path_cache()
+
+
+@pytest.mark.parametrize("key", ["control-v", "bracketed-paste"])
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("ordinary clipboard text", "ordinary clipboard text"),
+        (
+            "https://example.com/image.png",
+            "View this image: https://example.com/image.png",
+        ),
+    ],
+)
+def test_clipboard_image_rejection_preserves_text_and_urls(
+    tmp_path, monkeypatch, key: str, text: str, expected: str
+) -> None:
+    from types import SimpleNamespace
+
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+    from prompt_toolkit.keys import Keys
+
+    from gptme.util import clipboard, prompt
+
+    monkeypatch.setattr(prompt, "_prompt_session", None)
+    monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
+    monkeypatch.setattr(
+        prompt,
+        "PromptSession",
+        lambda **kwargs: SimpleNamespace(
+            app=SimpleNamespace(on_reset=MagicMock()), **kwargs
+        ),
+    )
+    monkeypatch.setattr(clipboard, "paste_image", lambda: None)
+    monkeypatch.setattr(clipboard, "paste_text", lambda: text)
+    session = prompt.get_prompt_session()
+    buffer = Buffer()
+    event = MagicMock(spec=KeyPressEvent)
+    event.current_buffer = buffer
+    event.data = text
+    keys = (Keys.ControlV if key == "control-v" else Keys.BracketedPaste,)
+    assert session.key_bindings is not None
+    session.key_bindings.get_bindings_for_keys(keys)[0].handler(event)
+    assert buffer.text == expected
