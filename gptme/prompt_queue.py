@@ -79,7 +79,7 @@ def _message_from_record(record: dict) -> Message | None:
     if not content:
         return None
     role = record.get("role", "user")
-    if role not in _QUEUE_ROLES:
+    if not isinstance(role, str) or role not in _QUEUE_ROLES:
         role = "user"
     metadata: MessageMetadata | None = None
     skill_invocation_id = record.get("skill_invocation_id")

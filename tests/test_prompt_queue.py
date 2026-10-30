@@ -169,9 +169,12 @@ def test_requeue_prompts_preserves_non_user_role(tmp_path: Path) -> None:
     assert message.content == "subagent done"
 
 
-def test_requeue_prompts_unknown_role_defaults_to_user(tmp_path: Path) -> None:
+@pytest.mark.parametrize("role", ["tool", [], {}, None, 123])
+def test_requeue_prompts_unknown_role_defaults_to_user(
+    tmp_path: Path, role: object
+) -> None:
     get_prompt_queue_path(tmp_path).write_text(
-        '{"content": "mystery", "role": "tool"}\n', encoding="utf-8"
+        json.dumps({"content": "mystery", "role": role}) + "\n", encoding="utf-8"
     )
     (message,) = drain_prompt_queue(tmp_path)
     assert message.role == "user"
