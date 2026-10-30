@@ -20,7 +20,10 @@ def test_fifo_rejected_before_open(tmp_path: Path, entry: str, symlink: bool):
     os.mkfifo(fifo)
     target = tmp_path / "link" if symlink else fifo
     if symlink:
-        target.symlink_to(fifo)
+        try:
+            target.symlink_to(fifo)
+        except OSError:
+            pytest.skip("symlink creation unavailable")
     # Use a child so a regression blocks for at most eight seconds. The actual
     # FIFO open is not mocked; run() kills/reaps a timed-out child.
     code = """
