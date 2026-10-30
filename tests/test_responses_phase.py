@@ -1,7 +1,10 @@
 """Offline output -> persistence -> next-request phase regressions (#4616)."""
 
+import base64
 import json
 from collections.abc import Generator, Iterator
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
@@ -544,3 +547,58 @@ def test_review_blank_line_runs_preserve_exact_phased_text(
         )
         assert edited.content != msg.content
         assert all("phase" not in item for item in _prepare(edited, replay_provider))
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("with_call", [False, True])
+@pytest.mark.parametrize("attachment", ["files", "file_hashes"])
+def test_review_attachments_decline_text_only_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    with_call: bool,
+    attachment: str,
+) -> None:
+    """4424180857: real SDK image preparation must not be bypassed by replay."""
+    items = [_message("Hello", "commentary")]
+    if with_call:
+        items.append(
+            {
+                "type": "function_call",
+                "name": "shell",
+                "call_id": "call_1",
+                "arguments": '{"command":"pwd"}',
+            }
+        )
+    msg = _generate(monkeypatch, provider, items, "terminal")
+    assert (msg.metadata or {}).get("responses_output")
+    with TemporaryDirectory() as directory:
+        image = Path(directory) / "pixel.png"
+        image_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+        image.write_bytes(base64.b64decode(image_data))
+        attached = msg.replace(
+            files=[image] if attachment == "files" else [],
+            file_hashes={str(image): "changed"} if attachment == "file_hashes" else {},
+        )
+        # Compare actual provider preparation with ordinary current-content conversion.
+        # Subscription's existing converter is text-only; do not claim image support.
+        for replay_provider in ("sdk", "subscription"):
+            actual = _prepare(attached, replay_provider)
+            ordinary = _prepare(attached.replace(metadata=None), replay_provider)
+            if replay_provider == "sdk" and attachment == "files":
+                images = [
+                    part
+                    for item in actual
+                    if isinstance(item.get("content"), list)
+                    for part in item["content"]
+                    if part.get("type") == "input_image"
+                ]
+                assert len(images) == 1
+                assert images[0]["image_url"] == f"data:image/png;base64,{image_data}"
+            assert actual == ordinary
+            assert all("phase" not in item for item in actual)
+            calls = [item for item in actual if item.get("type") == "function_call"]
+            assert len(calls) == int(with_call)
+            if with_call:
+                assert json.loads(calls[0]["arguments"]) == {"command": "pwd"}
+        # Preparation must not mutate the original message's attachments.
+        assert attached.files == ([image] if attachment == "files" else [])

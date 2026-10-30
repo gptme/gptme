@@ -496,7 +496,8 @@ def _prepare_messages_for_responses_api(
     dicts = msgs2dicts(messages)
     for msg, message in zip(messages, dicts):
         captured = (msg.metadata or {}).get("responses_output")
-        if msg.role == "assistant" and captured:
+        # Capture is text-only and cannot authorize bypassing file processing.
+        if msg.role == "assistant" and captured and not (msg.files or msg.file_hashes):
             replay = replay_responses_output(msg.content, captured)
             if replay is not None:
                 message["responses_items"] = replay
