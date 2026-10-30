@@ -212,7 +212,14 @@ class Converter(ABC):
         )
         published = False
         try:
-            target = dest.resolve()
+            try:
+                target = dest.resolve()
+            except RuntimeError as exc:
+                # Python <3.13 reports symlink loops as RuntimeError, not OSError.
+                raise OSError(str(exc)) from exc
+            # Non-strict resolve on Python >=3.13 can leave a loop unresolved.
+            if target.is_symlink():
+                target.stat()
             if target.is_dir():
                 result.output_path = dest
                 result.error = f"Destination is an existing directory: {dest}"

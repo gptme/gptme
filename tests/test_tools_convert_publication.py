@@ -173,6 +173,40 @@ def test_backend_success_publishes_requested_path(
     assert commands
 
 
+@pytest.mark.parametrize("resolve_error", [OSError, RuntimeError])
+def test_destination_resolution_failure_returns_result(tmp_path, resolve_error):
+    source, destination = tmp_path / "source.mp4", tmp_path / "output.jpg"
+    source.write_bytes(b"source")
+    with (
+        patch.object(Path, "resolve", side_effect=resolve_error("symlink loop")),
+        patch.object(conversion.VideoThumbnailConverter, "_convert") as backend,
+    ):
+        result = conversion.VideoThumbnailConverter().convert(source, destination)
+    assert not result.success
+    assert result.output_path is None
+    assert "symlink loop" in (result.error or "")
+    backend.assert_not_called()
+    assert set(tmp_path.iterdir()) == {source}
+
+
+def test_symlink_loop_destination_returns_failure(tmp_path):
+    source, destination = tmp_path / "source.mp4", tmp_path / "output.jpg"
+    source.write_bytes(b"source")
+    try:
+        destination.symlink_to(destination.name)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    with patch.object(conversion.VideoThumbnailConverter, "_convert") as backend:
+        result = conversion.VideoThumbnailConverter().convert(source, destination)
+    assert not result.success
+    assert result.output_path is None
+    assert result.error
+    backend.assert_not_called()
+    assert destination.readlink() == Path(destination.name)
+    assert source.read_bytes() == b"source"
+    assert set(tmp_path.iterdir()) == {source, destination}
+
+
 @pytest.mark.parametrize("existing", [False, True])
 def test_publication_failure_preserves_destination(tmp_path, existing):
     source = tmp_path / "source.mp4"
@@ -296,7 +330,7 @@ def test_real_docx_success_and_private_mode(tmp_path, extension, existing):
         result = conversion.convert_file(source, destination)
     assert result.success, result.error
     assert result.output_path == destination
-    assert destination.read_text() == "ordinary Unicode å control"
+    assert destination.read_text(encoding="utf-8") == "ordinary Unicode å control"
     if existing and os.name == "posix":
         assert destination.stat().st_mode & 0o777 == 0o600
     assert source.read_bytes() == original
