@@ -786,6 +786,10 @@ def conversation_stats(
 ) -> None:
     """Show statistics about conversation history.
 
+    Per-model conversation counts include each conversation once for every model
+    in its usage metadata, so these counts need not sum to the global count.
+    Histories without per-model usage fall back to their last model (or unknown).
+
     Args:
         since: Only include conversations since this date (YYYY-MM-DD or Nd).
         as_json: Output as JSON instead of formatted text.
@@ -901,12 +905,20 @@ def conversation_stats(
         agent = conv.agent_name or "interactive"
         agent_counts[agent] += 1
 
-        # Model breakdown and cost/token tracking
-        model = conv.model or "unknown"
-        model_counts[model] += 1
-        model_cost[model] = model_cost.get(model, 0.0) + conv.total_cost
-        model_input_tokens[model] += conv.total_input_tokens
-        model_output_tokens[model] += conv.total_output_tokens
+        # Count a conversation once per participating model, not per message.
+        # Older metadata may have only conversation-wide totals.
+        models_usage = conv.models_usage or {
+            conv.model or "unknown": {
+                "cost": conv.total_cost,
+                "input_tokens": conv.total_input_tokens,
+                "output_tokens": conv.total_output_tokens,
+            }
+        }
+        for model, usage in models_usage.items():
+            model_counts[model] += 1
+            model_cost[model] = model_cost.get(model, 0.0) + usage.get("cost", 0.0)
+            model_input_tokens[model] += usage.get("input_tokens", 0)
+            model_output_tokens[model] += usage.get("output_tokens", 0)
         total_cost += conv.total_cost
         total_input_tokens += conv.total_input_tokens
         total_output_tokens += conv.total_output_tokens
@@ -1025,14 +1037,13 @@ def conversation_stats(
             print(f"  {agent:20s}  {count:5,} ({pct:5.1f}%)")
 
     # Model breakdown with cost and tokens
-    known_models = {m: c for m, c in model_counts.items() if m != "unknown"}
-    if known_models:
-        print("\nBy Model")
+    if model_counts:
+        print("\nBy Model (conversations may use multiple models)")
         top_models = sorted(
-            known_models, key=lambda m: known_models.get(m, 0), reverse=True
+            model_counts, key=lambda m: model_counts.get(m, 0), reverse=True
         )[:15]
         for model in top_models:
-            count = known_models[model]
+            count = model_counts[model]
             cost = model_cost[model]
             in_tok = model_input_tokens[model]
             out_tok = model_output_tokens[model]
