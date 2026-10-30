@@ -443,6 +443,53 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     assert complete_input("see lo") == []
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_complete_path_skips_nested_tick_filename(tmp_path, monkeypatch, legacy):
+    """Nested ticks in a completed name must not attach a different file.
+
+    Wrapping ``photo `@secret.txt` album.txt`` would close the quote early so
+    include_paths treats the inner ``@secret.txt`` as a separate reference.
+    Skip that candidate (same fail-closed policy as CLI) rather than invent
+    quoting. Ordinary spaced files and directory children still complete.
+    """
+    from gptme.tui.app import complete_path
+    from gptme.util.context import include_paths
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
+    (tmp_path / "secret.txt").write_text("SYNTHETIC-SECRET-MARKER")
+    (tmp_path / "photo `@secret.txt` album.txt").write_text("SYNTHETIC-TARGET")
+
+    assert complete_path("see @pho") == []
+    assert complete_path("see pho") == []
+
+    (tmp_path / "photo album.txt").write_text("SYNTHETIC-SAFE")
+    assert complete_path("see @pho") == ["see `@photo album.txt`"]
+    assert complete_path("see pho") == ["see `photo album.txt`"]
+    safe = include_paths(
+        Message("user", complete_path("see @pho")[0]), pre_confirmed_urls=[]
+    )
+    assert "SYNTHETIC-SAFE" in safe.content
+    assert "SYNTHETIC-SECRET-MARKER" not in safe.content
+    assert "SYNTHETIC-TARGET" not in safe.content
+
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "child.md").write_text("child-content-marker")
+    assert complete_path("see my") == ["see `my dir/`"]
+    assert complete_path("see `my dir/ch") == ["see `my dir/child.md`"]
+
+    for candidate in (
+        *complete_path("see @pho"),
+        *complete_path("see pho"),
+        *complete_path("see my"),
+        *complete_path("see `my dir/ch"),
+    ):
+        result = include_paths(Message("user", candidate), pre_confirmed_urls=[])
+        assert "SYNTHETIC-SECRET-MARKER" not in result.content
+        assert "SYNTHETIC-TARGET" not in result.content
+
+
 def test_complete_input_root_path_prompt(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "journal").mkdir()

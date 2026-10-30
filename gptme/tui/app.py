@@ -1635,6 +1635,10 @@ def complete_path(text: str) -> list[str]:
     bare cwd files without an extension get "./" ("./Makefile"), and names
     with spaces are backtick-quoted. The input widget keeps the cursor inside
     a quoted directory, so it can be submitted or completed further.
+
+    Names containing backticks are skipped: wrapping them would close the
+    quote early and expose an inner ``@path`` as a separate attachment.
+    Type those names instead of completing them.
     """
     quoted = text.count("`") % 2 == 1  # completing inside an open `...
     seg = text[text.rindex("`") + 1 :] if quoted else re.split(r"\s", text)[-1]
@@ -1652,6 +1656,10 @@ def complete_path(text: str) -> list[str]:
         if not e.name.startswith(prefix):
             continue
         if e.name.startswith(".") and not prefix.startswith("."):
+            continue
+        # Nested ticks would close the wrapper early and expose an inner
+        # `@path` token. Skip those names; the user can type them.
+        if "`" in e.name:
             continue
         try:
             is_dir = e.is_dir()
