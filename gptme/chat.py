@@ -526,7 +526,10 @@ def _run_chat_loop(
                         model,
                         output_schema,
                     )
-                    # A normal prompt is explicit resume: drain parked work next.
+                    # Restore older held work before LOOP_CONTINUE appends new
+                    # messages, preserving the queue's pre-failure FIFO order.
+                    if parked_waiting:
+                        _drain_external_prompt_queue(manager, prompt_queue)
                     parked_waiting = False
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
