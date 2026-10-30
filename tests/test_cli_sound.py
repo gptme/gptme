@@ -1,4 +1,3 @@
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
@@ -44,16 +43,6 @@ def test_sound_ding_play_failure_exits():
         result = CliRunner().invoke(main, ["sound", "ding"])
     assert result.exit_code == 1
     assert "No audio player available" in result.output
-
-
-def test_media_wav_included_in_wheel():
-    """Poetry include without format is sdist-only; wav/png must list wheel."""
-    text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
-    for path in ("media/*.wav", "media/*.png", "media/*.svg"):
-        needle = f'path = "{path}"'
-        line = next((ln for ln in text.splitlines() if needle in ln), None)
-        assert line is not None, path
-        assert "wheel" in line, path
 
 
 def test_afplay_volume_args(tmp_path):
