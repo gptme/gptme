@@ -54,6 +54,71 @@ else:
     assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
 
 
+@pytest.mark.parametrize("operation", ["helper", "save", "patch"])
+def test_windows_existing_destination_refused_before_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from types import SimpleNamespace
+
+    from gptme.tools.patch import execute_patch_impl
+    from gptme.tools.save import execute_save_impl
+    from gptme.util import file_write
+
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"PRIVATE\n")
+    before = target.stat()
+    opened = []
+
+    def track_open(*args, **kwargs):
+        opened.append(args[0])
+        return os.open(*args, **kwargs)
+
+    # Isolate the platform branch without changing pathlib's host OS selection.
+    # The same test runs on native Windows in the path/config CI slice.
+    monkeypatch.setattr(
+        file_write,
+        "os",
+        SimpleNamespace(**(vars(os) | {"name": "nt", "open": track_open})),
+    )
+    with pytest.raises(ValueError, match="Windows security descriptor"):
+        if operation == "helper":
+            file_write.write_text_preserving_original(target, "PUBLIC\n", newline="")
+        elif operation == "save":
+            list(execute_save_impl("PUBLIC\n", target))
+        else:
+            list(
+                execute_patch_impl(
+                    "<<<<<<< ORIGINAL\nPRIVATE\n=======\nPUBLIC\n>>>>>>> UPDATED",
+                    target,
+                )
+            )
+    assert not opened
+    assert target.read_bytes() == b"PRIVATE\n"
+    assert target.stat().st_ino == before.st_ino
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
+@pytest.mark.parametrize("operation", ["helper", "save"])
+def test_windows_new_destination_still_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from types import SimpleNamespace
+
+    from gptme.tools.save import execute_save_impl
+    from gptme.util import file_write
+
+    target = tmp_path / "new.txt"
+    monkeypatch.setattr(
+        file_write, "os", SimpleNamespace(**(vars(os) | {"name": "nt"}))
+    )
+    if operation == "helper":
+        file_write.write_text_preserving_original(target, "NEW\n", newline="")
+    else:
+        list(execute_save_impl("NEW\n", target))
+    assert target.read_bytes() == b"NEW\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["new.txt"]
+
+
 @pytest.mark.parametrize("phase", ["write", "close", "replace"])
 @pytest.mark.parametrize("exists", [True, False])
 def test_failure_cleans_staging_and_preserves_destination(

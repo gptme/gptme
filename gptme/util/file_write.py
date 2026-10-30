@@ -20,6 +20,13 @@ def write_text_preserving_original(path: Path, content: str, *, newline: str) ->
     except FileNotFoundError:
         info = None
     if info is not None:
+        # A sibling inherits its parent's DACL, not the destination's explicit
+        # Windows security descriptor. chmod cannot retain that restriction, and
+        # even staging the contents could expose them before replacement.
+        if os.name == "nt":
+            raise ValueError(
+                f"Cannot safely preserve Windows security descriptor for `{path}`"
+            )
         if not stat.S_ISREG(info.st_mode):
             raise ValueError(f"Cannot replace non-regular file `{path}`")
         if info.st_nlink > 1:
