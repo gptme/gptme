@@ -28,11 +28,9 @@ from .base import (
 instructions = """
 To patch/modify files, we use an adapted version of git conflict markers.
 
-Multiple ORIGINAL/UPDATED blocks can make several changes in one patch.
-Keep patches small. Scope each change to a function/class. Avoid placeholders
-in ORIGINAL blocks; they must match the file exactly or the patch will fail.
-Ellipsis comments such as `# ...` are literal content, not omission wildcards.
-To skip unchanged code, use separate ORIGINAL/UPDATED blocks with actual context.
+Keep patches small. ORIGINAL must match the file exactly, including ellipsis
+comments (`# ...`): these are literal, not wildcards. Use separate
+ORIGINAL/UPDATED blocks to skip unchanged code.
 
 ### When to use patch vs save
 
