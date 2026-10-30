@@ -1512,10 +1512,10 @@ TUI_COMMANDS: dict[str, list[list[str]]] = {
 def complete_path(text: str) -> list[str]:
     """Full-text candidates completing the last word as a filesystem path.
 
-    Candidates are written so include_paths attaches them: directories get a
-    trailing slash ("journ<Tab>" -> "journal/"; a bare "journal" is prose),
-    bare cwd files without an extension get "./" ("./Makefile"), and names
-    with spaces are backtick-quoted. The input widget keeps the cursor inside
+    Directories get a trailing slash ("journ<Tab>" -> "journal/"), bare cwd
+    files without an extension get "./" ("./Makefile"), and names with spaces
+    are backtick-quoted. An @ prefix is preserved for explicit attachments;
+    completing an ordinary path leaves it as prose. The input widget keeps the cursor inside
     a quoted directory, so it can be submitted or completed further.
     """
     quoted = text.count("`") % 2 == 1  # completing inside an open `...
@@ -3159,8 +3159,8 @@ class GptmeApp(App):
             return
 
         if is_message_command(text):
-            # a real /command; paths like /tmp/foo.md fall through to _submit,
-            # which attaches file contents via include_paths
+            # A real /command; paths like /tmp/foo.md fall through as prose.
+            # Explicit @paths are attached by _submit via include_paths.
             self._handle_command(text)
             return
         if self.generating and extract_urls(text):

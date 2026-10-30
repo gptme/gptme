@@ -472,8 +472,8 @@ def get_prompt_session() -> PromptSession:
             """Check if text looks like an image URL or existing image path.
 
             For image URLs: returns 'View this image: <url>' to prompt the model to view it.
-            For local image file paths: returns the bare path, so include_paths() can
-            auto-attach the image as binary data (model sees it directly via vision).
+            For local image paths: returns an explicit attachment reference so
+            include_paths() attaches binary data for the model's vision input.
             """
             if not text:
                 return None
@@ -490,9 +490,7 @@ def get_prompt_session() -> PromptSession:
                 in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
                 and Path(text_stripped).exists()
             ):
-                # Return bare path — include_paths() will auto-attach as binary image
-                # data, so the model sees it directly without needing to call view_image()
-                return text_stripped
+                return f"`@{text_stripped}`"
             return None
 
         @kb.add("c-v")  # Ctrl+V for pasting images or text
@@ -506,9 +504,7 @@ def get_prompt_session() -> PromptSession:
             image_result = paste_image()
             if image_result:
                 logger.debug(f"Pasted image from clipboard: {image_result}")
-                # Insert bare path — include_paths() auto-attaches the image as
-                # binary data so the model sees it directly via vision
-                event.current_buffer.insert_text(str(image_result))
+                event.current_buffer.insert_text(f"`@{image_result}`")
                 return
 
             # No image - check if clipboard text is an image URL or path
@@ -553,9 +549,7 @@ def get_prompt_session() -> PromptSession:
             image_path = paste_image()
             if image_path:
                 logger.debug(f"BracketedPaste: found image in clipboard: {image_path}")
-                # Insert bare path — include_paths() auto-attaches the image as
-                # binary data so the model sees it directly via vision
-                event.current_buffer.insert_text(str(image_path))
+                event.current_buffer.insert_text(f"`@{image_path}`")
                 return
 
             # Check if pasted text is an image URL or path

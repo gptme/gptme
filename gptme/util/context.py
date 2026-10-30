@@ -71,7 +71,7 @@ def extract_urls(content: str) -> list[str]:
     Used by callers that want to preview and confirm URLs before passing them
     back via the ``pre_confirmed_urls`` parameter of :func:`include_paths`.
     """
-    potential_paths = _find_potential_paths(content)
+    potential_paths = _find_potential_paths(content, auto_include=False)
     urls = []
     for word in potential_paths:
         try:
@@ -578,8 +578,12 @@ def _include_paths(
     pre_confirmed_urls: list[str] | None = None,
 ) -> Message:
     """
-    Searches the message for any valid paths and:
-     - In legacy mode (default):
+    Attach explicit ``@path`` references and separately confirmed URLs.
+
+    Ordinary path mentions stay as typed unless ``GPTME_AUTO_INCLUDE_PATHS=1``
+    opts into legacy automatic inclusion. Backtick-quote references with spaces
+    (`` `@my notes.txt` ``). For selected resources:
+     - In append-only context mode (default):
        - includes the contents of text files as codeblocks
        - includes images as msg.files
      - In fresh context mode (GPTME_FRESH=1):
@@ -625,18 +629,25 @@ def _include_paths(
     if is_message_command(msg.content):
         return msg
 
-    # Collect all potential paths/URLs first
-    potential_paths = _find_potential_paths(msg.content)
+    # Keep URL discovery independent of the local-file inclusion policy.
+    auto_include = os.environ.get("GPTME_AUTO_INCLUDE_PATHS", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    potential_paths = _find_potential_paths(msg.content, auto_include=auto_include)
 
     # Separate URLs from file paths for confirmation
-    urls_found = []
+    # Extract URLs separately even in compatibility mode, including URLs in
+    # quoted prose. They must never reach the local reader's fallback without
+    # going through the same confirmation as ordinary URL tokens.
+    urls_found = extract_urls(msg.content)
     file_paths = []
     for word in potential_paths:
         try:
             p = urllib.parse.urlparse(word)
-            if p.scheme in ("http", "https") and p.netloc:
-                urls_found.append(word)
-            else:
+            if not (p.scheme in ("http", "https") and p.netloc):
                 file_paths.append(word)
         except ValueError:
             file_paths.append(word)
@@ -674,6 +685,10 @@ def _include_paths(
                 continue
             try:
                 f = Path(word).expanduser()
+                # A reference with spaces names one resource. Do not let a
+                # missing path fall back to reading individual words/URLs.
+                if not f.exists():
+                    continue
                 over_budget = (
                     f.is_file()
                     and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
@@ -690,7 +705,9 @@ def _include_paths(
                     continue  # text file: skip binary handling too
                 # Binary/image file: fall through so it still gets attached via msg.files
                 # (binary attachments are not counted against the text budget)
-            elif contents := _resource_to_codeblock(word, confirmed_urls=None):
+            elif contents := _resource_to_codeblock(
+                word, confirmed_urls=[], literal_path=True
+            ):
                 content_size = len(contents)
                 if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
                     skipped_paths.append(word)
@@ -773,13 +790,15 @@ def _mark_external_content(url: str, contents: str) -> str:
     return marked
 
 
-def _find_potential_paths(content: str) -> list[str]:
+def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[str]:
     """
     Find potential file paths and URLs in a message content.
     Excludes content within code blocks.
 
     Args:
         content: The message content to search
+        auto_include: Include implicit local paths (legacy discovery). When false,
+            only explicit @references and URLs are returned, without scanning cwd.
 
     Returns:
         List of potential paths/URLs found in the message
@@ -802,13 +821,14 @@ def _find_potential_paths(content: str) -> list[str]:
     # List current directory contents for relative path matching
     cwd_entries: set[str] = set()
     cwd_files: set[str] = set()  # regular files only
-    for f in Path.cwd().iterdir():
-        cwd_entries.add(f.name)
-        try:
-            if f.is_file():
-                cwd_files.add(f.name)
-        except OSError:
-            pass
+    if auto_include:
+        for f in Path.cwd().iterdir():
+            cwd_entries.add(f.name)
+            try:
+                if f.is_file():
+                    cwd_files.add(f.name)
+            except OSError:
+                pass
 
     paths: list[str] = []
     seen_paths: set[str] = set()
@@ -819,8 +839,26 @@ def _find_potential_paths(content: str) -> list[str]:
         Supports the ``@`` prefix convention (e.g. ``@src/file.py``) used by
         Claude Code and other AI tools to reference files and directories.
         """
-        # Strip one leading @ for detection (actual stripping happens in caller)
-        w = word.removeprefix("@") if word.startswith("@") else word
+        # Filter before stripping @ or deduplicating: an earlier plain mention
+        # must not hide a later deliberate attachment of the same path.
+        w = word.removeprefix("@")
+        if not auto_include:
+            if w.startswith(("http://", "https://")) and not any(
+                c.isspace() for c in w
+            ):
+                return True
+            if not word.startswith("@") or not w or not w.strip("/"):
+                return False
+            if w.startswith("~") and os.path.expanduser(w).startswith("~"):
+                return False
+            if "/" in w:
+                return True
+            # Extensionless names such as @Makefile and @src are intentional;
+            # nonexistent social handles remain prose. No cwd listing needed.
+            try:
+                return Path(w).exists()
+            except OSError:
+                return False
 
         def _is_path_like_bare(s: str) -> bool:
             # A lone slash is prose/markdown ("open / not"), not a path.
@@ -868,6 +906,13 @@ def _find_potential_paths(content: str) -> list[str]:
         word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
         if is_path_like(word):
             _add_path(word)
+        elif not auto_include:
+            # Keep URLs embedded in quoted prose discoverable without sending
+            # that whole phrase through the local-path fallback reader.
+            for token in word.split():
+                token = token.rstrip("?.,!")
+                if token.startswith(("http://", "https://")):
+                    _add_path(token)
 
     # Then find non-backtick-wrapped words
     # Remove backtick-wrapped content first to avoid double-processing
@@ -1096,7 +1141,7 @@ def _dir_to_listing(
 
 
 def _resource_to_codeblock(
-    prompt: str, confirmed_urls: list[str] | None = None
+    prompt: str, confirmed_urls: list[str] | None = None, *, literal_path: bool = False
 ) -> str | None:
     """
     Takes a string that might be a path or URL,
@@ -1106,6 +1151,8 @@ def _resource_to_codeblock(
         prompt: A string that might be a file path or URL
         confirmed_urls: If provided, only these URLs will be read (skip others).
                        If None, all URLs are read (for backward compatibility).
+        literal_path: Treat prompt as one local path, never as prose containing
+            other paths or URLs (including if the file disappears during reading).
     """
 
     try:
@@ -1137,6 +1184,9 @@ def _resource_to_codeblock(
         f = Path(prompt).expanduser()
         if f.suffix[1:].lower() not in ("png", "jpg", "jpeg", "gif", "webp", "pdf"):
             return _binary_file_metadata(f, prompt)
+        return None
+
+    if literal_path:
         return None
 
     # check if any word in prompt is a path or URL,

@@ -82,7 +82,7 @@ Common invocations
 .. code-block:: bash
 
     gptme                                   # pick or start a conversation
-    gptme "summarize this" README.md        # start with a prompt, and a file as context
+    gptme "summarize this" @README.md        # start with a prompt, and a file as context
     gptme -r                                # resume the most recent conversation
     gptme -n "run the tests and fix failures"   # non-interactive: no confirmations
     gptme --help                            # all options
