@@ -3226,6 +3226,15 @@ class TestOpenRouterPrivacyFallbackRetry:
                         )
                     ],
                 )
+                yield SimpleNamespace(
+                    usage=None,
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(content=None, tool_calls=None),
+                        )
+                    ],
+                )
 
         def _create(**kwargs):
             calls.append(kwargs.get("extra_body", {}))
@@ -3385,10 +3394,15 @@ class TestOpenAIStreamMalformedChunk:
             response = SimpleNamespace(headers={})
 
             def __iter__(self):
-                return self
-
-            def __next__(self):
-                raise StopIteration
+                yield SimpleNamespace(
+                    usage=None,
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            delta=SimpleNamespace(content=None, tool_calls=None),
+                        )
+                    ],
+                )
 
         def create(**_kwargs):
             calls["n"] += 1
@@ -4857,7 +4871,8 @@ class TestDegenerationStreamBehaviour:
             return streams[len(calls) - 1]
 
         mock_client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+            chat=SimpleNamespace(completions=SimpleNamespace(create=_create)),
+            _client=SimpleNamespace(follow_redirects=False),
         )
         monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
         monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
@@ -4891,9 +4906,11 @@ class TestDegenerationStreamBehaviour:
         monkeypatch.setenv("GPTME_DEGENERATION_RETRY", "1")
         degen = _degen_chunk(content="REPEAT " * 200, provider="Together")
         clean = _degen_chunk(content="Hello", provider="Fireworks")
+        terminal = _degen_chunk(provider="Fireworks")
+        terminal.choices[0].finish_reason = "stop"
         streams = [
             _openrouter_stream([degen], provider="Together"),
-            _openrouter_stream([clean], provider="Fireworks"),
+            _openrouter_stream([clean, terminal], provider="Fireworks"),
         ]
         calls = self._setup(monkeypatch, streams)
 
@@ -5169,6 +5186,17 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch, tmp_p
             }
         ),
     ]
+    chunks.append(
+        SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    finish_reason="tool_calls",
+                    delta=SimpleNamespace(content=None, tool_calls=None),
+                )
+            ],
+        )
+    )
     create = Mock(return_value=chunks)
     client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=create))

@@ -311,7 +311,11 @@ def _restore_todos(
                 and (
                     tooluse._occurrence == stop_before._occurrence
                     if stop_before._occurrence is not None
-                    else stop_before.start is None or tooluse.start == stop_before.start
+                    else stop_before.start is None
+                    or (
+                        tooluse._format == stop_before._format
+                        and tooluse.start == stop_before.start
+                    )
                 )
             ):
                 return todos, restored

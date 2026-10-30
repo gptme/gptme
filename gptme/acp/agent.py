@@ -1239,6 +1239,7 @@ class GptmeAgent:
             # Import chat step and lifecycle-hook helpers
             from ..chat import step as chat_step
             from ..hooks.registry import HookType, trigger_hook
+            from ..llm.recovery import recovery_disabled
             from ..message import Message as _RuntimeMessage
 
             # Run gptme chat step in executor to not block event loop
@@ -1359,18 +1360,22 @@ class GptmeAgent:
                         step_log.extend(pre_msgs)
                         response_msgs.extend(pre_msgs)
 
-                    step_msgs = list(
-                        chat_step(
-                            log=step_log,
-                            stream=True,
-                            tool_format="markdown",
-                            workspace=log.workspace,
-                            model=effective_model,
-                            on_token=on_token,
-                            logdir=log.logdir,
-                            max_tokens=prompt_max_tokens,
+                    # ACP has no preview-reset protocol: replay would concatenate
+                    # failed output with the replacement response. Bind in this
+                    # worker and cover iterator consumption, not just creation.
+                    with recovery_disabled():
+                        step_msgs = list(
+                            chat_step(
+                                log=step_log,
+                                stream=True,
+                                tool_format="markdown",
+                                workspace=log.workspace,
+                                model=effective_model,
+                                on_token=on_token,
+                                logdir=log.logdir,
+                                max_tokens=prompt_max_tokens,
+                            )
                         )
-                    )
                     response_msgs.extend(step_msgs)
                     step_log.extend(step_msgs)
                     step_count += 1

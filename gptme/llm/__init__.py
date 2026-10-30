@@ -73,7 +73,7 @@ def _drain_toolbreak_stream(stream: "_StreamWithMetadata") -> None:
     discarded = 0
     try:
         while True:
-            next(stream.gen)
+            stream.next_provider_chunk()
             discarded += 1
     except StopIteration as e:
         # Capture the metadata that the provider generator set as its
@@ -290,6 +290,7 @@ _PROVIDER_ERROR_MODULES = frozenset(
 _LLM_REPLY_ORIGIN_ATTR = "_gptme_from_llm_reply"
 _LLM_REPLY_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_output_emitted"
 _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR = "_gptme_llm_reply_visible_output_emitted"
+_LLM_CHUNK_HOOK_EMITTED_ATTR = "_gptme_generation_chunk_hook_emitted"
 
 
 class EmptyStreamError(httpx.RemoteProtocolError):
@@ -355,8 +356,11 @@ def is_llm_reply_error(e: BaseException) -> bool:
     if not getattr(e, _LLM_REPLY_ORIGIN_ATTR, False):
         return False
     from .llm_openai import DegenerationDetected  # fmt: skip
+    from .recovery import RecoveryBudgetExceeded
 
-    return is_provider_error(e) or isinstance(e, DegenerationDetected)
+    return is_provider_error(e) or isinstance(
+        e, (DegenerationDetected, RecoveryBudgetExceeded)
+    )
 
 
 def is_provider_error(e: BaseException) -> bool:
@@ -442,10 +446,13 @@ def reply(
         output_schema=output_schema,
     )
 
-    # Tag only the provider call, not GENERATION_PRE hook failures above.
-    try:
-        with request_limits(model, max_input_bytes, max_provider_requests):
-            return _reply_after_hooks(
+    from .recovery import recover_generation
+
+    # The strict request allowance surrounds all attempts, not each replay.
+    # Hooks above run once; only provider work below is replayed.
+    with request_limits(model, max_input_bytes, max_provider_requests):
+        return recover_generation(
+            lambda: _reply_after_hooks(
                 generation_msgs,
                 model,
                 stream,
@@ -457,15 +464,7 @@ def reply(
                 temperature,
                 top_p,
             )
-    except Exception as e:
-        mark_llm_reply_origin(
-            e,
-            output_emitted=bool(getattr(e, _LLM_REPLY_OUTPUT_EMITTED_ATTR, False)),
-            visible_output_emitted=bool(
-                getattr(e, _LLM_REPLY_VISIBLE_OUTPUT_EMITTED_ATTR, False)
-            ),
         )
-        raise
 
 
 def _reply_after_hooks(
@@ -512,15 +511,19 @@ def _reply_after_hooks(
     json_mode = is_output_json()
     if not json_mode and not is_output_quiet():
         rprint(f"{prompt_assistant(agent_name)}: Thinking...", end="\r")
-    response, metadata = _chat_complete(
-        generation_msgs,
-        model,
-        tools,
-        output_schema=output_schema,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-    )
+    try:
+        response, metadata = _chat_complete(
+            generation_msgs,
+            model,
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+    except Exception as exc:
+        mark_llm_reply_origin(exc)
+        raise
     if not json_mode and not is_output_quiet():
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
         rprint(f"{prompt_assistant(agent_name)}: ", end="")
@@ -729,10 +732,20 @@ class _StreamWithMetadata:
         # the stream is closed before the final usage event arrives.
         self._partial = partial
 
+    def next_provider_chunk(self) -> str:
+        """Tag only a provider read, never consumer callbacks or display code."""
+        try:
+            return next(self.gen)
+        except StopIteration:
+            raise
+        except Exception as exc:
+            mark_llm_reply_origin(exc)
+            raise
+
     def __iter__(self) -> Iterator[str]:
         try:
             while True:
-                yield next(self.gen)
+                yield self.next_provider_chunk()
         except StopIteration as e:
             if self.metadata is None:
                 # Only capture from StopIteration if the drain didn't already
@@ -912,8 +925,13 @@ def _reply_stream(
     _chunk_hooks_active = bool(get_hooks(HookType.GENERATION_CHUNK))
     emit_active = on_token is not None or _chunk_hooks_active
 
+    chunk_hook_emitted = False
+
     def _emit_chunk(text: str) -> None:
+        nonlocal chunk_hook_emitted
         if _chunk_hooks_active:
+            # TTS and similar hooks cannot roll back their external effects.
+            chunk_hook_emitted = True
             for _ in trigger_hook(HookType.GENERATION_CHUNK, chunk=text):
                 pass
         if on_token is not None:
@@ -952,16 +970,20 @@ def _reply_stream(
         for part in tool_display.feed(text):
             rprint(part.render() if isinstance(part, ToolCodeDisplay) else part, end="")
 
-    # Create stream wrapper to capture metadata
-    stream = _stream(
-        messages,
-        model,
-        tools,
-        output_schema=output_schema,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-    )
+    # Creation can itself send a request (plugin/non-generator adapters).
+    try:
+        stream = _stream(
+            messages,
+            model,
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+    except Exception as exc:
+        mark_llm_reply_origin(exc)
+        raise
 
     def _chars_with_chunk_end(text_chunks):
         """Yield (char, is_last_in_chunk) — lets the loop flush once per chunk."""
@@ -1151,6 +1173,7 @@ def _reply_stream(
             line_buffer.clear()
 
     except Exception as exc:
+        setattr(exc, _LLM_CHUNK_HOOK_EMITTED_ATTR, chunk_hook_emitted)
         setattr(exc, _LLM_REPLY_OUTPUT_EMITTED_ATTR, bool(output))
         setattr(
             exc,
@@ -1159,6 +1182,12 @@ def _reply_stream(
         )
         raise
     except KeyboardInterrupt:
+        from .recovery import recovery_active
+
+        # Shared replay is atomic: cancellation never commits a partial Message.
+        # Preserve legacy interruption behavior for direct stream callers.
+        if recovery_active():
+            raise
         # Flush any chars buffered since the last chunk boundary so the terminal
         # shows everything received before the interrupt.
         if display_enabled and normal_display_buffer:
@@ -1230,6 +1259,7 @@ def _reply_stream(
         # assistant turn. Partial/interrupted output and reasoning-only text
         # are non-empty here and are left alone.
         err = EmptyStreamError(model, stream.metadata)
+        setattr(err, _LLM_CHUNK_HOOK_EMITTED_ATTR, chunk_hook_emitted)
         # Tag here rather than relying on `reply()`'s outer handler: direct
         # `_reply_stream` callers (e.g. the server session-step loop) bypass
         # that handler and would otherwise miss the provider-recovery path.

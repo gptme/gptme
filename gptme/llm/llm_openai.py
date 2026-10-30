@@ -1091,8 +1091,14 @@ def retry_on_openai_error(
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = bounded_attempts(
-                max_retries if max_retries is not None else get_max_retries()
+            from .recovery import recovery_active
+
+            attempts = (
+                1
+                if recovery_active()
+                else bounded_attempts(
+                    max_retries if max_retries is not None else get_max_retries()
+                )
             )
             # Capture the retry generation once per call: if test teardown
             # interrupts pending retries after this point, every backoff wait
@@ -1128,7 +1134,13 @@ def retry_generator_on_openai_error(
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = max_retries if max_retries is not None else get_max_retries()
+            from .recovery import recovery_active
+
+            attempts = (
+                1
+                if recovery_active()
+                else (max_retries if max_retries is not None else get_max_retries())
+            )
             # Capture the retry generation once per call (see retry_abort.py).
             generation = current_generation()
             for attempt in range(attempts):
@@ -1287,7 +1299,10 @@ def chat(
                 response_kwargs["top_p"] = top_p_value
 
         with bounded_client(client, str(provider)) as send_client:
+            from .recovery import reserve_recovery_request
+
             reserve_request(send_client, str(provider), response_kwargs)
+            reserve_recovery_request()
             response = send_client.responses.create(**response_kwargs)
         metadata = _record_usage(
             response.usage,
@@ -1362,6 +1377,9 @@ def chat(
                 {"messages": messages_dicts},
                 relaxed_parameters=relaxed_privacy,
             )
+            from .recovery import reserve_recovery_request
+
+            reserve_recovery_request()
             return send_client.chat.completions.with_raw_response.create(
                 model=api_model.split("@")[0],
                 messages=cast(list, messages_dicts),
@@ -1812,17 +1830,28 @@ def _stream_responses(
             success=not incomplete,
         )
 
-    stream = client.responses.create(**kwargs)
+    from .recovery import reserve_recovery_request  # fmt: skip
+
     phases = ResponsesPhaseCapture()
     output: list[str] = []
-    for chunk in _stream_responses_events(
-        phases.events(_guarded_stream_iter(stream, model=model, provider=provider)),
-        usage_callback=_capture_usage,
-        model_callback=_capture_model,
-        incomplete_callback=_capture_incomplete,
-    ):
-        output.append(chunk)
-        yield chunk
+    with bounded_client(client, str(provider)) as send_client:
+        reserve_recovery_request()
+        stream = send_client.responses.create(**kwargs)
+        try:
+            for chunk in _stream_responses_events(
+                phases.events(
+                    _guarded_stream_iter(stream, model=model, provider=provider)
+                ),
+                usage_callback=_capture_usage,
+                model_callback=_capture_model,
+                incomplete_callback=_capture_incomplete,
+            ):
+                output.append(chunk)
+                yield chunk
+        finally:
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
 
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None
@@ -1898,6 +1927,34 @@ def stream(
     temperature: float | None = None,
     top_p: float | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
+    from . import get_provider_from_model  # fmt: skip
+
+    provider = get_provider_from_model(model)
+    with bounded_client(get_client(provider), str(provider)) as client:
+        return (
+            yield from _stream_with_client(
+                client,
+                messages,
+                model,
+                tools,
+                output_schema,
+                max_tokens,
+                temperature,
+                top_p,
+            )
+        )
+
+
+def _stream_with_client(
+    client: Any,
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema=None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+) -> Generator[str, None, MessageMetadata | None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
     from .models import get_model  # fmt: skip
 
@@ -1905,7 +1962,6 @@ def stream(
     captured_metadata: MessageMetadata | None = None
 
     provider = get_provider_from_model(model)
-    client = get_client(provider)
     is_proxy = _is_proxy(client)
 
     base_model = _get_base_model(model)
@@ -1966,6 +2022,9 @@ def stream(
         relaxed_privacy: bool = False,
         provider_ignore: list[str] | None = None,
     ) -> Any:
+        from .recovery import reserve_recovery_request  # fmt: skip
+
+        reserve_recovery_request()
         return client.chat.completions.create(
             model=api_model.split("@")[0],
             messages=cast(list, messages_dicts),
@@ -2057,6 +2116,9 @@ def stream(
         # the retry path is enabled; otherwise text streams through unchanged.
         _degen_pending: list[str] = []
         _degen_emitted = False
+        # Native syntax must not reach early tool consumers before the provider
+        # confirms completion. Buffer everything after the first call for order.
+        native_pending: list[str] | None = None
 
         def _emit(
             text: str,
@@ -2075,6 +2137,11 @@ def stream(
             """
             nonlocal _degen_emitted
             if not text:
+                return
+            # Consumed synchronously via yield-from within this loop iteration;
+            # deliberately read the current buffer, including its later reset.
+            if native_pending is not None:  # noqa: B023
+                native_pending.append(text)  # noqa: B023
                 return
             if not _retry_enabled or _is_retry or _degen_emitted:
                 _degen_emitted = True
@@ -2134,7 +2201,8 @@ def stream(
                     continue
 
                 choice = chunk.choices[0]
-                stop_reason = choice.finish_reason
+                if choice.finish_reason is not None:
+                    stop_reason = choice.finish_reason
                 delta = choice.delta
 
                 # Handle reasoning content
@@ -2169,6 +2237,8 @@ def stream(
 
                 # Handle tool calls
                 if delta.tool_calls:
+                    if native_pending is None:
+                        native_pending = []
                     for tool_call in delta.tool_calls:
                         if isinstance(tool_call, ChoiceDeltaToolCall):
                             if tool_call.id:
@@ -2197,6 +2267,12 @@ def stream(
                 #         in_reasoning_block = True
                 #     yield delta.text
 
+            if not _degen_detected and stop_reason is None:
+                httpx = importlib.import_module("httpx")
+                raise httpx.RemoteProtocolError(
+                    "OpenAI chat stream ended without terminal finish_reason"
+                )
+
         except Exception:
             # A provider/transport error mid-stream. GeneratorExit (consumer closed
             # early) is a BaseException and deliberately not caught here.
@@ -2215,6 +2291,11 @@ def stream(
                     served_model=served_model,
                     success=not stream_failed,
                 )
+
+        if not _degen_detected and native_pending is not None:
+            completed_native = "".join(native_pending)
+            native_pending = None
+            yield from _emit(completed_native)
 
         if in_reasoning_block:
             yield from _emit("\n</think>\n")

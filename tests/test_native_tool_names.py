@@ -193,6 +193,7 @@ def test_returned_call_is_canonical_before_registry_changes(name: str) -> None:
             "output_index": 0,
             "delta": "{}",
         },
+        {"type": "response.completed"},
     ]
     content = "".join(_stream_responses_events(events))
     assert f"@{spec.name}(call_1)" in content

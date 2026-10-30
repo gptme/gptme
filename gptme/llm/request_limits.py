@@ -102,6 +102,12 @@ def bounded_attempts(attempts: int) -> int:
     return min(attempts, limit.requests) if limit is not None else attempts
 
 
+def request_budget_exhausted() -> bool:
+    """Whether actual sends have consumed the current strict allowance."""
+    limit = _limits.get()
+    return limit is not None and limit.used >= limit.requests
+
+
 def _validate_client(client: Any, provider: str, limit: _RequestLimits) -> None:
     if (
         provider != limit.provider
@@ -114,17 +120,26 @@ def _validate_client(client: Any, provider: str, limit: _RequestLimits) -> None:
 
 @contextmanager
 def bounded_client(client: Any, provider: str) -> Iterator[Any]:
-    """Give strict sends an owned redirect-free transport without shared mutation.
+    """Give bounded sends an owned redirect-free transport without shared mutation.
 
     SDK defaults follow redirects, which can resend a POST outside our allowance.
     Safe injected clients are reused. Otherwise with_options preserves credentials
     and SDK settings while the newly allocated transport has an independent lifetime.
     """
+    from .recovery import recovery_active
+
     limit = _limits.get()
-    if limit is None:
+    if limit is None and not recovery_active():
         yield client
         return
-    _validate_client(client, provider, limit)
+    # OpenAI init stores a lazy proxy whose _client is the SDK client, not
+    # the HTTP transport. Unwrap it before inspecting SDK transport state.
+    from .llm_openai import _LazyClient
+
+    if isinstance(client, _LazyClient):
+        client = client._materialize()
+    if limit is not None:
+        _validate_client(client, provider, limit)
     if client._client.follow_redirects is False:
         yield client
         return

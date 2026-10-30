@@ -24,6 +24,7 @@ skip_if_root = pytest.mark.skipif(
     reason="File permission tests are not meaningful on Windows or when running as root",
 )
 
+from gptme.hooks.confirm import ConfirmationResult
 from gptme.message import Message
 from gptme.tools.morph import (
     execute_morph,
@@ -32,6 +33,7 @@ from gptme.tools.morph import (
     preview_morph,
     tool,
 )
+from gptme.util.ask_execute import execute_with_confirmation
 
 # ── preview_morph ──────────────────────────────────────────────────────
 
@@ -320,6 +322,86 @@ class TestExecuteMorph:
         call_kwargs = mock_confirm.call_args
         # First positional arg should be the edited content
         assert call_kwargs[0][0] == "edited content"
+
+    @pytest.mark.parametrize("file_newline", ["\n", "\r\n"])
+    @pytest.mark.parametrize(
+        "response",
+        ["    new = 2\n\n", "\tnew = 2  \n", "\n    new = 2", "    new = 2\r\n\r\n"],
+    )
+    def test_preserves_response_whitespace(
+        self, tmp_path: Path, file_newline: str, response: str
+    ):
+        """Keep response boundaries; only the writer normalizes file line endings."""
+        f = tmp_path / "indented.py"
+        f.write_bytes(f"    old = 1{file_newline}".encode())
+        with (
+            patch("gptme.tools.morph._chat_complete", return_value=(response, {})),
+            patch(
+                "gptme.tools.morph.execute_with_confirmation",
+                wraps=execute_with_confirmation,
+            ) as confirmation,
+            patch(
+                "gptme.hooks.get_confirmation",
+                return_value=ConfirmationResult.confirm(),
+            ) as confirm,
+        ):
+            msgs = list(execute_morph(None, None, {"path": str(f), "edit": "Update"}))
+
+        assert confirmation.call_args.args[0] == response
+        assert confirmation.call_args.kwargs["allow_edit"] is False
+        confirm.assert_called_once()
+        assert "new = 2" in confirm.call_args.kwargs["preview"]
+        expected = response.replace("\r\n", "\n").replace("\n", file_newline)
+        assert f.read_bytes() == expected.encode()
+        assert any("Edit successfully applied" in msg.content for msg in msgs)
+
+    @pytest.mark.parametrize("response", ["", " \t\r\n  "])
+    def test_empty_response_does_not_confirm_or_write(
+        self, tmp_path: Path, response: str
+    ):
+        f = tmp_path / "unchanged.py"
+        original = b"    old = 1\r\n"
+        f.write_bytes(original)
+        with (
+            patch("gptme.tools.morph._chat_complete", return_value=(response, {})),
+            patch("gptme.hooks.get_confirmation") as confirm,
+        ):
+            msgs = list(execute_morph("Update", [str(f)], None))
+
+        confirm.assert_not_called()
+        assert f.read_bytes() == original
+        assert len(msgs) == 1
+        assert "Morph returned empty content" in msgs[0].content
+
+    @pytest.mark.parametrize("concurrent_edit", [False, True])
+    def test_confirmation_protects_original(
+        self, tmp_path: Path, concurrent_edit: bool
+    ):
+        f = tmp_path / "protected.py"
+        original = b"    old = 1\n"
+        concurrent = b"    someone_else = 3\n\n"
+        f.write_bytes(original)
+
+        def confirm(**kwargs) -> ConfirmationResult:
+            if concurrent_edit:
+                f.write_bytes(concurrent)
+                return ConfirmationResult.confirm()
+            return ConfirmationResult.skip()
+
+        with (
+            patch(
+                "gptme.tools.morph._chat_complete",
+                return_value=("    new = 2\n\n", {}),
+            ),
+            patch("gptme.hooks.get_confirmation", side_effect=confirm),
+        ):
+            msgs = list(execute_morph("Update", [str(f)], None))
+
+        assert f.read_bytes() == (concurrent if concurrent_edit else original)
+        expected_message = (
+            "has been modified" if concurrent_edit else "Operation skipped"
+        )
+        assert any(expected_message in msg.content for msg in msgs)
 
     @patch("gptme.tools.morph._chat_complete")
     def test_api_receives_correct_prompt_format(

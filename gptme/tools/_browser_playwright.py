@@ -1159,8 +1159,8 @@ def _take_screenshot(
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             path = f.name
     else:
-        # create the directory if it doesn't exist
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        path = Path(path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
 
     managed = _create_page(browser)
     page = managed.page
@@ -1189,7 +1189,15 @@ def html_to_markdown(html):
         raise Exception("Pandoc is not installed. Needed for browsing.")
 
     p = subprocess.Popen(
-        ["pandoc", "-f", "html", "-t", "markdown"],
+        [
+            "pandoc",
+            "-f",
+            "html-native_divs-native_spans",
+            "-t",
+            "markdown-inline_code_attributes-fenced_code_attributes",
+            "--lua-filter",
+            str(Path(__file__).with_name("_browser_markdown.lua")),
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1207,22 +1215,6 @@ def html_to_markdown(html):
             f"{stderr.decode('utf-8', errors='replace')}"
         )
 
-    # Post-process the output to remove :::
-    markdown = stdout.decode("utf-8", errors="replace")
-    markdown = "\n".join(
-        line for line in markdown.split("\n") if not line.strip().startswith(":::")
-    )
-
-    # Post-process the output to remove div tags
-    markdown = markdown.replace("<div>", "").replace("</div>", "")
-
-    # replace [\n]{3,} with \n\n
-    markdown = re.sub(r"[\n]{3,}", "\n\n", markdown)
-
-    # replace {...} with ''
-    markdown = re.sub(r"\{(#|style|target|\.)[^}]*\}", "", markdown)
-
-    # strip inline images, like: data:image/png;base64,...
-    markdown = _inline_data_image.sub("", markdown)
-
-    return markdown
+    # Reader options and the AST filter remove presentation noise before writing;
+    # global text rewrites would also corrupt fenced, indented and inline code.
+    return stdout.decode("utf-8", errors="replace")

@@ -1129,3 +1129,39 @@ def test_cli_step_records_replay_format_even_without_calls(
     manager.append(assistant)
     loaded = LogManager.load(manager.logdir, lock=False)
     assert (loaded.log.messages[-1].metadata or {}).get("tool_format") == tool_format
+
+
+@pytest.mark.parametrize("reload", [False, True])
+@pytest.mark.parametrize("edited", [False, True])
+def test_mixed_format_equal_offsets_keep_completed_call(
+    tmp_path: Path, reload: bool, edited: bool
+) -> None:
+    from dataclasses import replace
+
+    from gptme.tools.base import ToolUse, set_tool_format
+    from gptme.tools.todo import clear_todo_state
+
+    set_tool_format("tool")
+    content = (
+        'Hi\n@todo(native): {"command":"write add Native"}\n\n'
+        "```todo write\nadd Markdown\n```"
+    )
+    manager = start(tmp_path / "mixed-offset", [Message("assistant", content)])
+    calls = list(ToolUse.iter_from_content(manager.log.messages[-1].content))
+    assert len(calls) == 2
+    assert calls[0]._format == "markdown" and calls[1]._format == "tool"
+    assert calls[0].start == calls[1].start == 3
+    list(clear_todo_state(manager))
+    list(calls[0].execute(log=manager.log))
+    list(clear_todo_state(manager))
+    if reload:
+        manager.write()
+        manager = LogManager.load(manager.logdir, lock=False)
+        calls = list(ToolUse.iter_from_content(manager.log.messages[-1].content))
+    pending = calls[1]
+    if edited:
+        pending = replace(pending, kwargs={"command": "write add Edited"})
+    list(pending.execute(log=manager.log))
+    assert "1. 🔲 Markdown" in _todoread()
+    assert f"2. 🔲 {'Edited' if edited else 'Native'}" in _todoread()
+    assert "Summary: 2 total" in _todoread()

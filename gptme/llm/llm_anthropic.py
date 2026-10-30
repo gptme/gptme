@@ -3,13 +3,16 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
+from dataclasses import replace
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    ParamSpec,
     TypedDict,
+    TypeVar,
     Union,
     cast,
 )
@@ -629,8 +632,14 @@ def retry_on_overloaded(
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
             generation = current_generation()
-            attempts = bounded_attempts(
-                max_retries if max_retries is not None else get_max_retries()
+            from .recovery import recovery_active
+
+            attempts = (
+                1
+                if recovery_active()
+                else bounded_attempts(
+                    max_retries if max_retries is not None else get_max_retries()
+                )
             )
             last_error: Exception | None = None
             for attempt in range(attempts):
@@ -663,9 +672,17 @@ def retry_on_overloaded(
     return decorator
 
 
+_P = ParamSpec("_P")
+_Y = TypeVar("_Y")
+_R = TypeVar("_R")
+
+
 def retry_generator_on_overloaded(
     max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
-):
+) -> Callable[
+    [Callable[_P, Generator[_Y, None, _R]]],
+    Callable[_P, Generator[_Y, None, _R]],
+]:
     """Decorator to retry generator functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
@@ -674,12 +691,20 @@ def retry_generator_on_overloaded(
     has started, errors are raised immediately to prevent duplicate output.
     """
 
-    def decorator(func):
+    def decorator(
+        func: Callable[_P, Generator[_Y, None, _R]],
+    ) -> Callable[_P, Generator[_Y, None, _R]]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Generator[_Y, None, _R]:
             # Capture the retry generation once per call (see retry_abort.py).
             generation = current_generation()
-            attempts = max_retries if max_retries is not None else get_max_retries()
+            from .recovery import recovery_active
+
+            attempts = (
+                1
+                if recovery_active()
+                else (max_retries if max_retries is not None else get_max_retries())
+            )
             for attempt in range(attempts):
                 has_yielded = False
                 try:
@@ -983,6 +1008,9 @@ def chat(
             "anthropic",
             {"messages": messages_dicts, "system": system_messages},
         )
+        from .recovery import reserve_recovery_request
+
+        reserve_recovery_request()
         response = send_client.messages.create(
             model=api_model,
             messages=messages_dicts,
@@ -1041,6 +1069,38 @@ def stream(
     _partial: dict | None = None,
     via_gptme: bool = False,
 ) -> Generator[str, None, MessageMetadata | None]:
+    client = _get_gptme_client() if via_gptme else _anthropic
+    if not client:
+        raise RuntimeError("LLM not initialized")
+    with bounded_client(client, "anthropic") as send_client:
+        return (
+            yield from _stream_with_client(
+                send_client,
+                messages,
+                model,
+                tools,
+                output_schema,
+                max_tokens,
+                temperature,
+                top_p,
+                _partial,
+                via_gptme,
+            )
+        )
+
+
+def _stream_with_client(
+    client: Any,
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    output_schema: type[BaseModel] | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    _partial: dict | None = None,
+    via_gptme: bool = False,
+) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
 
@@ -1057,9 +1117,6 @@ def stream(
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
 
-    client = _get_gptme_client() if via_gptme else _anthropic
-    if not client:
-        raise RuntimeError("LLM not initialized")
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools, model=model
     )
@@ -1102,6 +1159,20 @@ def stream(
     output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
     thinking_param = _build_thinking_param(model, use_thinking, thinking_budget)
 
+    from .recovery import reserve_recovery_request  # fmt: skip
+
+    saw_message_stop = False
+    native_pending: list[str] | None = None
+
+    def _emit(text: str) -> Generator[str, None, None]:
+        # Preserve order after the first native call, withholding executable
+        # syntax until message_stop confirms the message was not truncated.
+        if native_pending is not None:
+            native_pending.append(text)
+        else:
+            yield text
+
+    reserve_recovery_request()
     with client.messages.stream(  # type: ignore[call-arg]
         model=api_model,
         messages=messages_dicts,
@@ -1120,11 +1191,15 @@ def stream(
                     block = chunk.content_block
                     if isinstance(block, anthropic.types.ToolUseBlock):
                         tool_use = block
-                        yield f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
+                        if native_pending is None:
+                            native_pending = []
+                        yield from _emit(
+                            f"\n@{canonical_tool_name(tool_use.name)}({tool_use.id}): "
+                        )
                     elif isinstance(block, anthropic.types.ThinkingBlock):
-                        yield "<think>\n"
+                        yield from _emit("<think>\n")
                     elif isinstance(block, anthropic.types.RedactedThinkingBlock):
-                        yield "<think redacted>\n"
+                        yield from _emit("<think redacted>\n")
                     elif isinstance(block, anthropic.types.TextBlock):
                         if block.text:
                             logger.warning("unexpected text block: %s", block.text)
@@ -1137,13 +1212,13 @@ def stream(
                     delta = chunk.delta
                     if isinstance(delta, anthropic.types.TextDelta):
                         if delta.text is not None:
-                            yield delta.text
+                            yield from _emit(delta.text)
                     elif isinstance(delta, anthropic.types.ThinkingDelta):
                         if delta.thinking is not None:
-                            yield delta.thinking
+                            yield from _emit(delta.thinking)
                     elif isinstance(delta, anthropic.types.InputJSONDelta):
                         if delta.partial_json is not None:
-                            yield delta.partial_json
+                            yield from _emit(delta.partial_json)
                     elif isinstance(delta, anthropic.types.SignatureDelta):
                         # Capture signature for embedding in the closing </think> tag.
                         _current_block_signature = delta.signature
@@ -1154,7 +1229,7 @@ def stream(
                             and delta.citation
                             and hasattr(delta.citation, "url")
                         ):
-                            yield f"\n📎 Source: {delta.citation.url}\n"
+                            yield from _emit(f"\n📎 Source: {delta.citation.url}\n")
                     else:
                         logger.warning("Unknown delta type: %s", delta)
                 case "content_block_stop":
@@ -1168,11 +1243,13 @@ def stream(
                         # Embed the signature so it's preserved in message history
                         # and can be passed back to the API on subsequent turns.
                         if _current_block_signature:
-                            yield f"\n<!-- think-sig: {_current_block_signature} -->"
+                            yield from _emit(
+                                f"\n<!-- think-sig: {_current_block_signature} -->"
+                            )
                             _current_block_signature = None
-                        yield "\n</think>\n\n"
+                        yield from _emit("\n</think>\n\n")
                     elif isinstance(stop_block, anthropic.types.RedactedThinkingBlock):
-                        yield "\n</think redacted>\n\n"
+                        yield from _emit("\n</think redacted>\n\n")
                     # Note: Server-side tool completion comes through as regular
                     # ToolUseBlock in the stop event, already handled above
                     else:
@@ -1204,10 +1281,18 @@ def stream(
                     # and capture metadata for message attachment
                     captured_metadata = _record_usage(chunk.usage, model)
                 case "message_stop":
-                    pass
+                    saw_message_stop = True
                 case _:
                     # print(f"Unknown chunk type: {chunk.type}")
                     pass
+
+    # This runs on exhaustion, never on a consumer's early generator.close().
+    if not saw_message_stop:
+        raise RemoteProtocolError(
+            "Anthropic stream ended without terminal message_stop"
+        )
+    if native_pending:
+        yield "".join(native_pending)
 
     # Return the captured metadata (accessible via StopIteration.value)
     return _stamp_served_model(
@@ -1429,9 +1514,10 @@ def _transform_system_messages(
     1. Extracts the leading static system prompt messages as the main system prompt
     2. For models without native system-message support (< Opus 4.8): wraps
        subsequent system messages as ``<system>`` tags in user messages
-    3. For Opus 4.8+: preserves subsequent system messages as ``role: "system"``
-       (native mid-conversation system-message support)
-    4. Merges consecutive user messages (for legacy path)
+    3. For Opus 4.8+: preserves system sections only after a user turn and
+       before an assistant turn or the end of the history. Tool results always
+       become user messages so _handle_tools can emit native tool_result blocks.
+    4. Merges consecutive user messages
     5. Applies cache control to optimize performance
 
     Note: Anthropic allows up to 4 cache breakpoints in a conversation.
@@ -1468,28 +1554,40 @@ def _transform_system_messages(
 
     native_system = model is not None and _supports_native_system_messages(model)
 
-    if native_system:
-        # Opus 4.8+: subsequent system messages are kept as-is (native support).
-        # No transformation needed — they pass through as role="system".
-        pass
-    else:
-        # Pre-Opus-4.8: convert subsequent system messages into <system> tags
-        # inside user messages, unless a `call_id` is present, indicating the
-        # tool_format is 'tool'. Tool responses are handled separately by _handle_tool.
-        for i, message in enumerate(messages):
-            if message.role == "system":
+    i = 0
+    while i < len(messages):
+        message = messages[i]
+        if message.role != "system":
+            i += 1
+            continue
+
+        # Consecutive plain system messages form one section. Tool results
+        # instead belong to the user turn, even on models with native support.
+        end = i + 1
+        if message.call_id is None:
+            while (
+                end < len(messages)
+                and messages[end].role == "system"
+                and messages[end].call_id is None
+            ):
+                end += 1
+        keep_native = (
+            native_system
+            and message.call_id is None
+            and i > 0
+            and messages[i - 1].role == "user"
+            and (end == len(messages) or messages[end].role == "assistant")
+        )
+        if not keep_native:
+            for j in range(i, end):
+                message = messages[j]
                 content = (
                     f"<system>{message.content}</system>"
                     if message.call_id is None
                     else message.content
                 )
-
-                messages[i] = Message(
-                    "user",
-                    content=content,
-                    files=message.files,
-                    call_id=message.call_id,
-                )
+                messages[j] = replace(message, role="user", content=content)
+        i = end
 
     # find consecutive user role messages and merge them together
     messages_new: list[Message] = []

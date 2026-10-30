@@ -95,6 +95,7 @@ Where to start
    building
    api
    context-compression
+   transport-recovery
    evals
    finetuning
    glossary

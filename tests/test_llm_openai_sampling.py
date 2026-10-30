@@ -193,7 +193,17 @@ def test_stream_completions_forwards_caller_sampling_values(monkeypatch):
 
 @pytest.mark.parametrize("include_usage", [True, False])
 def test_stream_captures_openrouter_provider_in_metadata(monkeypatch, include_usage):
-    chunks = []
+    chunks = [
+        SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    delta=SimpleNamespace(content=None, tool_calls=None),
+                )
+            ],
+        )
+    ]
     if include_usage:
         usage = SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5)
         chunks.append(SimpleNamespace(usage=usage, choices=[]))
@@ -461,6 +471,9 @@ def test_stream_records_cumulative_usage_once(monkeypatch):
         )
 
     chunks = [chunk("a", 1), chunk("b", 2), chunk("c", 3)]
+    terminal = chunk(None, 3)
+    terminal.choices[0].finish_reason = "stop"
+    chunks.append(terminal)
     mock_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(create=Mock(return_value=chunks))

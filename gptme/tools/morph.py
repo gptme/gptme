@@ -67,10 +67,12 @@ def is_openrouter_available() -> bool:
 
 def preview_morph(content: str, path: Path | None) -> str | None:
     """Prepare preview content for morph operation."""
-    if not path or not path.exists():
-        return "File does not exist"
-
     try:
+        if not path or not path.exists():
+            return "File does not exist"
+        if not path.is_file():
+            return f"Cannot morph `{path}`: not a regular file"
+
         # Read original content
         with open(path, encoding="utf-8") as f:
             original_content = f.read()
@@ -129,6 +131,12 @@ def execute_morph(
             ) from err
 
     try:
+        if file_path.exists() and not file_path.is_file():
+            yield Message(
+                "system", f"Cannot morph `{path_display}`: not a regular file"
+            )
+            return
+
         # Read the original file
         with open(file_path, encoding="utf-8") as f:
             original_content = f.read()
@@ -154,10 +162,8 @@ def execute_morph(
         yield Message("system", f"Error: failed Morph API call: {e}")
         return
 
-    edited_content = response.strip()
-
-    # Check if Morph actually returned edited content
-    if not edited_content:
+    # Reject empty responses without stripping meaningful indentation or newlines.
+    if not response.strip():
         yield Message("system", "Error: Morph returned empty content")
         return
 
@@ -169,7 +175,7 @@ def execute_morph(
 
     # Use execute_with_confirmation with the edited content
     yield from execute_with_confirmation(
-        edited_content,
+        response,
         args,
         kwargs,
         execute_fn=execute_morph_with_verification,
@@ -189,8 +195,13 @@ def execute_morph_impl(
     """Actual morph implementation - writes the edited content to file."""
     if not path:
         raise ValueError("Error: No file path provided")
-
     try:
+        # Confirmation may have left time for the source to become a FIFO or device.
+        # This admission check is not an atomic guarantee against later path swaps.
+        if path.exists() and not path.is_file():
+            yield Message("system", f"Cannot morph `{path}`: not a regular file")
+            return
+
         # Read current content to verify it hasn't changed
         with open(path, encoding="utf-8") as f:
             current_content = f.read()

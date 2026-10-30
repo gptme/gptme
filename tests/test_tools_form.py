@@ -1,7 +1,13 @@
 """Tests for the form tool."""
 
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
+
 from gptme.tools import init_tools
-from gptme.tools.form import parse_field, parse_form_content
+from gptme.tools.form import execute_form, parse_field, parse_form_content
 
 
 def test_parse_field_text():
@@ -106,3 +112,111 @@ def test_parse_field_boolean_case_insensitive():
     field2 = parse_field("ok: Continue? [YES, NO]")
     assert field2 is not None
     assert field2["type"] == "boolean"
+
+
+@pytest.mark.parametrize(
+    "options", ["yes/no", "YES/No", " yes / no ", "yes, no", "NO, YES"]
+)
+def test_parse_boolean_syntax(options: str) -> None:
+    assert parse_field(f"confirm: Proceed? [{options}]") == {
+        "name": "confirm",
+        "prompt": "Proceed?",
+        "type": "boolean",
+    }
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        "yes/no/maybe",
+        "no/yes",
+        "on/off",
+        "/tmp/data",
+        "https://example.test",
+        "yes/no, maybe",
+    ],
+)
+def test_slashes_in_select_labels_are_preserved(options: str) -> None:
+    field = parse_field(f"item: Choose [{options}]")
+    assert field is not None
+    assert field["type"] == "select"
+    assert field["options"] == [part.strip() for part in options.split(",")]
+
+
+@pytest.mark.parametrize("input_format", ["markdown", "native"])
+@pytest.mark.parametrize("options", ["yes/no", " YES / no ", "yes, no"])
+@pytest.mark.parametrize("answer", [True, False])
+def test_execute_boolean_json(
+    monkeypatch: pytest.MonkeyPatch, input_format: str, options: str, answer: bool
+) -> None:
+    confirm = Mock(return_value=SimpleNamespace(ask=lambda: answer))
+    select = Mock(return_value=SimpleNamespace(ask=lambda: "yes/no"))
+    monkeypatch.setattr("questionary.confirm", confirm)
+    monkeypatch.setattr("questionary.select", select)
+    fields = f"confirm: Proceed? [{options}]"
+    messages = (
+        list(execute_form(fields, None, None))
+        if input_format == "markdown"
+        else list(execute_form(None, None, {"fields": fields}))
+    )
+    confirm.assert_called_once_with("Proceed?", default=False)
+    select.assert_not_called()
+    payload = json.loads(
+        messages[0].content.split("```json\n", 1)[1].rsplit("\n```", 1)[0]
+    )
+    assert payload == {"confirm": answer}
+    assert isinstance(payload["confirm"], bool)
+
+
+@pytest.mark.parametrize("input_format", ["markdown", "native"])
+@pytest.mark.parametrize("outcome", [None, KeyboardInterrupt(), EOFError()])
+def test_execute_boolean_cancellation(
+    monkeypatch: pytest.MonkeyPatch, input_format: str, outcome: object
+) -> None:
+    ask = Mock(side_effect=outcome if isinstance(outcome, BaseException) else None)
+    ask.return_value = outcome
+    confirm = Mock(return_value=SimpleNamespace(ask=ask))
+    monkeypatch.setattr("questionary.confirm", confirm)
+    monkeypatch.setattr(
+        "questionary.select", Mock(side_effect=AssertionError("expected boolean"))
+    )
+    fields = "confirm: Proceed? [yes/no]"
+    messages = (
+        list(execute_form(fields, None, None))
+        if input_format == "markdown"
+        else list(execute_form(None, None, {"fields": fields}))
+    )
+    assert [message.content for message in messages] == ["Form cancelled"]
+
+
+@pytest.mark.parametrize("input_format", ["markdown", "native"])
+def test_execute_mixed_field_controls(
+    monkeypatch: pytest.MonkeyPatch, input_format: str
+) -> None:
+    responses = iter(["demo", "12"])
+    monkeypatch.setattr(
+        "questionary.text", lambda *a, **k: SimpleNamespace(ask=lambda: next(responses))
+    )
+    select = Mock(return_value=SimpleNamespace(ask=lambda: "https://example.test"))
+    monkeypatch.setattr("questionary.select", select)
+    monkeypatch.setattr(
+        "questionary.confirm", lambda *a, **k: SimpleNamespace(ask=lambda: False)
+    )
+    fields = "name: Name?\ncount: Count? (number)\nurl: Target [https://example.test, /tmp/data]\nconfirm: Proceed? [yes/no]"
+    messages = (
+        list(execute_form(fields, None, None))
+        if input_format == "markdown"
+        else list(execute_form(None, None, {"fields": fields}))
+    )
+    payload = json.loads(
+        messages[0].content.split("```json\n", 1)[1].rsplit("\n```", 1)[0]
+    )
+    assert payload == {
+        "name": "demo",
+        "count": 12,
+        "url": "https://example.test",
+        "confirm": False,
+    }
+    select.assert_called_once_with(
+        "Target", choices=["https://example.test", "/tmp/data"], use_shortcuts=True
+    )
