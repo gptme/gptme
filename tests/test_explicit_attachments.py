@@ -149,6 +149,38 @@ def test_urls_keep_separate_consent_without_directory_scan(monkeypatch):
         read.assert_called_once_with(url, confirmed_urls=[url])
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("scheme", ["httpS", "hTtP"])
+@pytest.mark.parametrize("form", ["bare", "backticks", "quoted-prose"])
+@pytest.mark.parametrize("accepted", [False, True])
+def test_mixed_case_url_preserves_interactive_consent(
+    monkeypatch, legacy, scheme, form, accepted
+):
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
+    monkeypatch.setattr(context, "_is_interactive_mode", lambda: True)
+    url = f"{scheme}://example.com/CaseSensitive?Key=Value"
+    reference = {
+        "bare": url,
+        "backticks": f"`{url}`",
+        "quoted-prose": f"`see {url}`",
+    }[form]
+    msg = Message("user", f"Read {reference}")
+    confirmed = [url] if accepted else []
+    with (
+        patch.object(context, "_confirm_urls", return_value=confirmed) as confirm,
+        patch.object(context, "_resource_to_codeblock", return_value="fetched") as read,
+    ):
+        assert context.extract_urls(msg.content) == [url]
+        result = context._include_paths(msg)
+        confirm.assert_called_once_with([url])
+        if accepted:
+            assert result.content.endswith("fetched")
+            read.assert_called_once_with(url, confirmed_urls=[url])
+        else:
+            assert result is msg
+            read.assert_not_called()
+
+
 def test_explicit_reference_inside_code_or_xml_is_not_attached(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data.txt").write_text("not attached")

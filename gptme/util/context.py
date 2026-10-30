@@ -843,7 +843,7 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
         # must not hide a later deliberate attachment of the same path.
         w = word.removeprefix("@")
         if not auto_include:
-            if w.startswith(("http://", "https://")) and not any(
+            if w.lower().startswith(("http://", "https://")) and not any(
                 c.isspace() for c in w
             ):
                 return True
@@ -911,7 +911,7 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
             # that whole phrase through the local-path fallback reader.
             for token in word.split():
                 token = token.rstrip("?.,!")
-                if token.startswith(("http://", "https://")):
+                if token.lower().startswith(("http://", "https://")):
                     _add_path(token)
 
     # Then find non-backtick-wrapped words
