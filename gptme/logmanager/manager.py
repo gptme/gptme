@@ -334,6 +334,24 @@ class LogManager:
                 messages=self.snapshot_message_files(lossless_log.messages)
             )
 
+        # Non-main archives belong to the branch, never the shared main history.
+        self._branch_lossless_logs: dict[str, Log] = {}
+        # Retain reads of this PR's earlier layout; new writes use a separate
+        # namespace so archive directories cannot collide with branch transcripts.
+        archives = {
+            archive.parent.name: archive
+            for archive in self.logdir.glob("branches/*/lossless.jsonl")
+        }
+        archives.update(
+            (archive.stem, archive)
+            for archive in self.logdir.glob("branch-archives/*.jsonl")
+        )
+        for branch, archive in archives.items():
+            branch_log = Log.read_jsonl(archive)
+            self._branch_lossless_logs[branch] = branch_log.replace(
+                messages=self.snapshot_message_files(branch_log.messages)
+            )
+
         # Load view branches (compacted views stored in views/ directory)
         self._views: dict[str, Log] = {}
         views_dir = self.logdir / "views"
@@ -632,20 +650,24 @@ class LogManager:
         """Appends a message to the log, writes the log, prints the message.
 
         When on a view branch, implements dual-write:
-        - Appends to master branch (preserves full history)
+        - Appends to the current branch (preserves full history)
         - Appends to current view (maintains compacted context)
         """
         # Store files by content hash and update message with hashes
         msg = self._store_message_files(msg)
 
-        # If on a view branch, dual-write to both master AND view
+        # If on a view branch, dual-write to both its branch AND view
         if self.current_view and self.current_view in self._views:
-            # Append to master (main branch) for full history preservation
-            if "main" in self._branches:
-                self._branches["main"] = self._branches["main"].append(msg)
-            # Keep lossless snapshot current (manual-compact path: lossless + view)
-            if self._lossless_log is not None:
+            # A compacted view is a projection of its current branch, not main.
+            self._branches[self.current_branch] = self._branches[
+                self.current_branch
+            ].append(msg)
+            if self._lossless_log is not None and self.current_branch == "main":
                 self._lossless_log = self._lossless_log.append(msg)
+            elif self.current_branch in self._branch_lossless_logs:
+                self._branch_lossless_logs[self.current_branch] = (
+                    self._branch_lossless_logs[self.current_branch].append(msg)
+                )
             # Also append to the current view
             # (log getter returns view when current_view is set, no setter needed)
             self._views[self.current_view] = self._views[self.current_view].append(msg)
@@ -655,6 +677,10 @@ class LogManager:
             # Keep lossless snapshot current when on main (manual-compact path)
             if self._lossless_log is not None and self.current_branch == "main":
                 self._lossless_log = self._lossless_log.append(msg)
+            elif self.current_branch in self._branch_lossless_logs:
+                self._branch_lossless_logs[self.current_branch] = (
+                    self._branch_lossless_logs[self.current_branch].append(msg)
+                )
 
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
@@ -724,14 +750,37 @@ class LogManager:
             )
             paths.add(lossless_path)
 
-        # write current branch (or main branch if on a view)
-        # When on a view, conversation.jsonl must always contain the full main
-        # branch history — the view is persisted separately in views/ directory.
+        for branch, archive in self._branch_lossless_logs.items():
+            if not branches and branch != self.current_branch:
+                continue
+            archive_path = self.logdir / "branch-archives" / f"{branch}.jsonl"
+            # A prior append may have written without syncing. Keep unchanged
+            # archives in the final durability barrier without rewriting them.
+            paths.add(archive_path)
+            # A loaded, locally unchanged archive is not ours to rewrite: another
+            # manager may have appended since load. Disk-size drift must not turn
+            # this no-op into a stale full rewrite via Log._can_append(). An
+            # unchanged legacy snapshot must also defer to a migrated archive.
+            if (
+                archive.persisted_path is not None
+                and archive_path.exists()
+                and len(archive.persisted) == len(archive)
+                and all(old is new for old, new in zip(archive.persisted, archive))
+            ):
+                continue
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            self._branch_lossless_logs[branch] = archive.write_jsonl(
+                archive_path, append=True
+            )
+
+        # Write the underlying current branch, not its compacted view.
+        # Views are persisted separately in views/; main stays in conversation.jsonl.
         if self.current_view is not None:
-            main_path = self.logdir / "conversation.jsonl"
-            main_log = self._branches["main"]
-            self._branches["main"] = main_log.write_jsonl(main_path, append=True)
-            paths.add(main_path)
+            branch_log = self._branches[self.current_branch]
+            self._branches[self.current_branch] = branch_log.write_jsonl(
+                self.logfile, append=True
+            )
+            paths.add(self.logfile)
         else:
             self.log = self.log.write_jsonl(self.logfile, append=True)
             paths.add(self.logfile)
@@ -845,7 +894,10 @@ class LogManager:
         """backup the current log to a new branch, usually before editing/undoing"""
         branch_prefix = f"{self.current_branch}-{type}-"
         n = len([b for b in self._branches if b.startswith(branch_prefix)])
-        self._branches[f"{branch_prefix}{n}"] = self.log.replace(persisted=())
+        name = f"{branch_prefix}{n}"
+        self._branches[name] = self.log.replace(persisted=())
+        if self.full_log is not self.log:
+            self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
         self.write()
 
     def edit(self, new_log: Log | list[Message]) -> None:
@@ -853,9 +905,143 @@ class LogManager:
         if isinstance(new_log, list):
             new_log = Log(new_log)
         self._save_backup_branch(type="edit")
+        self._reconcile_branch_history(self.log, new_log)
         self.log = new_log
         self.write()
         self._write_event_log(eventlog.EVENT_MESSAGE_EDIT)
+
+    def _reconcile_branch_history(self, previous: Log, updated: Log) -> None:
+        """Retain hidden inherited history, but replace edited visible messages.
+
+        The backup branch retains the original archive. Main's existing recall
+        archive contract is unchanged; this reconciles only branch-owned history.
+        Removed archive slots become inert placeholders so saved result IDs do
+        not shift. In-place replacements, deletions and tail additions are safe;
+        reject insertion/reordering rather than replaying it in a different order.
+        """
+        if self.current_branch == "main":
+            return
+
+        def reconcile(history: Log, *, stable_slots: bool) -> Log:
+            # Editor round-trips reconstruct objects but preserve timestamps.
+            # Match occurrences, not a set: equal messages may occur twice.
+            # Without persisted occurrence IDs a retained subset of identical
+            # messages cannot be assigned safely, even after an editor reload.
+            # Reject it rather than changing a hidden operation's archive slot.
+            for message in previous:
+                matches = sum(
+                    old.timestamp == message.timestamp and old == message
+                    for old in history
+                )
+                retained = sum(
+                    old.timestamp == message.timestamp and old == message
+                    for old in previous
+                )
+                kept = sum(
+                    old.timestamp == message.timestamp and old == message
+                    for old in updated
+                )
+                if matches > retained or (0 < kept < matches):
+                    raise ValueError(
+                        "Cannot apply an ambiguous retained occurrence inside "
+                        "compacted branch history; identical hidden messages exist."
+                    )
+            remaining = list(enumerate(history.messages))
+            visible_slots: dict[int, int] = {}
+            for position, message in enumerate(previous):
+                match = next(
+                    (
+                        (i, slot)
+                        for i, (slot, old) in enumerate(remaining)
+                        if old.timestamp == message.timestamp and old == message
+                    ),
+                    None,
+                )
+                if match is not None:
+                    i, slot = match
+                    visible_slots[position] = slot
+                    remaining.pop(i)
+
+            available = list(enumerate(previous.messages))
+            replacements: dict[int, Message] = {}
+            additions: list[Message] = []
+            last_slot = -1
+            for message in updated:
+                match = next(
+                    (
+                        (i, position)
+                        for i, (position, old) in enumerate(available)
+                        if old.timestamp == message.timestamp and old == message
+                    ),
+                    None,
+                )
+                if match is None:
+                    candidates = [
+                        (i, position)
+                        for i, (position, old) in enumerate(available)
+                        if old.timestamp == message.timestamp
+                        and old.role == message.role
+                        and old.call_id == message.call_id
+                    ]
+                    if len(candidates) > 1:
+                        raise ValueError(
+                            "Cannot apply an ambiguous replacement inside compacted "
+                            "branch history; retain the original message identity."
+                        )
+                    match = candidates[0] if candidates else None
+                if match is None:
+                    additions.append(message)
+                    continue
+                i, position = match
+                available.pop(i)
+                matched_slot = visible_slots.get(position)
+                if matched_slot is None:
+                    # Summary/catalog context is not part of full history.
+                    continue
+                if matched_slot < last_slot or additions:
+                    raise ValueError(
+                        "Cannot reorder or insert messages inside compacted branch "
+                        "history; edit in place, remove messages, or append instead."
+                    )
+                last_slot = matched_slot
+                replacements[matched_slot] = message
+
+            slots = set(visible_slots.values())
+            result: list[Message] = []
+            for slot, message in enumerate(history):
+                if slot in replacements:
+                    result.append(replacements[slot])
+                elif slot not in slots:
+                    result.append(message)
+                elif stable_slots:
+                    # Recall IDs are positional. Retire removed slots without
+                    # retaining executable todo commands or shifting later IDs.
+                    result.append(
+                        Message(
+                            "system",
+                            "",
+                            timestamp=message.timestamp,
+                            hide=True,
+                            ui_only=True,
+                        )
+                    )
+            return Log(result + additions)
+
+        branch = self._branches[self.current_branch]
+        archive = self._branch_lossless_logs.get(self.current_branch)
+        if archive is None and self.current_view:
+            archive = branch
+        reconciled_archive = (
+            reconcile(archive, stable_slots=True) if archive is not None else None
+        )
+        reconciled_branch = (
+            reconcile(branch, stable_slots=False) if self.current_view else None
+        )
+        # Compute both before mutating either: unsupported edits are atomic.
+        if reconciled_archive is not None:
+            self._branch_lossless_logs[self.current_branch] = reconciled_archive
+        if reconciled_branch is not None:
+            self._branches[self.current_branch] = reconciled_branch
 
     def undo(self, n: int = 1, quiet=False) -> None:
         """Removes the last message from the log."""
@@ -875,16 +1061,20 @@ class LogManager:
 
         if not quiet:
             print("[yellow]Undoing messages:[/yellow]")
+        previous = self.log
+        updated = previous
         for _ in range(n):
-            if not self.log:
+            if not updated:
                 break
-            undid = self.log[-1]
-            self.log = self.log.pop()
+            undid = updated[-1]
+            updated = updated.pop()
             if not quiet:
                 print(
                     f"[red]  {undid.role}: {textwrap.shorten(undid.content.strip(), width=50, placeholder='...')}[/]",
                 )
-            peek = self.log[-1] if self.log else None
+            peek = updated[-1] if updated else None
+        self._reconcile_branch_history(previous, updated)
+        self.log = updated
         self.write()
         self._write_event_log(eventlog.EVENT_UNDO, n=n)
 
@@ -940,28 +1130,42 @@ class LogManager:
         return manager
 
     def preserve_lossless_log(self) -> None:
-        """Write the full lossless history to lossless.jsonl.
+        """Write the current branch's full history to its lossless.jsonl.
 
         Call before manual compaction to ensure the original transcript is
-        preserved even after conversation.jsonl is replaced.  Raises on
-        failure so callers can abort before touching conversation.jsonl.
+        preserved even after the active branch log is replaced. Raises on
+        failure so callers can abort before touching the active transcript.
         """
         if not self.logdir:
             return
-        lossless_path = self.logdir / "lossless.jsonl"
+        lossless_path = (
+            self.logdir / "lossless.jsonl"
+            if self.current_branch == "main"
+            else self.logdir / "branch-archives" / f"{self.current_branch}.jsonl"
+        )
         lossless_path.parent.mkdir(parents=True, exist_ok=True)
-        # Re-compaction must not overwrite the existing full transcript with
-        # the already compacted active branch. Recall IDs address this archive.
-        written = self.master_log.write_jsonl(lossless_path, append=True)
-        self._lossless_log = written
+        # Re-compaction must not overwrite the branch's full transcript with
+        # its already compacted active log, or import divergent main history.
+        written = self.full_log.write_jsonl(lossless_path, append=True)
+        if self.current_branch == "main":
+            self._lossless_log = written
+        else:
+            self._branch_lossless_logs[self.current_branch] = written
 
     def branch(self, name: str) -> None:
         """Switches to a branch."""
         self.write()
+        if name == self.current_branch:
+            return
         if name not in self._branches:
             logger.info(f"Creating a new branch '{name}'")
             self._branches[name] = self.log.replace(persisted=())
+            if self.full_log is not self.log:
+                self._branch_lossless_logs[name] = self.full_log.replace(persisted=())
         self.current_branch = name
+        self.current_view = None
+        if name == "main":
+            self._restore_current_view()
 
     def diff(self, branch: str) -> str | None:
         """Prints the diff between the current branch and another branch."""
@@ -1082,6 +1286,15 @@ class LogManager:
         ]
         next_num = max(existing, default=0) + 1
         return f"compacted-{next_num:03d}"
+
+    @property
+    def full_log(self) -> Log:
+        """Full history owned by the current branch, including its inherited prefix."""
+        if self.current_branch == "main":
+            return self.master_log
+        return self._branch_lossless_logs.get(
+            self.current_branch, self._branches[self.current_branch]
+        )
 
     @property
     def master_log(self) -> Log:
