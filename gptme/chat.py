@@ -496,10 +496,17 @@ def _run_chat_loop(
                         continue
                     break
 
-                user_input = _get_user_input(manager.log, manager.workspace)
+                if not consume_queue:
+                    # Commands can mask the failure marker in the log, but
+                    # they are not permission to restart provider generation.
+                    user_input = _get_user_input(
+                        manager.log, manager.workspace, force_prompt=True
+                    )
+                else:
+                    user_input = _get_user_input(manager.log, manager.workspace)
                 if user_input is None:
                     # Either user wants to exit OR we should generate response directly
-                    if _should_prompt_for_input(manager.log):
+                    if not consume_queue or _should_prompt_for_input(manager.log):
                         # User wants to exit
                         break
                     # Don't prompt for input, generate response directly (crash recovery, etc.)
@@ -602,7 +609,7 @@ def _run_chat_loop(
                 console.log(f"[red]{LLM_REQUEST_FAILED_PREFIX}[/red] {e}")
             manager.append(Message("system", f"{LLM_REQUEST_FAILED_PREFIX} {e}"))
             hold_queued_prompts = True
-            parked_waiting = bool(parked or prompt_queue)
+            parked_waiting = parked_waiting or bool(parked or prompt_queue)
             if parked and not is_output_json() and not is_output_quiet():
                 console.log(
                     f"[yellow]Held {parked} queued prompt(s) after provider "
@@ -970,12 +977,14 @@ def _should_prompt_for_input(log: Log) -> bool:
     )
 
 
-def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
+def _get_user_input(
+    log: Log, workspace: Path | None, *, force_prompt: bool = False
+) -> Message | None:
     """Get user input, returning None if user wants to exit."""
     clear_interruptible()  # Don't interrupt during user input
 
     # Check if we should prompt for input or generate response directly
-    if not _should_prompt_for_input(log):
+    if not force_prompt and not _should_prompt_for_input(log):
         # Last message was from user (crash recovery, edited log, etc.)
         # Don't ask for input, let the system generate a response
         return None

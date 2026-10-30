@@ -394,8 +394,9 @@ def test_headless_exhaustion_parks_then_exits(offline, monkeypatch, tmp_path):
     assert all("LLM request failed" not in msg.content for msg in manager.log)
 
 
+@pytest.mark.parametrize("failures", [1, 2])
 def test_interactive_command_does_not_drain_parked_prompts(
-    offline, monkeypatch, tmp_path
+    offline, monkeypatch, tmp_path, failures
 ):
     """Slash commands after exhaustion must not retry parked work."""
     from gptme.logmanager import Log
@@ -413,8 +414,15 @@ def test_interactive_command_does_not_drain_parked_prompts(
     queue = [Message("user", "initial work"), pending]
     error = httpx.RemoteProtocolError("synthetic exhausted provider")
     llm.mark_llm_reply_origin(error)
-    process = Mock(side_effect=error)
-    inputs = [Message("user", "/help")]
+    process = Mock(
+        side_effect=[error] * failures + [RuntimeError("unexpected generation")]
+    )
+    inputs = ["retry"] * (failures - 1) + ["/help", "/model"]
+
+    def prompt():
+        if inputs:
+            return inputs.pop(0)
+        raise EOFError
 
     def execute(msg, manager):
         if msg.content.startswith("/"):
@@ -426,10 +434,9 @@ def test_interactive_command_does_not_drain_parked_prompts(
     monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
     monkeypatch.setattr(chat, "execute_cmd", execute)
     monkeypatch.setattr(chat, "trigger_hook", lambda *args, **kwargs: [])
-    monkeypatch.setattr(chat, "_should_prompt_for_input", lambda log: True)
-    monkeypatch.setattr(
-        chat, "_get_user_input", lambda *a, **k: inputs.pop(0) if inputs else None
-    )
+    # Exercise the real input decision; mocking it hid automatic generation
+    # after a command appended a newer user message over the failure marker.
+    monkeypatch.setattr(chat, "prompt_user", prompt)
 
     chat._run_chat_loop(
         manager,
@@ -439,7 +446,8 @@ def test_interactive_command_does_not_drain_parked_prompts(
         logdir=tmp_path,
     )
 
-    assert process.call_count == 1
+    assert process.call_count == failures
+    assert inputs == []
     assert [msg.content for msg in drain_prompt_queue(tmp_path)] == [pending.content]
 
 
