@@ -243,7 +243,17 @@ def _run_turn_post_on_step_pre_complete(
     Failures here must not hide the original SessionCompleteException.
     """
     try:
-        if post_msgs := trigger_hook(HookType.TURN_POST, manager=manager):
+        # Caller holds conversation_lock and has verified the generation epoch.
+        # Reload under that lock instead of writing the pre-hook log snapshot.
+        assert session.conversation_id is not None
+        manager = LogManager.load(
+            session.conversation_id, branch=manager.current_branch, lock=False
+        )
+        if post_msgs := trigger_hook(
+            HookType.TURN_POST,
+            manager=manager,
+            notification_branch=manager.current_branch,
+        ):
             for hook_msg in post_msgs:
                 _append_and_notify(manager, session, hook_msg)
             manager.write()
@@ -605,16 +615,22 @@ async def _acp_step(
                 # completion never reached it. Run post-turn hooks now so
                 # autocommit/pre-commit observe the previous turn's tools
                 # (parity with chat.py and step()).
-                _run_turn_post_on_step_pre_complete(manager, session)
                 released = False
-                with session.step_lock:
-                    if session.step_seq == my_step_seq:
-                        session.generating = False
-                        session.generating_since = None
-                        SessionManager.add_event(
-                            conversation_id, {"type": "step_complete"}
-                        )
-                        released = True
+                # Serialize with interrupts, replacement reservations and log
+                # mutations. Hooks may block, so do not hold step_lock across
+                # them; conversation_lock prevents ownership changing here.
+                with SessionManager.conversation_lock(conversation_id):
+                    with session.step_lock:
+                        owns_step = session.step_seq == my_step_seq
+                    if owns_step:
+                        _run_turn_post_on_step_pre_complete(manager, session)
+                        with session.step_lock:
+                            session.generating = False
+                            session.generating_since = None
+                            SessionManager.add_event(
+                                conversation_id, {"type": "step_complete"}
+                            )
+                            released = True
                 if released:
                     SessionManager.retry_deferred_watch_wakes(conversation_id)
             raise
@@ -1011,17 +1027,24 @@ def step(
             # previous step's tool execution, so those file changes have not
             # been observed by post-turn hooks. Run TURN_POST now (CLI already
             # does this) before releasing the reservation.
-            _run_turn_post_on_step_pre_complete(manager, session)
             released = False
-            with session.step_lock:
-                if session.step_seq == my_step_seq:
-                    session.finish_skill_turn("abandoned")
-                    session.generating = False
-                    session.generating_since = None
-                    # Emit while still holding step_lock — see the step()
-                    # finally for why the release and the event are atomic.
-                    SessionManager.add_event(conversation_id, {"type": "step_complete"})
-                    released = True
+            # Same lock order as interrupt and replacement-step admission.
+            # Reload only after ownership is checked: STEP_PRE may have yielded
+            # while another request appended messages to the transcript.
+            with SessionManager.conversation_lock(conversation_id):
+                with session.step_lock:
+                    owns_step = session.step_seq == my_step_seq
+                if owns_step:
+                    _run_turn_post_on_step_pre_complete(manager, session)
+                    with session.step_lock:
+                        session.finish_skill_turn("abandoned")
+                        session.generating = False
+                        session.generating_since = None
+                        # Keep reservation release and its event atomic.
+                        SessionManager.add_event(
+                            conversation_id, {"type": "step_complete"}
+                        )
+                        released = True
             if released:
                 SessionManager.retry_deferred_watch_wakes(conversation_id)
         raise

@@ -22,7 +22,9 @@ from gptme.server.session_models import ConversationSession, SessionManager  # f
 def test_step_pre_completion_retries_wakes_only_after_owned_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, replaced: bool
 ) -> None:
-    session = ConversationSession(id="budget-session", generating=True)
+    session = ConversationSession(
+        id="budget-session", conversation_id="budget-conversation", generating=True
+    )
     session.acp_runtime = MagicMock()
     manager = MagicMock()
     manager.logdir = tmp_path
@@ -42,7 +44,12 @@ def test_step_pre_completion_retries_wakes_only_after_owned_release(
     monkeypatch.setattr(session, "track_skill_turn", lambda *args: None)
     monkeypatch.chdir(tmp_path)
 
+    post_hooks: list[HookType] = []
+
     def stop_at_step_pre(hook_type: HookType, **kwargs: object) -> list[Message]:
+        if hook_type == HookType.TURN_POST:
+            post_hooks.append(hook_type)
+            return []
         if hook_type == HookType.STEP_PRE:
             if replaced:
                 # Simulate interrupt + a replacement reservation during the hook.
@@ -83,16 +90,23 @@ def test_step_pre_completion_retries_wakes_only_after_owned_release(
         assert session.generating
         assert events == []
         assert retried == []
+        assert post_hooks == []
+        manager.write.assert_not_called()
     else:
         assert not session.generating
         assert session.generating_since is None
         assert events == [{"type": "step_complete"}]
         assert retried == ["budget-conversation"]
+        assert post_hooks == [HookType.TURN_POST]
 
 
 @pytest.mark.parametrize("backend", ["inprocess", "acp"])
+@pytest.mark.parametrize("post_failure", [None, "load", "hook"])
 def test_step_pre_completion_runs_turn_post(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    post_failure: str | None,
 ) -> None:
     """Budget STEP_PRE must still run TURN_POST so autocommit sees the last tools.
 
@@ -100,7 +114,9 @@ def test_step_pre_completion_runs_turn_post(
     block is appended during tool execution, so the next STEP_PRE raise is the
     first chance to observe those file changes.
     """
-    session = ConversationSession(id="budget-session", generating=True)
+    session = ConversationSession(
+        id="budget-session", conversation_id="budget-conversation", generating=True
+    )
     session.acp_runtime = MagicMock()
     manager = MagicMock()
     manager.logdir = tmp_path
@@ -120,6 +136,22 @@ def test_step_pre_completion_runs_turn_post(
     monkeypatch.setattr(session, "track_skill_turn", lambda *args: None)
     monkeypatch.chdir(tmp_path)
 
+    # The completion hook must get the current log, not the STEP_PRE snapshot.
+    fresh_manager = MagicMock()
+    fresh_manager.current_branch = "work-branch"
+    manager.current_branch = "work-branch"
+    loads: list[str] = []
+
+    def load_manager(conversation_id: str, **kwargs: object) -> MagicMock:
+        loads.append(conversation_id)
+        if len(loads) == 1:
+            return manager
+        assert kwargs["branch"] == "work-branch"
+        if post_failure == "load":
+            raise OSError("completion reload failed")
+        return fresh_manager
+
+    monkeypatch.setattr(session_step.LogManager, "load", load_manager)
     seen: list[HookType] = []
 
     def record_hooks(hook_type: HookType, **kwargs: object) -> list[Message]:
@@ -127,6 +159,13 @@ def test_step_pre_completion_runs_turn_post(
         if hook_type == HookType.STEP_PRE:
             raise SessionCompleteException("policy block budget exhausted: 6 blocks")
         if hook_type == HookType.TURN_POST:
+            assert kwargs["manager"] is fresh_manager
+            assert kwargs["notification_branch"] == "work-branch"
+            # Arbitrary hooks must not run under the non-reentrant step lock.
+            assert session.step_lock.acquire(blocking=False)
+            session.step_lock.release()
+            if post_failure == "hook":
+                raise RuntimeError("post-turn hook failed")
             return [Message("system", "turn-post-ran", hide=True)]
         return []
 
@@ -151,6 +190,13 @@ def test_step_pre_completion_runs_turn_post(
                 "budget-conversation", session, "openai/gpt-4o-mini", tmp_path
             )
 
-    assert seen == [HookType.STEP_PRE, HookType.TURN_POST]
-    assert [m.content for m in posted] == ["turn-post-ran"]
-    manager.write.assert_called()
+    assert len(loads) == 2
+    assert not session.generating
+    manager.write.assert_not_called()
+    if post_failure:
+        assert posted == []
+        fresh_manager.write.assert_not_called()
+    else:
+        assert seen == [HookType.STEP_PRE, HookType.TURN_POST]
+        assert [m.content for m in posted] == ["turn-post-ran"]
+        fresh_manager.write.assert_called_once()
