@@ -311,6 +311,8 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
         # verbose probes cannot block on stdout or accumulate in communicate().
         assert proc.stdout is not None
         fd = proc.stdout.fileno()
+        poller = select.poll()
+        poller.register(fd, select.POLLIN | select.POLLHUP)
         decoder = io.IncrementalNewlineDecoder(
             codecs.getincrementaldecoder(cast(io.TextIOWrapper, proc.stdout).encoding)(
                 errors="replace"
@@ -336,8 +338,7 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
                         break
                     except subprocess.TimeoutExpired:
                         continue
-                ready, _, _ = select.select([fd], [], [], 0.2)
-                if not ready:
+                if not poller.poll(200):
                     continue
                 piece = os.read(fd, 4096)
                 text = decoder.decode(piece, final=not piece)

@@ -150,6 +150,44 @@ def test_until_fires_once(tmp_path: Path):
     assert "condition met" in w.events[-1]
 
 
+@pytest.mark.parametrize("output_fd", [1, 2])
+def test_until_accepts_high_pipe_descriptor(monkeypatch, output_fd):
+    import os
+
+    fcntl = pytest.importorskip("fcntl")
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    popen = _watch_mod.subprocess.Popen
+
+    def high_fd_popen(*args, **kwargs):
+        proc = popen(*args, **kwargs)
+        assert proc.stdout is not None
+        original = proc.stdout
+        assert isinstance(original, _watch_mod.io.TextIOWrapper)
+        fd = fcntl.fcntl(original.fileno(), fcntl.F_DUPFD_CLOEXEC, 1024)
+        proc.stdout = os.fdopen(fd, encoding=original.encoding, errors="replace")
+        original.close()
+        return proc
+
+    monkeypatch.setattr(_watch_mod.subprocess, "Popen", high_fd_popen)
+    command = shlex.join(
+        [sys.executable, "-c", f"import os; os.write({output_fd}, b'ready')"]
+    )
+    watch = Watch(
+        id="high-fd",
+        kind="until",
+        description="high-fd",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    try:
+        _watch_mod._poll_until(watch, command, 0.01)
+        assert watch.proc is not None and watch.proc.returncode == 0
+        assert watch.proc.stdout is not None and watch.proc.stdout.closed
+        assert list(watch.events) == ["condition met: ready"]
+    finally:
+        _kill_proc(watch.proc)
+
+
 @pytest.mark.parametrize("fd", [1, 2])
 def test_until_bounds_output_before_retaining_it(monkeypatch, fd):
     monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
