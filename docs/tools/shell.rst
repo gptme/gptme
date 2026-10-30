@@ -7,6 +7,43 @@ Shell
     :members:
     :noindex:
 
+Shell State and Background Jobs
+-------------------------------
+
+Foreground calls share a persistent Bash session: directory changes, exported
+variables and shell-local variables remain available to later foreground calls.
+There are three distinct ways for work to continue in the background:
+
+- **Explicit background calls** (the structured ``background: true`` parameter)
+  start a separate Bash process. It inherits the Python parent's current working
+  directory and environment, not the persistent foreground shell's state.
+  Foreground ``cd`` and ``export`` changes are therefore not a reliable setup
+  step for these jobs; shell-local variables and functions do not transfer.
+  The Python process's directory can differ between CLI and workspace/server
+  sessions, so specify the directory inside every explicit background call.
+- **Automatic foreground promotion** leaves the already-running command in its
+  existing shell when it exceeds the soft timeout. It does not relaunch that
+  command using the explicit-background inheritance rules.
+- **Bash job control** (``command &``) launches from the current shell and inherits
+  its state at launch. It is not the structured ``background`` parameter.
+
+Make explicit background calls self-contained. Use an absolute directory and
+``&&`` so a failed ``cd`` cannot run tests in the wrong checkout. Set required
+variables in that same call and verify a project marker or Git root before
+running a build/test command. For a disposable worktree, a harmless check is:
+
+.. code-block:: bash
+
+    cd -- /absolute/path/to/disposable-worktree &&
+      test -f pyproject.toml &&
+      git rev-parse --show-toplevel
+
+Do not set a path variable in one foreground call and assume it exists in a
+later explicit background call. Files remain shared; shell process state does
+not. Managed jobs report their completion automatically. Inspect them with
+``output N``, ``wait N [timeout]``, ``kill N`` or ``jobs`` as a complete shell-tool
+call, not as a Bash pipeline or part of a script.
+
 Command Confirmation
 --------------------
 

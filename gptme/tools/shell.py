@@ -258,25 +258,21 @@ is_macos = sys.platform == "darwin"
 
 
 instructions = f"""
-The given command will be executed in a stateful bash shell.
-The shell tool will respond with the output of the execution.
-
-These programs are available, among others:
+Stateful Bash: foreground `cd`, exports and variables persist.
+Inspect files/git; run tests/commands. Prefer repo evidence.
+Available programs:
 {shell_programs_str}
 
-### When to use the shell
-
-Use the shell to inspect the workspace, search files, check git state, or run
-existing commands and tests. Prefer the repo over answering from memory.
-
-### Background Jobs
-
-Use `background: true` for work you already know will run long — dev servers,
-builds, test suites. A foreground command that outruns the soft timeout is
-promoted to background job N; its exit code and output arrive automatically.
-A leading `timeout DURATION` keeps a command in the foreground that long.
-Manage jobs with `output N`, `wait N [timeout]`, `kill N`, `jobs`: not bash,
-so send each as the entire command, never piped or inside a script.
+Use `background: true` for known long work: a separate shell inherits the
+Python parent's cwd and environment, not foreground exports/variables.
+Do not rely on prior foreground `cd`: CLI may change Python cwd;
+workspace/server sessions keep it separate. Each job must `cd` to an absolute
+path with `&&`, set variables and verify its checkout.
+At the soft timeout, foreground automatic promotion keeps the running command/state.
+Bash `&` inherits shell state. Managed jobs report exit/output automatically.
+`timeout DURATION` keeps work foreground that long.
+Job controls: `output N`, `wait N [timeout]`, `kill N`, `jobs`.
+Send each as an entire tool call, never in Bash pipelines/scripts.
 """.strip()
 
 instructions_format: dict[str, str] = {}
@@ -4057,7 +4053,12 @@ tool = ToolSpec(
         Parameter(
             name="background",
             type="boolean",
-            description="Run the whole tool call as a background job.",
+            description=(
+                "Run the whole tool call in a separate shell with the Python "
+                "parent's cwd/environment. Do not rely on prior foreground "
+                "cd/export or shell-local variables; initialize paths and variables "
+                "in this call."
+            ),
             required=False,
         ),
     ],
