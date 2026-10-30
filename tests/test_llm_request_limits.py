@@ -334,14 +334,25 @@ def test_strict_call_uses_owned_transport_for_redirect_following_client(
     assert not client.is_closed()
 
 
-def test_normal_calls_keep_redirect_behavior(provider_client):
+def test_calls_outside_recovery_keep_redirect_behavior(provider_client):
+    from gptme.llm.request_limits import bounded_client
+
     client, model, sent, status = provider_client
     client._client.follow_redirects = True
     status["code"] = 307
-    assert (
-        strict_reply(model, max_input_bytes=None, max_provider_requests=None).content
-        == "ok"
-    )
+    with bounded_client(client, model.split("/")[0]) as send_client:
+        assert send_client is client
+        if model.startswith("anthropic/"):
+            send_client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=64,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        else:
+            send_client.chat.completions.create(
+                model="anthropic/claude-haiku-4.5",
+                messages=[{"role": "user", "content": "hi"}],
+            )
     assert len(sent) == 2
     assert sent[1].url.host == "unapproved.invalid"
     assert not client.is_closed()

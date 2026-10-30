@@ -383,13 +383,15 @@ def test_chat_responses_api_records_served_model(monkeypatch):
 # --- OpenAI-compatible: stream() ------------------------------------------------
 
 
-def _chunk(content: str | None, model: Any = None, usage: Any = None):
+def _chunk(
+    content: str | None, model: Any = None, usage: Any = None, finish_reason=None
+):
     ns = SimpleNamespace(
         usage=usage,
         choices=(
             [
                 SimpleNamespace(
-                    finish_reason=None,
+                    finish_reason=finish_reason,
                     delta=SimpleNamespace(
                         reasoning_content=None,
                         reasoning=None,
@@ -398,7 +400,7 @@ def _chunk(content: str | None, model: Any = None, usage: Any = None):
                     ),
                 )
             ]
-            if content is not None
+            if content is not None or finish_reason is not None
             else []
         ),
     )
@@ -408,6 +410,12 @@ def _chunk(content: str | None, model: Any = None, usage: Any = None):
 
 
 def _mock_stream_client(monkeypatch, chunks):
+    # A completed stream has a terminal choice before an optional usage chunk.
+    chunks = list(chunks)
+    terminal = _chunk(None, finish_reason="stop")
+    chunks.insert(
+        len(chunks) - 1 if chunks and not chunks[-1].choices else len(chunks), terminal
+    )
     client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(create=Mock(return_value=chunks))

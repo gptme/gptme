@@ -650,6 +650,7 @@ def _stream_responses_event_chunks(
     completed/done model when present. On completed/done it fires before
     ``usage_callback`` so usage recording can include it.
     """
+    saw_terminal = False
     in_reasoning_block = False
     seen_reasoning_delta = False
     in_duplicate_thinking_block = False
@@ -768,6 +769,7 @@ def _stream_responses_event_chunks(
             "response.done",
             "response.incomplete",
         ):
+            saw_terminal = True
             response_obj = _obj_get(event, "response", None)
             if terminal is not None:
                 terminal["response"] = response_obj
@@ -790,6 +792,13 @@ def _stream_responses_event_chunks(
                     if usage is not None:
                         usage_callback(usage)
             break
+
+    # Reaching this point means real iterator exhaustion, not a consumer close.
+    # Do not reconcile native arguments from an HTTP-200 truncated stream.
+    if not saw_terminal:
+        raise httpx.RemoteProtocolError(
+            "Responses stream ended without terminal response.completed/response.done"
+        )
 
     if in_reasoning_block:
         yield "\n</think>\n"
