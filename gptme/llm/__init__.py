@@ -1259,6 +1259,7 @@ def _reply_stream(
         # assistant turn. Partial/interrupted output and reasoning-only text
         # are non-empty here and are left alone.
         err = EmptyStreamError(model, stream.metadata)
+        setattr(err, _LLM_CHUNK_HOOK_EMITTED_ATTR, chunk_hook_emitted)
         # Tag here rather than relying on `reply()`'s outer handler: direct
         # `_reply_stream` callers (e.g. the server session-step loop) bypass
         # that handler and would otherwise miss the provider-recovery path.

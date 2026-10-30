@@ -275,6 +275,35 @@ def test_chunk_hooks_with_external_effects_prevent_replay(monkeypatch):
     assert len(calls) == 1 and spoken == ["spoken aloud\n"]
 
 
+@pytest.mark.parametrize("text", ["\n", "\n\n", " \n", "\t\n"])
+@pytest.mark.parametrize("with_hook", [False, True])
+def test_whitespace_terminal_preserves_hook_replay_boundary(
+    monkeypatch: pytest.MonkeyPatch, text: str, with_hook: bool
+) -> None:
+    calls, closed = install_stream(monkeypatch, [[text], ["complete"]])
+    spoken: list[str] = []
+
+    def speak(*args, **kwargs):
+        spoken.append(kwargs["chunk"])
+        return iter([])
+
+    if with_hook:
+        register_hook("speech", HookType.GENERATION_CHUNK, speak)
+    notices: list[recovery.RetryNotice] = []
+    with recovery.recovery_notifications(notices.append):
+        if with_hook:
+            with pytest.raises(llm.EmptyStreamError) as caught:
+                llm.reply([Message("user", "hi")], MODEL, stream=True)
+            assert llm.is_llm_reply_error(caught.value)
+            assert not recovery.is_transient_provider_error(caught.value)
+        else:
+            result = llm.reply([Message("user", "hi")], MODEL, stream=True)
+            assert result.content == "complete"
+    assert len(calls) == len(closed) == (1 if with_hook else 2)
+    assert len(notices) == (0 if with_hook else 1)
+    assert "".join(spoken) == (text if with_hook else "")
+
+
 def test_backoff_abort_stops_replay(monkeypatch):
     error = httpx.ReadError("cut")
     calls, _ = install_stream(monkeypatch, [[error]])

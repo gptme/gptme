@@ -102,6 +102,12 @@ def bounded_attempts(attempts: int) -> int:
     return min(attempts, limit.requests) if limit is not None else attempts
 
 
+def request_budget_exhausted() -> bool:
+    """Whether actual sends have consumed the current strict allowance."""
+    limit = _limits.get()
+    return limit is not None and limit.used >= limit.requests
+
+
 def _validate_client(client: Any, provider: str, limit: _RequestLimits) -> None:
     if (
         provider != limit.provider

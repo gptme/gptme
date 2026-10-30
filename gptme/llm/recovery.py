@@ -298,7 +298,7 @@ def recover_generation(generate: Callable[[], T]) -> T:
 
 
 def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T:
-    from .request_limits import bounded_attempts
+    from .request_limits import bounded_attempts, request_budget_exhausted
 
     # Stop at the strict send ceiling without replacing the last provider error
     # with a later reserve_request ValueError (or sleeping after the last send).
@@ -312,6 +312,7 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
             if (
                 budget.attempts >= attempt_limit
                 or budget.requests >= budget.max_attempts
+                or request_budget_exhausted()
             ):
                 raise _budget_error("LLM recovery provider request budget exhausted")
             budget.attempts += 1
@@ -323,6 +324,7 @@ def _recover_with_budget(generate: Callable[[], T], budget: RecoveryBudget) -> T
                     or not is_transient_provider_error(error)
                     or budget.attempts >= attempt_limit
                     or budget.requests >= budget.max_attempts
+                    or request_budget_exhausted()
                 ):
                     raise
                 # The shared policy may cap Retry-After for legacy adapter callers.
