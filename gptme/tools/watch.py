@@ -584,6 +584,14 @@ def _poll_tmux(
         except Exception as exc:
             _fire(watch, f"tmux capture failed: {exc}")
             return
+        if proc.returncode != 0:
+            detail = (proc.stderr or "").strip()[:300]
+            _fire(
+                watch,
+                f"tmux capture failed: exit {proc.returncode}"
+                + (f": {detail}" if detail else ""),
+            )
+            return
         if pattern is not None and pattern.search(out):
             line = next(
                 (ln for ln in out.splitlines() if pattern.search(ln)), ""
