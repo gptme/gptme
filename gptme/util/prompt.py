@@ -290,10 +290,24 @@ class GptmeCompleter(Completer):
 
     def __init__(self):
         self.path_completer = PathCompleter2(expanduser=True)
+        self._open_directory_completions: set[str] = set()
+
+    def finish_submission(self, text: str) -> str:
+        """Close only an unchanged open directory reference we just completed.
+
+        Keep the editing buffer open for child completion, without teaching the
+        attachment parser to interpret arbitrary unclosed backtick prose.
+        """
+        completed_directory = text in self._open_directory_completions
+        self._open_directory_completions.clear()
+        return text + "`" if completed_directory else text
 
     def get_completions(self, document, complete_event):
         from ..commands import get_command_completer, get_user_commands  # fmt: skip
 
+        # Automatic completion may run again after Tab inserts the directory.
+        # Retain that exact buffer as a submit candidate while offering children.
+        self._open_directory_completions.intersection_update({document.text})
         document.get_word_before_cursor()
         text = document.text_before_cursor
         quoted = text.count("`") % 2 == 1
@@ -377,6 +391,15 @@ class GptmeCompleter(Completer):
                 # inner `@path` token. Skip those names; the user can type them.
                 if "`" in completed:
                     continue
+                if (
+                    path_seg.startswith("@")
+                    and completed.endswith("/")
+                    and document.is_cursor_at_the_end
+                    and (quoted or any(ch.isspace() for ch in completed))
+                ):
+                    prefix = text[: -len(path_seg)]
+                    reference = f"@{completed}" if quoted else f"`@{completed}"
+                    self._open_directory_completions.add(prefix + reference)
                 if quoted:
                     if path_seg.startswith("@") and not completed.endswith("/"):
                         yield Completion(
@@ -626,7 +649,9 @@ def get_prompt_session() -> PromptSession:
                     # No closing bracket yet - insert newline
                     event.current_buffer.insert_text("\n")
             else:
-                # Normal mode - submit on enter
+                # Finalize only unchanged directory completions, not arbitrary
+                # open backticks typed as prose or an unfinished child path.
+                event.current_buffer.text = completer.finish_submission(text)
                 event.current_buffer.validate_and_handle()
 
         _prompt_session = PromptSession(

@@ -382,3 +382,88 @@ def test_quoted_prose_url_respects_interactive_consent(monkeypatch, legacy):
         assert context._include_paths(msg) is msg
     confirm.assert_called_once_with([url])
     read.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("child", [False, True])
+@pytest.mark.parametrize("follow_up", [False, True])
+async def test_cli_completed_directory_submit(
+    tmp_path, monkeypatch, child: bool, follow_up: bool
+) -> None:
+    """Use the real prompt buffer and Enter binding, including child continuation."""
+    from weakref import ref
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.application.current import set_app
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.filters import Never
+    from prompt_toolkit.input import DummyInput
+    from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.output import DummyOutput
+
+    from gptme.util import prompt
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(prompt, "_prompt_session", None)
+    monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
+    monkeypatch.setattr(
+        prompt, "llm_suggest", lambda text: pytest.fail("unexpected inference")
+    )
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "child.md").write_text("synthetic-child-marker")
+    (tmp_path / "secret.txt").write_text("wrong-file-marker")
+    prompt.clear_path_cache()
+    with patch(
+        "gptme.util.prompt.PromptSession",
+        side_effect=lambda **kw: PromptSession(
+            input=DummyInput(), output=DummyOutput(), **kw
+        ),
+    ):
+        session = prompt.get_prompt_session()
+    buffer = session.default_buffer
+    buffer.validate_while_typing = Never()
+    buffer.complete_while_typing = Never()
+    buffer.document = Document("see @my")
+    completer = session.completer
+    assert completer is not None
+    completion = next(iter(completer.get_completions(buffer.document, CompleteEvent())))
+    buffer.apply_completion(completion)
+    assert buffer.text == "see `@my dir/"
+    # prompt_toolkit can automatically request child suggestions after Tab.
+    if follow_up:
+        list(completer.get_completions(buffer.document, CompleteEvent()))
+    if child:
+        buffer.insert_text("ch")
+        completion = next(
+            iter(completer.get_completions(buffer.document, CompleteEvent()))
+        )
+        buffer.apply_completion(completion)
+        assert buffer.text == "see `@my dir/child.md`"
+    submitted: list[str] = []
+
+    def accept(buf: Buffer) -> bool:
+        submitted.append(buf.text)
+        return True
+
+    buffer.accept_handler = accept
+    assert session.key_bindings is not None
+    enter = session.key_bindings.get_bindings_for_keys((Keys.ControlM,))[-1]
+    with set_app(session.app):
+        event = KeyPressEvent(ref(session.app.key_processor), None, [], [], False)
+        enter.handler(event)
+    expected = "see `@my dir/child.md`" if child else "see `@my dir/`"
+    assert submitted == [expected]
+    result = context._include_paths(Message("user", submitted[0]))
+    assert "child.md" in result.content
+    assert ("synthetic-child-marker" in result.content) is child
+    assert "wrong-file-marker" not in result.content
+
+    # Once submitted, the same open text typed as prose is not auto-closed.
+    buffer.document = Document("see `@my dir/")
+    with set_app(session.app):
+        enter.handler(event)
+    assert submitted[-1] == "see `@my dir/"
+    prompt.clear_path_cache()
