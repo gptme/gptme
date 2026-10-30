@@ -58,6 +58,7 @@ from .openai_responses import (
     served_model_from,
 )
 from .request_limits import bounded_attempts, bounded_client, reserve_request
+from .responses_phase import ResponsesPhaseCapture, replay_responses_output
 from .retry_abort import backoff_wait, current_generation
 from .retry_policy import (
     DEFAULT_BASE_DELAY,
@@ -490,9 +491,17 @@ def _prepare_messages_for_responses_api(
     from .models import get_model  # fmt: skip
 
     model_meta = get_model(model)
-    messages_dicts: Iterable[dict[str, Any]] = _process_msgs(
-        msgs2dicts(messages), model_meta
-    )
+    # Keep Responses metadata out of msgs2dicts/Chat Completions. Validate while
+    # the original content is available, before file/tool transforms alter it.
+    dicts = msgs2dicts(messages)
+    for msg, message in zip(messages, dicts):
+        captured = (msg.metadata or {}).get("responses_output")
+        # Capture is text-only and cannot authorize bypassing file processing.
+        if msg.role == "assistant" and captured and not (msg.files or msg.file_hashes):
+            replay = replay_responses_output(msg.content, captured)
+            if replay is not None:
+                message["responses_items"] = replay
+    messages_dicts: Iterable[dict[str, Any]] = _process_msgs(dicts, model_meta)
 
     if tools:
         messages_dicts = _merge_tool_results_with_same_call_id(
@@ -1288,7 +1297,14 @@ def chat(
         )
 
         result: list[str] = []
-        for item in response.output:
+        phases = ResponsesPhaseCapture()
+        preserve_items = any(
+            _obj_get(item, "type") == "message"
+            and isinstance(_obj_get(item, "phase"), str)
+            for item in response.output
+        )
+        for index, item in enumerate(response.output):
+            phases.output_item(index, item)
             item_type = _obj_get(item, "type")
             if item_type == "reasoning":
                 if reasoning_text := _extract_responses_reasoning(item):
@@ -1300,16 +1316,22 @@ def chat(
                 arguments = _obj_get(item, "arguments", "")
                 result.append(f"@{name}({call_id}): {arguments}")
             elif item_type == "message":
+                parts: list[str] = []
                 for part in _obj_get(item, "content", []) or []:
                     part_type = _obj_get(part, "type")
                     if part_type == "output_text":
-                        result.append(_obj_get(part, "text", ""))
+                        parts.append(_obj_get(part, "text", ""))
                     elif part_type == "refusal":
-                        result.append(_obj_get(part, "refusal", ""))
+                        parts.append(_obj_get(part, "refusal", ""))
+                # Preserve intra-message content boundaries without inventing a
+                # newline between parts. Legacy unphased output is unchanged.
+                if parts:
+                    result.extend(["".join(parts)] if preserve_items else parts)
 
         if not result:
             raise ValueError("Responses API returned no usable output items")
-        return "\n".join(part for part in result if part), metadata
+        content = "\n".join(part for part in result if part)
+        return content, phases.metadata(metadata, content)
 
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
@@ -1791,12 +1813,16 @@ def _stream_responses(
         )
 
     stream = client.responses.create(**kwargs)
-    yield from _stream_responses_events(
-        _guarded_stream_iter(stream, model=model, provider=provider),
+    phases = ResponsesPhaseCapture()
+    output: list[str] = []
+    for chunk in _stream_responses_events(
+        phases.events(_guarded_stream_iter(stream, model=model, provider=provider)),
         usage_callback=_capture_usage,
         model_callback=_capture_model,
         incomplete_callback=_capture_incomplete,
-    )
+    ):
+        output.append(chunk)
+        yield chunk
 
     if captured_metadata is None and (
         reasoning_effort is not None or served_model is not None
@@ -1808,7 +1834,7 @@ def _stream_responses(
             reasoning_effort=reasoning_effort,
             served_model=served_model,
         )
-    return captured_metadata
+    return phases.metadata(captured_metadata, "".join(output))
 
 
 def _reraise_openai_stream_iteration_error(

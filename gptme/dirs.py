@@ -115,6 +115,8 @@ def _get_project_git_dir_call() -> Path | None:
             [GIT_CMD, "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             check=True,
             timeout=10,
         ).stdout.strip()
@@ -143,6 +145,10 @@ def get_workspace() -> Path:
             check=False,
             capture_output=True,
             text=True,
+            # Git for Windows emits UTF-8 paths even under a legacy locale.
+            # Preserve undecodable POSIX filename bytes as well.
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=5,
         )
         if result.returncode == 0:
@@ -155,6 +161,8 @@ def get_workspace() -> Path:
                         check=False,
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="surrogateescape",
                         timeout=5,
                     )
                     if super_result.returncode == 0 and super_result.stdout.strip():

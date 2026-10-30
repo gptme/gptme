@@ -440,9 +440,72 @@ def execute_tmux(
     current = []
     in_quotes = False
     quote_char = None
+    escaped = False
+    in_comment = False
+    at_word_start = True
+    command_word: list[str] = []
+    command_word_done = False
+    is_shell_command = False
+    substitution_ends: dict[int, int] = {}
+    source = cmd.encode("utf-8")
+    byte_offset = 0
+    substitution_end = 0
 
     for char in cmd:
-        if char in ["'", '"']:
+        start_byte = byte_offset
+        byte_offset += len(char.encode("utf-8"))
+        if start_byte < substitution_end:
+            current.append(char)
+            continue
+        if not command_word_done:
+            if char.isspace() and command_word:
+                command_word_done = True
+                is_shell_command = "".join(command_word) == "new-session"
+                if is_shell_command and b"$(" in source[start_byte:]:
+                    # Parse only this shell suffix: earlier send-keys text is
+                    # literal tmux input, not Bash comments or quoting syntax.
+                    from .shell import _parse_bash
+
+                    substitution_ends = {}
+                    nodes = [_parse_bash(source[start_byte:])]
+                    while nodes:
+                        node = nodes.pop()
+                        if node.type == "command_substitution":
+                            substitution_ends[start_byte + node.start_byte] = (
+                                start_byte + node.end_byte
+                            )
+                        else:
+                            nodes.extend(node.named_children)
+            elif not char.isspace():
+                command_word.append(char)
+        if in_comment and char != "\n":
+            current.append(char)
+            continue
+        if char == "\n":
+            in_comment = False
+        if escaped:
+            escaped = False
+            # Literal tmux keys such as C-\\ retain their fallback at a batch
+            # newline. Shell commands still support backslash-newline joining.
+            if char != "\n" or in_quotes or is_shell_command:
+                current.append(char)
+                at_word_start = False
+                continue
+        if char == "\\" and quote_char != "'":
+            # Preserve escapes for send_keys' shlex parsing or new_session's shell.
+            current.append(char)
+            escaped = True
+            continue
+        if is_shell_command and start_byte in substitution_ends:
+            substitution_end = substitution_ends[start_byte]
+            at_word_start = False
+            current.append(char)
+            continue
+        if char == "#" and not in_quotes and is_shell_command and at_word_start:
+            # Only new-session forwards shell syntax; send-keys treats # literally.
+            in_comment = True
+            current.append(char)
+        elif char in ["'", '"']:
             if not in_quotes:
                 in_quotes = True
                 quote_char = char
@@ -450,17 +513,20 @@ def execute_tmux(
                 in_quotes = False
                 quote_char = None
             current.append(char)
-        elif char == "\n" and not in_quotes:
+        elif char in "\n;" and not in_quotes:
             if current:
                 commands.append("".join(current).strip())
                 current = []
-        elif char == ";" and not in_quotes:
-            if current:
-                commands.append("".join(current).strip())
-                current = []
+            command_word = []
+            command_word_done = False
+            is_shell_command = False
         else:
             current.append(char)
 
+        at_word_start = not in_quotes and (char.isspace() or char in ";|&()<>")
+
+    # Leave shell validation to Bash and preserve send_keys' existing literal
+    # fallback for unmatched quotes and trailing backslashes (e.g. C-\\).
     if current:
         commands.append("".join(current).strip())
 

@@ -184,21 +184,16 @@ gptme-stats = "gptme.cli.cmd_stats:stats"
 gptme-service = "gptme.cli.cmd_service:cli"
 gptme-dataset = "gptme.cli.cmd_dataset:dataset"
 
+# A build-only tool.poetry table makes Dependabot's uv parser ignore the
+# PEP 621 dependencies above. Keep build configuration native to Hatchling.
 [tool.hatch.build]
-include = [
-    "/gptme/**",
-    "/media/*.png",
-    "/media/*.svg",
-    "/media/*.wav",
-]
-# These paths are gitignored. Include them in both wheel and sdist, including
-# when a wheel is rebuilt from the sdist without a Git checkout.
-artifacts = [
-    "/gptme/server/webui-dist/**",
-    "/media/*.png",
-    "/media/*.svg",
-    "/media/*.wav",
-]
+include = ["gptme/**", "media/*.png", "media/*.svg", "media/*.wav"]
+# Both media and generated webui-dist are gitignored. Include them explicitly
+# in wheels AND sdists, preserving the paths used by runtime asset lookup.
+artifacts = ["gptme/server/webui-dist/**", "media/*.png", "media/*.svg", "media/*.wav"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/gptme/**", "/media/*.png", "/media/*.svg", "/media/*.wav", "/README.md", "/LICENSE", "/pyproject.toml"]
 
 [dependency-groups]
 dev = [
@@ -475,5 +470,5 @@ exclude_also = [
 ]
 
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"

@@ -144,9 +144,8 @@ def hello_world():
     assert "    hello_world()" in result
 
 
-def test_apply_with_placeholders():
-    # tests multiple patches in a single codeblock, with placeholders in patches
-    # checks that whitespace is preserved
+def test_apply_with_placeholders_rejected():
+    # Omitted source is not literal ORIGINAL context; use separate hunks instead.
     content = """
 def hello():
     print("hello")
@@ -160,8 +159,8 @@ def hello_world():
     # ...
 >>>>>>> UPDATED
 """
-    result = apply(codeblock, content)
-    assert "hello_world()" in result
+    with pytest.raises(ValueError, match="not found"):
+        apply(codeblock, content)
 
 
 def test_patch_minimal():

@@ -162,6 +162,424 @@ def test_extract_tool_call_counts_markdown():
     assert counts["python"] == 1
 
 
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            "```shell echo hi\nignored\n```\n```save path/to/my file.py\nx = 1\n```",
+            {"shell": 1, "save": 1},
+        ),
+        (
+            "<tool-use><shell>echo hi</shell><py>print(1)</py></tool-use>",
+            {"shell": 1, "ipython": 1},
+        ),
+        (
+            '@shell(call_1): {"command":"echo hi"}\n'
+            '@shell(call_2): {"command":"echo bye"}',
+            {"shell": 2},
+        ),
+        (
+            "```shell\necho hi\n```\n"
+            '<tool-use><save path="a.py">x = 1</save></tool-use>\n'
+            '@shell(call_1): {"command":"echo bye"}\n'
+            "```py\nprint(1)\n```",
+            {"shell": 2, "save": 1, "ipython": 1},
+        ),
+        (
+            '```json\n@ shell: {}\n@shell(example): {"command":"no"}\n```\n'
+            '````text\n@shell(example2): {"command":"no"}\n'
+            "```shell\nnot a call\n```\n"
+            "<tool-use><shell>not a call</shell></tool-use>\n````\n"
+            "```unknown\nnot a call\n```",
+            {},
+        ),
+        (
+            '```shell\n@shell(example): {"command":"not another call"}\n```',
+            {"shell": 1},
+        ),
+        (
+            '<function_calls><invoke name="py">print(1)</invoke></function_calls>\n'
+            '@py(call_1): {"code":"print(2)"}',
+            {"ipython": 2},
+        ),
+        ("```python\nprint(1)\n```\n```py\nprint(2)\n```", {"python": 1, "ipython": 1}),
+        (
+            '<tool-use><save path="example.txt">\n'
+            '@shell(example): {"command":"echo hi"}\n'
+            "</save></tool-use>",
+            {"save": 1},
+        ),
+        (
+            '<function_calls><invoke name="save" path="example.txt">\n'
+            "```shell\necho hi\n```\n"
+            '@shell(example): {"command":"echo hi"}\n'
+            "</invoke></function_calls>\n"
+            '@shell(real): {"command":"echo bye"}',
+            {"save": 1, "shell": 1},
+        ),
+        (
+            "<tool-use><save><![CDATA[<tool-use><shell>echo hi</shell>"
+            "</tool-use>]]></save></tool-use>\n"
+            '@shell(real): {"command":"echo bye"}',
+            {"save": 1, "shell": 1},
+        ),
+        (
+            '<function_calls><invoke name="save"><![CDATA['
+            '<function_calls><invoke name="shell">echo hi</invoke>'
+            "</function_calls>]]></invoke></function_calls>",
+            {"save": 1},
+        ),
+        (
+            "<tool-use><save><!-- </tool-use> --></save></tool-use>\n"
+            "<tool-use><shell>echo real</shell></tool-use>",
+            {"save": 1, "shell": 1},
+        ),
+        (
+            "<!-- <tool-use><shell>echo example</shell></tool-use> -->",
+            {},
+        ),
+        (
+            '<!-- <function_calls><invoke name="shell">echo example</invoke>'
+            "</function_calls> -->\n"
+            "<tool-use><shell>echo real</shell></tool-use>",
+            {"shell": 1},
+        ),
+        (
+            '<!--\n@shell(example): {"command":"echo example"}\n'
+            "```shell\necho example\n```\n"
+            "<tool-use><shell>echo example</shell></tool-use>\n-->\n"
+            '@save(real): {"content":"real"}',
+            {"save": 1},
+        ),
+        (
+            '@save(a): {"content":"<!--"}\n'
+            '<tool-use><shell>echo "-->"</shell></tool-use>',
+            {"save": 1, "shell": 1},
+        ),
+        (
+            '```json\n{"content":"<!--"}\n```\n'
+            '<tool-use><shell>echo "-->"</shell></tool-use>',
+            {"shell": 1},
+        ),
+        (
+            '@save(a): {"content":"<![CDATA["}\n'
+            '<function_calls><invoke name="shell"><![CDATA[echo hi]]></invoke>'
+            "</function_calls>",
+            {"save": 1, "shell": 1},
+        ),
+        (
+            "```json\n@shell(example): {\n```\n"
+            '@save(real): {"content":"<tool-use><shell>echo hi</shell></tool-use>"}',
+            {"save": 1},
+        ),
+        (
+            '@save(real): {"path":"example.txt", "content":'
+            '"<tool-use><shell>echo hi</shell></tool-use>"}',
+            {"save": 1},
+        ),
+        (
+            '<tool-use><save path="first.txt">\n```shell\necho example\n```\n'
+            "</save></tool-use>\n"
+            "```shell\necho real\n```\n"
+            '<tool-use><save path="second.txt">\n'
+            '@shell(example): {"command":"echo hi"}\n</save></tool-use>\n'
+            '@shell(real): {"command":"echo bye"}',
+            {"save": 2, "shell": 2},
+        ),
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_persisted_formats(
+    content: str,
+    expected: dict[str, int],
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<!--\n```text\n-->\n<tool-use><shell>echo real</shell></tool-use>\n```",
+        "<![CDATA[\n```text\n]]>\n"
+        '<function_calls><invoke name="shell">echo real</invoke></function_calls>\n```',
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_comment_owns_fence(
+    content: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "shell": 1
+    }
+
+
+@pytest.mark.parametrize("outer", ["<!--\n```text\n-->", "<![CDATA[\n```text\n]]>"])
+@pytest.mark.parametrize(
+    "example",
+    [
+        "<tool-use><shell>echo example</shell></tool-use>",
+        '<function_calls><invoke name="shell">echo example</invoke></function_calls>',
+        '@save(example): {"content":"<tool-use><shell>example</shell></tool-use>"}',
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_rebuilds_fences_after_comment(
+    outer: str,
+    example: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    content = f"{outer}\n```json\n{example}\n```"
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {}
+    content += '\n@shell(real): {"command":"echo real"}'
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "shell": 1
+    }
+
+
+@pytest.mark.parametrize(
+    ("lang", "body"),
+    [
+        ("shell", "cat <<'EOF' > example.md\n```\n{example}\nEOF"),
+        ("ipython", 'text = """\n```\n{example}\n"""'),
+    ],
+)
+@pytest.mark.parametrize(
+    "example",
+    [
+        "<tool-use><shell>echo example</shell></tool-use>",
+        '@shell(example): {"command":"echo example"}',
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_literal_fences(
+    lang: str,
+    body: str,
+    example: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    content = f"```{lang}\n{body.replace('{example}', example)}\n```"
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        lang: 1
+    }
+    content += '\n<tool-use><save>real</save></tool-use>\n@read(real): {"path":"a"}'
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        lang: 1,
+        "save": 1,
+        "read": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("lang", "body"),
+    [
+        ("shell", "cat <<'EOF'\n```\nexample\nEOF"),
+        ("ipython", 'text = """\n```\nexample\n"""'),
+    ],
+)
+@pytest.mark.parametrize("use_stdlib_xml", [False, True])
+def test_extract_tool_call_counts_literal_fence_then_real_blocks(
+    lang: str,
+    body: str,
+    use_stdlib_xml: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if use_stdlib_xml:
+        monkeypatch.setattr("gptme.tools.base._LXML_AVAILABLE", False)
+    content = (
+        f"```{lang}\n{body}\n```\n"
+        "<tool-use><save>real</save></tool-use>\n"
+        "```shell\necho real\n```"
+    )
+    expected = {lang: 1, "save": 1}
+    expected["shell"] = expected.get("shell", 0) + 1
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+def test_extract_tool_call_counts_loaded_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gptme.tools as tools
+    from gptme.tools.base import ToolSpec
+
+    monkeypatch.setattr(
+        tools,
+        "get_tools",
+        lambda: [
+            ToolSpec(name="custom_plugin", desc="test", block_types=["custom_alias"])
+        ],
+    )
+    content = "```custom_alias\n{}\n```"
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "custom_plugin": 1
+    }
+
+
+def test_extract_tool_call_counts_thinking_offsets() -> None:
+    content = (
+        "<think>\na\nb\n</think>\n"
+        "<tool-use><save>real</save></tool-use>\n```shell\necho hi\n```"
+    )
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        "save": 1,
+        "shell": 1,
+    }
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("closed", [False, True])
+def test_extract_tool_call_counts_excludes_thinking(tag: str, closed: bool) -> None:
+    content = (
+        f"<{tag}>\n```shell\necho example\n```\n"
+        '@read(example): {"path":"example"}\n'
+        "<tool-use><save>example</save></tool-use>\n"
+    )
+    expected = {}
+    if closed:
+        content += f"</{tag}>\n```shell\necho real\n```"
+        expected = {"shell": 1}
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (
+            '@save(real): {"content":"<think>"}\n@shell(real): {}',
+            {"save": 1, "shell": 1},
+        ),
+        ("```save example.txt\n<think>\nexample\n</think>\n```", {"save": 1}),
+        ("```shell\necho '<think>'\n```", {"shell": 1}),
+        ("<!--\n<think>\n-->\n```shell\necho real\n```", {"shell": 1}),
+    ],
+)
+def test_extract_tool_call_counts_literal_thinking(
+    content: str, expected: dict[str, int]
+) -> None:
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+@pytest.mark.parametrize("lang", ["", "shell", "json"])
+@pytest.mark.parametrize("suffix", ["", '\n@read(real): {"path":"a"}'])
+def test_extract_tool_call_counts_empty_fence(lang: str, suffix: str) -> None:
+    content = f"```{lang}\n```{suffix}"
+    expected = {"shell": 1} if lang == "shell" else {}
+    if suffix:
+        expected["read"] = 1
+    assert (
+        _extract_tool_call_counts([{"role": "assistant", "content": content}])
+        == expected
+    )
+
+
+@pytest.mark.parametrize("lang", ["shell", "ipython"])
+@pytest.mark.parametrize("command", ["echo hi", "echo 'hi'", 'echo "hi"'])
+def test_extract_tool_call_counts_fence_scan_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    lang: str,
+) -> None:
+    from gptme.codeblock import Codeblock
+
+    original = Codeblock.iter_from_markdown
+    scanned_chars = 0
+
+    def measured(markdown: str, streaming: bool = False) -> list[Codeblock]:
+        nonlocal scanned_chars
+        scanned_chars += len(markdown)
+        return original(markdown, streaming=streaming)
+
+    monkeypatch.setattr(Codeblock, "iter_from_markdown", measured)
+    content = f"```{lang}\n{command}\n```\n" * 100
+    assert _extract_tool_call_counts([{"role": "assistant", "content": content}]) == {
+        lang: 100
+    }
+    # Bound work, not wall-clock time: completed blocks must not be reparsed
+    # at every later closer. Allow the ownership and format parsing passes.
+    assert scanned_chars <= 10 * len(content)
+
+
+def test_extract_tool_call_counts_unterminated_xml_is_bounded() -> None:
+    # A subprocess deadline makes exponential regex backtracking fail safely,
+    # rather than hanging the test runner on this malformed persisted message.
+    script = (
+        "from gptme.dataset.trajectory_to_env import _extract_tool_call_counts\n"
+        "content = '<tool-use>' + '<![CDATA[x]]>' * 35\n"
+        "assert _extract_tool_call_counts([{'role': 'assistant', 'content': content}]) == {}\n"
+    )
+    import sys
+
+    subprocess.run([sys.executable, "-c", script], check=True, timeout=5)
+
+
+def test_extract_tool_call_counts_ignores_nonassistant() -> None:
+    content = '```shell\necho hi\n```\n@shell(call_1): {"command":"echo hi"}'
+    assert (
+        _extract_tool_call_counts(
+            [{"role": role, "content": content} for role in ("system", "user", "tool")]
+            + [{"role": "user", "content": [{"type": "tool_use", "name": "shell"}]}]
+        )
+        == {}
+    )
+
+
+def test_extract_tool_call_counts_cold_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gptme.tools as tools
+    from gptme.tools.base import _tool_format_var
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("Dataset extraction must not initialize or discover tools")
+
+    monkeypatch.setattr(tools, "init_tools", forbidden)
+    monkeypatch.setattr(tools, "get_available_tools", forbidden)
+    loaded = tools._loaded_tools_var.set(None)
+    initialized = tools._tools_initialized_var.set(False)
+    tool_format = _tool_format_var.set("xml")
+    try:
+        assert _extract_tool_call_counts(
+            [
+                {
+                    "role": "assistant",
+                    "content": '```shell echo hi\nignored\n```\n\n@shell(c): {"command":"hi"}',
+                }
+            ]
+        ) == {"shell": 2}
+        assert tools._loaded_tools_var.get() is None
+        assert not tools.tools_initialized()
+        assert _tool_format_var.get() == "xml"
+    finally:
+        _tool_format_var.reset(tool_format)
+        tools._tools_initialized_var.reset(initialized)
+        tools._loaded_tools_var.reset(loaded)
+
+
 def test_extract_tool_call_counts_tool_use_blocks():
     messages = [
         {

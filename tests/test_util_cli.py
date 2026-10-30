@@ -330,8 +330,8 @@ def test_chats_search_matches_and_context_options(tmp_path, monkeypatch, mocker)
     )
 
     assert result.exit_code == 0, result.output
-    assert "Match 1 (message 0, user):" in result.output
-    assert "Match 2 (message 1, assistant):" in result.output
+    assert "Match 1 (message 1, user):" in result.output
+    assert "Match 2 (message 2, assistant):" in result.output
     assert "1| before" in result.output
     assert "2| **needle** first" in result.output
     assert "1| one" in result.output

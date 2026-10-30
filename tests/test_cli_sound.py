@@ -45,6 +45,10 @@ def test_sound_ding_play_failure_exits():
     assert "No audio player available" in result.output
 
 
+# Distribution payloads are checked by test_build_distribution_roundtrip,
+# which builds and inspects real wheels rather than matching backend syntax.
+
+
 def test_afplay_volume_args(tmp_path):
     from gptme.util import _sound_cmd
 

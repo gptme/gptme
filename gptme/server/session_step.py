@@ -17,6 +17,7 @@ import time
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -985,7 +986,9 @@ def step(
     # Notify clients about generation status
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
 
-    tool_format = chat_config.tool_format or model_meta.default_tool_format
+    tool_format = (
+        chat_config.tool_format or model_meta.default_tool_format or "markdown"
+    )
     tools = None
     if tool_format == "tool":
         tools = [t for t in get_tools() if t.is_runnable]
@@ -1131,7 +1134,11 @@ def step(
             # Persist the assistant message. Anchor the *resolved* model (e.g.
             # ``gptme/anthropic/claude-sonnet-4-6``), matching the identity
             # compaction compares against; the raw request name can differ.
-            msg = Message("assistant", output, metadata=metadata)
+            replay_metadata: MessageMetadata = {
+                **(metadata or {}),
+                "tool_format": tool_format,
+            }
+            msg = Message("assistant", output, metadata=replay_metadata)
             anchor_context_usage(msg, input_count, input_digest, model_meta.full)
 
             return msg
@@ -1483,6 +1490,24 @@ def start_tool_execution(
 
                     # use explicit tooluse if set (may be modified), else from pending
                     tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
+                    # Pending calls were parsed before this worker reloaded the
+                    # log. Rebind provenance only to their persisted owner, not
+                    # to an unrelated message with an identical command.
+                    replay_log = (
+                        manager.master_log
+                        if manager.current_branch == "main"
+                        else manager.log
+                    )
+                    for owner_msg in replay_log.messages:
+                        if (
+                            owner_msg.role == "assistant"
+                            and owner_msg.timestamp == tool_exec.assistant_msg_timestamp
+                            and owner_msg.content == tooluse._source_content
+                        ):
+                            tooluse = replace(
+                                tooluse, _source_content=owner_msg.content
+                            )
+                            break
 
                     # Record start time and notify about tool execution
                     tool_exec.started_at = time.monotonic()

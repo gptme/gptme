@@ -73,6 +73,8 @@ class MessageDict(TypedDict):
     call_id: NotRequired[str]
     reasoning_content: NotRequired[str]
     files: NotRequired[list[str]]
+    # Only the Responses preparation path populates these validated items.
+    responses_items: NotRequired[list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -304,10 +306,17 @@ def _messages_dicts_to_responses_input(
                 instructions_parts.append(text)
             continue
 
+        if role == "assistant" and "responses_items" in message:
+            items.extend(message["responses_items"])
+            continue
+
         if role == "assistant" and message.get("tool_calls"):
-            text = _content_to_text(message.get("content")).strip()
-            if text:
-                items.append({"role": "assistant", "content": text})
+            # Ordinary fallback must retain processed image parts alongside calls.
+            content = _content_to_responses_input(message.get("content"))
+            if isinstance(content, str):
+                content = content.strip()
+            if content:
+                items.append({"role": "assistant", "content": content})
             for tool_call in message["tool_calls"]:
                 function = tool_call["function"]
                 items.append(
@@ -362,6 +371,19 @@ def _messages_to_responses_input(
             continue
 
         if msg.role == "assistant":
+            from .responses_phase import replay_responses_output
+
+            captured = (msg.metadata or {}).get("responses_output")
+            # Text-only capture cannot validate attachments. Preserve this path's
+            # existing conversion (which does not yet process Message.files).
+            replay = (
+                replay_responses_output(msg.content, captured)
+                if captured and not (msg.files or msg.file_hashes)
+                else None
+            )
+            if replay is not None:
+                items.extend(replay)
+                continue
             content_parts, tool_uses = extract_tool_uses_from_assistant_message(
                 msg.content, tool_format_override="tool"
             )
@@ -401,6 +423,114 @@ def _messages_to_responses_input(
     return instructions, _pair_missing_tool_results(items)
 
 
+@dataclass
+class _ResponseFunctionCall:
+    """Withhold executable syntax until streamed arguments can be reconciled."""
+
+    name: str = ""
+    call_id: str = ""
+    item_id: str = ""
+    arguments: str = ""
+    complete_arguments: str | None = None
+    invalid: bool = False
+
+    def snapshot(self, item: Any) -> None:
+        for key in ("name", "call_id"):
+            value = _obj_get(item, key, "") or ""
+            previous = getattr(self, key)
+            if value and previous and value != previous:
+                self.invalid = True
+            if value:
+                setattr(self, key, value)
+        arguments = _obj_get(item, "arguments", None)
+        if isinstance(arguments, str):
+            if not arguments.startswith(self.arguments):
+                self.invalid = True
+            if (
+                self.complete_arguments is not None
+                and arguments != self.complete_arguments
+            ):
+                self.invalid = True
+            self.complete_arguments = arguments
+        if _obj_get(item, "status", None) == "incomplete":
+            self.invalid = True
+
+    def chunk(self) -> str:
+        arguments = self.complete_arguments
+        if arguments is None:
+            arguments = self.arguments
+        try:
+            valid = isinstance(json.loads(arguments), dict)
+        except (ValueError, TypeError):
+            valid = False
+        if (
+            self.invalid
+            or not valid
+            or not self.name
+            or not (self.call_id or self.item_id)
+        ):
+            logger.warning("Skipping incomplete or conflicting Responses function call")
+            return ""
+        return f"\n@{canonical_tool_name(self.name)}({self.call_id or self.item_id}): {arguments}"
+
+
+class _ResponseFunctionCalls:
+    """Resolve item IDs, call IDs and output positions without mixing calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[_ResponseFunctionCall] = []
+        self.items: dict[str, _ResponseFunctionCall] = {}
+        self.ids: dict[str, _ResponseFunctionCall] = {}
+        self.indices: dict[int, _ResponseFunctionCall] = {}
+
+    def get(self, event: Any, item: Any = None) -> _ResponseFunctionCall:
+        item_id = _obj_get(item, "id", "") or _obj_get(event, "item_id", "")
+        call_id = _obj_get(item, "call_id", "") or _obj_get(event, "call_id", "")
+        index = _obj_get(event, "output_index", None)
+        # Older subscription events omit all routing fields for their sole call.
+        if index is None and not item_id and not call_id:
+            if len(self.calls) == 1:
+                return self.calls[0]
+            index = 0
+        matches = [
+            call
+            for call in (
+                self.items.get(item_id),
+                self.ids.get(call_id),
+                self.indices.get(index),
+            )
+            if call is not None
+        ]
+        if matches:
+            call = matches[0]
+            if any(other is not call for other in matches):
+                for other in matches:
+                    other.invalid = True
+        elif (
+            index is None
+            and len(self.calls) == 1
+            and not self.calls[0].item_id
+            and not self.calls[0].call_id
+        ):
+            call = self.calls[0]
+        else:
+            call = _ResponseFunctionCall()
+            self.calls.append(call)
+        if item_id:
+            if call.item_id and call.item_id != item_id:
+                call.invalid = True
+            call.item_id = item_id
+            self.items[item_id] = call
+        if call_id:
+            if call.call_id and call.call_id != call_id:
+                call.invalid = True
+            call.call_id = call_id
+            self.ids[call_id] = call
+        if index is not None:
+            self.indices[index] = call
+        return call
+
+
 def _completed_output_chunks(response_obj: Any) -> Generator[str, None, None]:
     """Rebuild text/tool-call chunks from a terminal response's ``output``."""
     for item in _obj_get(response_obj, "output", None) or []:
@@ -427,15 +557,14 @@ def _stream_responses_events(
 ) -> Generator[str, None, None]:
     """Process a Responses API event stream, yielding formatted text chunks.
 
-    If no delta produced any chunk, the turn is rebuilt from the terminal
-    response's ``output`` items: a stream can report positive output usage
-    while delivering no deltas (openai-subscription gpt-6.1-sol, ~4% of
-    sessions on 2026-10-20), which otherwise surfaces as an empty turn. When
-    that also yields nothing, the event and output item types (never their
-    content) are logged so the missing shape can be identified.
+    Reconcile native calls with terminal output even after prose/reasoning
+    deltas. Call syntax is withheld until reconciliation so partial or conflicting
+    JSON can never become executable. Text retains the no-delta fallback without
+    replaying text already streamed. Empty streams log shape, never content.
     """
     event_types: dict[str, int] = {}
     terminal: dict[str, Any] = {}
+    calls = _ResponseFunctionCalls()
 
     def _counted(events: Iterable[Any]) -> Generator[Any, None, None]:
         for event in events:
@@ -450,23 +579,41 @@ def _stream_responses_events(
         model_callback=model_callback,
         incomplete_callback=incomplete_callback,
         terminal=terminal,
+        calls=calls,
     ):
         emitted = emitted or bool(chunk)
         yield chunk
-    if emitted:
-        return
 
     response_obj = terminal.get("response")
-    recovered = [c for c in _completed_output_chunks(response_obj) if c]
+    ordered_output: list[str | _ResponseFunctionCall] = []
+    for index, item in enumerate(_obj_get(response_obj, "output", None) or []):
+        if _obj_get(item, "type") == "function_call":
+            call = calls.get({"output_index": index}, item)
+            call.snapshot(item)
+            if not any(previous is call for previous in ordered_output):
+                ordered_output.append(call)
+        elif not emitted and _obj_get(item, "type") == "message":
+            ordered_output.extend(_completed_output_chunks({"output": [item]}))
+    # Terminal order is authoritative; retain calls from delta-only providers.
+    ordered_output.extend(
+        call
+        for call in calls.calls
+        if not any(previous is call for previous in ordered_output)
+    )
+    # Render only after all snapshots: a later item can invalidate an earlier call.
+    recovered: list[str] = []
+    for part in ordered_output:
+        chunk = part.chunk() if isinstance(part, _ResponseFunctionCall) else part
+        if chunk:
+            recovered.append(chunk)
     if recovered:
-        logger.warning(
-            "Responses stream sent no deltas; recovered %d chunk(s) from the "
-            "terminal response output",
+        logger.debug(
+            "Responses stream reconciled %d chunk(s) from function calls/terminal output",
             len(recovered),
         )
         yield from recovered
         return
-    if event_types:
+    if event_types and not emitted:
         logger.warning(
             "Responses stream produced no content: events=%s output_items=%s",
             event_types,
@@ -484,6 +631,7 @@ def _stream_responses_event_chunks(
     model_callback: Callable[[str], None] | None = None,
     incomplete_callback: Callable[[], None] | None = None,
     terminal: dict[str, Any] | None = None,
+    calls: _ResponseFunctionCalls | None = None,
 ) -> Generator[str, None, None]:
     """Delta-level worker for :func:`_stream_responses_events`.
 
@@ -506,8 +654,8 @@ def _stream_responses_event_chunks(
     seen_reasoning_delta = False
     in_duplicate_thinking_block = False
     pending = ""
-    func_call_items: dict[int, tuple[str, str]] = {}  # output_index -> (name, call_id)
-    header_emitted: set[int] = set()
+    if calls is None:
+        calls = _ResponseFunctionCalls()
 
     for event in event_iter:
         event_type = _obj_get(event, "type", "")
@@ -570,7 +718,7 @@ def _stream_responses_event_chunks(
                 if text:
                     yield text
 
-        elif event_type == "response.output_item.added":
+        elif event_type in ("response.output_item.added", "response.output_item.done"):
             if in_reasoning_block:
                 yield "\n</think>\n"
                 in_reasoning_block = False
@@ -582,21 +730,32 @@ def _stream_responses_event_chunks(
 
             item = _obj_get(event, "item", None)
             if item is not None and _obj_get(item, "type") == "function_call":
-                output_index = _obj_get(event, "output_index", 0)
-                func_call_items[output_index] = (
-                    _obj_get(item, "name", ""),
-                    _obj_get(item, "call_id", "") or _obj_get(item, "id", ""),
-                )
+                call = calls.get(event, item)
+                # Added items carry a placeholder, not a completed snapshot.
+                # Metadata can arrive after argument deltas.
+                if event_type == "response.output_item.done":
+                    call.snapshot(item)
+                else:
+                    call.snapshot(
+                        {
+                            "name": _obj_get(item, "name", ""),
+                            "call_id": _obj_get(item, "call_id", ""),
+                        }
+                    )
 
         elif event_type == "response.function_call_arguments.delta":
-            output_index = _obj_get(event, "output_index", 0)
-            if output_index not in header_emitted:
-                name, call_id = func_call_items.get(output_index, ("", ""))
-                yield f"\n@{canonical_tool_name(name)}({call_id}): "
-                header_emitted.add(output_index)
+            call = calls.get(event)
             delta = _obj_get(event, "delta", "")
             if delta:
-                yield delta
+                call.arguments += delta
+                if (
+                    call.complete_arguments is not None
+                    and not call.complete_arguments.startswith(call.arguments)
+                ):
+                    call.invalid = True
+
+        elif event_type == "response.function_call_arguments.done":
+            calls.get(event).snapshot(event)
 
         elif event_type in ("response.created", "response.in_progress"):
             if model_callback is not None:

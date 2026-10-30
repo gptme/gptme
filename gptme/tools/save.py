@@ -3,7 +3,8 @@ Gives the assistant the ability to save whole files, or append to them.
 """
 
 import re
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -89,6 +90,50 @@ def _get_preview_lang(path: Path) -> str | None:
     return "diff" if _read_text_safe(path) is not None else None
 
 
+@dataclass(frozen=True)
+class _SaveBaseline:
+    resolved: Path
+    identity: tuple[int, int] | None
+    content: bytes | None
+
+    @classmethod
+    def capture(cls, path: Path) -> "_SaveBaseline":
+        resolved = path.expanduser().resolve()
+        try:
+            stat = resolved.stat()
+        except FileNotFoundError:
+            return cls(resolved, None, None)
+        if not resolved.is_file():
+            raise ValueError(f"Cannot save to {path}: not a regular file")
+        return cls(resolved, (stat.st_dev, stat.st_ino), resolved.read_bytes())
+
+    def validate(self, path: Path) -> None:
+        try:
+            current = self.capture(path)
+        except OSError as err:
+            raise ValueError(
+                f"Save aborted: {path} changed or cannot be verified; preview and retry."
+            ) from err
+        if current != self:
+            raise ValueError(
+                f"Save aborted: {path} changed since preview; preview and retry."
+            )
+
+    def preview(self, content: str, path: Path | None) -> str | None:
+        assert path
+        # An edited replacement must not silently rebase the original approval.
+        self.validate(path)
+        if self.content is None:
+            return content
+        try:
+            current = self.content.decode("utf-8")
+        except UnicodeDecodeError:
+            return content
+        current = current.replace("\r\n", "\n").replace("\r", "\n")
+        diff = Patch(current, content).diff_minimal()
+        return diff if diff.strip() else None
+
+
 def preview_save(content: str, path: Path | None) -> str | None:
     """Prepare preview content for save operation."""
     assert path
@@ -127,13 +172,15 @@ def check_for_placeholders(content: str) -> bool:
 
 
 def execute_save_impl(
-    content: str, path: Path | None
+    content: str, path: Path | None, *, baseline: _SaveBaseline | None = None
 ) -> Generator[Message, None, None]:
     """Actual save implementation."""
     from ..hooks import HookType, trigger_hook
 
     assert path
     path_display = path
+    if baseline is not None:
+        baseline.validate(path_display)
 
     # Print full path to give agent feedback about where exactly the file is saved
     path = path.expanduser().resolve()
@@ -166,6 +213,9 @@ def execute_save_impl(
     ):
         yield from pre_save_msgs
 
+    if baseline is not None:
+        baseline.validate(path_display)
+
     # Ensure content ends with newline
     if not content.endswith("\n"):
         content += "\n"
@@ -183,6 +233,8 @@ def execute_save_impl(
                 "system", "Save aborted: user refused to create a missing folder."
             )
             return
+        if baseline is not None:
+            baseline.validate(path_display)
         path.parent.mkdir(parents=True)
         missing_parent_created = True
 
@@ -192,6 +244,9 @@ def execute_save_impl(
     if _is_non_regular(path):
         yield Message("system", f"Cannot save to {path_display}: not a regular file")
         return
+
+    if baseline is not None:
+        baseline.validate(path_display)
 
     # Preserve an existing text file's line endings before truncating it.
     newline = file_newline(path) if original_content else ""
@@ -359,8 +414,24 @@ def _validate_and_execute(
 
     preview_lang = _get_preview_lang(path)
     confirm_msg = f"Save to {path}?" if operation == "save" else f"Append to {path}?"
-    execute_fn = execute_save_impl if operation == "save" else execute_append_impl
+    execute_fn: Callable[[str, Path | None], Generator[Message, None, None]] = (
+        execute_save_impl if operation == "save" else execute_append_impl
+    )
     preview_fn = preview_save if operation == "save" else preview_append
+    if operation == "save":
+        try:
+            baseline = _SaveBaseline.capture(path)
+        except OSError as err:
+            yield Message("system", f"Cannot preview save to {path}: {err}")
+            return
+
+        def save_confirmed(
+            content: str, destination: Path | None
+        ) -> Generator[Message, None, None]:
+            yield from execute_save_impl(content, destination, baseline=baseline)
+
+        execute_fn = save_confirmed
+        preview_fn = baseline.preview
 
     yield from execute_with_confirmation(
         code,

@@ -342,8 +342,7 @@ def _tool_call_renderable(call_text: str) -> tuple[str, str, str]:
 _PATCH_BLOCK_RE = re.compile(
     r"<<<<<<< ORIGINAL\n(.*?)\n?=======\n(.*?)\n?>>>>>>> UPDATED", re.DOTALL
 )
-# Same pattern the patch executor splits on (gptme.tools.patch.Patch.from_codeblock)
-_PATCH_PLACEHOLDER_RE = re.compile(r"^[ \t]*(#|//|\") \.\.\. ?.*$")
+
 # tools whose content is a file's text, highlighted by the file's type
 _FILE_CONTENT_TOOLS = ("save", "append", "morph")
 
@@ -356,16 +355,8 @@ def _patch_as_diff(patch: str) -> str | None:
     lines: list[str] = []
     for original, updated in blocks:
         lines.append("@@")
-        lines += [
-            f"-{line}"
-            for line in original.splitlines()
-            if not _PATCH_PLACEHOLDER_RE.match(line)
-        ]
-        lines += [
-            f"+{line}"
-            for line in updated.splitlines()
-            if not _PATCH_PLACEHOLDER_RE.match(line)
-        ]
+        lines += [f"-{line}" for line in original.splitlines()]
+        lines += [f"+{line}" for line in updated.splitlines()]
     return "\n".join(lines)
 
 

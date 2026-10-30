@@ -429,7 +429,15 @@ class ImageConverter(Converter):
             )
 
         if avail.imagemagick:
-            cmd = ["convert", _arg(src), "-define", "filename:literal=true"]
+            # Normalize pixels and reset EXIF orientation before writing, including
+            # formats that cannot retain orientation metadata (e.g. BMP).
+            cmd = [
+                "convert",
+                _arg(src),
+                "-auto-orient",
+                "-define",
+                "filename:literal=true",
+            ]
             if lossy:
                 cmd += ["-quality", str(q)]
             cmd += [_arg(dest)]

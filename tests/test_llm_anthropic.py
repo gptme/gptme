@@ -21,7 +21,7 @@ from gptme.llm.llm_anthropic import (
 )
 from gptme.message import Message
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
-from gptme.tools import get_tool, init_tools
+from gptme.tools import ToolUse, get_tool, init_tools
 
 EXPECTED_SAVE_TOOL_DESCRIPTION = (
     "Create or overwrite a file with the given content.\n\n"
@@ -1259,6 +1259,67 @@ def test_chat_large_max_tokens_bypasses_sdk_streaming_check():
             msgs, model="claude-sonnet-4-6", tools=None, max_tokens=64_000
         )
     assert "ok" in content
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        {"path": "config.json", "content": '{"name": "demo", "enabled": true}\n'},
+        {"path": "notes.txt", "content": "hello\nworld\n"},
+        {"path": "路径.txt", "content": "Unicode, 'quotes', and \\backslashes\n"},
+        {"path": "empty.txt", "content": "", "options": [True, False, None, {"n": 3}]},
+    ],
+)
+def test_chat_preserves_tool_input(
+    tool_input: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Native arguments survive the real SDK, persisted syntax, and API replay."""
+    init_tools(["save"])
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_tool",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-sonnet-4-6",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_save",
+                        "name": "save",
+                        "input": tool_input,
+                    }
+                ],
+                "stop_reason": "tool_use",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+
+    messages = [Message("system", "Be helpful."), Message("user", "Save the file.")]
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        content, _ = llm_anthropic.chat(messages, "claude-sonnet-4-6", tools=None)
+
+    calls = list(ToolUse.iter_from_content(content, tool_format_override="tool"))
+    assert len(calls) == 1
+    assert calls[0].kwargs == tool_input
+    assert calls[0].call_id == "toolu_save"
+
+    save_tool = get_tool("save")
+    assert save_tool is not None
+    replay, _, _ = _prepare_messages_for_api(
+        [*messages, Message("assistant", content)], [save_tool]
+    )
+    tool_block = next(
+        block
+        for block in replay[-1]["content"]
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    )
+    assert tool_block.get("input") == tool_input
 
 
 def _mock_anthropic_chat_client():

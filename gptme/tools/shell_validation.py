@@ -325,7 +325,7 @@ def _find_first_unquoted_pipe(command: str) -> int | None:
     """Find the position of the first pipe operator that's not in quotes.
 
     Returns None if no unquoted pipe is found.
-    Skips logical OR operators (||).
+    Skips escaped pipes and logical OR operators (||).
     """
     quoted_regions = _find_quotes(command)
 
@@ -334,6 +334,16 @@ def _find_first_unquoted_pipe(command: str) -> int | None:
         pipe_pos = command.find("|", pos)
         if pipe_pos == -1:
             return None
+
+        # An odd run of backslashes escapes the pipe; pairs escape each other.
+        backslashes = 0
+        preceding = pipe_pos - 1
+        while preceding >= 0 and command[preceding] == "\\":
+            backslashes += 1
+            preceding -= 1
+        if backslashes % 2:
+            pos = pipe_pos + 1
+            continue
 
         # Check if this pipe is inside quotes
         if not _is_in_quoted_region(pipe_pos, quoted_regions):

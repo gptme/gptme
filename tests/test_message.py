@@ -973,3 +973,61 @@ def test_message_metadata_migration_nests_reasoning_tokens():
     )
     assert migrated["usage"] == {"output_tokens": 40, "reasoning_tokens": 25}
     assert "reasoning_tokens" not in migrated
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        'Text\n@shell(call_1): {"command": "printf \\\n"}',
+        "Text\n@shell(call_1): "
+        + json.dumps(
+            {
+                "command": "printf '<think>keep</think>'\n<!-- think-sig: literal\nvalue -->"
+            }
+        ),
+        r"literal \n and \\n plus \t and C:\new\notes",
+    ],
+)
+def test_toml_preserves_literal_backslashes_and_real_newlines(content: str) -> None:
+    """Escaped JSON newlines are data, not TOML line-continuation markers."""
+    msg = Message("assistant", content)
+    assert Message.from_toml(msg.to_toml()).content == content
+    assert toml_to_msgs(msgs_to_toml([msg]))[0].content == content
+
+
+def test_toml_roundtrip_metadata_non_string_scalars():
+    """Boolean and ``None`` metadata must serialize to valid TOML.
+
+    Metadata reaches the TOML editor with booleans (``chat.py`` writes
+    ``max_steps_stop: True`` when ``GPTME_MAX_STEPS`` ends a turn, the checkpoint
+    hook writes ``compaction_checkpoint_needs_continuation``) and with ``None``
+    (``PanelHint`` fields are typed ``str | None``). ``str()`` renders those as
+    the Python literals ``True``/``False``/``None``, which TOML cannot parse, so
+    ``/edit`` rejected the file it had just generated and re-opened the editor on
+    "Failed to parse TOML" forever.
+
+    Only declared ``MessageMetadata`` keys are used (both producers above write
+    them), so the test doubles as a check against the declared schema.
+    """
+    msg = Message(
+        "system",
+        "max steps reached",
+        metadata={
+            "max_steps_stop": True,
+            "compaction_checkpoint_needs_continuation": False,
+            "panel_hints": [{"id": "p1", "src": "/panel", "status_message": None}],
+        },
+    )
+
+    toml_str = msgs_to_toml([msg])
+    # Baseline: tomlkit raises UnexpectedCharError on "True"/"False"/"None".
+    restored = toml_to_msgs(toml_str)[0]
+
+    assert '"max_steps_stop" = true' in toml_str
+    assert '"compaction_checkpoint_needs_continuation" = false' in toml_str
+    assert "None" not in toml_str
+    assert restored.metadata is not None
+    assert restored.metadata["max_steps_stop"] is True
+    assert restored.metadata["compaction_checkpoint_needs_continuation"] is False
+    # TOML has no null literal: the key is dropped, which reads back as None.
+    assert restored.metadata["panel_hints"] == [{"id": "p1", "src": "/panel"}]
