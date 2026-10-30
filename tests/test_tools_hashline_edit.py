@@ -552,6 +552,122 @@ class TestRegisterOperations:
 # ---------------------------------------------------------------------------
 
 
+class TestMutationAdmission:
+    @pytest.mark.parametrize("reverse", [False, True])
+    @pytest.mark.parametrize("kind", ["replace", "delete"])
+    @pytest.mark.parametrize("insert_kind", ["insert_before", "insert_after"])
+    @pytest.mark.parametrize("line", [1, 2, 3, 4, 5])
+    @pytest.mark.parametrize("replacement", ["X", "X\nY\nZ\nW"])
+    def test_insertion_boundaries_use_original_coordinates(
+        self,
+        reverse: bool,
+        kind: OperationKind,
+        insert_kind: OperationKind,
+        line: int,
+        replacement: str,
+    ):
+        content = "a\nb\nc\nd\ne\n"
+        mutation = HashlineOp(kind=kind, start=2, end=4, text=replacement)
+        insertion = HashlineOp(kind=insert_kind, start=line, end=line, text="INSERT")
+        ops = [mutation, insertion]
+        if reverse:
+            ops.reverse()
+        gap = line - 1 if insert_kind == "insert_before" else line
+        if 1 < gap < 4:
+            with pytest.raises(ValueError, match="overlap"):
+                _apply_operations(content, ops)
+        else:
+            before = ["a"]
+            after = ["e"]
+            if gap <= 1:
+                before.insert(gap, "INSERT")
+            else:
+                after.insert(gap - 4, "INSERT")
+            new_lines = replacement.splitlines() if kind == "replace" else []
+            assert (
+                _apply_operations(content, ops)
+                == "\n".join(before + new_lines + after) + "\n"
+            )
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_shared_insertion_gap_preserves_existing_order(self, reverse: bool):
+        ops = [
+            HashlineOp(kind="insert_before", start=2, end=2, text="BEFORE"),
+            HashlineOp(kind="insert_after", start=1, end=1, text="AFTER"),
+        ]
+        if reverse:
+            ops.reverse()
+        assert _apply_operations("a\nb\n", ops) == "a\nAFTER\nBEFORE\nb\n"
+
+    @pytest.mark.parametrize("changed_live", [False, True])
+    @pytest.mark.parametrize("reverse", [False, True])
+    @pytest.mark.parametrize(
+        "operations",
+        [
+            ("PUT 1.=3:\n+abc = 123", "PUT 2.=4:\n+bcd = 234"),
+            ("CUT 1.=3", "PUT 2.=4:\n+bcd = 234"),
+            ("CUT 1.=3", "CUT 2.=4"),
+            ("PUT 2.=4:\n+replacement", "PUT 2.=4:\n+other"),
+            ("PUT 1.=5:\n+replacement", "CUT 2.=3"),
+            ("CUT 1.=3", "PUT 3.=4:\n+shared_endpoint"),
+            ("PUT 1*:\n+replacement", "PUT 2.=2:\n+inside_block"),
+            ("PUT 1*:\n+replacement", "PUT 2*:\n+inside_block"),
+            ("PUT 1.=3:\n+replacement", "PUT <2:\n+inside_range"),
+            ("CUT 1.=3", "PUT >2:\n+inside_range"),
+            ("CUT 1.=3 @r", "PUT 2.=4:\n+overlapping_capture"),
+        ],
+    )
+    def test_overlapping_mutations_rejected_before_confirmation(
+        self,
+        tmp_path: Path,
+        operations: tuple[str, str],
+        reverse: bool,
+        changed_live: bool,
+    ):
+        from unittest.mock import patch
+
+        f = tmp_path / "overlap.py"
+        original = "if a:\n    x = 1\n    y = 2\nz = 3\nafter()\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        if changed_live:
+            f.write_text(original + "external()\n")
+        f.chmod(0o640)
+        before = f.read_bytes()
+        mode = f.stat().st_mode
+        ordered = operations[::-1] if reverse else operations
+        block = f"[{f.resolve()}#{tag}]\n" + "\n".join(ordered) + "\n"
+        with (
+            patch("gptme.hooks.get_confirmation") as confirm,
+            patch("gptme.tools.hashline_edit.os.replace") as publish,
+            patch("gptme.tools.hashline_edit.subprocess.run") as merge,
+        ):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "overlap" in msgs[0].lower(), msgs
+        confirm.assert_not_called()
+        publish.assert_not_called()
+        merge.assert_not_called()
+        assert f.read_bytes() == before
+        assert f.stat().st_mode == mode
+        assert lookup_snapshot(str(f.resolve()), tag) == (True, original)
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["overlap.py"]
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_independent_mutations_and_boundary_insertions(
+        self, tmp_path: Path, reverse: bool
+    ):
+        f = tmp_path / "independent.txt"
+        f.write_text("a\nb\nc\nd\ne\n")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        ops = ["PUT 1.=2:\n+AB", "PUT <3:\n+BETWEEN", "PUT 3.=4:\n+CD"]
+        if reverse:
+            ops.reverse()
+        block = f"[{f.resolve()}#{tag}]\n" + "\n".join(ops) + "\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert f.read_text() == "AB\nBETWEEN\nCD\ne\n"
+
+
 class TestExecuteHashlineEdit:
     def test_basic_replace(self, tmp_path: Path):
         f = tmp_path / "f.txt"
