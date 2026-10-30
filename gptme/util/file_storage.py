@@ -6,6 +6,7 @@ ensuring that file versions are preserved in conversation history.
 
 import hashlib
 import shutil
+import tempfile
 from pathlib import Path
 
 
@@ -65,7 +66,11 @@ def store_file(logdir: Path, filepath: Path) -> tuple[str, str]:
 
     # Only copy if not already stored (content-addressed = idempotent)
     if not stored_path.exists():
-        shutil.copy2(filepath, stored_path)
+        # Publish only complete copies; a failed copy must not poison retries.
+        with tempfile.TemporaryDirectory(dir=files_dir, prefix=".store-") as staging:
+            staged_path = Path(staging) / stored_name
+            shutil.copy2(filepath, staged_path)
+            staged_path.replace(stored_path)
 
     return file_hash, stored_name
 
