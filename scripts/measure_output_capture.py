@@ -106,29 +106,29 @@ def measure(root: Path, name: str, stdout: str, stderr: str, code: int) -> dict:
         )
     candidate += "\nretained: <conversation-owned-reference>; representation=text"
     start = time.perf_counter()
+    # One local retrieval operation may open multiple stream files. Count actual
+    # opens separately; completeness validation above is outside this timing.
+    retrieved = [path.read_text() for path in files]
     hits = sum(
-        1
-        for path in files
-        for line in path.read_text().splitlines()
-        if "error:" in line
+        1 for text in retrieved for line in text.splitlines() if "error:" in line
     )
     if name == "api_json":
         selected_correct = any(
             json.loads(text)[4321] == {"id": 4321, "state": "ok", "value": 4321 % 7}
-            for text in contents
+            for text in retrieved
         )
     elif name == "structured_data":
-        selected_correct = any("12345,ok,4" in text.splitlines() for text in contents)
+        selected_correct = any("12345,ok,4" in text.splitlines() for text in retrieved)
     elif name == "pytest_log":
         selected_correct = any(
-            text.endswith("20000 passed in 4.00s\n") for text in contents
+            text.endswith("20000 passed in 4.00s\n") for text in retrieved
         )
     elif name == "compiler_failure":
         selected_correct = hits == 1
     elif name == "noisy_single_line":
         selected_correct = any(
             text.startswith("BEGIN-MARKER") and text.endswith("END-MARKER")
-            for text in contents
+            for text in retrieved
         )
     else:
         selected_correct = "12 passed" in preview
@@ -153,7 +153,9 @@ def measure(root: Path, name: str, stdout: str, stderr: str, code: int) -> dict:
         "selective_error_hits": hits,
         "selective_answer_correct": selected_correct,
         "reread_ms": round(retrieval_ms, 2),
-        "extra_retrieval_calls": int(bool(files)),
+        "local_retrieval_operations": int(bool(files)),
+        "retrieval_file_opens": len(files),
+        "external_tool_calls_measured": False,
     }
 
 

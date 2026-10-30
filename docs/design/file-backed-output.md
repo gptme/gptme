@@ -54,6 +54,14 @@ original process bytes. No generic guarantee applies across these rows.
 | ACP / gptme MCP server | ACP forwards message text, not file-transfer handles; MCP server joins tool output | No verified artifact transfer bridge or universal cap. ACP adapter does not enforce Message.hide as an access boundary. |
 | `tools/recall.py:_lookup_master_result` | Stable current-master-log message positions, paged character retrieval | Recovers what was recorded, not omitted process bytes or missing spill files. A recall result ID is not a filesystem resource ID. |
 
+Adjacent process paths are not covered by shell's contract: `tools/watch.py`
+`_poll_until` uses communicate before emitting a 500-character condition preview;
+`_poll_run` keeps a 1,000-character tail; `_poll_stream` bounds event count but
+accumulates partial-line text separately. `tools/convert.py` also uses subprocess
+capture before reporting diagnostics. Neither offers a general output_storage
+spool. Inventory/adoption is separate from the direct-job pilot; do not duplicate
+the bounded watch-probe work in gptme/gptme#4639.
+
 Credential guardrails before execution are useful but are not universal output
 redaction. The generic writer is unsanitized. Shell job sanitation has explicit
 handling for partial assignments and evicted line prefixes; preserve that policy
@@ -95,7 +103,10 @@ Formatting/storage took approximately 0.3–60 ms with warm imports and
 tracemalloc enabled; measured formatter peak Python allocations were 3 KiB–3.8 MB,
 **excluding prebuilt input strings**, not whole-process RSS. A local reread scan
 found the compiler error in 0.5 ms; each spilled case used one simulated selective
-retrieval operation, zero for compact success. Fixture checks also recovered a
+local retrieval operation (one file open per saved stream), zero for compact
+success; no external tool calls were measured. Completeness validation reads
+are outside retrieval timing; timed retrieval starts before reopening the files.
+Fixture checks also recovered a
 specific API object, CSV row, pytest summary and huge-line boundary markers.
 Reread/selection took 0.5–3.6 ms and currently materializes the text in the
 evidence script. These are single-sample
@@ -160,6 +171,11 @@ plus a 128 MiB conversation allowance for new spools. These are conservative
 starting proposals, not measured optimal defaults. On quota/storage failure,
 stop persistence, retain bounded preview, and mark partial/failed with the known
 retained boundary; continue draining/discarding so the child cannot deadlock.
+Writer backpressure must also be bounded: a bounded writer queue may stop
+accepting persistence on saturation, mark capture partial, and let the sole
+pipe reader keep draining. No unbounded queue or synchronous slow-file write
+in that reader. The pilot does not promise recovery from an indefinitely
+blocked kernel filesystem write; isolate that writer and report the limitation.
 Do not silently kill a build because its log disk filled. Existing explicit
 process output/memory-kill policy remains separately reported. Concurrent jobs
 must reserve against the shared allowance, with restart reconciliation from
@@ -184,8 +200,12 @@ and discoverable, never silently promoted to complete on restart.
 Keep byte offsets per capture/stream and explicit retained start/end, distinct
 from existing decoded-character cursors. Live cursors denote committed retained
 representation bytes, not raw pipe bytes. UTF-8 range rendering aligns/decodes
-safely; if live sanitation rewrites are necessary, change generation and report
-cursor invalidation rather than duplicate/skip bytes. No rotation in the first
+safely. Committed readable bytes must already satisfy the selected sanitation
+policy: a later rewrite cannot retract a credential a reader already saw.
+Hold undecidable fragments privately within a bounded window, then omit them;
+no security-repair rewrites in the pilot. Non-security replacement invalidates
+the cursor generation explicitly rather than duplicating/skipping bytes.
+No rotation in the first
 slice: cap explicitly. A poll advances only that consumer's cursor; one automatic
 completion receipt has an independent delivery marker so reading output does not
 consume notification ownership. Promotion must adopt the existing capture at a
@@ -247,9 +267,12 @@ implied by existing tests passing.
    sanitized chunks before tail eviction. Test BEGIN/END beyond 1 Mi-character
    buffer, both streams, >32 MiB quota, huge line, split UTF-8/credential chunks,
    actual EOF versus drain timeout, disk failure, kill/cancel and independent
-   consumer cursors. Verify observed = retained + explicitly discarded raw bytes
-   where raw observation is available; representation transforms get separate
-   accounting, not an invalid equality with redacted bytes.
+   consumer cursors. Count raw observed, raw accepted for transformation, raw
+   pending and raw discarded/unprocessed separately: observed = accepted +
+   pending + discarded. Count committed representation bytes independently;
+   they can expand/contract under decoding/redaction. EOF/cancel/quota/write
+   failure must settle pending bytes explicitly and report uncommitted transformed
+   output without equating retained-file size to accepted raw bytes.
 3. **Foreground/promotion convergence.** Reuse that capture, retaining existing
    shell framing/output cap and irreversible execution semantics. Test promotion
    at chunk boundary, finish racing poll/kill, no duplicate completion or chunks,
