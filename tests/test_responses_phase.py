@@ -447,3 +447,41 @@ def test_review_empty_phased_nonstream_still_raises(
     item["content"] = []
     with pytest.raises(ValueError, match="no usable output"):
         _generate(monkeypatch, "sdk_nonstream", [item], "terminal")
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("source", ["terminal", "deltas", "both"])
+@pytest.mark.parametrize("serialization", ["json", "toml"])
+def test_combined_parser_reasoning_and_native_json_roundtrip(
+    monkeypatch: pytest.MonkeyPatch, provider: str, source: str, serialization: str
+) -> None:
+    """Merged #4567 buffers calls; original phases/order and literal JSON survive."""
+    command = "printf '<think>literal</think><thinking>also literal</thinking>'\n<!-- think-sig: literal\nsignature -->"
+    items = [
+        _message(
+            "<thinking>private plan\n<!-- think-sig: secret\nwrapped -->\n</thinking>Before",
+            "commentary",
+        ),
+        {
+            "type": "function_call",
+            "id": "fc_1",
+            "name": "shell",
+            "call_id": "call_1",
+            "arguments": json.dumps({"command": command}),
+        },
+        _message("After", "final_answer", 2),
+    ]
+    msg = _reload(_generate(monkeypatch, provider, items, source), serialization)
+    assert "private plan" not in json.dumps(msg.metadata)
+    assert "secret" not in json.dumps(msg.metadata)
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider)
+        assert [(i.get("type", "message"), i.get("phase")) for i in replay] == [
+            ("message", "commentary"),
+            ("function_call", None),
+            ("message", "final_answer"),
+            ("function_call_output", None),
+        ]
+        assert replay[0]["content"] == "Before"
+        assert replay[2]["content"] == "After"
+        assert json.loads(replay[1]["arguments"]) == {"command": command}
