@@ -1,9 +1,12 @@
 """Tests for gptme.memory: schema round-trip, layered roots, store, index, CLI."""
 
+import errno
 import importlib
 import multiprocessing
 import os
 import stat
+import struct
+import sys
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -203,6 +206,380 @@ class TestRoots:
         assert default_write_root(roots).scope == "cc"
 
 
+class TestLegacySavePublication:
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
+    )
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    def test_preserves_index_access_acl(self, tmp_path, writer):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n")
+        # Linux POSIX ACL: owning group has no access, while a named user can
+        # read. stat's group bits represent the ACL mask, not group access.
+        acl = struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, perm, uid)
+            for tag, perm, uid in [
+                (1, 6, 0xFFFFFFFF),
+                (2, 4, os.getuid() + 1),
+                (4, 0, 0xFFFFFFFF),
+                (16, 4, 0xFFFFFFFF),
+                (32, 0, 0xFFFFFFFF),
+            ]
+        )
+        try:
+            os.setxattr(index, "system.posix_acl_access", acl)
+        except OSError as exc:
+            pytest.skip(f"POSIX access ACL unavailable: {exc}")
+        expected = os.getxattr(index, "system.posix_acl_access")
+        if writer == "save":
+            MemoryStore([MemoryRoot("explicit", root)]).save("fact", "Changed")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        assert os.getxattr(index, "system.posix_acl_access") == expected
+        assert "fact.md" in index.read_text()
+
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
+    )
+    @pytest.mark.parametrize("failure", ["read", "copy", "remove"])
+    def test_acl_error_leaves_legacy_save_unpublished(
+        self, tmp_path, monkeypatch, failure
+    ):
+        root = tmp_path / "legacy"
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = store.save("fact", "Original", "Original body")
+        index = root / "MEMORY.md"
+        before = {path: path.read_bytes() for path in (entry, index)}
+        real_get = os.getxattr
+        real_set = os.setxattr
+        real_remove = os.removexattr
+
+        def get_acl(path, name):
+            if Path(path) == index:
+                if failure == "read":
+                    raise PermissionError("ACL read denied")
+                if failure == "remove":
+                    raise OSError(errno.ENODATA, "no destination ACL")
+                return b"existing ACL"
+            return real_get(path, name)
+
+        def set_acl(path, name, value):
+            if Path(path).name.startswith(".MEMORY.md."):
+                raise PermissionError("ACL copy denied")
+            return real_set(path, name, value)
+
+        def remove_acl(path, name):
+            if Path(path).name.startswith(".MEMORY.md."):
+                raise PermissionError("ACL remove denied")
+            return real_remove(path, name)
+
+        monkeypatch.setattr(os, "getxattr", get_acl)
+        monkeypatch.setattr(os, "setxattr", set_acl)
+        monkeypatch.setattr(os, "removexattr", remove_acl)
+        with pytest.raises(PermissionError, match=f"ACL {failure} denied"):
+            store.save("fact", "Changed", "Changed body")
+        assert {path: path.read_bytes() for path in (entry, index)} == before
+        assert not list(root.glob(".*.tmp"))
+
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
+    )
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    def test_does_not_publish_inherited_acl(self, tmp_path, writer):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n")
+        index.chmod(0o640)
+        # Install a default ACL only after creating the private index. Staged
+        # replacements inherit it; chmod(0640) must not activate its named user.
+        acl = struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, perm, uid)
+            for tag, perm, uid in [
+                (1, 7, 0xFFFFFFFF),
+                (2, 4, os.getuid() + 1),
+                (4, 0, 0xFFFFFFFF),
+                (16, 4, 0xFFFFFFFF),
+                (32, 0, 0xFFFFFFFF),
+            ]
+        )
+        try:
+            os.setxattr(root, "system.posix_acl_default", acl)
+        except OSError as exc:
+            pytest.skip(f"POSIX default ACL unavailable: {exc}")
+        if writer == "save":
+            MemoryStore([MemoryRoot("explicit", root)]).save("fact", "Changed")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        assert "system.posix_acl_access" not in os.listxattr(index)
+        assert stat.S_IMODE(index.stat().st_mode) == 0o640
+        assert "fact.md" in index.read_text()
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires POSIX ownership")
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    def test_preserves_index_ownership(self, tmp_path, writer):
+        other_groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+        if not other_groups:
+            pytest.skip("requires membership in a second group")
+        root = tmp_path / "legacy"
+        root.mkdir()
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n")
+        os.chown(index, -1, other_groups[0])
+        index.chmod(0o640)
+        before = index.stat()
+        if writer == "save":
+            MemoryStore([MemoryRoot("explicit", root)]).save("fact", "Changed")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        after = index.stat()
+        assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+        assert stat.S_IMODE(after.st_mode) == stat.S_IMODE(before.st_mode)
+        assert "fact.md" in index.read_text()
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires POSIX ownership")
+    def test_ownership_error_leaves_legacy_save_unpublished(
+        self, tmp_path, monkeypatch
+    ):
+        other_groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+        if not other_groups:
+            pytest.skip("requires membership in a second group")
+        root = tmp_path / "legacy"
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = store.save("fact", "Original", "Original body")
+        index = root / "MEMORY.md"
+        os.chown(index, -1, other_groups[0])
+        before = {path: path.read_bytes() for path in (entry, index)}
+
+        def denied_chown(path, uid, gid):
+            raise PermissionError("ownership copy denied")
+
+        monkeypatch.setattr(os, "chown", denied_chown)
+        with pytest.raises(PermissionError, match="ownership copy denied"):
+            store.save("fact", "Changed", "Changed body")
+        assert {path: path.read_bytes() for path in (entry, index)} == before
+        assert index.stat().st_gid == other_groups[0]
+        assert not list(root.glob(".*.tmp"))
+
+    @pytest.mark.parametrize("first_writer", ["save", "update_index_line"])
+    @pytest.mark.parametrize("second_writer", ["save", "update_index_line"])
+    def test_shared_index_serializes_roots(
+        self, tmp_path, monkeypatch, first_writer, second_writer
+    ):
+        from gptme.memory import store as store_module
+
+        target = tmp_path / "index.md"
+        target.write_text("# Curated\n\nKeep me.\n")
+        roots = [tmp_path / "a", tmp_path / "b"]
+        for root in roots:
+            root.mkdir()
+            try:
+                (root / "MEMORY.md").symlink_to("../index.md")
+            except OSError as exc:
+                pytest.skip(f"symlinks unavailable: {exc}")
+        first_read = threading.Event()
+        release_first = threading.Event()
+        second_started = threading.Event()
+        second_read = threading.Event()
+        real_render = store_module._legacy_index_text
+
+        def render(path, entry):
+            text = real_render(path, entry)
+            if entry.name == "first":
+                first_read.set()
+                assert release_first.wait(timeout=5)
+            else:
+                second_read.set()
+            return text
+
+        def write(root, writer, name):
+            if name == "second":
+                second_started.set()
+            if writer == "save":
+                MemoryStore([MemoryRoot("explicit", root)]).save(name, name)
+            else:
+                update_index_line(root, MemoryEntry(name=name, description=name))
+
+        monkeypatch.setattr(store_module, "_legacy_index_text", render)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(write, roots[0], first_writer, "first")
+            try:
+                assert first_read.wait(timeout=5)
+                second = pool.submit(write, roots[1], second_writer, "second")
+                assert second_started.wait(timeout=5)
+                read_while_locked = second_read.wait(timeout=0.2)
+                if read_while_locked:
+                    # Complete the competing publication before releasing the
+                    # first snapshot, avoiding a same-process temp-file race.
+                    second.result(timeout=5)
+            finally:
+                release_first.set()
+            first.result(timeout=5)
+            second.result(timeout=5)
+        assert not read_while_locked
+        assert target.read_text() == (
+            "# Curated\n\nKeep me.\n"
+            "- [first](first.md) — first\n"
+            "- [second](second.md) — second\n"
+        )
+        assert all((root / "MEMORY.md").is_symlink() for root in roots)
+        assert not list(tmp_path.rglob(".*.tmp"))
+
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    @pytest.mark.parametrize("target_exists", [False, True])
+    def test_symlinked_index_updates_target(self, tmp_path, writer, target_exists):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        target = shared / "index.md"
+        curated = "# Curated\n\nKeep me.\n"
+        if target_exists:
+            target.write_text(curated)
+            target.chmod(0o640)
+        index = root / "MEMORY.md"
+        try:
+            index.symlink_to("../shared/index.md")
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
+        original_mode = stat.S_IMODE(target.stat().st_mode) if target_exists else None
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        if writer == "save":
+            store.save("fact", "Changed", "New body")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        assert index.is_symlink()
+        assert os.readlink(index) == "../shared/index.md"
+        expected = curated if target_exists else "# Persistent Memory\n\n"
+        assert target.read_text() == expected + "- [fact](fact.md) — Changed\n"
+        if target_exists:
+            assert stat.S_IMODE(target.stat().st_mode) == original_mode
+        assert not list(tmp_path.rglob(".*.tmp"))
+
+    @pytest.mark.parametrize("existing", [False, True])
+    @pytest.mark.parametrize("index_exists", [False, True])
+    @pytest.mark.parametrize("failure", ["stage", "publish"])
+    @pytest.mark.parametrize("symlink", [False, True])
+    def test_failed_save_preserves_entry_and_index(
+        self, tmp_path, monkeypatch, existing, index_exists, failure, symlink
+    ):
+        from gptme.memory import store as store_module
+
+        root = tmp_path / "legacy"
+        root.mkdir()
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = root / "fact.md"
+        index = root / "MEMORY.md"
+        if existing:
+            store.save(
+                "fact",
+                "Original",
+                "Old body",
+                type="reference",
+                metadata={"owner": "original"},
+                keywords=["old"],
+            )
+            entry.chmod(0o640)
+        if index_exists:
+            index.write_text(
+                "# Hand curated\n\nKeep this prose.\n- [Fact](fact.md) — Original\n"
+            )
+            index.chmod(0o444)
+        else:
+            index.unlink(missing_ok=True)
+        link = root / "MEMORY.md"
+        if symlink:
+            shared = tmp_path / "shared"
+            shared.mkdir()
+            index = shared / "MEMORY.md"
+            if link.exists():
+                link.replace(index)
+            try:
+                link.symlink_to("../shared/MEMORY.md")
+            except OSError as exc:
+                pytest.skip(f"symlinks unavailable: {exc}")
+        before = {
+            p: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+            for p in (entry, index)
+            if p.exists()
+        }
+        real_replace = store_module.os.replace
+        real_open = store_module.os.open
+        published = []
+
+        def fail_index_publish(src, dst, *args, **kwargs):
+            if Path(dst) == index:
+                assert entry.read_text().endswith("New body\n")
+                raise OSError("index publication failed")
+            published.append(Path(dst).name)
+            return real_replace(src, dst, *args, **kwargs)
+
+        def fail_index_stage(path, *args, **kwargs):
+            if Path(path).name.startswith(".MEMORY.md."):
+                raise OSError("index staging failed")
+            return real_open(path, *args, **kwargs)
+
+        if failure == "publish":
+            monkeypatch.setattr(store_module.os, "replace", fail_index_publish)
+        else:
+            monkeypatch.setattr(store_module.os, "open", fail_index_stage)
+        with pytest.raises(OSError, match="index .* failed"):
+            store.save("fact", "Changed", "New body", metadata={"owner": "changed"})
+        assert {
+            p: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+            for p in (entry, index)
+            if p.exists()
+        } == before
+        if symlink:
+            assert link.is_symlink()
+            assert os.readlink(link) == "../shared/MEMORY.md"
+        assert not list(tmp_path.rglob(".*.tmp"))
+        if failure == "publish":
+            assert "fact.md" in published
+        if existing:
+            saved = parse_entry(entry)
+            assert saved.metadata == {"owner": "original"}
+            assert saved.keywords == ["old"]
+
+    @pytest.mark.parametrize("existing", [False, True])
+    def test_directory_at_index_does_not_publish_entry(self, tmp_path, existing):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = root / "fact.md"
+        index = root / "MEMORY.md"
+        if existing:
+            store.save("fact", "Original", "Old body")
+            index.unlink()
+        index.mkdir()
+        before = entry.read_bytes() if existing else None
+        with pytest.raises(OSError, match="[Dd]irectory|[Pp]ermission|[Aa]ccess"):
+            store.save("fact", "Changed", "New body")
+        assert (entry.read_bytes() if entry.exists() else None) == before
+        assert index.is_dir()
+        assert not list(root.glob(".*.tmp"))
+
+    def test_success_preserves_curated_index_and_metadata(self, tmp_path):
+        root = tmp_path / "legacy"
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = store.save("fact", "Original", "Old body", metadata={"custom": 1})
+        entry.chmod(0o640)
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n- [Fact](fact.md) — Original\nTail.\n")
+        index.chmod(0o444)
+        store.save("fact", "Changed", "New body")
+        assert (
+            index.read_text()
+            == "# Curated\n\nKeep me.\n- [fact](fact.md) — Changed\nTail.\n"
+        )
+        assert stat.S_IMODE(entry.stat().st_mode) == 0o640
+        assert stat.S_IMODE(index.stat().st_mode) == 0o444
+        assert parse_entry(entry).metadata == {"custom": 1}
+        assert parse_entry(entry).body == "New body"
+
+
 class TestStore:
     def _store(self, tmp_path) -> MemoryStore:
         return MemoryStore(
@@ -331,11 +708,13 @@ class TestStore:
         locked_root = store_module._locked_root
 
         @contextmanager
-        def pause_before_index_lock(root: Path) -> Iterator[None]:
+        def pause_before_index_lock(
+            root: Path, *, lock_name: str = store_module.LOCK_FILENAME
+        ) -> Iterator[None]:
             if threading.current_thread() is not main_thread:
                 index_waiting.set()
                 assert mutation_done.wait(10), "concurrent mutation did not finish"
-            with locked_root(root):
+            with locked_root(root, lock_name=lock_name):
                 yield
 
         monkeypatch.setattr(store_module, "_locked_root", pause_before_index_lock)

@@ -38,10 +38,18 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Linkcheck renders command-output directives too, including the startup
+      # benchmark in arewetiny.rst. Match the docs build's system dependencies.
+      - name: Install apt/dpkg dependencies
+        run: sudo apt-get install -y cloc hyperfine
+
       - name: Install dependencies
         run: uv sync --extra browser --extra server --frozen
 
       - name: Check docs for dead links
+        env:
+          # The rendered startup benchmark exits before making a provider call.
+          OPENAI_API_KEY: sk-dummy-key
         # Fail (rather than get cancelled at the job timeout) if a host keeps
         # the run throttled: Sphinx honours a server's Retry-After uncapped.
         run: |
