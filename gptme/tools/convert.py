@@ -256,14 +256,15 @@ class Converter(ABC):
             result.error = f"Could not write {dest}: {exc}"
             return result
 
-    @abstractmethod
     def _convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
-    ) -> ConversionResult: ...
+    ) -> ConversionResult:
+        """Write to staging; legacy subclasses may still override convert instead."""
+        raise NotImplementedError("Implement _convert or override convert")
 
     def can_handle(self, src_mime: str, dest_ext: str) -> bool:
         dest_ext = dest_ext.lstrip(".").lower()
