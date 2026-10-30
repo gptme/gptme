@@ -90,9 +90,12 @@ def _para_to_md(para: object) -> str:
     if not inline.strip():
         return ""
 
-    # Literal leading whitespace must not turn an ordinary paragraph into code.
+    # Protect every line, including lines after manual Word breaks, from code blocks.
     inline = re.sub(
-        r"^[ \t]+", lambda match: "".join(f"&#{ord(c)};" for c in match[0]), inline
+        r"^[ \t]+",
+        lambda match: "".join(f"&#{ord(c)};" for c in match[0]),
+        inline,
+        flags=re.MULTILINE,
     )
     if style_name.startswith("Heading 1"):
         return f"# {inline}"
