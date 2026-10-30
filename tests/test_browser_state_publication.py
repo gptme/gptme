@@ -135,6 +135,8 @@ def test_state_roundtrip_with_real_browser(
                 target.write_text("OLD")
             monkeypatch.setattr(bp, "_current_context", context)
             bp._do_save_browser_state(browser, str(target))
+            if os.name != "nt":
+                assert stat.S_IMODE(target.stat().st_mode) == 0o600
             restored = browser.new_context(storage_state=str(target))
             assert any(
                 cookie["name"] == "synthetic" and cookie["value"] == "not-a-secret"
