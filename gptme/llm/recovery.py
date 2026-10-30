@@ -28,6 +28,19 @@ from .retry_policy import _retry_after_seconds, get_max_retries, retry_delay_for
 logger = logging.getLogger(__name__)
 DEFAULT_RECOVERY_SECONDS = 600.0
 T = TypeVar("T")
+_TRANSIENT_STREAM_CODES = {
+    "server_error",
+    "internal_error",
+    "internal_server_error",
+    "rate_limit_exceeded",
+    "rate_limit_error",
+    "overloaded_error",
+    "server_is_overloaded",
+    "service_unavailable",
+    "service_unavailable_error",
+    "temporarily_unavailable",
+    "timeout",
+}
 
 
 @dataclass
@@ -169,6 +182,47 @@ def recovery_notifications(callback: Callable[[RetryNotice], None]) -> Iterator[
         _notification.reset(token)
 
 
+def _transient_openai_stream_error(error: BaseException) -> bool:
+    """Classify plain APIError from HTTP-200 SSE, not an HTTP status error.
+
+    Explicit codes/types override diagnostic text, so a permanent or unknown
+    error never becomes retryable merely by mentioning an overload/timeout.
+    Without a code, retain the adapter's supported transient message hints.
+    """
+    body = getattr(error, "body", None)
+    payloads = [body] if isinstance(body, dict) else []
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        payloads.append(body["error"])
+    codes = [
+        str(payload[key]).lower()
+        for payload in payloads
+        for key in ("code", "type")
+        if payload.get(key) is not None
+    ]
+    if codes:
+        return all(
+            (code in _TRANSIENT_STREAM_CODES)
+            or (
+                code.isdecimal() and (int(code) in (408, 429) or 500 <= int(code) < 600)
+            )
+            for code in codes
+        )
+    texts = [getattr(error, "message", "")]
+    if isinstance(body, str):
+        texts.append(body)
+    for payload in payloads:
+        texts.extend(
+            payload.get(key, "")
+            for key in ("error", "message")
+            if isinstance(payload.get(key, ""), str)
+        )
+    combined = " ".join(str(text) for text in texts).lower()
+    return any(
+        hint in combined
+        for hint in ("overload", "internal", "timeout", "rate limit", "server_error")
+    )
+
+
 def is_transient_provider_error(error: BaseException) -> bool:
     """Allowlist actual tagged transport/status failures, not arbitrary SDK errors."""
     if not getattr(error, "_gptme_from_llm_reply", False):
@@ -180,17 +234,7 @@ def is_transient_provider_error(error: BaseException) -> bool:
     from .openai_responses import ResponsesStreamError
 
     if isinstance(error, ResponsesStreamError):
-        return error.code in {
-            "server_error",
-            "internal_error",
-            "internal_server_error",
-            "rate_limit_exceeded",
-            "rate_limit_error",
-            "overloaded_error",
-            "service_unavailable",
-            "temporarily_unavailable",
-            "timeout",
-        }
+        return error.code in _TRANSIENT_STREAM_CODES
     if isinstance(
         error,
         (
@@ -230,7 +274,14 @@ def is_transient_provider_error(error: BaseException) -> bool:
     status = getattr(error, "status_code", None)
     if status is None:
         status = getattr(getattr(error, "response", None), "status_code", None)
-    return isinstance(status, int) and (status in (408, 429) or 500 <= status < 600)
+    if status is not None:
+        return isinstance(status, int) and (status in (408, 429) or 500 <= status < 600)
+    if "openai" in modules:
+        from openai import APIError
+
+        if isinstance(error, APIError):
+            return _transient_openai_stream_error(error)
+    return False
 
 
 def recover_generation(generate: Callable[[], T]) -> T:
