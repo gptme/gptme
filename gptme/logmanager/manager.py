@@ -890,18 +890,98 @@ class LogManager:
 
         The backup branch retains the original archive. Main's existing recall
         archive contract is unchanged; this reconciles only branch-owned history.
+        Removed archive slots become inert placeholders so saved result IDs do
+        not shift. In-place replacements, deletions and tail additions are safe;
+        reject insertion/reordering rather than replaying it in a different order.
         """
-        if self.current_branch not in self._branch_lossless_logs:
+        if self.current_branch == "main":
             return
-        archive = self._branch_lossless_logs[self.current_branch]
-        visible = {(msg.timestamp, msg.content) for msg in previous}
-        inherited = [
-            msg for msg in archive if (msg.timestamp, msg.content) not in visible
-        ]
-        # Summaries absent from the archive are context, not hidden operations.
-        self._branch_lossless_logs[self.current_branch] = Log(
-            inherited + updated.messages
+
+        def reconcile(history: Log, *, stable_slots: bool) -> Log:
+            # Editor round-trips reconstruct objects but preserve timestamps.
+            # Match occurrences, not a set: equal messages may occur twice.
+            remaining = list(enumerate(history.messages))
+            visible_slots: dict[int, int] = {}
+            for position, message in enumerate(previous):
+                match = next(
+                    (
+                        (i, slot)
+                        for i, (slot, old) in enumerate(remaining)
+                        if old.timestamp == message.timestamp and old == message
+                    ),
+                    None,
+                )
+                if match is not None:
+                    i, slot = match
+                    visible_slots[position] = slot
+                    remaining.pop(i)
+
+            available = list(enumerate(previous.messages))
+            replacements: dict[int, Message] = {}
+            additions: list[Message] = []
+            last_slot = -1
+            for message in updated:
+                match = next(
+                    (
+                        (i, position)
+                        for i, (position, old) in enumerate(available)
+                        if old.timestamp == message.timestamp
+                    ),
+                    None,
+                )
+                if match is None:
+                    additions.append(message)
+                    continue
+                i, position = match
+                available.pop(i)
+                matched_slot = visible_slots.get(position)
+                if matched_slot is None:
+                    # Summary/catalog context is not part of full history.
+                    continue
+                if matched_slot < last_slot or additions:
+                    raise ValueError(
+                        "Cannot reorder or insert messages inside compacted branch "
+                        "history; edit in place, remove messages, or append instead."
+                    )
+                last_slot = matched_slot
+                replacements[matched_slot] = message
+
+            slots = set(visible_slots.values())
+            result: list[Message] = []
+            for slot, message in enumerate(history):
+                if slot in replacements:
+                    result.append(replacements[slot])
+                elif slot not in slots:
+                    result.append(message)
+                elif stable_slots:
+                    # Recall IDs are positional. Retire removed slots without
+                    # retaining executable todo commands or shifting later IDs.
+                    result.append(
+                        Message(
+                            "system",
+                            "",
+                            timestamp=message.timestamp,
+                            hide=True,
+                            ui_only=True,
+                        )
+                    )
+            return Log(result + additions)
+
+        branch = self._branches[self.current_branch]
+        archive = self._branch_lossless_logs.get(self.current_branch)
+        if archive is None and self.current_view:
+            archive = branch
+        reconciled_archive = (
+            reconcile(archive, stable_slots=True) if archive is not None else None
         )
+        reconciled_branch = (
+            reconcile(branch, stable_slots=False) if self.current_view else None
+        )
+        # Compute both before mutating either: unsupported edits are atomic.
+        if reconciled_archive is not None:
+            self._branch_lossless_logs[self.current_branch] = reconciled_archive
+        if reconciled_branch is not None:
+            self._branches[self.current_branch] = reconciled_branch
 
     def undo(self, n: int = 1, quiet=False) -> None:
         """Removes the last message from the log."""

@@ -1372,3 +1372,64 @@ def test_branch_replay_does_not_restore_removed_todo(
     list(ensure_todo_state(resumed))
     assert "Inherited" in _todoread()
     assert "Removed" not in _todoread()
+
+
+@pytest.mark.parametrize("operation", ["edit", "undo"])
+@pytest.mark.parametrize("archived", [False, True])
+def test_nonmain_view_removal_updates_underlying_branch(
+    tmp_path: Path, operation: str, archived: bool
+) -> None:
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    inherited = Message("assistant", "```todo write\nadd Inherited\n```")
+    manager = start(tmp_path / "view-removal", [inherited])
+    if archived:
+        manager.preserve_lossless_log()
+        manager.log = Log([Message("system", "Main summary")])
+    manager.branch("alternative")
+    manager.create_view("compacted-001", [Message("system", "View summary")])
+    manager.switch_view("compacted-001")
+    manager.append(Message("assistant", "```todo write\nadd Removed\n```"))
+    if operation == "edit":
+        manager.edit(manager.log.messages[:-1])
+    else:
+        manager.undo(1, quiet=True)
+    list(clear_todo_state(manager))
+    list(ensure_todo_state(manager))
+    assert "Inherited" in _todoread()
+    assert "Removed" not in _todoread()
+    manager.switch_to_master()
+    assert all("Removed" not in m.content for m in manager.log)
+    manager.write()
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    list(ensure_todo_state(resumed))
+    assert "Inherited" in _todoread()
+    assert "Removed" not in _todoread()
+    resumed.branch(f"alternative-{operation}-0")
+    list(clear_todo_state(resumed))
+    list(ensure_todo_state(resumed))
+    assert "Removed" in _todoread()
+
+
+def test_compacted_branch_in_place_edit_replays_at_original_position(
+    tmp_path: Path,
+) -> None:
+    from gptme.tools.recall import recall_result
+    from gptme.tools.todo import clear_todo_state, ensure_todo_state
+
+    add = Message("assistant", "```todo write\nadd Original\n```")
+    result = Message("system", "saved result", call_id="saved")
+    manager = start(tmp_path / "replace-command", [add, result])
+    manager.preserve_lossless_log()
+    manager.log = Log([add, Message("system", "Summary")])
+    manager.branch("alternative")
+    manager.edit(
+        [add.replace(content="```todo write\nadd Edited\n```"), manager.log[-1]]
+    )
+    list(clear_todo_state(manager))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    list(ensure_todo_state(resumed))
+    assert "Edited" in _todoread()
+    assert "Original" not in _todoread()
+    assert "saved result" in recall_result(2)

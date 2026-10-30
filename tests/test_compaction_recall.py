@@ -729,3 +729,68 @@ def test_compacted_branch_catalog_and_recall_use_owned_archive(tmp_path):
     assert stub is not None
     assert "[result #7," in stub.content
     assert "[result #3," in stub.content
+
+
+def test_compacted_branch_edit_undo_preserves_result_positions(tmp_path):
+    from gptme.logmanager import Log
+    from gptme.tools.autocompact.resume import _build_dropped_result_stubs
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "stable-branch", lock=False)
+    manager.preserve_lossless_log()
+    catalog = _build_dropped_result_stubs(manager, [messages[0]], "gpt-4")
+    assert catalog is not None
+    manager.log = Log([messages[0], Message("system", "Summary"), catalog])
+    manager.branch("alternative")
+    manager.append(Message("user", "Undo this"))
+    manager.undo(1, quiet=True)
+    assert "0123456789" in recall_result(3)
+    assert "recent result" in recall_result(5)
+    # A no-op edit through the editor serializes and reconstructs messages.
+    from gptme.message import msgs_to_toml, toml_to_msgs
+
+    manager.edit(toml_to_msgs(msgs_to_toml(manager.log)))
+    resumed = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "0123456789" in recall_result(3)
+    assert "recent result" in recall_result(5)
+    assert [m.content for m in resumed.full_log][:5] == [m.content for m in messages]
+
+
+def test_branch_view_edit_keeps_later_recall_ids_after_removal(tmp_path):
+    from gptme.tools.recall import recall_result
+
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "view-edit", lock=False)
+    manager.branch("alternative")  # No manual-compaction archive yet.
+    manager.create_view("compacted-001", messages)
+    manager.switch_view("compacted-001")
+    manager.edit([messages[0], *messages[3:]])
+    assert "recent result" in recall_result(5)
+    assert "not a tool result" in recall_result(3)
+    manager.switch_to_master()
+    assert manager.log.messages == [messages[0], *messages[3:]]
+    LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert "recent result" in recall_result(5)
+    assert "not a tool result" in recall_result(3)
+
+
+def test_compacted_branch_reorder_is_rejected_without_changing_history(tmp_path):
+    import pytest
+
+    from gptme.logmanager import Log
+
+    messages = _messages()
+    manager = LogManager(messages, logdir=tmp_path / "reorder", lock=False)
+    manager.preserve_lossless_log()
+    manager.log = Log(messages)
+    manager.branch("alternative")
+    before = manager.full_log.messages[:]
+    with pytest.raises(ValueError, match="Cannot reorder or insert"):
+        manager.edit([messages[0], *messages[3:], *messages[1:3]])
+    assert manager.full_log.messages == before
+    assert manager.log.messages == messages
+    with pytest.raises(ValueError, match="Cannot reorder or insert"):
+        manager.edit([messages[0], Message("user", "Inserted"), *messages[1:]])
+    assert manager.full_log.messages == before
+    assert manager.log.messages == messages
