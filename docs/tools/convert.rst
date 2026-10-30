@@ -22,6 +22,9 @@ attributes are not preserved. The destination directory must be writable even
 when the old output file itself is writable. This is not crash durability or
 protection against concurrent pathname changes. A cleanup problem after
 successful publication is reported as a warning, not as failed conversion.
+Custom ``Converter`` subclasses can implement ``_convert`` to use this staging
+boundary. Existing subclasses that override ``convert`` remain supported and
+retain their own publication behavior; overriding ``convert`` bypasses staging.
 
 For example:
 

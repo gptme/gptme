@@ -14,6 +14,38 @@ import pytest
 from gptme.tools import convert as conversion
 
 
+@pytest.mark.parametrize("entry", ["router", "direct"])
+def test_legacy_converter_override_remains_usable(tmp_path, entry):
+    class LegacyConverter(conversion.Converter):
+        name = "legacy"
+        supported = [("text/plain", "md")]
+
+        def is_available(self, avail):
+            return True
+
+        def convert(self, src, dest, quality="medium", **kwargs):
+            assert quality == "high"
+            assert kwargs == {"custom_option": "retained"}
+            dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            return conversion.ConversionResult(True, dest, self.name)
+
+    source, destination = tmp_path / "source.txt", tmp_path / "output.md"
+    source.write_text("legacy converter å", encoding="utf-8")
+    converter = LegacyConverter()
+    with (
+        patch.object(conversion, "_CONVERTERS", [converter]),
+        patch.object(conversion, "_detect_mime", return_value="text/plain"),
+    ):
+        result = (conversion.convert_file if entry == "router" else converter.convert)(
+            source, destination, quality="high", custom_option="retained"
+        )
+    assert result.success, result.error
+    assert result.converter_used == "legacy"
+    assert result.output_path == destination
+    assert destination.read_bytes() == source.read_bytes()
+    assert set(tmp_path.iterdir()) == {source, destination}
+
+
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("entry", ["router", "direct"])
 def test_real_docx_write_failure_preserves_destination(tmp_path, existing, entry):
