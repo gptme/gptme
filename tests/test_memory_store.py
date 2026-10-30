@@ -204,11 +204,42 @@ class TestRoots:
 
 
 class TestLegacySavePublication:
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    @pytest.mark.parametrize("target_exists", [False, True])
+    def test_symlinked_index_updates_target(self, tmp_path, writer, target_exists):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        target = shared / "index.md"
+        curated = "# Curated\n\nKeep me.\n"
+        if target_exists:
+            target.write_text(curated)
+            target.chmod(0o640)
+        index = root / "MEMORY.md"
+        try:
+            index.symlink_to("../shared/index.md")
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        if writer == "save":
+            store.save("fact", "Changed", "New body")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        assert index.is_symlink()
+        assert os.readlink(index) == "../shared/index.md"
+        expected = curated if target_exists else "# Persistent Memory\n\n"
+        assert target.read_text() == expected + "- [fact](fact.md) — Changed\n"
+        if target_exists:
+            assert stat.S_IMODE(target.stat().st_mode) == 0o640
+        assert not list(tmp_path.rglob(".*.tmp"))
+
     @pytest.mark.parametrize("existing", [False, True])
     @pytest.mark.parametrize("index_exists", [False, True])
     @pytest.mark.parametrize("failure", ["stage", "publish"])
+    @pytest.mark.parametrize("symlink", [False, True])
     def test_failed_save_preserves_entry_and_index(
-        self, tmp_path, monkeypatch, existing, index_exists, failure
+        self, tmp_path, monkeypatch, existing, index_exists, failure, symlink
     ):
         from gptme.memory import store as store_module
 
@@ -234,9 +265,21 @@ class TestLegacySavePublication:
             index.chmod(0o444)
         else:
             index.unlink(missing_ok=True)
+        link = root / "MEMORY.md"
+        if symlink:
+            shared = tmp_path / "shared"
+            shared.mkdir()
+            index = shared / "MEMORY.md"
+            if link.exists():
+                link.replace(index)
+            try:
+                link.symlink_to("../shared/MEMORY.md")
+            except OSError as exc:
+                pytest.skip(f"symlinks unavailable: {exc}")
         before = {
-            p.name: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
-            for p in root.glob("*.md")
+            p: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+            for p in (entry, index)
+            if p.exists()
         }
         real_replace = store_module.os.replace
         real_open = store_module.os.open
@@ -261,10 +304,14 @@ class TestLegacySavePublication:
         with pytest.raises(OSError, match="index .* failed"):
             store.save("fact", "Changed", "New body", metadata={"owner": "changed"})
         assert {
-            p.name: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
-            for p in root.glob("*.md")
+            p: (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+            for p in (entry, index)
+            if p.exists()
         } == before
-        assert not list(root.glob(".*.tmp"))
+        if symlink:
+            assert link.is_symlink()
+            assert os.readlink(link) == "../shared/MEMORY.md"
+        assert not list(tmp_path.rglob(".*.tmp"))
         if failure == "publish":
             assert "fact.md" in published
         if existing:

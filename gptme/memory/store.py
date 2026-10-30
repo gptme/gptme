@@ -201,6 +201,9 @@ def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     serialise concurrent writers across atomic index replacements.
     """
     index_path = memory_dir / INDEX_FILENAME
+    # Legacy index writes followed symlinks before publication became atomic.
+    if index_path.is_symlink():
+        index_path = index_path.resolve()
     index_text = _legacy_index_text(index_path, entry)
     if index_text is not None:
         _atomic_write(index_path, index_text)
@@ -373,6 +376,8 @@ class MemoryStore:
             entry = entry_from_text(text, path=path, scope=root.scope, strict=True)
             if policy is None:
                 index_path = self.index_path(scope)
+                if index_path.is_symlink():
+                    index_path = index_path.resolve()
                 index_text = _legacy_index_text(index_path, entry)
                 replacements = [(path, text)]
                 if index_text is not None:
