@@ -1,10 +1,12 @@
 """Tests for the vision tool (view_image function)."""
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
+from gptme.tools import vision
 from gptme.tools.vision import view_image
 
 
@@ -132,6 +134,86 @@ class TestViewImageLarge:
         assert output_size <= 1.5 * 1024 * 1024, (
             f"Output {output_size} bytes still too large"
         )
+
+
+class TestViewImageModes:
+    @pytest.fixture(autouse=True)
+    def isolated_temp_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> Iterator[None]:
+        monkeypatch.setattr(vision, "_temp_files", [])
+        monkeypatch.setattr(vision.tempfile, "tempdir", str(tmp_path))
+        yield
+        vision._cleanup_temp_files()
+
+    @pytest.mark.parametrize("large", [False, True])
+    @pytest.mark.parametrize("transparency", [None, 0, bytes([0, 128])])
+    def test_palette_png(
+        self, tmp_path: Path, large: bool, transparency: int | bytes | None
+    ) -> None:
+        img = Image.new("P", (1200, 1000))
+        img.putpalette([255, 0, 0, 0, 0, 255] + [0] * 762)
+        img.paste(1, (600, 0, 1200, 1000))
+        if transparency is not None:
+            img.info["transparency"] = transparency
+        source = tmp_path / "palette.png"
+        img.save(source, compress_level=0 if large else 9)
+        original = source.read_bytes()
+        assert (len(original) > 1024 * 1024) == large
+
+        msg = view_image(source)
+
+        assert len(msg.files) == 1
+        output = msg.files[0]
+        assert isinstance(output, Path)
+        with Image.open(output) as attached:
+            attached.load()
+            assert attached.size == img.size
+            assert attached.format == ("JPEG" if large else "PNG")
+            assert attached.mode == ("RGB" if large else "P")
+            if large:
+                # JPEG drops alpha, retaining palette colors even at alpha 0/128,
+                # consistently with the existing RGBA compression policy.
+                for point, expected in [
+                    ((300, 500), (255, 0, 0)),
+                    ((900, 500), (0, 0, 255)),
+                ]:
+                    actual = attached.getpixel(point)
+                    assert isinstance(actual, tuple)
+                    assert all(abs(a - b) <= 3 for a, b in zip(actual, expected))
+            elif transparency is not None:
+                assert attached.info["transparency"] == transparency
+
+        assert source.read_bytes() == original
+        assert vision._temp_files == ([output] if large else [])
+        assert set(tmp_path.iterdir()) == {source, output}
+        vision._cleanup_temp_files()
+        assert set(tmp_path.iterdir()) == {source}
+
+    @pytest.mark.parametrize("mode", ["RGB", "RGBA", "L", "1", "LA"])
+    def test_large_ordinary_modes(self, tmp_path: Path, mode: str) -> None:
+        # Mode 1 needs >8 million pixels to exceed 1 MiB even uncompressed.
+        img = Image.new(mode, (3000, 3000), "white")
+        source = tmp_path / "ordinary.png"
+        img.save(source, compress_level=0)
+        original = source.read_bytes()
+        assert len(original) > 1024 * 1024
+
+        msg = view_image(source)
+
+        assert len(msg.files) == 1
+        output = msg.files[0]
+        assert isinstance(output, Path)
+        with Image.open(output) as attached:
+            attached.load()
+            assert attached.format == "JPEG"
+            assert attached.size == img.size
+            assert attached.convert("RGB").getpixel((1500, 1500)) == (255, 255, 255)
+        assert source.read_bytes() == original
+        assert vision._temp_files == [output]
+        assert set(tmp_path.iterdir()) == {source, output}
+        vision._cleanup_temp_files()
+        assert set(tmp_path.iterdir()) == {source}
 
 
 class TestViewImagePIL:
