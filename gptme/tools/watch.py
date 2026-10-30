@@ -23,6 +23,7 @@ from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -311,9 +312,14 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
         assert proc.stdout is not None
         fd = proc.stdout.fileno()
         decoder = io.IncrementalNewlineDecoder(
-            codecs.getincrementaldecoder("utf-8")(errors="replace"), translate=True
+            codecs.getincrementaldecoder(cast(io.TextIOWrapper, proc.stdout).encoding)(
+                errors="replace"
+            ),
+            translate=True,
         )
         stdout = ""
+        seen_chars = 0
+        stripped_end = 0
         eof = False
         try:
             while True:
@@ -337,12 +343,17 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
                 text = decoder.decode(piece, final=not piece)
                 if not stdout:
                     text = text.lstrip()
+                # Track where the full stream's stripped text ends, without
+                # retaining it: spaces at the prefix boundary may be internal.
+                if text.rstrip():
+                    stripped_end = min(500, seen_chars + len(text.rstrip()))
+                seen_chars = min(500, seen_chars + len(text))
                 stdout += text[: max(0, 500 - len(stdout))]
                 eof = not piece
         finally:
             _close_stdout(proc)
         if proc.returncode == 0:
-            out = (stdout or "").strip() or command
+            out = stdout[:stripped_end] or command
             _fire(watch, f"condition met: {out[:500]}")
             return
         delay = every

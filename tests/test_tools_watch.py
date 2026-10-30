@@ -285,6 +285,42 @@ def test_until_decodes_split_utf8_and_newlines(monkeypatch):
     assert list(watch.events) == ["condition met: €\nend�"]
 
 
+@pytest.mark.parametrize("suffix", ["", "b", "  b  "])
+def test_until_strips_before_truncating(monkeypatch, suffix):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    output = "a" + " " * 499 + suffix
+    command = shlex.join([sys.executable, "-c", f"print({output!r}, end='')"])
+    watch = Watch(
+        id="strip",
+        kind="until",
+        description="strip",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == [f"condition met: {output.strip()[:500]}"]
+
+
+def test_until_preserves_subprocess_encoding(monkeypatch):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    popen = _watch_mod.subprocess.Popen
+
+    def latin1_popen(*args, **kwargs):
+        return popen(*args, **kwargs, encoding="latin-1")
+
+    monkeypatch.setattr(_watch_mod.subprocess, "Popen", latin1_popen)
+    command = shlex.join([sys.executable, "-c", "import os; os.write(1, b'caf\\xe9')"])
+    watch = Watch(
+        id="encoding",
+        kind="until",
+        description="encoding",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == ["condition met: café"]
+
+
 def _record_all() -> list[Watch]:
     from gptme.tools.watch import _watches, _watches_lock
 
