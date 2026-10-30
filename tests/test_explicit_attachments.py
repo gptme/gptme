@@ -266,6 +266,69 @@ def test_missing_spaced_attachment_cannot_expand_individual_words(
     read.assert_not_called()
 
 
+def _apply_first_completion(text: str) -> str:
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    from gptme.util.prompt import GptmeCompleter, clear_path_cache
+
+    clear_path_cache()
+    completions = list(
+        GptmeCompleter().get_completions(Document(text), CompleteEvent())
+    )
+    assert completions, f"expected path completions for {text!r}"
+    completion = completions[0]
+    return text[: len(text) + completion.start_position] + completion.text
+
+
+def test_cli_completes_explicit_attachment_prefix(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text("readme")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "utils.py").write_text("utils")
+    monkeypatch.setattr(
+        "gptme.util.prompt.llm_suggest",
+        lambda text: (_ for _ in ()).throw(AssertionError("llm")),
+    )
+    assert _apply_first_completion("review @REA") == "review @README.md"
+    assert _apply_first_completion("review REA") == "review README.md"
+    assert _apply_first_completion("see @src/u") == "see @src/utils.py"
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_legacy_command_backticks_expand_embedded_path(tmp_path, monkeypatch, legacy):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
+    (tmp_path / "main.py").write_text("legacy-source-marker")
+    url = "https://example.com/page"
+    msg = Message("user", f"Explain `./main.py --help {url}`")
+    with patch.object(
+        context, "_resource_to_codeblock", wraps=context._resource_to_codeblock
+    ) as read:
+        result = context._include_paths(msg, pre_confirmed_urls=[])
+    if legacy:
+        assert "legacy-source-marker" in result.content
+        assert "./main.py" in result.content
+    else:
+        assert result is msg
+        assert "legacy-source-marker" not in result.content
+    assert "[EXTERNAL CONTENT" not in result.content
+    assert not any(
+        call.args and str(call.args[0]).lower().startswith(("http://", "https://"))
+        for call in read.call_args_list
+    )
+
+
+def test_explicit_command_backticks_do_not_expand_embedded_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1")
+    (tmp_path / "main.py").write_text("legacy-source-marker")
+    msg = Message("user", "Explain `@./main.py --help`")
+    result = context._include_paths(msg)
+    assert result is msg
+    assert "legacy-source-marker" not in result.content
+
+
 @pytest.mark.parametrize("legacy", [False, True])
 def test_quoted_prose_url_respects_interactive_consent(monkeypatch, legacy):
     monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")

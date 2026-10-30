@@ -15,6 +15,7 @@ from copy import copy
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from ..config import get_config
 from ..constants import (
@@ -636,7 +637,9 @@ def _include_paths(
         "yes",
         "on",
     )
-    potential_paths = _find_potential_paths(msg.content, auto_include=auto_include)
+    discovered = _iter_discovered_paths(msg.content, auto_include=auto_include)
+    potential_paths = [ref.path for ref in discovered]
+    explicit_paths = {ref.path for ref in discovered if ref.explicit}
 
     # Separate URLs from file paths for confirmation
     # Extract URLs separately even in compatibility mode, including URLs in
@@ -685,9 +688,29 @@ def _include_paths(
                 continue
             try:
                 f = Path(word).expanduser()
-                # A reference with spaces names one resource. Do not let a
-                # missing path fall back to reading individual words/URLs.
+                # An explicit @ reference with spaces names one resource.
+                # Compatibility-mode implicit commands such as `./main.py --help`
+                # still scan words; quoted URL prose stays on the consent path.
                 if not f.exists():
+                    if (
+                        auto_include
+                        and word not in explicit_paths
+                        and _legacy_command_phrase(word)
+                    ):
+                        if contents := _resource_to_codeblock(
+                            word, confirmed_urls=[], literal_path=False
+                        ):
+                            stripped = contents.strip("\n")
+                            if stripped:
+                                content_size = len(stripped)
+                                if (
+                                    total_content_size + content_size
+                                    > INCLUDE_PATHS_MAX_CONTENT
+                                ):
+                                    skipped_paths.append(word)
+                                    continue
+                                total_content_size += content_size
+                                append_msg += "\n\n" + stripped
                     continue
                 over_budget = (
                     f.is_file()
@@ -790,6 +813,29 @@ def _mark_external_content(url: str, contents: str) -> str:
     return marked
 
 
+class _DiscoveredPath(NamedTuple):
+    path: str
+    explicit: bool
+
+
+def _legacy_command_phrase(word: str) -> bool:
+    """True for implicit ``./file --help`` phrases, not quoted URL prose."""
+    if " " not in word:
+        return False
+    for token in word.split():
+        token = token.rstrip("?.,!")
+        if not token or token.lower().startswith(("http://", "https://")):
+            continue
+        if any(token.startswith(p) for p in ("/", "~/", "./")) or "/" in token:
+            return True
+        try:
+            if Path(token).expanduser().exists():
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[str]:
     """
     Find potential file paths and URLs in a message content.
@@ -803,6 +849,15 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
     Returns:
         List of potential paths/URLs found in the message
     """
+    return [
+        ref.path for ref in _iter_discovered_paths(content, auto_include=auto_include)
+    ]
+
+
+def _iter_discovered_paths(
+    content: str, *, auto_include: bool = True
+) -> list[_DiscoveredPath]:
+    """Discover local/URL references and whether each was an explicit ``@path``."""
     # Remove code blocks to avoid matching paths inside them
     re_codeblock = r"````?[\s\S]*?\n````?"
     assert re.match(re_codeblock, md_codeblock("test", "test")), (
@@ -830,8 +885,8 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
             except OSError:
                 pass
 
-    paths: list[str] = []
-    seen_paths: set[str] = set()
+    refs: list[_DiscoveredPath] = []
+    seen_paths: dict[str, int] = {}
 
     def is_path_like(word: str) -> bool:
         """Helper to check if a word looks like a path.
@@ -896,9 +951,14 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
     def _add_path(word: str) -> None:
         """Add a path to the list if not already seen (preserves first-seen order)."""
         path = _strip_at_prefix(word)
-        if path not in seen_paths:
-            seen_paths.add(path)
-            paths.append(path)
+        explicit = word.startswith("@")
+        if path in seen_paths:
+            idx = seen_paths[path]
+            if explicit and not refs[idx].explicit:
+                refs[idx] = _DiscoveredPath(path, True)
+            return
+        seen_paths[path] = len(refs)
+        refs.append(_DiscoveredPath(path, explicit))
 
     # First find backtick-wrapped content
     for match in re.finditer(r"`([^`]+)`", content_no_xml):
@@ -926,7 +986,7 @@ def _find_potential_paths(content: str, *, auto_include: bool = True) -> list[st
         if is_path_like(word):
             _add_path(word)
 
-    return paths
+    return refs
 
 
 def _binary_file_metadata(path: Path, prompt: str) -> str | None:

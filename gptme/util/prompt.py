@@ -297,6 +297,9 @@ class GptmeCompleter(Completer):
         document.get_word_before_cursor()
         text = document.text_before_cursor
         path_seg = text.split(" ")[-1]
+        # Explicit attachments keep the @ in the buffer; complete the path
+        # after it so `@REA` matches README.md the same way `REA` does.
+        complete_seg = path_seg.removeprefix("@")
 
         completions = get_user_commands()  # Already includes "/" prefix
 
@@ -350,20 +353,20 @@ class GptmeCompleter(Completer):
         # Path completion
         elif (
             # Handle absolute/home/parent paths
-            any(path_seg.startswith(prefix) for prefix in ["../", "~/", "./", "/"])
+            any(complete_seg.startswith(prefix) for prefix in ["../", "~/", "./", "/"])
             or
             # Handle simple files in pwd using cache
             (
-                "/" not in path_seg
-                and "\\" not in path_seg
-                and any(f.startswith(path_seg) for f in _get_pwd_files())
+                "/" not in complete_seg
+                and "\\" not in complete_seg
+                and any(f.startswith(complete_seg) for f in _get_pwd_files())
             )
             or
             # Handle partial paths that might match files in subdirectories
-            any(Path.cwd().glob(f"{path_seg}*"))
+            any(Path.cwd().glob(f"{complete_seg}*"))
         ):
             yield from self.path_completer.get_completions(
-                Document(path_seg), complete_event
+                Document(complete_seg), complete_event
             )
 
         # LLM suggestions
