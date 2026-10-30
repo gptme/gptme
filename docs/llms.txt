@@ -117,6 +117,7 @@
 - [Prompts](https://gptme.org/docs/_sources/api/prompts.rst)
 - [Server](https://gptme.org/docs/_sources/api/server.rst)
 - [Context Compression](https://gptme.org/docs/_sources/context-compression.rst)
+- [Transport recovery boundaries](https://gptme.org/docs/_sources/transport-recovery.md)
 - [Evals](https://gptme.org/docs/_sources/evals.rst)
 - [Finetuning](https://gptme.org/docs/_sources/finetuning.md)
 - [Glossary](https://gptme.org/docs/_sources/glossary.md)
