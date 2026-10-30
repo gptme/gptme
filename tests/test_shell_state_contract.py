@@ -35,6 +35,8 @@ def test_foreground_and_background_state_contract(
     monkeypatch.chdir(parent)
     monkeypatch.setenv("GPTME_TEST_PARENT_STATE", "parent-value")
     monkeypatch.delenv("GPTME_TEST_FOREGROUND_STATE", raising=False)
+    monkeypatch.delenv("GPTME_TEST_LOCAL_STATE", raising=False)
+    monkeypatch.delenv("GPTME_TEST_JOB_STATE", raising=False)
     # Construct in the caller's real context, then exercise the captured flag
     # without that context, as happens on a foreground-promotion worker thread.
     token = _workspace_cwd.set(str(parent) if workspace else None)
