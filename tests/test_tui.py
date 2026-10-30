@@ -3143,18 +3143,19 @@ def test_patch_many_empty_patches_does_not_crash():
     assert lang == "diff"
 
 
-def test_patch_preview_skips_placeholders():
-    """`# ...` separators are not file edits; don't show them as -/+ lines."""
+@pytest.mark.parametrize("prefix", ["#", "//", '"'])
+def test_patch_preview_preserves_literal_comments(prefix):
+    """Literal ellipsis comments must remain visible before approval."""
     import json
 
     patch = (
         "<<<<<<< ORIGINAL\n"
         "old\n"
-        "    # ...\n"
+        f"    {prefix} ... old explanation\n"
         "tail\n"
         "=======\n"
         "new\n"
-        "    # ...\n"
+        f"    {prefix} ... new explanation\n"
         "tail\n"
         ">>>>>>> UPDATED"
     )
@@ -3164,7 +3165,8 @@ def test_patch_preview_skips_placeholders():
     assert title == "▶ patch: a.py"
     assert lang == "diff"
     assert "-old" in code and "+new" in code
-    assert "# ..." not in code
+    assert f"-    {prefix} ... old explanation" in code
+    assert f"+    {prefix} ... new explanation" in code
 
 
 def test_tool_format_title_non_string_path():
