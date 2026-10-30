@@ -1,5 +1,6 @@
 """Tests for gptme.memory: schema round-trip, layered roots, store, index, CLI."""
 
+import errno
 import importlib
 import multiprocessing
 import os
@@ -242,7 +243,7 @@ class TestLegacySavePublication:
     @pytest.mark.skipif(
         sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
     )
-    @pytest.mark.parametrize("failure", ["read", "copy"])
+    @pytest.mark.parametrize("failure", ["read", "copy", "remove"])
     def test_acl_error_leaves_legacy_save_unpublished(
         self, tmp_path, monkeypatch, failure
     ):
@@ -253,11 +254,14 @@ class TestLegacySavePublication:
         before = {path: path.read_bytes() for path in (entry, index)}
         real_get = os.getxattr
         real_set = os.setxattr
+        real_remove = os.removexattr
 
         def get_acl(path, name):
             if Path(path) == index:
                 if failure == "read":
                     raise PermissionError("ACL read denied")
+                if failure == "remove":
+                    raise OSError(errno.ENODATA, "no destination ACL")
                 return b"existing ACL"
             return real_get(path, name)
 
@@ -266,11 +270,97 @@ class TestLegacySavePublication:
                 raise PermissionError("ACL copy denied")
             return real_set(path, name, value)
 
+        def remove_acl(path, name):
+            if Path(path).name.startswith(".MEMORY.md."):
+                raise PermissionError("ACL remove denied")
+            return real_remove(path, name)
+
         monkeypatch.setattr(os, "getxattr", get_acl)
         monkeypatch.setattr(os, "setxattr", set_acl)
+        monkeypatch.setattr(os, "removexattr", remove_acl)
         with pytest.raises(PermissionError, match=f"ACL {failure} denied"):
             store.save("fact", "Changed", "Changed body")
         assert {path: path.read_bytes() for path in (entry, index)} == before
+        assert not list(root.glob(".*.tmp"))
+
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="requires Linux POSIX ACL xattrs"
+    )
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    def test_does_not_publish_inherited_acl(self, tmp_path, writer):
+        root = tmp_path / "legacy"
+        root.mkdir()
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n")
+        index.chmod(0o640)
+        # Install a default ACL only after creating the private index. Staged
+        # replacements inherit it; chmod(0640) must not activate its named user.
+        acl = struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, perm, uid)
+            for tag, perm, uid in [
+                (1, 7, 0xFFFFFFFF),
+                (2, 4, os.getuid() + 1),
+                (4, 0, 0xFFFFFFFF),
+                (16, 4, 0xFFFFFFFF),
+                (32, 0, 0xFFFFFFFF),
+            ]
+        )
+        try:
+            os.setxattr(root, "system.posix_acl_default", acl)
+        except OSError as exc:
+            pytest.skip(f"POSIX default ACL unavailable: {exc}")
+        if writer == "save":
+            MemoryStore([MemoryRoot("explicit", root)]).save("fact", "Changed")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        assert "system.posix_acl_access" not in os.listxattr(index)
+        assert stat.S_IMODE(index.stat().st_mode) == 0o640
+        assert "fact.md" in index.read_text()
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires POSIX ownership")
+    @pytest.mark.parametrize("writer", ["save", "update_index_line"])
+    def test_preserves_index_ownership(self, tmp_path, writer):
+        other_groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+        if not other_groups:
+            pytest.skip("requires membership in a second group")
+        root = tmp_path / "legacy"
+        root.mkdir()
+        index = root / "MEMORY.md"
+        index.write_text("# Curated\n\nKeep me.\n")
+        os.chown(index, -1, other_groups[0])
+        index.chmod(0o640)
+        before = index.stat()
+        if writer == "save":
+            MemoryStore([MemoryRoot("explicit", root)]).save("fact", "Changed")
+        else:
+            update_index_line(root, MemoryEntry(name="fact", description="Changed"))
+        after = index.stat()
+        assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+        assert stat.S_IMODE(after.st_mode) == stat.S_IMODE(before.st_mode)
+        assert "fact.md" in index.read_text()
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires POSIX ownership")
+    def test_ownership_error_leaves_legacy_save_unpublished(
+        self, tmp_path, monkeypatch
+    ):
+        other_groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+        if not other_groups:
+            pytest.skip("requires membership in a second group")
+        root = tmp_path / "legacy"
+        store = MemoryStore([MemoryRoot("explicit", root)])
+        entry = store.save("fact", "Original", "Original body")
+        index = root / "MEMORY.md"
+        os.chown(index, -1, other_groups[0])
+        before = {path: path.read_bytes() for path in (entry, index)}
+
+        def denied_chown(path, uid, gid):
+            raise PermissionError("ownership copy denied")
+
+        monkeypatch.setattr(os, "chown", denied_chown)
+        with pytest.raises(PermissionError, match="ownership copy denied"):
+            store.save("fact", "Changed", "Changed body")
+        assert {path: path.read_bytes() for path in (entry, index)} == before
+        assert index.stat().st_gid == other_groups[0]
         assert not list(root.glob(".*.tmp"))
 
     @pytest.mark.parametrize("first_writer", ["save", "update_index_line"])

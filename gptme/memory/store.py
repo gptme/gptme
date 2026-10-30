@@ -38,22 +38,34 @@ LOCK_FILENAME = ".memory.lock"
 
 
 def _preserve_mode(tmp: Path, dest: Path) -> None:
-    """Copy access ACL and mode before publishing; fail closed on ACL errors."""
+    """Copy ownership, access ACL and mode; fail closed on preservation errors."""
     try:
-        mode = stat.S_IMODE(dest.stat().st_mode)
+        original = dest.stat()
     except FileNotFoundError:
         return
+    if os.name == "posix":
+        staged = tmp.stat()
+        if (staged.st_uid, staged.st_gid) != (original.st_uid, original.st_gid):
+            # chown can clear permission bits, so do it before ACL/mode copying.
+            os.chown(tmp, original.st_uid, original.st_gid)
     if sys.platform == "linux":
         try:
             acl = os.getxattr(dest, "system.posix_acl_access")
         except OSError as exc:
             if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
                 raise
+            # A temp can inherit its directory's default ACL even when dest
+            # has none. Remove it before chmod could enable named-user access.
+            try:
+                os.removexattr(tmp, "system.posix_acl_access")
+            except OSError as remove_exc:
+                if remove_exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                    raise
         else:
             # Apply the ACL before chmod: stat's group bits are the ACL mask,
             # not the owning group's permissions. chmod alone can widen access.
             os.setxattr(tmp, "system.posix_acl_access", acl)
-    os.chmod(tmp, mode)
+    os.chmod(tmp, stat.S_IMODE(original.st_mode))
 
 
 def _atomic_write(path: Path, text: str | bytes) -> None:
