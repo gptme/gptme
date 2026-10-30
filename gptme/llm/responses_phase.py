@@ -97,7 +97,9 @@ def replay_responses_output(
     text_parts, calls, _ = parts
     # Calls and kwargs come from UNCHANGED current content. Strip reasoning only
     # after removing their spans, so literal tags/signatures in JSON survive.
-    remaining = _prose("".join(text_parts)).strip()
+    # Comparison only: normalize the same blank-line runs as each item below.
+    # Replay text, current native kwargs and the exact edit digest stay untouched.
+    remaining = re.sub(r"\n\n\n+", "\n\n", _prose("".join(text_parts))).strip()
     items: list[dict[str, Any]] = []
     call_index = 0
     for item in captured:

@@ -485,3 +485,62 @@ def test_combined_parser_reasoning_and_native_json_roundtrip(
         assert replay[0]["content"] == "Before"
         assert replay[2]["content"] == "After"
         assert json.loads(replay[1]["arguments"]) == {"command": command}
+
+
+@pytest.mark.parametrize("provider", ["subscription", "sdk", "sdk_nonstream"])
+@pytest.mark.parametrize("source", ["terminal", "deltas", "both"])
+@pytest.mark.parametrize("serialization", ["json", "toml"])
+@pytest.mark.parametrize(
+    "parts",
+    [
+        (("Hello\n\n\nWorld",), ("After",)),
+        (("Hello\n\n\nWorld\n\n\n\nAgain\n\n\n\n\nEnd",), ("After",)),
+        (("Hello\n\n", "\nWorld\n"), ("\n\nAfter\n\n\n", "\nDone")),
+    ],
+)
+def test_review_blank_line_runs_preserve_exact_phased_text(
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    source: str,
+    serialization: str,
+    parts: tuple[tuple[str, ...], tuple[str, ...]],
+) -> None:
+    """4423978037: comparison normalization must be symmetric, not replay edits."""
+    messages = []
+    for index, (chunks, phase) in enumerate(zip(parts, ("commentary", "final_answer"))):
+        item = _message("", phase, index * 2)
+        item["content"] = [
+            {"type": "output_text", "text": text, "annotations": []} for text in chunks
+        ]
+        messages.append(item)
+    command = "printf 'Hello\n\n\nWorld\n\n\n\nAgain'"
+    call = {
+        "type": "function_call",
+        "id": "fc_1",
+        "name": "shell",
+        "call_id": "call_1",
+        "arguments": json.dumps({"command": command}),
+    }
+    msg = _reload(
+        _generate(monkeypatch, provider, [messages[0], call, messages[1]], source),
+        serialization,
+    )
+    for replay_provider in ("subscription", "sdk"):
+        replay = _prepare(msg, replay_provider)
+        assert replay[0] == {
+            "role": "assistant",
+            "content": "".join(parts[0]),
+            "phase": "commentary",
+        }
+        assert replay[2] == {
+            "role": "assistant",
+            "content": "".join(parts[1]),
+            "phase": "final_answer",
+        }
+        assert json.loads(replay[1]["arguments"]) == {"command": command}
+        # Even normalization-equivalent whitespace edits must fail the digest.
+        edited = msg.replace(
+            content=msg.content.replace("Hello\n\n\nWorld", "Hello\n\nWorld", 1)
+        )
+        assert edited.content != msg.content
+        assert all("phase" not in item for item in _prepare(edited, replay_provider))
