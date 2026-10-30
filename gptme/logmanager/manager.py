@@ -759,9 +759,11 @@ class LogManager:
             paths.add(archive_path)
             # A loaded, locally unchanged archive is not ours to rewrite: another
             # manager may have appended since load. Disk-size drift must not turn
-            # this no-op into a stale full rewrite via Log._can_append().
+            # this no-op into a stale full rewrite via Log._can_append(). An
+            # unchanged legacy snapshot must also defer to a migrated archive.
             if (
-                archive.persisted_path == archive_path.resolve()
+                archive.persisted_path is not None
+                and archive_path.exists()
                 and len(archive.persisted) == len(archive)
                 and all(old is new for old, new in zip(archive.persisted, archive))
             ):

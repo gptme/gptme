@@ -1075,3 +1075,32 @@ def test_legacy_branch_archive_remains_readable_after_namespace_move(
     reloaded = LogManager.load(manager.logdir, branch="alternative", lock=False)
     assert reloaded.full_log[-1].content == "new output"
     assert "new output" in recall_result(len(reloaded.full_log))
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_stale_legacy_archive_does_not_overwrite_migrated_history(
+    tmp_path: Path, sync: bool
+) -> None:
+    from gptme.logmanager import Log
+    from gptme.tools.recall import recall_result
+
+    manager = LogManager(_messages(), logdir=tmp_path / "legacy-concurrent", lock=False)
+    manager.branch("alternative")
+    manager.log = Log([Message("system", "Summary")])
+    manager.write()
+    legacy = manager.logdir / "branches" / "alternative" / "lossless.jsonl"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    Log(_messages()).write_jsonl(legacy)
+    stale = LogManager.load(manager.logdir, lock=False)
+    writer = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    writer.append(Message("system", "new migrated output", call_id="new"))
+    archive = manager.logdir / "branch-archives" / "alternative.jsonl"
+    migrated = archive.read_bytes()
+    legacy_bytes = legacy.read_bytes()
+    stale.append(Message("user", "Main-only addition"))
+    stale.write(sync=sync)
+    assert archive.read_bytes() == migrated
+    assert legacy.read_bytes() == legacy_bytes
+    reloaded = LogManager.load(manager.logdir, branch="alternative", lock=False)
+    assert reloaded.full_log[-1].content == "new migrated output"
+    assert "new migrated output" in recall_result(len(reloaded.full_log))
