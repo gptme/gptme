@@ -49,6 +49,36 @@ def test_docx_literal_text_is_not_markdown(tmp_path: Path, text: str) -> None:
     assert "".join(child.content for child in children) == text
 
 
+@pytest.mark.parametrize("indent", ["    ", "\t", " \t  "])
+def test_manual_break_indentation_stays_literal(tmp_path: Path, indent: str) -> None:
+    document = Document()
+    para = document.add_paragraph("intro")
+    para.add_run().add_break()
+    para.add_run().add_break()
+    # The indentation and literal syntax can span multiple runs.
+    for char in indent + "*literal*":
+        para.add_run(char)
+    source = tmp_path / "breaks.docx"
+    document.save(str(source))
+    md = tmp_path / "breaks.md"
+    txt = tmp_path / "breaks.txt"
+    assert convert_file(source, md).success
+    assert convert_file(source, txt).success
+    assert txt.read_text() == "intro\n\n" + indent + "*literal*"
+    tokens = MarkdownIt("commonmark").parse(md.read_text())
+    assert [token.type for token in tokens] == [
+        "paragraph_open",
+        "inline",
+        "paragraph_close",
+        "paragraph_open",
+        "inline",
+        "paragraph_close",
+    ]
+    children = tokens[4].children or []
+    assert all(child.type == "text" for child in children)
+    assert "".join(child.content for child in children) == indent + "*literal*"
+
+
 def test_separate_paragraphs_and_unchanged_txt(tmp_path: Path) -> None:
     document = Document()
     paragraphs = ["first paragraph", "second paragraph", "", "third paragraph"]
