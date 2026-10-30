@@ -631,11 +631,12 @@ class TestStore:
         assert "new.md" in index
         assert index == index_before
 
+    @pytest.mark.parametrize("title", ["Original title", "Use [cache] carefully"])
     def test_legacy_resave_living_entry_updates_body_and_pointer(
-        self, tmp_path: Path
+        self, tmp_path: Path, title: str
     ) -> None:
         store = self._store(tmp_path)
-        path = store.save("living", "Original", "Original body", title="Original title")
+        path = store.save("living", "Original", "Original body", title=title)
         index_path = path.parent / "MEMORY.md"
         prose = "\n## Compatibility notes\nKeep this hand-curated guidance.\n"
         index_path.write_text(index_path.read_text() + prose, encoding="utf-8")
@@ -654,8 +655,9 @@ class TestStore:
 
     @pytest.mark.parametrize("status", ["superseded", "historical"])
     @pytest.mark.parametrize("existing_index", [True, False])
+    @pytest.mark.parametrize("title", [None, "Use [cache] carefully"])
     def test_update_legacy_index_line_excludes_retired_entry(
-        self, tmp_path: Path, existing_index: bool, status: str
+        self, tmp_path: Path, existing_index: bool, status: str, title: str | None
     ) -> None:
         store = self._store(tmp_path)
         store.save("old", "Old belief", "Old body")
@@ -663,6 +665,7 @@ class TestStore:
         retired, replacement = store.supersede("old", "new")
         root = tmp_path / "project"
         retired.status = status
+        retired.title = title
         (root / "old.md").write_text(retired.to_markdown(), encoding="utf-8")
         retired = parse_entry(root / "old.md", strict=True)
         index_path = root / "MEMORY.md"
