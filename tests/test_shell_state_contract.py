@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gptme.tools.shell import ShellSession, instructions, tool
+from gptme.tools.shell import ShellSession, _workspace_cwd, instructions, tool
 from gptme.tools.shell_background import reset_background_jobs, start_background_job
 
 
@@ -35,9 +35,14 @@ def test_foreground_and_background_state_contract(
     monkeypatch.chdir(parent)
     monkeypatch.setenv("GPTME_TEST_PARENT_STATE", "parent-value")
     monkeypatch.delenv("GPTME_TEST_FOREGROUND_STATE", raising=False)
-    # Workspace sessions track their own cwd without mutating the Python parent.
-    shell = ShellSession(cwd=str(parent))
-    shell._skip_os_chdir = workspace
+    # Construct in the caller's real context, then exercise the captured flag
+    # without that context, as happens on a foreground-promotion worker thread.
+    token = _workspace_cwd.set(str(parent) if workspace else None)
+    try:
+        shell = ShellSession(cwd=str(parent))
+    finally:
+        _workspace_cwd.reset(token)
+    worker_token = _workspace_cwd.set(None)
     reset_background_jobs()
     try:
         assert (
@@ -87,3 +92,4 @@ def test_foreground_and_background_state_contract(
     finally:
         reset_background_jobs()
         shell.close()
+        _workspace_cwd.reset(worker_token)

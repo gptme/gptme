@@ -258,37 +258,21 @@ is_macos = sys.platform == "darwin"
 
 
 instructions = f"""
-Foreground commands execute in a stateful bash shell; `cd`, exports and shell
-variables persist between foreground calls.
-The shell tool will respond with the output of the execution.
-
-These programs are available, among others:
+Stateful Bash: foreground `cd`, exports and variables persist.
+Inspect files/git; run tests/commands. Prefer repo evidence.
+Available programs:
 {shell_programs_str}
 
-### When to use the shell
-
-Use the shell to inspect the workspace, search files, check git state, or run
-existing commands and tests. Prefer the repo over answering from memory.
-
-### Background Jobs
-
-Use `background: true` for work you already know will run long — dev servers,
-builds, test suites. Explicit background jobs start a separate shell with the
-Python parent's cwd and environment. Do not rely on prior foreground `cd` or
-`export` changes or shell-local variables: foreground `cd` can also change the
-Python parent's cwd in CLI mode, but workspace/server sessions keep it separate.
-Make each call self-contained: `cd` to an
-absolute path with `&&`, set needed variables there, and verify the intended
-checkout before running builds/tests. Do not rely on a foreground `$WT` variable.
-
-A foreground command that outruns the soft timeout uses automatic promotion to
-background job N: the already-running command continues with its existing state;
-it is not relaunched as an explicit background job. Bash `&` also differs: its
-child inherits the current shell's cwd and variables when launched.
-Exit code and output for managed jobs arrive automatically.
-A leading `timeout DURATION` keeps a command in the foreground that long.
-Manage jobs with `output N`, `wait N [timeout]`, `kill N`, `jobs`: not bash,
-so send each as the entire command, never piped or inside a script.
+Use `background: true` for known long work: a separate shell inherits the
+Python parent's cwd and environment, not foreground exports/variables.
+Do not rely on prior foreground `cd`: CLI may change Python cwd;
+workspace/server sessions keep it separate. Each job must `cd` to an absolute
+path with `&&`, set variables and verify its checkout.
+At the soft timeout, foreground automatic promotion keeps the running command/state.
+Bash `&` inherits shell state. Managed jobs report exit/output automatically.
+`timeout DURATION` keeps work foreground that long.
+Job controls: `output N`, `wait N [timeout]`, `kill N`, `jobs`.
+Send each as an entire tool call, never in Bash pipelines/scripts.
 """.strip()
 
 instructions_format: dict[str, str] = {}
