@@ -717,6 +717,14 @@ def _open_page(browser: Browser, url: str) -> str:
 
     if not _session_belongs_to_caller():
         _close_current_page()
+        if _is_cdp_connection() and _browser is not None:
+            # The CDP context belongs to BrowserThread, not _current_context.
+            # Closing only the tab would leak the previous caller's login.
+            ctx = _browser._session_context
+            _browser._session_context = None
+            if ctx is not None:
+                ctx.close()
+            _browser._session_context = browser.new_context(**get_context_options())
 
     if _interactive_page_is_live():
         return _goto_and_snapshot(url)
@@ -732,6 +740,7 @@ def _open_page(browser: Browser, url: str) -> str:
             _close_current_page()
             raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
         _current_page = page
+        _session_owner = _conversation_key()
         return _goto_and_snapshot(url)
 
     # First open, or after explicit close/reset/state replacement.

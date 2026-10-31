@@ -196,3 +196,42 @@ def test_close_page_resets_live_auth_state(auth_server: str):
     assert "localstorage-missing" in account, (
         f"close_page() should reset localStorage\n{account[:500]}"
     )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("new_owner", ["conv-b", None])
+def test_cdp_context_switch_drops_other_conversation_auth(auth_server, new_owner):
+    """Exercise CDP context ownership with real Chromium storage, without a host CDP.
+
+    Install the BrowserThread-owned context used by CDP onto an isolated launched
+    browser. This covers the context/tab lifecycle, not the CDP wire connection.
+    """
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+
+    thread = bp.get_browser()
+
+    def install_session_context(browser):
+        thread._session_context = browser.new_context()
+        thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+
+    thread.execute(install_session_context)
+    token = current_conversation_id.set("conv-a")
+    try:
+        bp.open_page(f"{auth_server}/login")
+        account = bp.open_page(f"{auth_server}/account")
+        assert "cookie-ok" in account
+        assert "localstorage-ok" in account
+
+        current_conversation_id.set(new_owner)
+        account = bp.open_page(f"{auth_server}/account")
+        assert "cookie-missing" in account
+        assert "localstorage-missing" in account
+        # The replacement session is now owned by the new caller, including None.
+        assert bp._session_owner == new_owner
+        bp.open_page(f"{auth_server}/login")
+        account = bp.open_page(f"{auth_server}/account")
+        assert "cookie-ok" in account
+        assert "localstorage-ok" in account
+    finally:
+        current_conversation_id.reset(token)
