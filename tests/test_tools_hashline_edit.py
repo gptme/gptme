@@ -409,6 +409,22 @@ class TestRegisterOperations:
         with pytest.raises(ValueError, match="overlap its CUT lines 2-3"):
             _apply_operations(content, ops)
 
+    def test_undefined_register_put_raises(self):
+        """The error for an undefined register names the register in both places."""
+        content = "a\nb\nc\n"
+        ops = [
+            HashlineOp(
+                kind="insert_after", start=2, end=2, register_name="missing", text=None
+            ),
+        ]
+        with pytest.raises(
+            ValueError, match="Register @missing is not defined"
+        ) as excinfo:
+            _apply_operations(content, ops)
+        message = str(excinfo.value)
+        assert "add a 'CUT N.=M @missing' operation" in message
+        assert "{reg}" not in message
+
     def test_duplicate_register_capture_raises(self):
         """Each register has one unambiguous source range."""
         content = "a\nb\nc\nd\ne\n"
