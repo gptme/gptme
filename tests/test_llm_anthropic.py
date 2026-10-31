@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from typing import assert_type
 
 import httpx2
 import pytest
@@ -988,17 +989,17 @@ def test_chat_serializes_optional_sdk_parameters(
 
     def serve(request: httpx2.Request) -> httpx2.Response:
         payloads.append(payload_parser.validate_json(request.content))
-        response_payload = {
-            "id": "msg_test",
-            "type": "message",
-            "role": "assistant",
-            "model": model,
-            "content": [{"type": "text", "text": "Hello"}],
-            "stop_reason": "end_turn",
-            "stop_sequence": None,
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        }
-        return httpx2.Response(200, json=response_payload)
+        # These fixed model names come from the parameter table above. Serve
+        # wire JSON directly, without httpx2's dynamically typed json argument.
+        response_body = (
+            '{"id":"msg_test","type":"message","role":"assistant",'
+            f'"model":"{model}","content":[{{"type":"text","text":"Hello"}}],'
+            '"stop_reason":"end_turn","stop_sequence":null,'
+            '"usage":{"input_tokens":10,"output_tokens":5}}'
+        )
+        return httpx2.Response(
+            200, text=response_body, headers={"Content-Type": "application/json"}
+        )
 
     monkeypatch.setenv("GPTME_REASONING", reasoning)
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
@@ -1007,12 +1008,13 @@ def test_chat_serializes_optional_sdk_parameters(
     with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
         client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
         monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-        answer, _metadata = llm_anthropic.chat(
+        answer = llm_anthropic.chat(
             [Message("system", "Be helpful."), Message("user", "Hello")],
             model,
             tools=tools,
-        )
+        )[0]
 
+    assert_type(answer, str)
     assert answer == "Hello"
     if include_tools:
         tools_payload = payloads[0]["tools"]
