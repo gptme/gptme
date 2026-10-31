@@ -5,7 +5,18 @@ import { isTauriEnvironment } from '@/utils/tauri';
 export interface ExportMarkdownOptions {
   includeSystem?: boolean;
   includeTimestamps?: boolean;
+  /**
+   * When false, strip actual assistant `<think>` / `<thinking>` / `<think redacted>`
+   * blocks. Literal examples in fenced or inline code are kept. Top-level tags
+   * that look like thinking are treated as real (ambiguous by design).
+   */
   includeThinking?: boolean;
+  /**
+   * When false, omit `role: 'tool'` messages and strip actual assistant tool
+   * fences / `@tool: {...}` calls. Literal examples in non-tool fences or
+   * inline code are kept. Top-level tool syntax is treated as real. This is a
+   * display filter, not a secret-redaction guarantee.
+   */
   includeTools?: boolean;
 }
 
@@ -20,24 +31,415 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+interface CharRange {
+  start: number;
+  end: number;
+}
+
+interface FenceRange extends CharRange {
+  tag: string;
+}
+
+// gptme convention (see processNestedCodeBlocks): ```lang is always an opener,
+// a bare ``` is always a closer. Nested fences are part of the outer block.
+const FENCE_LINE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+const THINK_OPEN_RE = /^<think(?:ing)?(?: redacted)?>/;
+const THINK_CLOSE_RE = /^<\/think(?:ing)?(?: redacted)?>/;
+const TOOL_CALL_PREFIX_RE = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
+
+function splitLines(content: string): { lines: string[]; starts: number[] } {
+  const lines = content.split('\n');
+  const starts: number[] = [];
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    starts.push(offset);
+    offset += lines[i].length + (i < lines.length - 1 ? 1 : 0);
+  }
+  return { lines, starts };
+}
+
+function lineEnd(lines: string[], starts: number[], index: number): number {
+  return starts[index] + lines[index].length + (index < lines.length - 1 ? 1 : 0);
+}
+
+function unquoteLine(line: string, maxDepth = Infinity): { text: string; depth: number } {
+  let depth = 0;
+  while (depth < maxDepth) {
+    const prefix = line.match(/^ {0,3}>[\t ]?/);
+    if (!prefix) break;
+    line = line.slice(prefix[0].length);
+    depth++;
+  }
+  return { text: line, depth };
+}
+
+type FenceContainer = { kind: 'quote' } | { kind: 'list'; indent: number };
+
+// Normalize only the recognition view. Ranges always use original byte-for-byte
+// text offsets. Markdown tab stops are four columns, not four spaces per tab.
+function expandMarkdownTabs(line: string): string {
+  let result = '';
+  for (const char of line) {
+    result += char === '\t' ? ' '.repeat(4 - (result.length % 4)) : char;
+  }
+  return result;
+}
+
+function continueFenceContainers(
+  line: string,
+  containers: FenceContainer[]
+): { text: string; matched: number } {
+  let matched = 0;
+  for (const container of containers) {
+    if (container.kind === 'quote') {
+      const prefix = line.match(/^ {0,3}> ?/);
+      if (!prefix) break;
+      line = line.slice(prefix[0].length);
+    } else if (!line.trim()) {
+      // Blank lines do not close a list, but never authorize a later dedent.
+      line = '';
+    } else {
+      if (!line.startsWith(' '.repeat(container.indent))) break;
+      line = line.slice(container.indent);
+    }
+    matched++;
+  }
+  return { text: line, matched };
+}
+
+function openFenceContainers(
+  line: string,
+  containers: FenceContainer[]
+): { text: string; containers: FenceContainer[] } {
+  const path = [...containers];
+  while (true) {
+    const quote = line.match(/^ {0,3}> ?/);
+    if (quote) {
+      path.push({ kind: 'quote' });
+      line = line.slice(quote[0].length);
+      continue;
+    }
+    // A thematic break takes precedence over list-item markers.
+    if (/^ {0,3}(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,})\r?$/.test(line)) break;
+    const item = line.match(/^( {0,3})([-+*]|\d{1,9}[.)])( +)(?=\S)/);
+    if (!item) break;
+    // Five or more padding spaces mean one separator plus indented content.
+    const padding = item[3].length <= 4 ? item[3].length : 1;
+    const indent = item[1].length + item[2].length + padding;
+    path.push({ kind: 'list', indent });
+    line = line.slice(indent);
+  }
+  return { text: line, containers: path };
+}
+
+/**
+ * Top-level fenced blocks, including quoted/list examples. Unclosed fences
+ * extend to the end of `content` or their container, whichever comes first.
+ */
+function getTopLevelFenceRanges(content: string): FenceRange[] {
+  const { lines, starts } = splitLines(content);
+  const ranges: FenceRange[] = [];
+  let containers: FenceContainer[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const continued = continueFenceContainers(expandMarkdownTabs(lines[i]), containers);
+    const opened = openFenceContainers(continued.text, containers.slice(0, continued.matched));
+    const { text } = opened;
+    containers = opened.containers;
+    const match = text.match(FENCE_LINE_RE);
+    const quotedIndent = unquoteLine(lines[i]).text.match(FENCE_LINE_RE)?.[1];
+    // Retain the existing quoted indented-code boundary used by the renderer;
+    // its tab handling differs from CommonMark's global column expansion.
+    const quotedCode =
+      containers.length > 0 &&
+      containers.every((container) => container.kind === 'quote') &&
+      quotedIndent !== undefined &&
+      !/^ {0,3}$/.test(quotedIndent);
+    if (!match || quotedCode || (containers.length > 0 && !/^ {0,3}$/.test(match[1]))) {
+      i++;
+      continue;
+    }
+    const start = starts[i];
+    const rawTag = match[3].trim();
+    // Tilde fences are Markdown examples, not gptme tool delimiters.
+    const tilde = match[2][0] === '~';
+    // Container-contained tool-looking fences are examples, never real tools.
+    const tag = tilde || containers.length ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
+    const fenceLengths = [match[2].length];
+    i++;
+    let closed = false;
+    while (i < lines.length) {
+      const { text: innerLine, matched } = continueFenceContainers(
+        expandMarkdownTabs(lines[i]),
+        containers
+      );
+      if (matched < containers.length) {
+        // Fenced blocks cannot lazily continue outside their saved containers.
+        ranges.push({ start, end: starts[i], tag });
+        closed = true;
+        break;
+      }
+      const inner = innerLine.match(FENCE_LINE_RE);
+      if (
+        inner &&
+        inner[2][0] === match[2][0] &&
+        (containers.length === 0 || /^ {0,3}$/.test(inner[1]))
+      ) {
+        if (tilde) {
+          // CommonMark tilde fences do not nest; only a bare run at least
+          // as long as the opener closes the block.
+          if (!inner[3].trim() && inner[2].length >= match[2].length) {
+            ranges.push({ start, end: lineEnd(lines, starts, i), tag });
+            i++;
+            closed = true;
+            break;
+          }
+        } else if (inner[3].trim()) {
+          fenceLengths.push(inner[2].length);
+        } else if (inner[2].length >= fenceLengths[fenceLengths.length - 1]) {
+          // A shorter bare run is literal content, not the current closer.
+          fenceLengths.pop();
+          if (fenceLengths.length === 0) {
+            ranges.push({ start, end: lineEnd(lines, starts, i), tag });
+            i++;
+            closed = true;
+            break;
+          }
+        }
+      }
+      i++;
+    }
+    if (!closed) {
+      ranges.push({ start, end: content.length, tag });
+    }
+  }
+  return ranges;
+}
+
+function rangeContains<T extends CharRange>(ranges: T[], index: number): T | undefined {
+  return ranges.find((range) => index >= range.start && index < range.end);
+}
+
+function matchAt(content: string, index: number, re: RegExp): string | null {
+  const match = content.slice(index).match(re);
+  return match ? match[0] : null;
+}
+
+function isBackslashEscaped(content: string, index: number): boolean {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && content[i] === '\\'; i--) backslashes++;
+  return backslashes % 2 !== 0;
+}
+
+/**
+ * End offset of a CommonMark-style inline code span starting at `start`,
+ * or null if the backtick run is unclosed. A span cannot cross a fenced
+ * block or paragraph boundary. Quote prefixes belong to the container rather
+ * than the inline content, so they do not interrupt a span inside that quote.
+ */
+function findInlineCodeEnd(
+  content: string,
+  start: number,
+  fenceRanges: CharRange[]
+): number | null {
+  // Backslash escapes apply in prose, but not to closers inside a code span.
+  if (content[start] !== '`' || isBackslashEscaped(content, start)) return null;
+  let openLen = 1;
+  while (start + openLen < content.length && content[start + openLen] === '`') openLen++;
+  const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+  const { text: openingLine, depth: quoteDepth } = unquoteLine(content.slice(lineStart, start));
+  // ATX headings own only one physical line, even when their backticks are
+  // unmatched. A delimiter in a later paragraph cannot close a heading span.
+  const inHeading = /^ {0,3}#{1,6}(?:[\t ]|$)/.test(openingLine);
+  let j = start + openLen;
+  while (j < content.length) {
+    if (rangeContains(fenceRanges, j)) return null;
+    if (content[j] === '\n') {
+      if (inHeading) return null;
+      const lineEnd = content.indexOf('\n', j + 1);
+      const rawLine = content.slice(j + 1, lineEnd < 0 ? content.length : lineEnd);
+      const { text: nextLine, depth: nextDepth } = unquoteLine(rawLine, quoteDepth);
+      // These block starts interrupt a paragraph; a later backtick belongs to
+      // a different inline parsing context. Lists need nonempty content to
+      // interrupt, and ordered lists must start at 1. A bare dash can still
+      // be a setext underline, checked separately below.
+      if (
+        /^[\t \r]*$/.test(nextLine) ||
+        /^ {0,3}(?:#{1,6}(?:[\t ]|$)|>|(?:[-+*]|1[.)])[\t ]+\S)/.test(nextLine) ||
+        /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3,})\r?$/.test(nextLine) ||
+        (nextDepth === quoteDepth && /^ {0,3}(?:=+|-+)[\t ]*\r?$/.test(nextLine))
+      ) {
+        return null;
+      }
+    }
+    if (content[j] !== '`') {
+      j++;
+      continue;
+    }
+    let closeLen = 1;
+    while (j + closeLen < content.length && content[j + closeLen] === '`') closeLen++;
+    if (closeLen === openLen) return j + closeLen;
+    j += closeLen;
+  }
+  return null;
+}
+
+function skipBacktickRun(content: string, start: number): number {
+  // Only the first backtick is escaped; the remainder can open a code span.
+  if (isBackslashEscaped(content, start)) return start + 1;
+  let i = start;
+  while (i < content.length && content[i] === '`') i++;
+  return i === start ? start + 1 : i;
+}
+
+/**
+ * Index just after the closing brace of the JSON object starting at `start`
+ * (`content[start]` must be `{`), or null if the object never closes.
+ * Tracks strings so backticks and braces inside quotes are not delimiters.
+ */
+function findJsonObjectEnd(content: string, start: number): number | null {
+  if (content[start] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  for (let i = start; i < content.length; i++) {
+    const ch = content[i];
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * Real thinking blocks in prose. Inline code is recognized only outside
+ * thinking, so a backtick inside `<think>` cannot pair with one in the
+ * answer and hide `</think>`. Think tags inside a complete inline-code
+ * span stay literal examples.
+ */
+function getThinkingRanges(content: string, fenceRanges: FenceRange[]): CharRange[] {
+  const ranges: CharRange[] = [];
+  let i = 0;
+  while (i < content.length) {
+    const fence = rangeContains(fenceRanges, i);
+    if (fence) {
+      i = fence.end;
+      continue;
+    }
+    if (content[i] === '`') {
+      const end = findInlineCodeEnd(content, i, fenceRanges);
+      i = end ?? skipBacktickRun(content, i);
+      continue;
+    }
+    // JSON argument strings are tool data, not prose reasoning wrappers.
+    // Consume the whole call before inspecting tags inside its arguments.
+    if (i === 0 || content[i - 1] === '\n') {
+      const prefix = content.slice(i).match(TOOL_CALL_PREFIX_RE);
+      if (prefix) {
+        const end = findJsonObjectEnd(content, i + prefix[0].length);
+        if (end !== null) {
+          i = end;
+          continue;
+        }
+      }
+    }
+    const open = matchAt(content, i, THINK_OPEN_RE);
+    if (!open) {
+      i++;
+      continue;
+    }
+    let j = i + open.length;
+    let closed = false;
+    while (j < content.length) {
+      // Once real reasoning starts, its wrapper owns the boundary, even if
+      // Markdown inside it is unfinished or pairs with fences in the answer.
+      const close = matchAt(content, j, THINK_CLOSE_RE);
+      if (close) {
+        let end = j + close.length;
+        if (content[end] === '\n') end++;
+        ranges.push({ start: i, end });
+        // An unfinished reasoning fence must not protect the answer or later
+        // thinking blocks. The answer starts a fresh Markdown context.
+        const prefix = end > 0 && content[end - 1] !== '\n' ? 'x' : '';
+        fenceRanges = getTopLevelFenceRanges(prefix + content.slice(end)).map((fence) => ({
+          ...fence,
+          start: fence.start + end - prefix.length,
+          end: fence.end + end - prefix.length,
+        }));
+        i = end;
+        closed = true;
+        break;
+      }
+      j++;
+    }
+    if (!closed) {
+      ranges.push({ start: i, end: content.length });
+      break;
+    }
+  }
+  return ranges;
+}
+
+function removeCharRanges(content: string, ranges: CharRange[]): string {
+  if (ranges.length === 0) return content;
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged: CharRange[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) {
+      last.end = Math.max(last.end, range.end);
+    } else {
+      merged.push({ start: range.start, end: range.end });
+    }
+  }
+  let result = '';
+  let cursor = 0;
+  for (const range of merged) {
+    result += content.slice(cursor, range.start);
+    cursor = range.end;
+  }
+  result += content.slice(cursor);
+  return result;
+}
+
 /**
  * Strip thinking/reasoning blocks from assistant message content.
- * Handles <thinking>/<think> tags as well as the `<think redacted>` variant
+ *
+ * Handles `<thinking>` / `<think>` tags and the `<think redacted>` variant
  * gptme emits for Anthropic's RedactedThinkingBlock (see llm_anthropic.py).
  * Also strips a trailing *unclosed* thinking tag: if generation is
  * interrupted mid-thinking, gptme never streams the closing `</think>`, so
  * the reasoning would otherwise leak into the exported "response" content.
+ *
+ * Literal examples inside fenced code blocks or inline code are not rewritten.
+ * A top-level think tag (not fenced and not inline-coded) is treated as real
+ * thinking even if it was meant as an example — that case is ambiguous.
+ * This is a display filter, not a secret-redaction guarantee.
  */
 export function stripThinkingBlocks(content: string): string {
-  return content
-    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g, '')
-    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*$/, '')
-    .trim();
+  const fences = getTopLevelFenceRanges(content);
+  return removeCharRanges(content, getThinkingRanges(content, fences)).trim();
 }
 
 // Built-in gptme tool block types (markdown codeblock langtags that represent
 // a tool invocation rather than example code). Mirrors block_types across
-// gptme/tools/*.py.
+// gptme/tools/*.py. view_anchored/patch_anchored were removed from the Python
+// tools but remain here so older transcripts still filter.
 const TOOL_BLOCK_TYPES = new Set([
   'clarify',
   'complete',
@@ -63,6 +465,9 @@ const TOOL_BLOCK_TYPES = new Set([
   'tmux',
   'read',
   'restart',
+  'memory',
+  'watch',
+  'request_tool_change',
 ]);
 
 // MCP server tools register block types dynamically as `{server}.{tool}`
@@ -75,83 +480,54 @@ function isToolBlockTag(tag: string): boolean {
 }
 
 /**
- * Strip fenced tool-invocation codeblocks (```shell, ```save path, ```server.tool, etc.)
- * from assistant message content.
- */
-function stripFencedToolBlocks(content: string): string {
-  return content.replace(/```([^\n`]*)\n[\s\S]*?```/g, (block, langLine: string) => {
-    const tag = langLine.trim().split(/\s+/)[0]?.toLowerCase();
-    return tag && isToolBlockTag(tag) ? '' : block;
-  });
-}
-
-/**
- * Strip `@tool(id): {...}` / `@tool: {...}` invocation lines (the non-markdown
- * "tool" format, and the live-streaming shape) from assistant message content.
+ * Strip top-level tool fences and `@tool(id): {...}` / `@tool: {...}` calls
+ * from assistant message content, using original offsets for both forms.
+ * Nested tool fences inside examples are kept; unclosed tool fences are removed.
  * Scans braces rather than regex-matching JSON so pretty-printed or compact
  * argument objects are both handled correctly.
+ *
+ * Calls inside fenced or inline-code examples are left unchanged. A top-level
+ * `@tool: {...}` line is treated as a real invocation even if it was meant as
+ * an example. JSON arguments are scanned as a whole so backticks inside a
+ * string (e.g. `"Use \`x\` now."`) stay part of the call, not inline code.
  */
 function stripAtFormatToolCalls(content: string): string {
-  const lines = content.split('\n');
-  const callPrefix = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
-  const out: string[] = [];
+  const fences = getTopLevelFenceRanges(content);
+
+  const toRemove: CharRange[] = [];
   let i = 0;
-  while (i < lines.length) {
-    const match = lines[i].match(callPrefix);
-    if (!match) {
-      out.push(lines[i]);
-      i++;
+  while (i < content.length) {
+    const fence = rangeContains(fences, i);
+    if (fence) {
+      if (fence.tag && isToolBlockTag(fence.tag)) toRemove.push(fence);
+      i = fence.end;
       continue;
     }
-    const rest = lines[i].slice(match[0].length);
-    if (!rest.startsWith('{')) {
-      // Not a JSON tool call — preserve the line as-is.
-      out.push(lines[i]);
-      i++;
-      continue;
-    }
-    let depth = 0;
-    let sawOpen = false;
-    let inString = false;
-    let escapeNext = false;
-    let j = i;
-    let trailingText = '';
-    outer: for (; j < lines.length; j++) {
-      const scanLine = j === i ? rest : lines[j];
-      for (let k = 0; k < scanLine.length; k++) {
-        const ch = scanLine[k];
-        if (escapeNext) {
-          escapeNext = false;
+    const atLineStart = i === 0 || content[i - 1] === '\n';
+    if (atLineStart) {
+      const match = content.slice(i).match(TOOL_CALL_PREFIX_RE);
+      if (match && content[i + match[0].length] === '{') {
+        const jsonEnd = findJsonObjectEnd(content, i + match[0].length);
+        if (jsonEnd !== null) {
+          toRemove.push({ start: i, end: jsonEnd });
+          i = jsonEnd;
           continue;
         }
-        if (ch === '\\' && inString) {
-          escapeNext = true;
-          continue;
-        }
-        if (ch === '"') {
-          inString = !inString;
-          continue;
-        }
-        if (inString) continue;
-        if (ch === '{') {
-          depth++;
-          sawOpen = true;
-        } else if (ch === '}') {
-          depth--;
-        }
-        if (sawOpen && depth <= 0) {
-          trailingText = scanLine.slice(k + 1).trim();
-          j++;
-          break outer;
-        }
+        const nextFence = fences.find((range) => range.start >= i);
+        const end = nextFence ? nextFence.start : content.length;
+        toRemove.push({ start: i, end });
+        i = end;
+        continue;
       }
     }
-    if (trailingText) {
-      out.push(trailingText);
+    if (content[i] === '`') {
+      const end = findInlineCodeEnd(content, i, fences);
+      i = end ?? skipBacktickRun(content, i);
+      continue;
     }
-    i = j;
+    i++;
   }
-  return out.join('\n');
+  return removeCharRanges(content, toRemove);
 }
 
 /**
@@ -159,8 +535,59 @@ function stripAtFormatToolCalls(content: string): string {
  * (fenced tool codeblocks and `@tool: {...}` calls). Distinct from filtering
  * `role: 'tool'` result messages, which getExportableMessages handles.
  */
-function stripToolInvocations(content: string): string {
-  return stripAtFormatToolCalls(stripFencedToolBlocks(content));
+function stripToolInvocations(content: string, includeThinking: boolean): string {
+  // Sections reset Markdown context, not physical line context. A harmless
+  // prose prefix keeps a mid-line suffix from becoming a call/fence opener.
+  const stripSection = (section: string, atLineStart: boolean): string =>
+    atLineStart ? stripAtFormatToolCalls(section) : stripAtFormatToolCalls('x' + section).slice(1);
+  const isLineStart = (offset: number): boolean => offset === 0 || content[offset - 1] === '\n';
+  const thinking = getThinkingRanges(content, getTopLevelFenceRanges(content));
+  if (!includeThinking) {
+    const sections: string[] = [];
+    const lineStarts: boolean[] = [];
+    let cursor = 0;
+    for (const range of thinking) {
+      sections.push(content.slice(cursor, range.start));
+      lineStarts.push(isLineStart(cursor));
+      cursor = range.end;
+    }
+    sections.push(content.slice(cursor));
+    lineStarts.push(isLineStart(cursor));
+    // Preserve stripThinkingBlocks' outer trimming before tool removal, but
+    // never parse across a deleted reasoning section's Markdown boundary.
+    for (let i = 0; i < sections.length; i++) {
+      const trimmed = sections[i].trimStart();
+      if (sections[i].slice(0, sections[i].length - trimmed.length).includes('\n')) {
+        lineStarts[i] = true;
+      }
+      sections[i] = trimmed;
+      if (sections[i]) break;
+    }
+    for (let i = sections.length - 1; i >= 0; i--) {
+      sections[i] = sections[i].trimEnd();
+      if (sections[i]) break;
+    }
+    return sections.map((section, i) => stripSection(section, lineStarts[i])).join('');
+  }
+  let result = '';
+  let cursor = 0;
+  for (const range of thinking) {
+    result += stripSection(content.slice(cursor, range.start), isLineStart(cursor));
+    const block = content.slice(range.start, range.end);
+    const open = block.match(THINK_OPEN_RE)![0];
+    const close = block.match(/<\/think(?:ing)?(?: redacted)?>\n?$/)?.[0] ?? '';
+    // Keep the reasoning wrapper when requested, but parse its Markdown
+    // separately so unfinished fences cannot swallow the answer or its tools.
+    result +=
+      open +
+      stripSection(
+        block.slice(open.length, block.length - close.length),
+        isLineStart(range.start + open.length)
+      ) +
+      close;
+    cursor = range.end;
+  }
+  return result + stripSection(content.slice(cursor), isLineStart(cursor));
 }
 
 export function getExportableMessages(
@@ -182,6 +609,14 @@ function getImportableMessages(messages: Message[]): Message[] {
 
 /**
  * Format a conversation's messages as a Markdown document.
+ *
+ * `includeThinking` / `includeTools` filter actual assistant transcript syntax.
+ * They do not rewrite literal examples in fenced or inline code, do not touch
+ * user/system content, and do nothing in full mode (both flags true). A
+ * top-level think tag or tool fence/call that is not wrapped in a non-tool
+ * fence or inline code is treated as real — that case is ambiguous. Interrupted
+ * (unclosed) top-level tool fences are stripped. This is not secret redaction
+ * and does not change JSON download / full-history fetching.
  */
 export function formatConversationAsMarkdown(
   name: string,
@@ -201,8 +636,8 @@ export function formatConversationAsMarkdown(
     lines.push(header, '');
     let content = msg.content;
     if (msg.role === 'assistant') {
-      if (!includeThinking) content = stripThinkingBlocks(content);
-      if (!includeTools) content = stripToolInvocations(content);
+      if (!includeTools) content = stripToolInvocations(content, includeThinking);
+      else if (!includeThinking) content = stripThinkingBlocks(content);
     }
     lines.push(content, '');
   }
