@@ -2,11 +2,11 @@ import json
 import logging
 import os
 import time
-from typing import cast
 
 import httpx2
 import pytest
 from anthropic import Anthropic
+from pydantic import TypeAdapter
 
 import gptme.llm.llm_anthropic as llm_anthropic
 from gptme.llm.llm_anthropic import (
@@ -967,22 +967,21 @@ def test_chat_omits_unset_optional_sdk_parameters(
 ) -> None:
     """Unset tools and disabled reasoning stay absent from the SDK payload."""
     payloads: list[dict[str, object]] = []
+    payload_parser = TypeAdapter(dict[str, object])
 
     def serve(request: httpx2.Request) -> httpx2.Response:
-        payloads.append(cast(dict[str, object], json.loads(request.content)))
-        return httpx2.Response(
+        payloads.append(payload_parser.validate_json(request.content))
+        response: httpx2.Response = httpx2.Response(
             200,
-            json={
-                "id": "msg_test",
-                "type": "message",
-                "role": "assistant",
-                "model": "claude-opus-4-7",
-                "content": [{"type": "text", "text": "Hello"}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            },
+            content=(
+                b'{"id":"msg_test","type":"message","role":"assistant",'
+                b'"model":"claude-opus-4-7","content":[{"type":"text",'
+                b'"text":"Hello"}],"stop_reason":"end_turn",'
+                b'"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}'
+            ),
+            headers={"content-type": "application/json"},
         )
+        return response
 
     monkeypatch.setenv("GPTME_REASONING", "0")
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
@@ -991,11 +990,12 @@ def test_chat_omits_unset_optional_sdk_parameters(
     with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
         client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
         monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-        answer, _ = llm_anthropic.chat(
+        response: tuple[str, llm_anthropic.MessageMetadata | None] = llm_anthropic.chat(
             [Message("system", "Be helpful."), Message("user", "Hello")],
             "claude-opus-4-7",
             tools=None,
         )
+        answer: str = response[0]
 
     assert answer == "Hello"
     assert "tools" not in payloads[0]
