@@ -64,8 +64,17 @@ class KernelRaster:
     output_type: str
 
 
+@dataclass
+class _RasterBudget:
+    attempts: int = 0
+    decoded_bytes: int = 0
+
+
 def _collect_raster(
-    data: dict, output_type: str, images: list[KernelRaster]
+    data: dict,
+    output_type: str,
+    images: list[KernelRaster],
+    budget: _RasterBudget | None = None,
 ) -> str | None:
     """Retain one supported representation per output, bounded before decoding.
 
@@ -79,15 +88,25 @@ def _collect_raster(
             if any(key.startswith("image/") for key in data)
             else None
         )
-    if len(images) >= _MAX_RASTER_IMAGES:
+    if budget is None:
+        budget = _RasterBudget(len(images), sum(len(image.data) for image in images))
+    if budget.attempts >= _MAX_RASTER_IMAGES:
         return "Kernel image count limit reached; additional images omitted."
-    remaining = _MAX_RASTER_TOTAL_BYTES - sum(len(image.data) for image in images)
+    remaining = _MAX_RASTER_TOTAL_BYTES - budget.decoded_bytes
     limit = min(_MAX_RASTER_BYTES, remaining)
     encoded = data[mime]
     if not isinstance(encoded, str):
         return "Invalid kernel raster payload omitted."
     if len(encoded) > 4 * ((limit + 2) // 3):
         return "Kernel image byte limit reached; oversized image omitted."
+    # Charge failed validation too; clears/updates never reopen this allowance.
+    decoded_bound = ((len(encoded) + 3) // 4) * 3 - min(
+        len(encoded) - len(encoded.rstrip("=")), 2
+    )
+    if remaining <= 0 or decoded_bound > limit:
+        return "Kernel image byte limit reached; oversized image omitted."
+    budget.attempts += 1
+    budget.decoded_bytes += decoded_bound
     try:
         decoded = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error):
@@ -910,10 +929,43 @@ class KernelBackend:
         error: dict | None = None
         images: list[KernelRaster] = []
         image_notices: list[str] = []
-        # Keep cumulative collection for the cell-wide decode budget, but only
-        # forward rasters still visible after Jupyter clear_output messages.
-        visible_images_start = 0
+        # Cumulative decoding is separate from bounded visible output slots.
+        raster_budget = _RasterBudget()
+        visible_images: list[tuple[str | None, KernelRaster | None]] = []
         clear_images_pending = False
+
+        def collect_output(content: dict, output_type: str) -> None:
+            display_id = content.get("transient", {}).get("display_id")
+            if not isinstance(display_id, str) or not display_id:
+                display_id = None
+            updating = output_type == "update_display_data"
+            matches = [
+                index
+                for index, (identity, _) in enumerate(visible_images)
+                if display_id is not None and identity == display_id
+            ]
+            # Earlier cells' attachments are already sent; don't invent a slot.
+            if updating and not matches:
+                return
+            previous_count = len(images)
+            notice = _collect_raster(
+                content.get("data", {}), output_type, images, raster_budget
+            )
+            if notice and notice not in image_notices:
+                image_notices.append(notice)
+            image = images[-1] if len(images) > previous_count else None
+            if updating:
+                for index in matches:
+                    visible_images[index] = (display_id, image)
+            elif image is not None or display_id is not None:
+                if len(visible_images) < _MAX_RASTER_IMAGES:
+                    visible_images.append((display_id, image))
+                else:
+                    notice = (
+                        "Kernel image count limit reached; additional images omitted."
+                    )
+                    if notice not in image_notices:
+                        image_notices.append(notice)
 
         self._bridge.cell_context = copy_context()
         msg_id = self._kc.execute(code, silent=False, store_history=True)
@@ -959,7 +1011,7 @@ class KernelBackend:
                 if content.get("wait", False):
                     clear_images_pending = True
                 else:
-                    visible_images_start = len(images)
+                    visible_images.clear()
                     clear_images_pending = False
                 continue
             if clear_images_pending and msg_type in (
@@ -968,7 +1020,7 @@ class KernelBackend:
                 "display_data",
                 "error",
             ):
-                visible_images_start = len(images)
+                visible_images.clear()
                 clear_images_pending = False
 
             if msg_type == "stream":
@@ -995,18 +1047,14 @@ class KernelBackend:
 
             elif msg_type == "execute_result":
                 data = content.get("data", {})
-                notice = _collect_raster(data, msg_type, images)
-                if notice and notice not in image_notices:
-                    image_notices.append(notice)
+                collect_output(content, msg_type)
                 text = data.get("text/plain")
                 result_text = _cap_kernel_text(text) if text is not None else None
 
-            elif msg_type == "display_data":
+            elif msg_type in ("display_data", "update_display_data"):
                 # explicit display() calls — collect as stdout so they aren't silently dropped
                 data = content.get("data", {})
-                notice = _collect_raster(data, msg_type, images)
-                if notice and notice not in image_notices:
-                    image_notices.append(notice)
+                collect_output(content, msg_type)
                 text = data.get("text/plain", "")
                 if text:
                     chunk_bytes = len(text.encode("utf-8", errors="replace"))
@@ -1080,7 +1128,7 @@ class KernelBackend:
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
             result_text=result_text,
             error=error,
-            images=images[visible_images_start:],
+            images=[image for _, image in visible_images if image is not None],
             image_notices=image_notices,
         )
 

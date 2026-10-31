@@ -308,3 +308,26 @@ def test_failed_cleanup_does_not_hide_cell_result(
     )
     assert not files and not descriptors
     assert "Could not retain" in notices[-1]
+
+
+@pytest.mark.parametrize("encoded", ["%%%invalid", "AAAAAAAA"])
+def test_invalid_payload_attempts_consume_count_budget(
+    monkeypatch: pytest.MonkeyPatch, encoded: str
+) -> None:
+    monkeypatch.setattr(kernel, "_MAX_RASTER_IMAGES", 2)
+    budget = kernel._RasterBudget()
+    images: list[kernel.KernelRaster] = []
+    assert kernel._collect_raster(
+        {"image/png": encoded}, "display_data", images, budget
+    )
+    assert kernel._collect_raster(
+        {"image/png": encoded}, "display_data", images, budget
+    )
+    notice = kernel._collect_raster(
+        {"image/png": base64.b64encode(raster()).decode()},
+        "display_data",
+        images,
+        budget,
+    )
+    assert notice is not None and "count limit" in notice
+    assert not images

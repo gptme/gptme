@@ -315,3 +315,95 @@ def test_kernel_message_helper_with_image_only_output(
         assert len(messages) == 1
         assert messages[0] is helper_message
         assert not messages[0].files
+
+
+@pytest.mark.parametrize("replacement", ["image", "text", "invalid"])
+def test_kernel_display_id_update(raster_kernel: LogManager, replacement: str) -> None:
+    first, second, independent = _png("red"), _png("blue"), _png("green")
+    code = _image_code(first) + "handle = display(image, display_id=True)\n"
+    code += _image_code(independent) + "display(image)\n"
+    if replacement == "image":
+        code += _image_code(second) + "handle.update(image)\n"
+    elif replacement == "text":
+        code += "handle.update('now text')\n"
+    else:
+        code += "handle.update({'image/png': '%%%invalid'}, raw=True)\n"
+    expected = [second, independent] if replacement == "image" else [independent]
+    messages = _execute(code)
+    assert _assert_rasters(messages, raster_kernel, len(expected)) == expected
+
+
+def test_kernel_invalid_rasters_exhaust_decode_budget(
+    raster_kernel: LogManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.tools import python_kernel as kernel
+
+    calls = 0
+    original = kernel.base64.b64decode
+
+    def counted_decode(*args: Any, **kwargs: Any) -> bytes:
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(kernel.base64, "b64decode", counted_decode)
+    monkeypatch.setattr(kernel, "_MAX_RASTER_TOTAL_BYTES", 12)
+    messages = _execute(
+        "from IPython.display import display\n"
+        "for _ in range(10):\n"
+        "    display({'image/png': 'AAAAAAAA'}, raw=True)\n"
+    )
+    assert calls == 2
+    assert not any(message.files for message in messages)
+    assert "image byte limit" in "\n".join(message.content for message in messages)
+
+
+@pytest.mark.parametrize("budget", ["count", "bytes"])
+def test_kernel_display_update_budget_omits_stale_image(
+    raster_kernel: LogManager, monkeypatch: pytest.MonkeyPatch, budget: str
+) -> None:
+    from gptme.tools import python_kernel as kernel
+
+    first, second = _png("red"), _png("blue")
+    if budget == "count":
+        monkeypatch.setattr(kernel, "_MAX_RASTER_IMAGES", 1)
+    else:
+        monkeypatch.setattr(kernel, "_MAX_RASTER_TOTAL_BYTES", len(first))
+    messages = _execute(
+        _image_code(first)
+        + "handle = display(image, display_id=True)\n"
+        + _image_code(second)
+        + "handle.update(image)\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 0) == []
+    limit = "count" if budget == "count" else "byte"
+    assert f"image {limit} limit" in "\n".join(message.content for message in messages)
+
+
+def test_kernel_display_updates_all_matching_visible_slots(
+    raster_kernel: LogManager,
+) -> None:
+    first, second = _png("red"), _png("blue")
+    messages = _execute(
+        _image_code(first)
+        + "display(image, display_id='shared')\n"
+        + "display(image, display_id='shared')\n"
+        + _image_code(second)
+        + "from IPython.display import update_display\n"
+        + "update_display(image, display_id='shared')\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 2) == [second, second]
+
+
+def test_kernel_display_update_does_not_revive_cleared_slot(
+    raster_kernel: LogManager,
+) -> None:
+    first, second = _png("red"), _png("blue")
+    messages = _execute(
+        _image_code(first)
+        + "handle = display(image, display_id=True)\n"
+        + "from IPython.display import clear_output\nclear_output(wait=False)\n"
+        + _image_code(second)
+        + "handle.update(image)\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 0) == []
