@@ -255,6 +255,27 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       }
     });
 
+    it.each([
+      '[link](https://example.com/`)',
+      '![image](https://example.com/`)',
+      '[link](https://example.com/path "title with `")',
+      '[link](<https://example.com/`>)',
+      '[label `literal <think>example</think>`](https://example.com/`)',
+    ])('does not open code spans in link metadata: %s', async (link) => {
+      const source = `${link} ${thinking} Here is \`code\`.`;
+      const result = await consume(consumer, source, options);
+      expect(result).toContain(link);
+      expect(result).toContain('Here is `code`.');
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+    });
+
+    it('still filters actual thinking in link labels', async () => {
+      const source = `[label ${thinking}](https://example.com/\`) Here is \`code\`.`;
+      const result = await consume(consumer, source, options);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      expect(result).toContain('](https://example.com/`) Here is `code`.');
+    });
+
     it.each(['#', '###', '   ##'])(
       'does not pair a backtick in an ATX heading (%s) with body text',
       async (heading) => {
@@ -339,6 +360,9 @@ describe('inline paragraph boundary search work', () => {
   it.each([
     '> Use `literal <think>example</think>`\n>\n',
     '> # Heading `literal <think>example</think>`\n',
+    '> Use `literal`\n> # Heading\n',
+    '> Use `literal`\n> ===\n',
+    '> Use `literal`\n> - item\n',
   ])('bounds quote unwrapping for repeated blocks: %s', (block) => {
     const content = block.repeat(400);
     const originalIndexOf = String.prototype.indexOf;

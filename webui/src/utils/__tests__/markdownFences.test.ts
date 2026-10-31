@@ -26,6 +26,32 @@ describe('shared transcript fence boundaries', () => {
     }
   );
 
+  it.each(['```', '````'])(
+    'records a longer nested closer and the matching %s outer closer',
+    (outerMarker) => {
+      const content = [
+        `${outerMarker}save test.md`,
+        '````python',
+        'x',
+        '`````',
+        'tail',
+        outerMarker,
+        'Public answer.',
+      ].join('\n');
+      const blocks = scanMarkdownFences(content);
+      expect(
+        blocks.map(({ depth, closerLine, closerWidth }) => ({ depth, closerLine, closerWidth }))
+      ).toEqual([
+        { depth: 0, closerLine: 5, closerWidth: outerMarker.length },
+        { depth: 1, closerLine: 3, closerWidth: 5 },
+      ]);
+      expect(content.slice(blocks[0].end)).toBe('Public answer.');
+      expect(processNestedCodeBlocks(content).processedContent).toBe(
+        '``````save test.md\n````python\nx\n`````\ntail\n``````\nPublic answer.'
+      );
+    }
+  );
+
   it('retains the deepest descendant across shallower sibling blocks', () => {
     const blocks = scanMarkdownFences('```a\n```b\n```c\n```\n```\n```d\n```\n```');
     expect(blocks[0].maxDescendantDepth).toBe(2);

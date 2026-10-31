@@ -69,8 +69,19 @@ function isToolBlockTag(tag: string): boolean {
   return TOOL_BLOCK_TYPES.has(tag) || MCP_BLOCK_TYPE_RE.test(tag);
 }
 
+interface QuoteView {
+  text: string;
+  offsets: { logical: number; source: number }[];
+  line: number;
+}
+
 /** Bound inline parsing by Markdown blocks, not just the next closing backtick. */
-function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number): number {
+function inlineParagraphEnd(
+  tokenizer: Tokenizer,
+  content: string,
+  start: number,
+  quoteViews = new Map<string, QuoteView>()
+): number {
   // ATX headings end at their own newline even when the first backtick is
   // mid-heading. Starting paragraph grammar at that tick loses the prefix.
   const lineStart = content.lastIndexOf('\n', start - 1) + 1;
@@ -85,31 +96,46 @@ function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number
     // Strip only the enclosing depth; a deeper quote still interrupts the
     // paragraph. Map the logical boundary back to the untouched source bytes.
     const depth = quotePrefix.split('>').length - 1;
-    const prefixes = new RegExp(`^(?: {0,3}>[ \\t]?){1,${depth}}`);
-    const offsets: { logical: number; source: number }[] = [];
-    const lines: string[] = [];
-    let logical = 0;
-    let source = lineStart;
-    while (source < content.length) {
-      const next = content.indexOf('\n', source);
-      const end = next === -1 ? content.length : next + 1;
-      const line = content.slice(source, end);
-      const prefix = line.match(prefixes)?.[0] ?? '';
-      // Missing quote markers can be lazy continuation of the same paragraph.
-      const text = line.slice(prefix.length);
-      if (source > lineStart && /^[ \t]*\r?\n$/.test(text)) break;
-      offsets.push({ logical, source: source + prefix.length });
-      lines.push(text);
-      logical += text.length;
-      source = end;
+    const key = `${depth}:${lineStart}`;
+    let view = quoteViews.get(key);
+    if (!view) {
+      const prefixes = new RegExp(`^(?: {0,3}>[ \\t]?){1,${depth}}`);
+      const offsets: QuoteView['offsets'] = [];
+      const sourceLines: number[] = [];
+      const lines: string[] = [];
+      let logical = 0;
+      let source = lineStart;
+      while (source < content.length) {
+        const next = content.indexOf('\n', source);
+        const end = next === -1 ? content.length : next + 1;
+        const line = content.slice(source, end);
+        const prefix = line.match(prefixes)?.[0] ?? '';
+        // Missing quote markers can be lazy continuation of the same paragraph.
+        const text = line.slice(prefix.length);
+        if (source > lineStart && /^[ \t]*\r?\n$/.test(text)) break;
+        sourceLines.push(source);
+        offsets.push({ logical, source: source + prefix.length });
+        lines.push(text);
+        logical += text.length;
+        source = end;
+      }
+      const text = lines.join('');
+      // Reuse this logical view across all blocks at the same quote depth.
+      // Headings/lists end paragraphs, but must not cause suffix unwrapping
+      // and allocation again for every following paragraph in the quote.
+      sourceLines.forEach((sourceLine, line) => {
+        quoteViews.set(`${depth}:${sourceLine}`, { text, offsets, line });
+      });
+      view = quoteViews.get(key)!;
     }
+    let offset = view.offsets[view.line];
     const boundary = inlineParagraphEnd(
       tokenizer,
-      lines.join(''),
-      start - lineStart - quotePrefix.length
+      view.text,
+      offset.logical + start - offset.source
     );
-    let offset = offsets[0];
-    for (const entry of offsets) {
+    for (let line = view.line + 1; line < view.offsets.length; line++) {
+      const entry = view.offsets[line];
       if (entry.logical > boundary) break;
       offset = entry;
     }
@@ -186,6 +212,7 @@ function filterAssistantContent(
   const out: string[] = [];
   let i = 0;
   let paragraphEnd = 0;
+  const quoteViews = new Map<string, QuoteView>();
   while (i < content.length) {
     // Discover fences only after skipping opaque thinking/native payloads: a
     // fence inside retained JSON/reasoning must not capture later answer text.
@@ -204,10 +231,29 @@ function filterAssistantContent(
       i += 2;
       continue;
     }
+    // Link destinations/titles are metadata, not inline-code source. Parse
+    // the visible label independently so its actual thinking is still filtered
+    // while literal code inside that label remains opaque.
+    if (content[i] === '[' || (content[i] === '!' && content[i + 1] === '[')) {
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
+      const source = content.slice(i, paragraphEnd);
+      const link = tokenizer.link(source);
+      if (link) {
+        const label = tokenizer.rules.inline.link.exec(source)![1];
+        const prefix = content[i] === '!' ? '![' : '[';
+        out.push(
+          prefix,
+          filterAssistantContent(label, includeThinking, includeTools),
+          link.raw.slice(prefix.length + label.length)
+        );
+        i += link.raw.length;
+        continue;
+      }
+    }
     if (content[i] === '`') {
       // Reuse the boundary for all spans in this paragraph rather than
       // searching the remaining message again for every short inline span.
-      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i);
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
       const code = tokenizer.codespan(content.slice(i, paragraphEnd));
       if (code) {
         out.push(code.raw);

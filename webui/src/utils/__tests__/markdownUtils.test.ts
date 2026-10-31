@@ -191,6 +191,30 @@ describe('parseMarkdownContent', () => {
     expect(result).toContain('print(&#x27;hello&#x27;)');
   });
 
+  it.each(['```', '````'])(
+    'keeps a longer nested closer inside the %s outer block',
+    (outerMarker) => {
+      const input = [
+        `${outerMarker}save test.md`,
+        '````python',
+        'x',
+        '`````',
+        'tail',
+        outerMarker,
+        'Public answer.',
+      ].join('\n');
+      const container = document.createElement('div');
+      container.innerHTML = parseMarkdownContent(input);
+
+      expect(container.querySelectorAll('details')).toHaveLength(1);
+      expect(container.querySelector('details code')?.textContent).toBe(
+        '````python\nx\n`````\ntail\n'
+      );
+      expect(container.querySelector('details')?.textContent).not.toContain('Public answer.');
+      expect(container.querySelector('p')?.textContent).toBe('Public answer.');
+    }
+  );
+
   it('handles complex message with multiple content types', () => {
     const input = `The gptme web UI offers several advantages over the CLI interface:
 

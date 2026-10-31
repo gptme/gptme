@@ -60,15 +60,19 @@ export function processNestedCodeBlocks(content: string) {
   const blocks = scanMarkdownFences(content);
   const langtags = blocks.map((block) => block.tag);
 
-  // Work from descendants outward so even longer tagged inner fences fit
-  // beneath a strictly wider outer fence in both Markdown rendering paths.
+  // Work from descendants outward so even longer inner openers and bare closers
+  // fit beneath a strictly wider outer fence in both Markdown rendering paths.
   const adjustments = new Map<number, number>();
   const childWidths: number[] = [];
   for (const block of [...blocks].reverse()) {
     if (block.marker[0] !== '`') continue;
     const needed = Math.max(block.marker.length, (childWidths[block.depth + 1] ?? 0) + 1);
     childWidths[block.depth + 1] = 0;
-    childWidths[block.depth] = Math.max(childWidths[block.depth] ?? 0, needed);
+    childWidths[block.depth] = Math.max(
+      childWidths[block.depth] ?? 0,
+      needed,
+      block.closerWidth ?? 0
+    );
     if (needed > block.marker.length && block.closerLine !== null) {
       adjustments.set(block.openerLine, needed);
       adjustments.set(block.closerLine, needed);

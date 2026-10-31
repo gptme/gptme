@@ -1,6 +1,7 @@
 export interface MarkdownFence {
   openerLine: number;
   closerLine: number | null;
+  closerWidth: number | null;
   start: number;
   end: number;
   tag: string;
@@ -41,6 +42,7 @@ export function scanMarkdownFences(
       const sameMarker = parent && marker[0] === parent.marker[0];
       if (parent && sameMarker && !tag && marker.length >= parent.marker.length) {
         parent.closerLine = lineNumber;
+        parent.closerWidth = marker.length;
         parent.end = nextOffset;
         stack.pop();
         if (firstOnly && stack.length === 0) break;
@@ -55,6 +57,7 @@ export function scanMarkdownFences(
         const block: MarkdownFence = {
           openerLine: lineNumber,
           closerLine: null,
+          closerWidth: null,
           start: offset,
           end: content.length,
           tag,
