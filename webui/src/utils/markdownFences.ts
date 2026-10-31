@@ -17,21 +17,35 @@ export interface MarkdownFence {
  * rules. Open fences extend to EOF. Nothing here rewrites the source bytes.
  * firstOnly requires a fence at startOffset and stops at its outer closer;
  * offsets are absolute, while line numbers are relative to startOffset.
+ * quoteDepth strips that many enclosing quote markers for matching only;
+ * a missing marker ends an interrupted fence before the outside line.
  */
 export function scanMarkdownFences(
   content: string,
   firstOnly = false,
-  startOffset = 0
+  startOffset = 0,
+  quoteDepth = 0
 ): MarkdownFence[] {
   const blocks: MarkdownFence[] = [];
   const stack: MarkdownFence[] = [];
   let offset = startOffset;
   let lineNumber = 0;
+  const quotePrefix = new RegExp(`^(?: {0,3}>[ \\t]?){${quoteDepth}}`);
   while (offset < content.length) {
     const newline = content.indexOf('\n', offset);
     const lineEnd = newline === -1 ? content.length : newline;
     const nextOffset = newline === -1 ? content.length : newline + 1;
-    const line = content.slice(offset, lineEnd);
+    let line = content.slice(offset, lineEnd);
+    if (quoteDepth) {
+      const prefix = line.match(quotePrefix)?.[0];
+      // Fenced blocks cannot lazily continue outside their enclosing quote.
+      // Preserve absolute source ranges, including the original quote markers.
+      if (!prefix) {
+        for (const frame of stack) frame.end = offset;
+        break;
+      }
+      line = line.slice(prefix.length);
+    }
     const match = line.match(/^[ \t]*(`{3,}|~{3,})([^\r\n]*)\r?$/);
     // Backtick info strings cannot contain backticks. In particular, a
     // line-start ```inline span``` must reach inline parsing, not hide EOF.

@@ -174,6 +174,27 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
         label: 'tilde example fence',
         literal: '~~~text\n<think>literal reasoning</think>\n@shell: {"command":"literal"}\n~~~',
       },
+      {
+        label: 'quoted XML fence',
+        literal: '> ```xml\n> <think>literal reasoning</think>\n> ```',
+      },
+      {
+        label: 'nested quoted CRLF fence with quoted blank line',
+        literal:
+          '> > ````xml\r\n> >\r\n> > <think>literal reasoning</think>\r\n> > ```\r\n> > ````',
+      },
+      {
+        label: 'quoted tool-tag example',
+        literal: '> ```shell\n> <think>literal reasoning</think>\n> ```',
+      },
+      {
+        label: 'quoted tilde example',
+        literal: '> ~~~xml\n> <think>literal reasoning</think>\n> ~~~~',
+      },
+      {
+        label: 'quoted fence interrupted by the end of its quote',
+        literal: '> ```xml\n> <think>literal reasoning</think>',
+      },
     ])('keeps real $label opaque but filters after its closer', async ({ literal }) => {
       const source = withFollowingPayloads(literal, '\n', true, true);
       const expected = withFollowingPayloads(

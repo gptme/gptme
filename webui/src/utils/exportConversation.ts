@@ -227,11 +227,15 @@ function filterAssistantContent(
     }
     // Discover fences only after skipping opaque thinking/native payloads: a
     // fence inside retained JSON/reasoning must not capture later answer text.
-    if ((i === 0 || content[i - 1] === '\n') && /^[ \t]*(`{3,}|~{3,})/.test(content.slice(i))) {
-      const fence = scanMarkdownFences(content, true, i)[0];
+    if (i === 0 || content[i - 1] === '\n') {
+      const opener = content.slice(i).match(/^((?: {0,3}>[ \t]?)*)([ \t]*)(`{3,}|~{3,})/);
+      const quoteDepth = opener ? opener[1].split('>').length - 1 : 0;
+      const fence = opener && scanMarkdownFences(content, true, i, quoteDepth)[0];
       if (fence) {
         const tag = fence.tag.split(/\s+/)[0].toLowerCase();
-        if (includeTools || !isToolBlockTag(tag)) out.push(content.slice(i, fence.end));
+        // Only top-level tool-tag fences are invocations; quoted fences are examples.
+        if (quoteDepth || includeTools || !isToolBlockTag(tag))
+          out.push(content.slice(i, fence.end));
         i = fence.end;
         continue;
       }

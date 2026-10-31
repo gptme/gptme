@@ -117,6 +117,34 @@ describe('shared transcript fence boundaries', () => {
     expect(scanMarkdownFences('```literal```\n```shell\ncommand\n```', true)).toEqual([]);
   });
 
+  it('maps a nested quoted CRLF fence to original offsets including quote-only blank lines', () => {
+    const prefix = 'Before\r\n';
+    const literal = '> > ```xml\r\n> >\r\n> > <think>literal</think>\r\n> > ```\r\n';
+    const content = prefix + literal + '<think>private</think>';
+    const [block] = scanMarkdownFences(content, true, prefix.length, 2);
+    expect(block.start).toBe(prefix.length);
+    expect(block.closerLine).toBe(3);
+    expect(content.slice(block.start, block.end)).toBe(literal);
+    expect(content.slice(block.end)).toBe('<think>private</think>');
+  });
+
+  it.each(['<think>private</think>', '> <think>private</think>'])(
+    'ends an interrupted nested quote before its depth decreases: %s',
+    (suffix) => {
+      const literal = '> > ```xml\n> > <think>literal</think>\n';
+      const [block] = scanMarkdownFences(literal + suffix, true, 0, 2);
+      expect(block.closerLine).toBeNull();
+      expect(block.end).toBe(literal.length);
+    }
+  );
+
+  it('keeps an interrupted quoted fence through EOF', () => {
+    const content = '> ~~~xml\n> <think>literal</think>';
+    const [block] = scanMarkdownFences(content, true, 0, 1);
+    expect(block.closerLine).toBeNull();
+    expect(block.end).toBe(content.length);
+  });
+
   it('can stop after the first outer block without classifying later content', () => {
     const content = '```text\nliteral\n```\n```shell\ncommand\n```';
     expect(scanMarkdownFences(content, true)).toHaveLength(1);
