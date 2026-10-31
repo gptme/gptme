@@ -503,6 +503,24 @@ class TestRunPrecommitChecks:
         )
 
     @patch("subprocess.run")
+    def test_does_not_select_outer_repository_config(
+        self,
+        mock_run: MagicMock,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An outer config must not be passed explicitly into a nested repo."""
+        (tmp_path.parent / ".pre-commit-config.yaml").write_text("repos: []")
+        nested = tmp_path / "service"
+        nested.mkdir()
+        monkeypatch.chdir(nested)
+        mock_run.return_value = _mock_subprocess_run()
+        with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
+            run_precommit_checks()
+        assert "--config" not in mock_run.call_args.args[0]
+        assert mock_run.call_args.kwargs["cwd"] == tmp_path
+
+    @patch("subprocess.run")
     def test_runner_timeout(
         self, mock_run: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

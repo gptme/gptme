@@ -216,6 +216,17 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         else:
             logger.debug("No modified files found, falling back to --all-files")
             cmd = [runner, "run", "--all-files"]
+    if root is not None:
+        # Keep the caller's nearest config when execution moves to the Git root.
+        # Do not import configuration from outside this repository.
+        for parent in (Path.cwd(), *Path.cwd().parents):
+            config = parent / ".pre-commit-config.yaml"
+            if config.is_file():
+                if parent != root:
+                    cmd[2:2] = ["--config", str(config)]
+                break
+            if parent == root:
+                break
     start_time = time.monotonic()
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:

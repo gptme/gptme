@@ -295,6 +295,67 @@ def test_nested_cwd_includes_changes_outside_subtree(
     )
 
 
+@pytest.mark.parametrize("all_files", [False, True])
+@pytest.mark.parametrize("root_config", [False, True])
+@pytest.mark.parametrize("deeper_cwd", [False, True])
+def test_nested_config_reaches_real_hook(
+    hook_repo: HookRepo,
+    runner: str,
+    monkeypatch: pytest.MonkeyPatch,
+    all_files: bool,
+    root_config: bool,
+    deeper_cwd: bool,
+) -> None:
+    config = hook_repo.root / ".pre-commit-config.yaml"
+    nested = hook_repo.root / "service with spaces"
+    nested.mkdir()
+    config.rename(nested / config.name)
+    if root_config:
+        # The nested config must win over a root config that checks nothing.
+        hook_repo.write(config.name, "repos: []\n")
+    hook_repo.write("service with spaces/changed.txt", "baseline\n")
+    hook_repo.write("outside.txt", "baseline\n")
+    hook_repo.checkpoint()
+    hook_repo.write("service with spaces/changed.txt", "REJECT\n")
+    hook_repo.write("outside.txt", "REJECT\n")
+    cwd = nested / "deeper" if deeper_cwd else nested
+    cwd.mkdir(exist_ok=True)
+    monkeypatch.chdir(cwd)
+    success, output = precommit.run_precommit_checks(all_files=all_files)
+    assert success is False
+    assert output is not None and "REJECTED TARGET" in output, output
+    expected = ["outside.txt", "service with spaces/changed.txt"]
+    if all_files:
+        expected.append("clean-sentinel.txt")
+    assert sorted(hook_repo.recorded_files()) == sorted(expected)
+
+
+@pytest.mark.parametrize("runner_name", ["pre-commit", "prek"])
+def test_nested_config_turn_post_blocks_autocommit(
+    hook_repo: HookRepo, runner_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = runner_executable(runner_name)
+    monkeypatch.setattr(precommit, "get_precommit_runner", lambda: executable)
+    monkeypatch.setenv("GPTME_CHECK", "true")
+    nested = hook_repo.root / "service"
+    nested.mkdir()
+    (hook_repo.root / ".pre-commit-config.yaml").rename(
+        nested / ".pre-commit-config.yaml"
+    )
+    hook_repo.checkpoint()
+    hook_repo.write("service/changed.txt", "REJECT\n")
+    monkeypatch.chdir(nested)
+    assert precommit.use_checks() is True
+    manager = LogManager(logdir=hook_repo.root.parent / "conversation", lock=False)
+    monkeypatch.setattr(precommit, "check_for_modifications", lambda log: True)
+    results = list(precommit.run_full_precommit_checks(manager))
+    assert len(results) == 2
+    assert isinstance(results[0], Message)
+    assert "REJECTED TARGET" in results[0].content
+    assert isinstance(results[1], StopPropagation)
+    assert hook_repo.recorded_files() == ["service/changed.txt"]
+
+
 @pytest.mark.parametrize("staged_deletion", [False, True])
 def test_deletion_does_not_hide_surviving_changes(
     hook_repo: HookRepo, runner: str, staged_deletion: bool
