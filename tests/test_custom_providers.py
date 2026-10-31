@@ -403,6 +403,51 @@ def test_custom_provider_supports_tools_api():
     assert "parameters" in result["function"]
 
 
+_PROVIDERS_CUSTOM_RST = (
+    Path(__file__).resolve().parents[1] / "docs" / "providers-custom.rst"
+)
+
+
+def _jzstoken_toml_from_docs() -> str:
+    """Return the JZSTOKEN ``[[providers]]`` example published in the docs."""
+    text = _PROVIDERS_CUSTOM_RST.read_text(encoding="utf-8")
+    marker = "**Example — JZSTOKEN**"
+    marker_at = text.find(marker)
+    assert marker_at != -1, f"{marker} missing from {_PROVIDERS_CUSTOM_RST}"
+    header = ".. code-block:: toml"
+    header_at = text.find(header, marker_at)
+    assert header_at != -1, "JZSTOKEN TOML code-block missing from providers-custom.rst"
+    body_lines: list[str] = []
+    for line in text[header_at:].splitlines()[1:]:
+        if not body_lines and not line.strip():
+            continue
+        if line.startswith("    "):
+            body_lines.append(line[4:])
+            continue
+        break
+    assert body_lines, "JZSTOKEN TOML code-block was empty"
+    return "\n".join(body_lines) + "\n"
+
+
+def test_jzstoken_docs_config_snippet_loads(tmp_path: Path):
+    """The published JZSTOKEN [[providers]] example must parse.
+
+    Issue gptme/gptme#4697: a shareable OpenAI-compatible gateway with ordinary
+    API-key auth uses a named custom provider, not a built-in entry. Load the
+    TOML from docs/providers-custom.rst so a docs-only typo fails this test.
+    """
+    config_toml = _jzstoken_toml_from_docs()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(config_toml, encoding="utf-8")
+    config = load_user_config(str(config_path))
+    assert len(config.providers) == 1
+    provider = config.providers[0]
+    assert provider.name == "jzstoken"
+    assert provider.base_url == "https://jzstoken.com/api/v1"
+    assert provider.api_key_env == "JZSTOKEN_API_KEY"
+    assert provider.default_model == "gpt-5.6-terra"
+
+
 # Example configuration that would be in gptme.toml:
 EXAMPLE_CONFIG = """
 [prompt]

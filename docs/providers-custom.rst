@@ -187,6 +187,36 @@ A community plugin ``gptme-provider-demonroute`` (with per-model ``ModelMeta``
 including accurate context and pricing) can be installed once published — see
 :doc:`providers-integration` for the plugin path.
 
+**Example — JZSTOKEN** (pay-per-token gateway, one standard key for many text
+models):
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "jzstoken"
+    base_url = "https://jzstoken.com/api/v1"
+    api_key_env = "JZSTOKEN_API_KEY"
+    default_model = "gpt-5.6-terra"
+
+.. code-block:: sh
+
+    JZSTOKEN_API_KEY="your-key" gptme "hello" -m jzstoken/gpt-5.6-terra
+
+JZSTOKEN is an OpenAI-compatible Chat Completions gateway. Use the exact
+upstream model ID from the `live catalog <https://jzstoken.com/model-pricing>`_
+(for example ``gpt-5.6-terra``, ``claude-sonnet-5``, ``deepseek-v4-pro``). A
+standard ``sk-...`` key covers every model except ``jzs-max-3.0``, which needs
+its own dedicated key. Streaming, tools, structured output, and vision are
+model-dependent — confirm a tool-result round trip before relying on agent
+workflows. See `jzstoken.com <https://jzstoken.com>`_ and the `integration
+guides <https://github.com/Jzstoken-bit/jzstoken-integrations>`_.
+
+This path does not add JZSTOKEN as a built-in provider. A distributable
+``gptme-provider-jzstoken`` plugin (with verified per-model ``ModelMeta``) can
+be published from the `provider template
+<https://github.com/gptme/gptme-provider-template>`_ — see
+:doc:`providers-integration`.
+
 vLLM and OpenAI-compatible servers
 -----------------------------------
 
@@ -322,3 +352,4 @@ Community threads and issues that motivated this page:
 - `AI/ML provider support <https://github.com/gptme/gptme/issues/548>`_
 - `Chutes provider support <https://github.com/gptme/gptme/issues/555>`_
 - `DemonRoute provider support <https://github.com/gptme/gptme/issues/4260>`_
+- `JZSTOKEN provider support <https://github.com/gptme/gptme/issues/4697>`_

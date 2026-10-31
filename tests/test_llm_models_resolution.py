@@ -533,6 +533,32 @@ class TestCustomProviderResolution:
         with pytest.raises(ValueError, match="no default_model"):
             get_model("my-custom")
 
+    @patch("gptme.llm.models.resolution._get_custom_provider_config")
+    def test_jzstoken_gateway_docs_ids_resolve(self, mock_config):
+        """Documented JZSTOKEN custom-provider IDs resolve without a built-in entry.
+
+        gptme/gptme#4697: ``-m jzstoken/gpt-5.6-terra`` and the bare ``-m jzstoken``
+        default must work from a ``[[providers]]`` block.
+        """
+        from gptme.config.models import ProviderConfig
+
+        provider = ProviderConfig(
+            name="jzstoken",
+            base_url="https://jzstoken.com/api/v1",
+            api_key_env="JZSTOKEN_API_KEY",
+            default_model="gpt-5.6-terra",
+        )
+        mock_config.side_effect = lambda name: provider if name == "jzstoken" else None
+
+        qualified = get_model("jzstoken/gpt-5.6-terra")
+        assert qualified.provider == "unknown"
+        assert qualified.model == "jzstoken/gpt-5.6-terra"
+        assert qualified.context == 128_000
+
+        defaulted = get_model("jzstoken")
+        assert defaulted.provider == "unknown"
+        assert defaulted.model == "jzstoken/gpt-5.6-terra"
+
 
 # ── Plugin provider resolution ───────────────────────────────────────────
 
