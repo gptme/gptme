@@ -228,12 +228,20 @@ def test_corrupt_png_not_forwarded(corruption: str) -> None:
     assert notice
 
 
-def test_raster_survives_log_snapshot_and_has_one_artifact(tmp_path: Path) -> None:
+@pytest.mark.parametrize("check_registry", [False, True], ids=["snapshot", "registry"])
+def test_raster_survives_log_snapshot_and_has_one_artifact(
+    tmp_path: Path, check_registry: bool
+) -> None:
     from gptme.logmanager import LogManager
     from gptme.message import Message
-    from gptme.server.artifacts_api import derive_artifacts
     from gptme.tools import python as py
     from gptme.util.file_storage import get_stored_path
+
+    # Keep snapshot coverage in minimal installs; only registry derivation needs
+    # the optional server dependency (matching test_server_artifacts.py).
+    if check_registry:
+        pytest.importorskip("flask", reason="artifact registry needs server extras")
+        from gptme.server.artifacts_api import derive_artifacts
 
     with (
         LogManager.preserve_current(),
@@ -254,10 +262,11 @@ def test_raster_survives_log_snapshot_and_has_one_artifact(tmp_path: Path) -> No
             )
         )
         manager.write()
-        artifacts = derive_artifacts(manager)
-        assert len(artifacts) == 1
-        assert artifacts[0].provenance.tool == "python"
-        assert artifacts[0].source.path == descriptors[0]["path"]
+        if check_registry:
+            artifacts = derive_artifacts(manager)
+            assert len(artifacts) == 1
+            assert artifacts[0].provenance.tool == "python"
+            assert artifacts[0].source.path == descriptors[0]["path"]
         saved = manager.log.messages[-1]
         stored = get_stored_path(
             manager.logdir, saved.file_hashes[str(files[0])], ".png"
