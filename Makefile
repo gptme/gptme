@@ -51,7 +51,7 @@ bundle-webui: ## Bundle the modern webui dist into the package (run after `cd we
 	rsync -a --delete webui/dist/ gptme/server/webui-dist/
 	@echo "Bundled webui/dist → gptme/server/webui-dist/ ($(ls gptme/server/webui-dist | wc -l) files at top level)"
 
-validate-release-package: ## Verify built packages contain the modern webui
+validate-release-package: ## Verify built packages contain required runtime assets
 	python3 scripts/validate_release_package.py dist/*.whl dist/*.tar.gz
 
 # pytest-xdist workers. Every worker re-collects the whole suite (~90s of CPU on

@@ -3,15 +3,28 @@ import io
 import tarfile
 import zipfile
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
+
+
+class _ReleaseValidator(Protocol):
+    _RUNTIME_ASSETS: tuple[str, ...]
+
+    def main(self) -> int: ...
+
+    def validate_package(self, path: Path) -> None: ...
+
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts/validate_release_package.py"
 _SPEC = importlib.util.spec_from_file_location("validate_release_package", _SCRIPT)
 assert _SPEC and _SPEC.loader
 validate_release_package = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(validate_release_package)
-validate_package = validate_release_package.validate_package
+_validator = cast(_ReleaseValidator, validate_release_package)
+main = _validator.main
+validate_package = _validator.validate_package
+_RUNTIME_ASSETS = _validator._RUNTIME_ASSETS
 
 
 @pytest.mark.parametrize("archive_type", ["wheel", "sdist"])
@@ -22,12 +35,33 @@ def test_validate_package_accepts_bundled_webui(
         tmp_path,
         archive_type,
         {
+            **dict.fromkeys(_RUNTIME_ASSETS, b"asset"),
             "gptme/server/webui-dist/index.html": b"<html>modern</html>",
             "gptme/server/webui-dist/assets/index-abc.js": b"console.log('ok')",
         },
     )
 
     validate_package(archive)
+
+
+@pytest.mark.parametrize("archive_type", ["wheel", "sdist"])
+@pytest.mark.parametrize(
+    "missing", ["media/bell.wav", "media/icon.svg", "gptme/data/faq.yaml"]
+)
+def test_validate_package_rejects_missing_runtime_asset(
+    tmp_path: Path, archive_type: str, missing: str
+) -> None:
+    """A complete web UI must not hide missing sounds, images or package data."""
+    members = {
+        **dict.fromkeys(_RUNTIME_ASSETS, b"asset"),
+        "gptme/server/webui-dist/index.html": b"html",
+        "gptme/server/webui-dist/assets/index-abc.js": b"js",
+    }
+    del members[missing]
+    archive = _write_archive(tmp_path, archive_type, members)
+
+    with pytest.raises(ValueError, match=missing):
+        validate_package(archive)
 
 
 @pytest.mark.parametrize(
@@ -52,6 +86,38 @@ def test_validate_package_rejects_unsupported_archive(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsupported package archive"):
         validate_package(archive)
+
+
+def test_main_validates_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    archive = _write_archive(
+        tmp_path,
+        "wheel",
+        {
+            **dict.fromkeys(_RUNTIME_ASSETS, b"asset"),
+            "gptme/server/webui-dist/index.html": b"html",
+            "gptme/server/webui-dist/assets/index-abc.js": b"js",
+        },
+    )
+    monkeypatch.setattr("sys.argv", ["validate-release-package", str(archive)])
+
+    assert main() == 0
+    assert capsys.readouterr().out == f"Validated runtime assets in {archive}\n"
+
+
+def test_main_reports_invalid_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    archive = tmp_path / "gptme.zip"
+    archive.write_bytes(b"")
+    monkeypatch.setattr("sys.argv", ["validate-release-package", str(archive)])
+
+    with pytest.raises(SystemExit) as error:
+        main()
+
+    assert error.value.code == 1
+    assert capsys.readouterr().err == f"error: unsupported package archive: {archive}\n"
 
 
 def _write_archive(

@@ -12,12 +12,13 @@ import pytest
 import tomlkit
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
+from tomlkit.items import Table
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_dependency_manifest_is_unambiguous() -> None:
-    manifest = tomlkit.parse((ROOT / "pyproject.toml").read_text())
+    manifest = tomlkit.parse((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     # Dependabot's uv parser routes any tool.poetry table to Poetry dependencies,
     # even when it contains only build configuration and dependencies are PEP 621.
     assert "poetry" not in manifest.get("tool", {})
@@ -89,7 +90,11 @@ def test_build_distribution_roundtrip(tmp_path: Path) -> None:
     for name, data in expected.items():
         assert wheel.get(name) == data, name
     assert "media/not-a-release.txt" not in wheel
-    manifest = tomlkit.parse((source / "pyproject.toml").read_text())["project"]
+    manifest_document = tomlkit.parse(
+        (source / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    manifest = manifest_document.item("project")
+    assert isinstance(manifest, Table)
     metadata_name = next(name for name in wheel if name.endswith(".dist-info/METADATA"))
     metadata = email.parser.BytesParser().parsebytes(wheel[metadata_name])
     assert metadata["Name"] == manifest["name"]
