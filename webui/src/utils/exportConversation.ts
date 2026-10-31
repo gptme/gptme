@@ -69,11 +69,17 @@ function isToolBlockTag(tag: string): boolean {
   return TOOL_BLOCK_TYPES.has(tag) || MCP_BLOCK_TYPE_RE.test(tag);
 }
 
-/** CommonMark code spans cannot contain a blank line. marked's matcher can. */
-function paragraphWindow(content: string, start: number): string {
+/** Bound inline parsing by Markdown blocks, not just the next closing backtick. */
+function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number): number {
   const remaining = content.slice(start);
-  const blank = remaining.search(/\r?\n[ \t]*\r?\n/);
-  return blank === -1 ? remaining : remaining.slice(0, blank);
+  // Use marked's paragraph grammar without tokenizing/rendering its contents.
+  const paragraph = tokenizer.rules.block.paragraph.exec(remaining)?.[0] ?? remaining;
+  // marked expects normalized LF input; exports preserve CRLF. Transcript
+  // fences also accept tabs/arbitrary indentation, unlike CommonMark fences.
+  const boundary = paragraph.search(
+    /\r?\n(?:[ \t]*\r?\n|[ \t]*(?:`{3,}[^`\r\n]*|~{3,}[^\r\n]*)(?:\r?\n|$))/
+  );
+  return start + (boundary === -1 ? paragraph.length : boundary);
 }
 
 /** End of a native JSON-object invocation, including interrupted arguments. */
@@ -117,6 +123,7 @@ function filterAssistantContent(
   new Lexer({ tokenizer });
   const out: string[] = [];
   let i = 0;
+  let paragraphEnd = 0;
   while (i < content.length) {
     // Discover fences only after skipping opaque thinking/native payloads: a
     // fence inside retained JSON/reasoning must not capture later answer text.
@@ -136,7 +143,10 @@ function filterAssistantContent(
       continue;
     }
     if (content[i] === '`') {
-      const code = tokenizer.codespan(paragraphWindow(content, i));
+      // Reuse the boundary for all spans in this paragraph rather than
+      // searching the remaining message again for every short inline span.
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i);
+      const code = tokenizer.codespan(content.slice(i, paragraphEnd));
       if (code) {
         out.push(code.raw);
         i += code.raw.length;

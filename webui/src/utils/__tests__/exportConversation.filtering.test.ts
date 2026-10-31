@@ -341,11 +341,13 @@ describe.each(consumers)('%s filtered conversation consumer', (consumer) => {
       expect(result.includes('echo private')).toBe(includeTools);
     });
 
-    it('preserves multiline inline-code bytes including apparent fence lines', async () => {
+    it('preserves multiline inline-code bytes including invalid fence openers', async () => {
+      // Backticks in the info string make this an inline literal, not a
+      // real fence interrupting the paragraph before the two-backtick closer.
       const content =
-        'Use ``literal\n```text\n<think>example</think>\n`` then <think>private reasoning</think>Public answer.';
+        'Use ``literal\n```text```\n<think>example</think>\n`` then <think>private reasoning</think>Public answer.';
       const result = await consume(consumer, [{ role: 'assistant', content }], options);
-      expect(result).toContain('``literal\n```text\n<think>example</think>\n``');
+      expect(result).toContain('``literal\n```text```\n<think>example</think>\n``');
       expect(result).toContain('Public answer.');
       expect(result.includes('private reasoning')).toBe(includeThinking);
     });

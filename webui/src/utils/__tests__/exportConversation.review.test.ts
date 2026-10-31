@@ -229,6 +229,41 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       }
     );
 
+    it.each([
+      { label: 'backtick fence', block: '```shell\necho private fenced payload\n```' },
+      { label: 'tilde fence', block: '~~~shell\necho private fenced payload\n~~~' },
+      {
+        label: 'indented transcript fence',
+        block: '\t```shell\necho private fenced payload\n\t```',
+      },
+      { label: 'heading', block: '# Public heading\n<think>private reasoning</think>' },
+      { label: 'blockquote', block: '> Public quote\n<think>private reasoning</think>' },
+      { label: 'list', block: '- Public list\n<think>private reasoning</think>' },
+    ])('does not pair backticks across an interrupting $label', async ({ block }) => {
+      for (const newline of ['\n', '\r\n']) {
+        const source = ['An unmatched ` tick.', block, 'Here is `code`.'].join('\n');
+        const result = await consume(consumer, source.replace(/\n/g, newline), options);
+        expect(result).toContain('An unmatched ` tick.');
+        expect(result).toContain('Here is `code`.');
+        if (block.includes('private fenced payload')) {
+          expect(result.includes('private fenced payload')).toBe(options.includeTools);
+        } else {
+          expect(result.includes('private reasoning')).toBe(options.includeThinking);
+        }
+        // Each consumer's mocks are per invocation, rather than per newline.
+        jest.clearAllMocks();
+      }
+    });
+
+    it('does not interrupt a multiline span at a line-start inline literal', async () => {
+      const literal = '`span\n```inline literal```\n<think>literal reasoning</think>\nspan`';
+      const source = `${literal}\n${thinking}\n${toolCall}\nPublic answer.`;
+      const result = await consume(consumer, source, options);
+      expect(result).toContain(literal);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      expect(result.includes('private tool payload')).toBe(options.includeTools);
+    });
+
     it('still treats a CommonMark multiline code span without a blank line as opaque', async () => {
       const literal = '`span\n<think>literal reasoning</think>\nspan`';
       const source = `${literal}\n${thinking}\n${toolCall}\nPublic answer.`;
@@ -237,5 +272,31 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       expect(result.includes('private reasoning')).toBe(options.includeThinking);
       expect(result.includes('private tool payload')).toBe(options.includeTools);
     });
+  });
+});
+
+describe('inline paragraph boundary search work', () => {
+  it('reuses each paragraph boundary across many short code spans', () => {
+    const content = '`x` '.repeat(2000) + '\n\n' + '`y` '.repeat(2000);
+    const originalSearch = String.prototype.search;
+    let searchedCharacters = 0;
+    const search = jest.spyOn(String.prototype, 'search').mockImplementation(function (
+      this: string,
+      pattern: Parameters<typeof originalSearch>[0]
+    ) {
+      searchedCharacters += this.length;
+      return originalSearch.call(this, pattern);
+    });
+    try {
+      const result = formatConversationAsMarkdown(title, [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).toBe(documentFor(content));
+      // Deterministic work bound, not a machine-dependent wall-clock limit.
+      expect(searchedCharacters).toBeLessThanOrEqual(content.length * 3);
+    } finally {
+      search.mockRestore();
+    }
   });
 });
