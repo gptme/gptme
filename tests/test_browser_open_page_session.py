@@ -240,3 +240,31 @@ def test_cdp_context_switch_drops_other_conversation_auth(
         assert "localstorage-ok" in account
     finally:
         current_conversation_id.reset(token)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("interactive_first", [False, True])
+def test_cdp_close_resets_auth_and_keeps_read_url_session(
+    auth_server, interactive_first
+):
+    from gptme.tools import _browser_playwright as bp
+
+    thread = bp.get_browser()
+
+    def install_session_context(browser):
+        thread._session_context = browser.new_context()
+        thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+
+    thread.execute(install_session_context)
+    if interactive_first:
+        bp.open_page(f"{auth_server}/login")
+    else:
+        bp.read_url(f"{auth_server}/login")
+    bp.close_page()
+    account = bp.read_url(f"{auth_server}/account")
+    assert "cookie-missing" in account
+    assert "localstorage-missing" in account
+    bp.read_url(f"{auth_server}/login")
+    account = bp.read_url(f"{auth_server}/account")
+    assert "cookie-ok" in account
+    assert "localstorage-ok" in account
