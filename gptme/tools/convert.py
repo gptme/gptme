@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
@@ -419,7 +420,31 @@ class ImageConverter(Converter):
                     # JPEG/other: ffmpeg q:v scale 1-31 (lower = better)
                     cmd += ["-q:v", str(max(1, (100 - q) // 5))]
             cmd += [_arg(dest)]
-            result = subprocess.run(cmd, capture_output=True, check=False)
+            with ExitStack() as inputs:
+                directory = None
+                if "%" in str(src):
+                    # A safe basename avoids image2 sequence expansion without
+                    # forcing a demuxer (which would discard APNG animation).
+                    try:
+                        directory = inputs.enter_context(tempfile.TemporaryDirectory())
+                        literal = Path(directory) / f"source{src.suffix}"
+                        shutil.copyfile(src, literal)
+                    except OSError as error:
+                        return ConversionResult(
+                            success=False,
+                            output_path=None,
+                            converter_used=self.name,
+                            error=f"Could not prepare literal image input: {error}",
+                        )
+                    # Anchor relative PATH entries before changing the child cwd.
+                    if executable := shutil.which(cmd[0]):
+                        cmd[0] = str(Path(executable).absolute())
+                    # Use a basename even if the temporary parent contains '%'.
+                    cmd[cmd.index("-i") + 1] = literal.name
+                    cmd[-1] = str(dest.absolute())
+                result = subprocess.run(
+                    cmd, capture_output=True, check=False, cwd=directory
+                )
             if result.returncode == 0:
                 return ConversionResult(
                     success=True,
