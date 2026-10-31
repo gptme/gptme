@@ -43,9 +43,8 @@ interface FenceRange extends CharRange {
 // gptme convention (see processNestedCodeBlocks): ```lang is always an opener,
 // a bare ``` is always a closer. Nested fences are part of the outer block.
 const FENCE_LINE_RE = /^(\s*)(`{3,})(.*)$/;
-
-const THINK_CLOSED_RE = /<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g;
-const THINK_UNCLOSED_RE = /<think(?:ing)?(?: redacted)?>[\s\S]*$/;
+const THINK_OPEN_RE = /^<think(?:ing)?(?: redacted)?>/;
+const THINK_CLOSE_RE = /^<\/think(?:ing)?(?: redacted)?>/;
 
 function splitLines(content: string): { lines: string[]; starts: number[] } {
   const lines = content.split('\n');
@@ -109,6 +108,43 @@ function rangeContains(ranges: CharRange[], index: number): CharRange | undefine
   return ranges.find((range) => index >= range.start && index < range.end);
 }
 
+function matchAt(content: string, index: number, re: RegExp): string | null {
+  const match = content.slice(index).match(re);
+  return match ? match[0] : null;
+}
+
+/**
+ * End offset of a CommonMark-style inline code span starting at `start`,
+ * or null if the backtick run is unclosed. Fences are skipped so a span
+ * cannot swallow a fenced example.
+ */
+function findInlineCodeEnd(
+  content: string,
+  start: number,
+  fenceRanges: CharRange[]
+): number | null {
+  if (content[start] !== '`') return null;
+  let openLen = 1;
+  while (start + openLen < content.length && content[start + openLen] === '`') openLen++;
+  let j = start + openLen;
+  while (j < content.length) {
+    const fence = rangeContains(fenceRanges, j);
+    if (fence) {
+      j = fence.end;
+      continue;
+    }
+    if (content[j] !== '`') {
+      j++;
+      continue;
+    }
+    let closeLen = 1;
+    while (j + closeLen < content.length && content[j + closeLen] === '`') closeLen++;
+    if (closeLen === openLen) return j + closeLen;
+    j += closeLen;
+  }
+  return null;
+}
+
 /**
  * CommonMark-style inline code spans in prose (not inside fenced blocks).
  * Unclosed backtick runs are treated as literal text, not code.
@@ -126,46 +162,67 @@ function getInlineCodeRanges(content: string, fenceRanges: CharRange[]): CharRan
       i++;
       continue;
     }
-    let openLen = 1;
-    while (i + openLen < content.length && content[i + openLen] === '`') openLen++;
-    let j = i + openLen;
-    let found = false;
+    const end = findInlineCodeEnd(content, i, fenceRanges);
+    if (end !== null) {
+      ranges.push({ start: i, end });
+      i = end;
+    } else {
+      while (i < content.length && content[i] === '`') i++;
+    }
+  }
+  return ranges;
+}
+
+/**
+ * Real thinking blocks in prose. Inline code is recognized only outside
+ * thinking, so a backtick inside `<think>` cannot pair with one in the
+ * answer and hide `</think>`. Think tags inside a complete inline-code
+ * span stay literal examples.
+ */
+function getThinkingRanges(content: string, fenceRanges: CharRange[]): CharRange[] {
+  const ranges: CharRange[] = [];
+  let i = 0;
+  while (i < content.length) {
+    const fence = rangeContains(fenceRanges, i);
+    if (fence) {
+      i = fence.end;
+      continue;
+    }
+    if (content[i] === '`') {
+      const end = findInlineCodeEnd(content, i, fenceRanges);
+      i = end ?? i + 1;
+      continue;
+    }
+    const open = matchAt(content, i, THINK_OPEN_RE);
+    if (!open) {
+      i++;
+      continue;
+    }
+    let j = i + open.length;
+    let closed = false;
     while (j < content.length) {
       const nestedFence = rangeContains(fenceRanges, j);
       if (nestedFence) {
         j = nestedFence.end;
         continue;
       }
-      if (content[j] !== '`') {
-        j++;
-        continue;
-      }
-      let closeLen = 1;
-      while (j + closeLen < content.length && content[j + closeLen] === '`') closeLen++;
-      if (closeLen === openLen) {
-        ranges.push({ start: i, end: j + closeLen });
-        i = j + closeLen;
-        found = true;
+      const close = matchAt(content, j, THINK_CLOSE_RE);
+      if (close) {
+        let end = j + close.length;
+        if (content[end] === '\n') end++;
+        ranges.push({ start: i, end });
+        i = end;
+        closed = true;
         break;
       }
-      j += closeLen;
+      j++;
     }
-    if (!found) {
-      i += openLen;
+    if (!closed) {
+      ranges.push({ start: i, end: content.length });
+      break;
     }
   }
   return ranges;
-}
-
-function maskRanges(content: string, ranges: CharRange[]): string {
-  if (ranges.length === 0) return content;
-  const chars = content.split('');
-  for (const range of ranges) {
-    for (let i = range.start; i < range.end && i < chars.length; i++) {
-      if (chars[i] !== '\n') chars[i] = ' ';
-    }
-  }
-  return chars.join('');
 }
 
 function removeCharRanges(content: string, ranges: CharRange[]): string {
@@ -206,20 +263,7 @@ function removeCharRanges(content: string, ranges: CharRange[]): string {
  */
 export function stripThinkingBlocks(content: string): string {
   const fences = getTopLevelFenceRanges(content);
-  const inline = getInlineCodeRanges(content, fences);
-  const protectedRanges = [...fences, ...inline];
-  const masked = maskRanges(content, protectedRanges);
-  const closedRanges: CharRange[] = [];
-  for (const match of masked.matchAll(THINK_CLOSED_RE)) {
-    if (match.index !== undefined) {
-      closedRanges.push({ start: match.index, end: match.index + match[0].length });
-    }
-  }
-  const unclosed = THINK_UNCLOSED_RE.exec(maskRanges(masked, closedRanges));
-  if (unclosed && unclosed.index !== undefined) {
-    closedRanges.push({ start: unclosed.index, end: content.length });
-  }
-  return removeCharRanges(content, closedRanges).trim();
+  return removeCharRanges(content, getThinkingRanges(content, fences)).trim();
 }
 
 // Built-in gptme tool block types (markdown codeblock langtags that represent
@@ -284,20 +328,24 @@ function stripFencedToolBlocks(content: string): string {
  * Scans braces rather than regex-matching JSON so pretty-printed or compact
  * argument objects are both handled correctly.
  *
- * Calls inside fenced examples are left unchanged. A top-level `@tool: {...}`
- * line is treated as a real invocation even if it was meant as an example.
+ * Calls inside fenced or inline-code examples are left unchanged. A top-level
+ * `@tool: {...}` line is treated as a real invocation even if it was meant as
+ * an example.
  */
 function stripAtFormatToolCalls(content: string): string {
   const fences = getTopLevelFenceRanges(content);
-  if (fences.length === 0) {
+  const skipped = [...fences, ...getInlineCodeRanges(content, fences)].sort(
+    (a, b) => a.start - b.start
+  );
+  if (skipped.length === 0) {
     return stripAtFormatToolCallsInProse(content);
   }
   let result = '';
   let cursor = 0;
-  for (const fence of fences) {
-    result += stripAtFormatToolCallsInProse(content.slice(cursor, fence.start));
-    result += content.slice(fence.start, fence.end);
-    cursor = fence.end;
+  for (const range of skipped) {
+    result += stripAtFormatToolCallsInProse(content.slice(cursor, range.start));
+    result += content.slice(range.start, range.end);
+    cursor = range.end;
   }
   result += stripAtFormatToolCallsInProse(content.slice(cursor));
   return result;

@@ -610,6 +610,14 @@ describe('stripThinkingBlocks', () => {
     const result = stripThinkingBlocks('Use `<think>KEEP_LITERAL</think>` here.');
     expect(result).toBe('Use `<think>KEEP_LITERAL</think>` here.');
   });
+
+  it('does not let a backtick inside thinking pair with one in the answer', () => {
+    const result = stripThinkingBlocks(
+      '<think>\nDiscuss the ` character.\n</think>\n\nUse `x` now.'
+    );
+    expect(result).toBe('Use `x` now.');
+    expect(result).not.toContain('Discuss');
+  });
 });
 
 describe('formatConversationAsMarkdown - tool invocation stripping', () => {
@@ -746,6 +754,19 @@ describe('formatConversationAsMarkdown - example-preserving filters', () => {
     const result = formatConversationAsMarkdown('Chat', messages, { includeThinking: false });
     expect(result).toContain('KEEP_LITERAL');
     expect(result).toContain('`<think>KEEP_LITERAL</think>`');
+  });
+
+  it('keeps a literal @save example inside multiline inline code when tools are disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Example:\n\n`example\n@save: {"content":"KEEP_LITERAL"}\nend`\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('KEEP_LITERAL');
+    expect(result).toContain('@save:');
+    expect(result).toContain('Done.');
   });
 
   it('keeps a literal @save example inside a text fence when tools are disabled', () => {
