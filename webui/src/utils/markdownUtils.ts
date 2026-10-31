@@ -127,9 +127,11 @@ export function parseMarkdownContent(content: string) {
       // via .textContent and can't carry HTML. Any visual tweak to the summary
       // (e.g. styling the emoji) must be applied in BOTH places to be consistent.
       const emoji = getCodeBlockEmoji(langtag);
+      // Scanner tags are original source text, not marked's escaped metadata.
+      const label = langtag.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `
             <details>
-                <summary>${emoji} ${langtag}</summary>
+                <summary>${emoji} ${label}</summary>
                 <pre><code class="${classes}">${code}</code></pre>
             </details>
             `;

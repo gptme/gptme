@@ -143,6 +143,15 @@ describe('parseMarkdownContent', () => {
     expect(result).toContain('<span class="hljs-string">&#x27;hello&#x27;</span>');
   });
 
+  it.each(['~~~', '```'])('renders hostile %s fence info as text, not active HTML', (fence) => {
+    const tag = '<img src=x onerror=alert(1)> & <svg onload=alert(2)>';
+    const result = parseMarkdownContent(`${fence}${tag}\nx\n${fence}`);
+    const container = document.createElement('div');
+    container.innerHTML = result;
+    expect(container.querySelector('summary')?.textContent).toContain(tag);
+    expect(container.querySelector('summary img, summary svg')).toBeNull();
+  });
+
   it('detects file paths in code blocks', () => {
     const input = "```src/test.py\nprint('hello')\n```";
     const result = parseMarkdownContent(input);
