@@ -477,11 +477,11 @@ def test_validation_tree_is_private_and_published_mode_is_preserved(
     real_validate = installer.validate_skill
     validated = []
 
-    def check_private(path: Path) -> list[str]:
+    def check_private(path: Path, *, metadata_path: Path | None = None) -> list[str]:
         assert path.parent == installer.get_skills_dir()
         assert stat.S_IMODE(path.stat().st_mode) == 0o700
         validated.append(path)
-        return real_validate(path)
+        return real_validate(path, metadata_path=metadata_path)
 
     monkeypatch.setattr(installer, "validate_skill", check_private)
     ok, message = installer.install_skill(str(source))
@@ -578,3 +578,95 @@ def test_readonly_source_failure_cleans_tree_and_restores_prior_state(
         source.chmod(0o755)
         for leftover in installer.get_skills_dir().glob(".skill-new-*"):
             leftover.chmod(0o700)
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_metadata_link_through_final_name_uses_new_tree(
+    tmp_path: Path, force: bool
+) -> None:
+    if force:
+        dest, _ = installed_pair(tmp_path)
+    else:
+        dest = installer.get_skills_dir() / "demo"
+    source = make_skill(tmp_path / "demo", "2")
+    (source / "SKILL.md").rename(source / "metadata.md")
+    (source / "SKILL.md").symlink_to("../demo/metadata.md")
+    ok, message = installer.install_skill(str(source), force=force)
+    assert ok, message
+    assert installer.get_manifest().skills["demo"].version == "2"
+    assert (dest / "SKILL.md").readlink() == Path("../demo/metadata.md")
+    assert (dest / "SKILL.md").read_text() == (source / "metadata.md").read_text()
+
+
+def test_final_name_metadata_validation_does_not_read_old_bytes(tmp_path: Path) -> None:
+    dest, _ = installed_pair(tmp_path)
+    source = make_skill(tmp_path / "sources" / "demo", "2")
+    (dest / "metadata.md").write_bytes((dest / "SKILL.md").read_bytes())
+    (source / "SKILL.md").unlink()
+    (source / "metadata.md").write_text("---\nname: demo\n---\n# Invalid\n")
+    (source / "SKILL.md").symlink_to("../demo/metadata.md")
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert "Missing required field: description" in message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+@pytest.mark.parametrize("target_kind", ["chain", "external-backlink", "absolute"])
+def test_metadata_links_resolve_against_future_tree(
+    tmp_path: Path, target_kind: str
+) -> None:
+    dest, _ = installed_pair(tmp_path)
+    source = make_skill(tmp_path / "sources" / "demo", "2")
+    (source / "SKILL.md").rename(source / "metadata.md")
+    if target_kind == "chain":
+        (source / "inner").symlink_to("../demo/metadata.md")
+        (source / "SKILL.md").symlink_to("inner")
+    elif target_kind == "external-backlink":
+        common = installer.get_skills_dir() / "common"
+        common.mkdir()
+        (common / "SKILL.md").symlink_to("../demo/metadata.md")
+        source_common = source.parent / "common"
+        source_common.mkdir()
+        (source_common / "SKILL.md").symlink_to("../demo/metadata.md")
+        (source / "SKILL.md").symlink_to("../common/SKILL.md")
+    else:
+        (dest / "metadata.md").write_bytes((source / "metadata.md").read_bytes())
+        (source / "SKILL.md").symlink_to(dest / "metadata.md")
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert ok, message
+    assert installer.get_manifest().skills["demo"].version == "2"
+    assert (dest / "SKILL.md").read_bytes() == (source / "metadata.md").read_bytes()
+    assert not list(installer.get_skills_dir().glob(".skill-*"))
+
+
+@pytest.mark.parametrize("component", ["missing", "file"])
+def test_metadata_parent_traversal_requires_real_directory(
+    tmp_path: Path, component: str
+) -> None:
+    dest, _ = installed_pair(tmp_path)
+    source = make_skill(tmp_path / "sources" / "demo", "2")
+    source_common = make_skill(source.parent / "common", "2")
+    (source_common / "subdir").mkdir()
+    common = installer.get_skills_dir() / "common"
+    common.mkdir()
+    shutil.copy2(source_common / "SKILL.md", common / "SKILL.md")
+    if component == "file":
+        (common / "subdir").write_text("not a directory")
+    (source / "SKILL.md").unlink()
+    (source / "SKILL.md").symlink_to("../common/subdir/../SKILL.md")
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+    assert not list(installer.get_skills_dir().glob(".skill-*"))

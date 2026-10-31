@@ -239,6 +239,43 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
         return dest
 
 
+def _staged_metadata_path(path: Path, dest: Path, staged: Path) -> Path:
+    """Resolve metadata links against the future tree without publishing it."""
+    # Walk components rather than normalizing '..' before symlink traversal.
+    pending = list(path.absolute().parts[1:])
+    current = Path(path.anchor)
+    links = 0
+    dest = dest.parent.resolve() / dest.name
+    while pending:
+        part = pending.pop(0)
+        if part == "..":
+            current = current.parent
+            continue
+        current /= part
+        physical = (
+            staged / current.relative_to(dest)
+            if current.is_relative_to(dest)
+            else current
+        )
+        if physical.is_symlink():
+            links += 1
+            if links > 40:
+                raise OSError("Too many symbolic links in skill metadata")
+            target = physical.readlink()
+            current = Path(target.anchor) if target.is_absolute() else current.parent
+            pending = (
+                list(target.parts[1:] if target.is_absolute() else target.parts)
+                + pending
+            )
+        elif pending and not physical.is_dir():
+            raise OSError(
+                f"Skill metadata path component is not a directory: {current}"
+            )
+    return (
+        staged / current.relative_to(dest) if current.is_relative_to(dest) else current
+    )
+
+
 def _install_local_skill(
     source: str,
     local_path: Path,
@@ -301,23 +338,25 @@ def _install_local_skill(
             tempfile.mkdtemp(prefix=".skill-manifest-", dir=manifest_path.parent)
         )
         shutil.copytree(local_path, copied, symlinks=True)
-        # Validate at the destination depth so preserved relative links resolve
-        # as they will after publication. Keep the tree private until then.
+        # Keep the copied tree private during validation. Metadata resolution
+        # projects links onto its final path without publishing or rewriting them.
         tree_mode = stat.S_IMODE(copied.stat().st_mode)
         copied.chmod(0o700)
         staged = Path(tempfile.mkdtemp(prefix=".skill-new-", dir=skills_dir))
         staged.rmdir()
         copied.rename(staged)
+        staged_md = _find_skill_md(staged)
+        if staged_md is None:
+            return False, "Skill validation failed:\nMissing SKILL.md file"
+        metadata_path = _staged_metadata_path(dest / staged_md.name, dest, staged)
         errors = [
             e
-            for e in validate_skill(staged)
+            for e in validate_skill(staged, metadata_path=metadata_path)
             if not e.startswith("Missing recommended marketplace field:")
         ]
         if errors:
             return False, "Skill validation failed:\n" + "\n".join(errors)
-        staged_md = _find_skill_md(staged)
-        assert staged_md is not None  # validated above
-        fm = _parse_skill_frontmatter(staged_md)
+        fm = _parse_skill_frontmatter(metadata_path)
         metadata = fm.get("metadata", {})
         version = (
             metadata.get("version", "unknown")
@@ -541,11 +580,12 @@ def uninstall_skill(name: str) -> tuple[bool, str]:
     return False, f"Skill '{name}' not found"
 
 
-def validate_skill(path: Path) -> list[str]:
+def validate_skill(path: Path, *, metadata_path: Path | None = None) -> list[str]:
     """Validate a skill directory.
 
     Args:
         path: Path to skill directory or SKILL.md file
+        metadata_path: Resolved metadata in a staged installation's future view.
 
     Returns:
         List of validation errors (empty if valid)
@@ -563,7 +603,7 @@ def validate_skill(path: Path) -> list[str]:
         errors.append("Missing SKILL.md file")
         return errors
 
-    fm = _parse_skill_frontmatter(skill_md)
+    fm = _parse_skill_frontmatter(metadata_path or skill_md)
     if not fm:
         errors.append("SKILL.md has no YAML frontmatter")
         return errors
