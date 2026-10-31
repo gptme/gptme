@@ -1003,6 +1003,52 @@ def test_chat_omits_unset_optional_sdk_parameters(
     assert "output_config" not in payloads[0]
 
 
+def test_chat_includes_set_optional_sdk_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configured tools and reasoning are included in the SDK payload."""
+    init_tools(allowlist=["save"])
+    tool_save = get_tool("save")
+    assert tool_save is not None
+
+    payloads: list[dict[str, object]] = []
+    payload_parser = TypeAdapter(dict[str, object])
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        payloads.append(payload_parser.validate_json(request.content))
+        return httpx2.Response(
+            200,
+            content=(
+                b'{"id":"msg_test","type":"message","role":"assistant",'
+                b'"model":"claude-sonnet-5-5","content":[{"type":"text",'
+                b'"text":"Hello"}],"stop_reason":"end_turn",'
+                b'"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}'
+            ),
+            headers={"content-type": "application/json"},
+        )
+
+    monkeypatch.setenv("GPTME_REASONING", "1")
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
+    monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        answer, _ = llm_anthropic.chat(
+            [Message("system", "Be helpful."), Message("user", "Hello")],
+            "claude-sonnet-5-5",
+            tools=[tool_save],
+        )
+
+    assert answer == "Hello"
+    tools_payload = payloads[0]["tools"]
+    assert isinstance(tools_payload, list)
+    assert isinstance(tools_payload[0], dict)
+    assert tools_payload[0]["name"] == "save"
+    assert payloads[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert payloads[0]["output_config"] == {"effort": "high"}
+
+
 def test_opus_47_returns_adaptive():
     # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
     assert _build_thinking_param(
