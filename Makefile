@@ -66,7 +66,7 @@ test: ## Run fast tests
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		$(if $(NO_COVERAGE),,--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html) --junitxml=junit.xml \
 		-n $(PYTEST_WORKERS) \
-		-m "not perf$(if $(EVAL),, and not eval)$(if $(SLOW),, and not slow)" \
+		-m "$(if $(EVAL),not perf,$(if $(SLOW),not eval and not perf,not slow and not eval and not perf))" \
 		--timeout 60 --retries 2 --retry-delay 5 \
 		$(if $(PROFILE), --profile-svg)
 
