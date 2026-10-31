@@ -332,10 +332,17 @@ class ChatConfig:
             ensure_workspace_dir(workspace_path)
             yield
             return
-        if is_link and workspace_path.resolve() == self.workspace.resolve():
-            yield
-            return
-        if exists and workspace_path.is_dir() and not is_link:
+        if is_link:
+            try:
+                linked_workspace = workspace_path.resolve()
+            except RuntimeError:
+                # Python 3.11/3.12 raise for symlink loops even in non-strict
+                # mode. A broken old link must not prevent selecting a new one.
+                linked_workspace = None
+            if linked_workspace == self.workspace.resolve():
+                yield
+                return
+        if exists and not is_link and workspace_path.is_dir():
             if any(workspace_path.iterdir()):
                 raise ValueError(
                     f"Workspace directory '{workspace_path}' already exists and contains data. "

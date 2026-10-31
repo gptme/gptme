@@ -504,3 +504,82 @@ def test_postpublication_staging_probe_failure_does_not_report_failed_save(
     assert (
         state.new_workspace / "valuable.bin"
     ).read_bytes() == b"new workspace\x00\xfe"
+
+
+@pytest.mark.parametrize("indirect", [False, True], ids=["self-loop", "two-link-loop"])
+@pytest.mark.parametrize("fail_publication", [False, True], ids=["save", "rollback"])
+def test_cyclic_workspace_link_can_be_replaced(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    indirect: bool,
+    fail_publication: bool,
+) -> None:
+    state = _seed(tmp_path, "symlink")
+    state.entry.unlink()
+    target = "loop" if indirect else "workspace"
+    state.entry.symlink_to(target, target_is_directory=True)
+    if indirect:
+        (state.logdir / "loop").symlink_to("workspace", target_is_directory=True)
+    original_entry = state.entry.lstat()
+    original_replace = Path.replace
+    attempts = []
+
+    def fail_config_replace(path: Path, destination: str | Path) -> Path:
+        if Path(destination) == state.config_path:
+            attempts.append(path)
+            raise OSError(errno.EIO, "injected config replacement failure")
+        return original_replace(path, destination)
+
+    candidate = state.candidate()
+    if fail_publication:
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "replace", fail_config_replace)
+            with pytest.raises(OSError, match="injected config replacement failure"):
+                candidate.save()
+        assert attempts, "Reach publication before exercising rollback"
+        assert state.config_path.read_bytes() == state.old_bytes
+        assert state.entry.is_symlink()
+        assert os.readlink(state.entry) == target
+        restored = state.entry.lstat()
+        assert (restored.st_dev, restored.st_ino) == (
+            original_entry.st_dev,
+            original_entry.st_ino,
+        )
+    else:
+        assert candidate.save() is candidate
+        assert state.entry.resolve() == state.new_workspace
+        loaded = ChatConfig.from_logdir(state.logdir)
+        assert loaded.model == "test/new-model"
+        assert loaded.workspace == state.new_workspace
+    assert list(state.logdir.glob(".workspace-*")) == []
+    assert list(state.logdir.glob("*.toml.tmp")) == []
+    assert (
+        state.old_workspace / "valuable.bin"
+    ).read_bytes() == b"old workspace\x00\xff"
+    assert (
+        state.new_workspace / "valuable.bin"
+    ).read_bytes() == b"new workspace\x00\xfe"
+
+
+def test_workspace_link_resolution_io_failure_preserves_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = _seed(tmp_path, "symlink")
+    original_resolve = Path.resolve
+    attempts = []
+
+    def fail_old_link_resolution(path: Path, strict: bool = False) -> Path:
+        if path == state.entry:
+            attempts.append(path)
+            raise OSError(errno.EIO, "injected link resolution failure")
+        return original_resolve(path, strict=strict)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "resolve", fail_old_link_resolution)
+        with pytest.raises(OSError, match="injected link resolution failure"):
+            state.candidate().save()
+
+    assert attempts == [state.entry]
+    _assert_preserved(state)
+    assert list(state.logdir.glob(".workspace-*")) == []
+    assert list(state.logdir.glob("*.toml.tmp")) == []
