@@ -2,6 +2,7 @@
 
 import json
 import shutil
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,26 @@ def logs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+@pytest.fixture(params=[True, False], ids=["full", "fast"])
+def detail(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Generator[bool, None, None]:
+    """Require fast-mode cases to execute the real tail scanner exactly once."""
+    full_detail = bool(request.param)
+    original_scan = conversations._fast_scan_tail
+    scan_calls = 0
+
+    def scan_tail(path: Path, file_size: int) -> tuple[int, str | None, bytes | None]:
+        nonlocal scan_calls
+        scan_calls += 1
+        assert file_size > conversations._TAIL_BYTES
+        return original_scan(path, file_size)
+
+    monkeypatch.setattr(conversations, "_fast_scan_tail", scan_tail)
+    yield full_detail
+    assert scan_calls == (0 if full_detail else 1)
+
+
 def _snapshot(root: Path) -> dict[str, tuple[str, bytes | str | None]]:
     """Record entries and bytes, including directories and dangling symlinks."""
     result: dict[str, tuple[str, bytes | str | None]] = {}
@@ -59,7 +80,10 @@ def _make_history(logs_dir: Path, name: str = "legacy-history") -> Path:
         json.dumps(
             {
                 "role": "system",
-                "content": "Synthetic abandoned session",
+                # Cross the real scan threshold without changing message counts
+                # or timestamps. Fast cases must read this multi-chunk JSONL.
+                "content": "Synthetic abandoned session "
+                + "x" * conversations._TAIL_BYTES,
                 "timestamp": "2025-01-01T00:00:00Z",
             }
         )
@@ -95,7 +119,6 @@ def _assert_history_metadata(
 
 
 @pytest.mark.parametrize("lookup", ["list", "direct"])
-@pytest.mark.parametrize("detail", [True, False], ids=["full", "fast"])
 @pytest.mark.parametrize(
     "config_kind", ["missing", "log", "persisted", "malformed", "unreadable"]
 )
@@ -204,7 +227,6 @@ def test_chats_clean_dry_run_does_not_create_workspace(
 
 
 @pytest.mark.parametrize("lookup", ["list", "direct"])
-@pytest.mark.parametrize("detail", [True, False], ids=["full", "fast"])
 def test_metadata_does_not_resurrect_removed_legacy_history(
     logs_dir: Path, monkeypatch: pytest.MonkeyPatch, lookup: str, detail: bool
 ) -> None:
