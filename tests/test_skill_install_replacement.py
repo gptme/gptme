@@ -694,3 +694,54 @@ def test_missing_source_metadata_returns_normal_error(tmp_path: Path) -> None:
     ok, message = installer.install_skill(str(source))
     assert not ok
     assert "Failed to read skill metadata" in message
+
+
+@pytest.mark.parametrize("force", [False, True])
+@pytest.mark.parametrize("suffix", ["/", "/."])
+@pytest.mark.parametrize("link_kind", ["relative", "absolute", "chain"])
+def test_metadata_link_directory_suffix_preserves_prior_state(
+    tmp_path: Path, force: bool, suffix: str, link_kind: str
+) -> None:
+    if force:
+        dest, _ = installed_pair(tmp_path)
+    else:
+        dest = installer.get_skills_dir() / "demo"
+    source = make_skill(tmp_path / "source", "2")
+    (source / "SKILL.md").rename(source / "metadata.md")
+    target = str(dest / "metadata.md") if link_kind == "absolute" else "metadata.md"
+    if link_kind == "chain":
+        (source / "inner").symlink_to(target + suffix)
+        (source / "SKILL.md").symlink_to("inner")
+    else:
+        (source / "SKILL.md").symlink_to(target + suffix)
+    before = snapshot(dest)
+    manifest_path = installer.get_manifest_path()
+    manifest = manifest_path.read_bytes() if manifest_path.exists() else None
+
+    ok, message = installer.install_skill(str(source), name="demo", force=force)
+
+    assert not ok, message
+    assert dest.exists() == force
+    assert snapshot(dest) == before
+    assert (manifest_path.read_bytes() if manifest_path.exists() else None) == manifest
+    assert not list(installer.get_skills_dir().glob(".skill-*"))
+
+
+@pytest.mark.parametrize("directory_target", ["metadata/", "metadata/."])
+def test_metadata_link_directory_suffix_accepts_actual_directory(
+    tmp_path: Path, directory_target: str
+) -> None:
+    source = make_skill(tmp_path / "source", "2")
+    (source / "metadata").mkdir()
+    (source / "SKILL.md").rename(source / "metadata" / "content.md")
+    (source / "inner").symlink_to(directory_target, target_is_directory=True)
+    (source / "SKILL.md").symlink_to("inner/content.md")
+
+    ok, message = installer.install_skill(str(source), name="demo")
+
+    assert ok, message
+    dest = installer.get_skills_dir() / "demo"
+    assert (dest / "SKILL.md").read_bytes() == (
+        source / "metadata" / "content.md"
+    ).read_bytes()
+    assert installer.get_manifest().skills["demo"].version == "2"

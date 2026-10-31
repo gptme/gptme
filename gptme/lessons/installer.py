@@ -7,6 +7,7 @@ Supports installing skills from:
 """
 
 import logging
+import os
 import re
 import shutil
 import stat
@@ -248,6 +249,8 @@ def _staged_metadata_path(path: Path, dest: Path, staged: Path) -> Path:
     dest = dest.parent.resolve() / dest.name
     while pending:
         part = pending.pop(0)
+        if part in ("", "."):
+            continue
         if part == "..":
             current = current.parent
             continue
@@ -261,12 +264,18 @@ def _staged_metadata_path(path: Path, dest: Path, staged: Path) -> Path:
             links += 1
             if links > 40:
                 raise OSError("Too many symbolic links in skill metadata")
-            target = physical.readlink()
-            current = Path(target.anchor) if target.is_absolute() else current.parent
-            pending = (
-                list(target.parts[1:] if target.is_absolute() else target.parts)
-                + pending
+            # Path.readlink() normalizes away trailing '/' and '/.', which
+            # require the preceding component to be a directory on disk.
+            target = os.readlink(physical)
+            if os.altsep:
+                target = target.replace(os.altsep, os.sep)
+            target_path = Path(target)
+            current = (
+                Path(target_path.anchor)
+                if target_path.is_absolute()
+                else current.parent
             )
+            pending = target[len(target_path.anchor) :].split(os.sep) + pending
         elif pending and not physical.is_dir():
             raise OSError(
                 f"Skill metadata path component is not a directory: {current}"
