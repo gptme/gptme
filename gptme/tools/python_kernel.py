@@ -15,7 +15,10 @@ functions. Message-returning helpers deliver their attachments directly back
 to gptme rather than reducing them to a kernel text representation.
 """
 
+import base64
+import binascii
 import contextlib
+import io
 import logging
 import os
 import pickle
@@ -26,6 +29,7 @@ import subprocess
 import threading
 from collections.abc import Callable
 from contextvars import Context, copy_context
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +45,99 @@ _BRIDGE_HANDLER_TIMEOUT = (
     30.0  # seconds — prevents idle connections from leaking threads
 )
 _MAX_STREAMING_OUTPUT_BYTES = 10 * 1024 * 1024  # 10 MB, matches python.py cap
+_MAX_RASTER_BYTES = 5 * 1024 * 1024
+_MAX_RASTER_TOTAL_BYTES = 20 * 1024 * 1024
+_MAX_RASTER_IMAGES = 16
+_MAX_RASTER_PIXELS = 16_000_000
+_MAX_TEXT_DISPLAY_SLOTS = 1024  # bound display-ID metadata independently of rasters
+_RASTER_FORMATS = {
+    "image/png": "PNG",
+    "image/jpeg": "JPEG",
+    "image/webp": "WEBP",
+    "image/gif": "GIF",
+}
+
+
+@dataclass(frozen=True)
+class KernelRaster:
+    data: bytes
+    mime_type: str
+    output_type: str
+
+
+@dataclass
+class _RasterBudget:
+    attempts: int = 0
+    decoded_bytes: int = 0
+
+
+def _collect_raster(
+    data: dict,
+    output_type: str,
+    images: list[KernelRaster],
+    budget: _RasterBudget | None = None,
+) -> str | None:
+    """Retain one supported representation per output, bounded before decoding.
+
+    The Jupyter message has already been received; these limits bound additional
+    host decoding/storage, not the kernel's memory or the transport frame itself.
+    """
+    mime = next((mime for mime in _RASTER_FORMATS if mime in data), None)
+    if mime is None:
+        return (
+            "Unsupported kernel image output omitted."
+            if any(key.startswith("image/") for key in data)
+            else None
+        )
+    if budget is None:
+        budget = _RasterBudget(len(images), sum(len(image.data) for image in images))
+    if budget.attempts >= _MAX_RASTER_IMAGES:
+        return "Kernel image count limit reached; additional images omitted."
+    remaining = _MAX_RASTER_TOTAL_BYTES - budget.decoded_bytes
+    limit = min(_MAX_RASTER_BYTES, remaining)
+    encoded = data[mime]
+    if not isinstance(encoded, str):
+        return "Invalid kernel raster payload omitted."
+    if len(encoded) > 4 * ((limit + 2) // 3):
+        return "Kernel image byte limit reached; oversized image omitted."
+    # Charge failed validation too; clears/updates never reopen this allowance.
+    decoded_bound = ((len(encoded) + 3) // 4) * 3 - min(
+        len(encoded) - len(encoded.rstrip("=")), 2
+    )
+    if remaining <= 0 or decoded_bound > limit:
+        return "Kernel image byte limit reached; oversized image omitted."
+    budget.attempts += 1
+    budget.decoded_bytes += decoded_bound
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        return "Invalid kernel raster base64 omitted."
+    if len(decoded) > limit:
+        return "Kernel image byte limit reached; oversized image omitted."
+    # Validate the advertised format and bound decompression before loading pixels.
+    # Pillow is imported lazily so ordinary kernel text pays no imaging startup cost.
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(io.BytesIO(decoded)) as image:
+            if image.format != _RASTER_FORMATS[mime]:
+                return "Kernel raster MIME does not match its bytes; image omitted."
+            if image.width * image.height > _MAX_RASTER_PIXELS:
+                return "Kernel image pixel limit reached; image omitted."
+            image.verify()
+        # verify() checks structural integrity but does not decompress pixels.
+        with Image.open(io.BytesIO(decoded)) as image:
+            image.load()
+    except (
+        OSError,
+        ValueError,
+        SyntaxError,
+        UnidentifiedImageError,
+        Image.DecompressionBombError,
+    ):
+        return "Invalid kernel raster image omitted."
+    images.append(KernelRaster(decoded, mime, output_type))
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +471,11 @@ class KernelExecResult:
         stderr: str = "",
         result_text: str | None = None,
         error: dict | None = None,
+        images: list[KernelRaster] | None = None,
+        image_notices: list[str] | None = None,
     ) -> None:
+        self.images = images or []
+        self.image_notices = image_notices or []
         self.stdout = stdout
         self.stderr = stderr
         self.result_text = result_text
@@ -827,6 +928,48 @@ class KernelBackend:
         stderr_total_bytes = 0
         result_text: str | None = None
         error: dict | None = None
+        images: list[KernelRaster] = []
+        image_notices: list[str] = []
+        # Cumulative decoding is separate from bounded visible output slots.
+        raster_budget = _RasterBudget()
+        visible_images: list[tuple[str | None, KernelRaster | None]] = []
+        clear_images_pending = False
+
+        def collect_output(content: dict, output_type: str) -> None:
+            display_id = content.get("transient", {}).get("display_id")
+            if not isinstance(display_id, str) or not display_id:
+                display_id = None
+            updating = output_type == "update_display_data"
+            matches = [
+                index
+                for index, (identity, _) in enumerate(visible_images)
+                if display_id is not None and identity == display_id
+            ]
+            # Earlier cells' attachments are already sent; don't invent a slot.
+            if updating and not matches:
+                return
+            previous_count = len(images)
+            notice = _collect_raster(
+                content.get("data", {}), output_type, images, raster_budget
+            )
+            if notice and notice not in image_notices:
+                image_notices.append(notice)
+            image = images[-1] if len(images) > previous_count else None
+            if updating:
+                for index in matches:
+                    visible_images[index] = (display_id, image)
+            elif image is not None:
+                # Decoding already bounds actual images. Text-only display IDs
+                # must not consume their allowance or block a later plot.
+                visible_images.append((display_id, image))
+            elif display_id is not None:
+                text_slots = sum(image is None for _, image in visible_images)
+                if text_slots < _MAX_TEXT_DISPLAY_SLOTS:
+                    visible_images.append((display_id, None))
+                else:
+                    notice = "Kernel text display-ID tracking limit reached; additional IDs omitted."
+                    if notice not in image_notices:
+                        image_notices.append(notice)
 
         self._bridge.cell_context = copy_context()
         msg_id = self._kc.execute(code, silent=False, store_history=True)
@@ -868,6 +1011,22 @@ class KernelBackend:
             msg_type: str = msg["msg_type"]
             content: dict = msg["content"]
 
+            if msg_type == "clear_output":
+                if content.get("wait", False):
+                    clear_images_pending = True
+                else:
+                    visible_images.clear()
+                    clear_images_pending = False
+                continue
+            if clear_images_pending and msg_type in (
+                "stream",
+                "execute_result",
+                "display_data",
+                "error",
+            ):
+                visible_images.clear()
+                clear_images_pending = False
+
             if msg_type == "stream":
                 name = content.get("name", "")
                 text = content.get("text", "")
@@ -892,12 +1051,14 @@ class KernelBackend:
 
             elif msg_type == "execute_result":
                 data = content.get("data", {})
+                collect_output(content, msg_type)
                 text = data.get("text/plain")
                 result_text = _cap_kernel_text(text) if text is not None else None
 
-            elif msg_type == "display_data":
+            elif msg_type in ("display_data", "update_display_data"):
                 # explicit display() calls — collect as stdout so they aren't silently dropped
                 data = content.get("data", {})
+                collect_output(content, msg_type)
                 text = data.get("text/plain", "")
                 if text:
                     chunk_bytes = len(text.encode("utf-8", errors="replace"))
@@ -965,12 +1126,33 @@ class KernelBackend:
                 )
             return text
 
+        # An update can expand one decoded raster into many visible slots.
+        # Bound the expanded output too: each slot becomes a retained file.
+        retained_images: list[KernelRaster] = []
+        retained_bytes = 0
+        for _, image in visible_images:
+            if image is None:
+                continue
+            notice = None
+            if len(retained_images) >= _MAX_RASTER_IMAGES:
+                notice = "Kernel image count limit reached; additional images omitted."
+            elif retained_bytes + len(image.data) > _MAX_RASTER_TOTAL_BYTES:
+                notice = "Kernel image byte limit reached; additional images omitted."
+            if notice is not None:
+                if notice not in image_notices:
+                    image_notices.append(notice)
+                continue
+            retained_images.append(image)
+            retained_bytes += len(image.data)
+
         self._bridge.active_cell = None
         return KernelExecResult(
             stdout=_with_marker(stdout_parts, stdout_bytes, stdout_total_bytes),
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
             result_text=result_text,
             error=error,
+            images=retained_images,
+            image_notices=image_notices,
         )
 
     def _drain_until_idle(self, grace: float = 5.0) -> None:
