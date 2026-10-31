@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
@@ -312,10 +313,121 @@ class ChatConfig:
             # with defaults. The workspace is still safe for read-only recovery.
             return cls(workspace=path.resolve())
 
+    @contextmanager
+    def _workspace_transition(self) -> Iterator[None]:
+        """Stage a namespace change, restoring it if config publication fails.
+
+        The caller serializes saves. This handles ordinary exceptions, not process
+        crashes or concurrent filesystem writers; two paths cannot be committed
+        atomically. Keep displaced entries until the config rename succeeds.
+        """
+        assert self._logdir is not None
+        workspace_path = self._logdir / "workspace"
+        is_link = workspace_path.is_symlink()
+        exists = is_link or workspace_path.exists()
+        # Canonicalize the parent, not the entry: resolving workspace_path would
+        # follow an external workspace symlink and confuse it with a local dir.
+        local = self.workspace.resolve() == self._logdir.resolve() / "workspace"
+        if local and exists:
+            ensure_workspace_dir(workspace_path)
+            yield
+            return
+        if is_link:
+            try:
+                linked_workspace = workspace_path.resolve()
+            except RuntimeError:
+                # Python 3.11/3.12 raise for symlink loops even in non-strict
+                # mode. A broken old link must not prevent selecting a new one.
+                linked_workspace = None
+            if linked_workspace == self.workspace.resolve():
+                yield
+                return
+        if exists and not is_link and workspace_path.is_dir():
+            if any(workspace_path.iterdir()):
+                raise ValueError(
+                    f"Workspace directory '{workspace_path}' already exists and contains data. "
+                    "Cannot change workspace when directory is in use. "
+                    "Please move or rename the existing directory first."
+                )
+
+        tmp = Path(tempfile.mkdtemp(dir=self._logdir, prefix=".workspace-"))
+        backup = tmp / "previous"
+        try:
+            displaced = False
+            created = False
+            try:
+                if exists:
+                    workspace_path.replace(backup)
+                    displaced = True
+                if local:
+                    ensure_workspace_dir(workspace_path)
+                    created = True
+                else:
+                    try:
+                        workspace_path.symlink_to(
+                            self.workspace, target_is_directory=True
+                        )
+                        created = True
+                    except OSError as err:
+                        # Windows without Developer Mode can persist the canonical
+                        # config path without a namespace link (LogManager fallback).
+                        if getattr(err, "winerror", None) == 1314 or (
+                            sys.platform == "win32" and isinstance(err, PermissionError)
+                        ):
+                            logger.warning(
+                                f"Could not create workspace symlink '{workspace_path}' -> '{self.workspace}': {err}"
+                            )
+                        else:
+                            raise
+                yield
+            except BaseException as error:
+                try:
+                    if created:
+                        if workspace_path.is_symlink():
+                            workspace_path.unlink()
+                        else:
+                            workspace_path.rmdir()
+                    if displaced:
+                        backup.replace(workspace_path)
+                except OSError as rollback_error:
+                    raise RuntimeError(
+                        f"Workspace rollback failed after {error!r}: {rollback_error}. "
+                        f"Recovery entry retained at {backup}"
+                    ) from rollback_error
+                raise
+            if displaced:
+                try:
+                    if backup.is_symlink() or not backup.is_dir():
+                        backup.unlink()
+                    else:
+                        backup.rmdir()
+                except OSError as error:
+                    # Publication already succeeded. Cleanup must not report a
+                    # failed save whose new config is actually visible.
+                    logger.warning(
+                        "Saved config; retained workspace entry %s: %s", backup, error
+                    )
+        finally:
+            # An occupied staging directory is recovery evidence, not garbage.
+            try:
+                if not (backup.exists() or backup.is_symlink()):
+                    tmp.rmdir()
+            except OSError as error:
+                logger.warning(
+                    "Could not clean workspace staging dir %s: %s", tmp, error
+                )
+
     def save(self) -> Self:
         """Save the chat config to the log directory.
 
+        Workspace validation/publication precedes the atomic config replacement;
+        ordinary failure restores the previous workspace entry. Callers serialize
+        saves (e.g. with ``chat_config_lock``). This is not a two-path crash-atomic
+        transaction or protection against concurrent external filesystem writers.
+
         Raises:
+            RuntimeError: Workspace rollback failed; the error names the retained
+                recovery entry when one was displaced.
             OSError: If this config was decoded by a guessed codec and its
                 original bytes could not be backed up. The save is abandoned so
                 the unrecoverable bytes stay on disk; only a config that already
@@ -367,67 +479,34 @@ class ChatConfig:
         # Use atomic write: write to temp file, then rename
         # This prevents corruption if process is interrupted during write
         # (e.g., daemon thread killed on exit while saving)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="",
-            dir=self._logdir,
-            suffix=".toml.tmp",
-            delete=False,
-        ) as f:
-            temp_path = Path(f.name)
-            tomlkit.dump(doc, f)
-            # Ensure data is flushed to disk before rename
-            f.flush()
-            os.fsync(f.fileno())
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                dir=self._logdir,
+                suffix=".toml.tmp",
+                delete=False,
+            ) as f:
+                temp_path = Path(f.name)
+                tomlkit.dump(doc, f)
+                # Ensure data is flushed to disk before rename
+                f.flush()
+                os.fsync(f.fileno())
 
-        # Atomic rename (POSIX guarantees atomicity, Windows may not)
-        temp_path.replace(chat_config_path)
-
-        # Set the workspace symlink in the logdir
-        workspace_path = self._logdir / "workspace"
-
-        # Only create symlink if workspace is different from the log workspace
-        if self.workspace != workspace_path:
-            # Use is_symlink() too: exists() follows symlinks and returns False
-            # for a dangling one (e.g. a tmp workspace that was cleaned up),
-            # which would skip removal and make symlink_to raise FileExistsError.
-            if workspace_path.is_symlink() or workspace_path.exists():
-                if workspace_path.is_dir() and not workspace_path.is_symlink():
-                    try:
-                        # If it's an empty directory (e.g., auto-created by
-                        # from_logdir for a new conversation), it's safe to
-                        # remove and replace with a symlink.
-                        workspace_path.rmdir()
-                    except OSError:
-                        raise ValueError(
-                            f"Workspace directory '{workspace_path}' already exists and contains data. "
-                            "Cannot change workspace when directory is in use. "
-                            "Please move or rename the existing directory first."
-                        ) from None
-                else:
-                    # It's a file or symlink, safe to remove
-                    workspace_path.unlink()
-            try:
-                workspace_path.symlink_to(self.workspace)
-            except OSError as err:
-                # Only suppress the specific Windows privilege error (WinError 1314:
-                # ERROR_PRIVILEGE_NOT_HELD) where non-admin users cannot create symlinks
-                # without Developer Mode enabled. The canonical workspace path is safely
-                # preserved in config.toml, which LogManager falls back to.
-                if getattr(err, "winerror", None) == 1314 or (
-                    sys.platform == "win32" and isinstance(err, PermissionError)
-                ):
+            # Reconcile the workspace first; a rejected transition must not publish
+            # config. A failed atomic rename restores the displaced namespace.
+            with self._workspace_transition():
+                temp_path.replace(chat_config_path)
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError as error:
                     logger.warning(
-                        f"Could not create workspace symlink '{workspace_path}' -> '{self.workspace}': {err}"
+                        "Could not remove config staging file %s: %s", temp_path, error
                     )
-                else:
-                    raise
-        else:
-            # Workspace IS the log workspace — ensure the directory exists
-            # (from_logdir creates it for new conversations, but callers
-            # constructing ChatConfig directly may not have)
-            ensure_workspace_dir(self.workspace)
 
         return self
 
