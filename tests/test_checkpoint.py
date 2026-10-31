@@ -415,7 +415,9 @@ def test_cli_list_empty_repo(clean_repo):
 
 
 @pytest.mark.parametrize("query", ["root", "head", "status", "worktree", "submodule"])
-@pytest.mark.parametrize("failure", ["nonzero", "missing", "permission", "timeout"])
+@pytest.mark.parametrize(
+    "failure", ["nonzero", "missing", "permission", "timeout", "decode"]
+)
 @pytest.mark.parametrize("include_dirty", [False, True])
 def test_failed_inspection_refuses_operations(
     clean_repo, monkeypatch, query, failure, include_dirty
@@ -448,6 +450,8 @@ def test_failed_inspection_refuses_operations(
                 raise PermissionError("synthetic denied git")
             if failure == "timeout":
                 raise subprocess.TimeoutExpired(command, 30)
+            if failure == "decode":
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
             return subprocess.CompletedProcess(
                 command, 128, "", "synthetic query error"
             )
