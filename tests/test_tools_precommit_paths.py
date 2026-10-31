@@ -330,6 +330,42 @@ def test_nested_config_reaches_real_hook(
     assert sorted(hook_repo.recorded_files()) == sorted(expected)
 
 
+@pytest.mark.parametrize("all_files", [False, True])
+@pytest.mark.parametrize("root_config", [False, True])
+def test_nested_native_prek_config(
+    hook_repo: HookRepo,
+    monkeypatch: pytest.MonkeyPatch,
+    all_files: bool,
+    root_config: bool,
+) -> None:
+    executable = runner_executable("prek")
+    monkeypatch.setattr(precommit, "PRECOMMIT_RUNNERS", ("prek",))
+    monkeypatch.setattr(precommit, "get_precommit_runner", lambda: executable)
+    monkeypatch.setenv("GPTME_CHECK", "true")
+    (hook_repo.root / ".pre-commit-config.yaml").unlink()
+    entry = json.dumps(shlex.join([sys.executable, "record_hook.py"]))
+    hook_repo.write(
+        "service/prek.toml",
+        '[[repos]]\nrepo = "local"\n[[repos.hooks]]\n'
+        'id = "record-and-reject"\nname = "Record and reject"\n'
+        f'language = "system"\nentry = {entry}\n'
+        "files = '\\.txt$'\nrequire_serial = true\n",
+    )
+    if root_config:
+        hook_repo.write("prek.toml", "repos = []\n")
+    hook_repo.write("service/changed.txt", "baseline\n")
+    hook_repo.checkpoint()
+    hook_repo.write("service/changed.txt", "REJECT\n")
+    monkeypatch.chdir(hook_repo.root / "service")
+    success, output = precommit.run_precommit_checks(all_files=all_files)
+    assert success is False
+    assert output is not None and "REJECTED TARGET" in output, output
+    expected = ["service/changed.txt"]
+    if all_files:
+        expected.append("clean-sentinel.txt")
+    assert sorted(hook_repo.recorded_files()) == sorted(expected)
+
+
 @pytest.mark.parametrize("runner_name", ["pre-commit", "prek"])
 def test_nested_config_turn_post_blocks_autocommit(
     hook_repo: HookRepo, runner_name: str, monkeypatch: pytest.MonkeyPatch

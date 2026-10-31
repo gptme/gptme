@@ -219,9 +219,17 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
     if root is not None:
         # Keep the caller's nearest config when execution moves to the Git root.
         # Do not import configuration from outside this repository.
+        config_names = (
+            ("prek.toml", ".pre-commit-config.yaml")
+            if Path(runner).name.lower() in ("prek", "prek.exe")
+            else (".pre-commit-config.yaml",)
+        )
         for parent in (Path.cwd(), *Path.cwd().parents):
-            config = parent / ".pre-commit-config.yaml"
-            if config.is_file():
+            config = next(
+                (parent / name for name in config_names if (parent / name).is_file()),
+                None,
+            )
+            if config is not None:
                 if parent != root:
                     cmd[2:2] = ["--config", str(config)]
                 break
