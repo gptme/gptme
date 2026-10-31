@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, TypedDict
+from typing import Literal, TypedDict
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
 
@@ -117,7 +117,7 @@ class PanelHint(TypedDict, total=False):
     sandbox: list[str]
     allow: str | None
     resize: Literal["auto", "fixed"] | None
-    bootstrap: dict[str, Any] | None
+    bootstrap: dict[str, object] | None
     icon: str | None
 
 
@@ -197,6 +197,8 @@ class MessageMetadata(TypedDict, total=False):
     Metadata stored with each message.
 
     All fields are optional for compact storage - only non-None values are serialized.
+    Opaque payload values use ``object`` so consumers must narrow their types
+    before use, while unknown provider/plugin fields remain intact.
 
     Token/cost fields are populated for assistant messages when telemetry is enabled.
 
@@ -269,7 +271,7 @@ class MessageMetadata(TypedDict, total=False):
     # actually shaped the request. Absent means the provider default applied.
     reasoning_effort: str
     timings: MessageTimings  # Per-step timing breakdown (ttft_ms, gen_ms, tool_ms, …)
-    voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
+    voice_call: dict[str, object]  # Voice call metadata (call_sid, source, etc.)
     artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
     panel_hints: list[PanelHint]
     tool: str  # tool that produced this result message
@@ -294,7 +296,7 @@ class MessageMetadata(TypedDict, total=False):
     resume_key: str
     # Signed Anthropic native-compaction block (compact-2026-09-04 beta),
     # round-tripped verbatim as the first content block of later requests.
-    anthropic_compaction_block: dict[str, Any]
+    anthropic_compaction_block: dict[str, object]
     # Responses-only replay data. Consumers validate current content before use.
     responses_output: ResponsesOutput
 
