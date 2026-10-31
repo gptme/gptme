@@ -404,7 +404,8 @@ class ImageConverter(Converter):
         single_frame = dest_ext in ("png", "jpg", "jpeg")
 
         if avail.ffmpeg:
-            cmd = ["ffmpeg", "-y", "-i", _arg(src)]
+            # Absolute local paths cannot be interpreted as protocol URLs.
+            cmd = ["ffmpeg", "-y", "-i", str(src.absolute())]
             if single_frame:
                 cmd += ["-frames:v", "1"]
             if dest_ext != "gif":
@@ -736,7 +737,8 @@ class VideoThumbnailConverter(Converter):
             "ffmpeg",
             "-y",
             "-i",
-            _arg(src),
+            # Keep protocol-shaped local filenames literal, as for image input.
+            str(src.absolute()),
             "-vframes",
             "1",
             # Disable image2's %d/%03d filename expansion for this single output.
