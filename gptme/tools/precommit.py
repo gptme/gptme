@@ -31,6 +31,7 @@ Or configure pre-commit checks via: GPTME_CHECK=true
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -118,7 +119,24 @@ def run_checks_per_file() -> bool:
     )
 
 
-def _get_modified_files() -> list[str]:
+def _get_repo_root() -> Path | None:
+    """Resolve the root without stripping meaningful path whitespace."""
+    try:
+        result = subprocess.run(
+            [GIT_CMD, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout:
+            # Git appends exactly one LF; the path itself can end with LF too.
+            return Path(os.fsdecode(result.stdout.removesuffix(b"\n")))
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        logger.debug("Failed to get repository root from git")
+    return None
+
+
+def _get_modified_files(root: Path | None = None) -> list[str]:
     """Get list of modified, staged, and untracked files in the git working tree.
 
     Returns a combined list of:
@@ -126,33 +144,35 @@ def _get_modified_files() -> list[str]:
     - Staged files (in the index, ready to commit)
     - Untracked files (new files not yet tracked)
     """
+    root = root if root is not None else _get_repo_root()
+    if root is None:
+        return []
     files: set[str] = set()
-    try:
-        # Modified (unstaged) + staged files
-        result = subprocess.run(
-            [GIT_CMD, "diff", "--name-only", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            files.update(result.stdout.strip().splitlines())
+    # Separate index/worktree diffs also work before the first commit and retain
+    # paths whose staged and unstaged changes cancel relative to HEAD.
+    for args in (
+        ["diff", "--name-only", "-z"],
+        ["diff", "--cached", "--name-only", "-z"],
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+    ):
+        try:
+            result = subprocess.run(
+                [GIT_CMD, *args],
+                cwd=root,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                files.update(
+                    os.fsdecode(path) for path in result.stdout.split(b"\0") if path
+                )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            logger.debug("Failed to get modified files from git")
 
-        # Untracked files (new files not yet added to git)
-        result = subprocess.run(
-            [GIT_CMD, "ls-files", "--others", "--exclude-standard"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            files.update(result.stdout.strip().splitlines())
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        logger.debug("Failed to get modified files from git")
-
-    return sorted(files)
+    # Deleted paths cannot be checked; keep surviving changes, including dangling
+    # symlinks (the runner decides which configured hooks apply to them).
+    return sorted(path for path in files if os.path.lexists(root / path))
 
 
 def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
@@ -182,19 +202,24 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         logger.debug("No pre-commit runner available")
         return False, None
 
+    root = _get_repo_root()
     if all_files:
         cmd = [runner, "run", "--all-files"]
     else:
-        modified = _get_modified_files()
+        modified = _get_modified_files(root)
         if modified:
-            cmd = [runner, "run", "--files", *modified]
+            # Both runners parse leading dashes as options even after --files.
+            paths = [f"./{path}" if path.startswith("-") else path for path in modified]
+            cmd = [runner, "run", "--files", *paths]
         else:
             logger.debug("No modified files found, falling back to --all-files")
             cmd = [runner, "run", "--all-files"]
     start_time = time.monotonic()
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+        subprocess.run(
+            cmd, cwd=root, capture_output=True, text=True, check=True, timeout=300
+        )
         return True, None  # No issues found
     except subprocess.TimeoutExpired:
         logger.error("Pre-commit checks timed out after 300s")
