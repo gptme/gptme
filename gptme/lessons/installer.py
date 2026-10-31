@@ -9,6 +9,7 @@ Supports installing skills from:
 import logging
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -287,18 +288,26 @@ def _install_local_skill(
     # or symlink to another device. Hidden directories are excluded by discovery.
     staging: Path | None = None
     manifest_staging: Path | None = None
+    staged: Path | None = None
     backup: Path | None = None
     published = False
     preserve_backup = False
     try:
         staging = Path(tempfile.mkdtemp(prefix=".skill-install-", dir=skills_dir))
-        staged = staging / "new"
+        copied = staging / "new"
         backup = staging / "old"
         manifest_path = get_manifest_path()
         manifest_staging = Path(
             tempfile.mkdtemp(prefix=".skill-manifest-", dir=manifest_path.parent)
         )
-        shutil.copytree(local_path, staged, symlinks=True)
+        shutil.copytree(local_path, copied, symlinks=True)
+        # Validate at the destination depth so preserved relative links resolve
+        # as they will after publication. Keep the tree private until then.
+        tree_mode = stat.S_IMODE(copied.stat().st_mode)
+        copied.chmod(0o700)
+        staged = Path(tempfile.mkdtemp(prefix=".skill-new-", dir=skills_dir))
+        staged.rmdir()
+        copied.rename(staged)
         errors = [
             e
             for e in validate_skill(staged)
@@ -326,7 +335,14 @@ def _install_local_skill(
         )
         staged_manifest = manifest_staging / MANIFEST_FILE
         manifest.save(staged_manifest)
+        manifest_mode = (
+            stat.S_IMODE(manifest_path.stat().st_mode)
+            if manifest_path.exists()
+            else 0o600
+        )
+        staged_manifest.chmod(manifest_mode)
 
+        staged.chmod(tree_mode)
         if dest.exists() or dest.is_symlink():
             dest.rename(backup)
         staged.rename(dest)
@@ -336,6 +352,7 @@ def _install_local_skill(
     except (OSError, shutil.Error) as exc:
         try:
             if published:
+                dest.chmod(0o700)
                 shutil.rmtree(dest)
             if backup is not None and (backup.exists() or backup.is_symlink()):
                 backup.rename(dest)
@@ -347,9 +364,15 @@ def _install_local_skill(
             )
         return False, f"Failed to install skill: {exc}"
     finally:
-        for directory in (manifest_staging, None if preserve_backup else staging):
-            if directory is not None:
+        for directory in (
+            staged if not published else None,
+            manifest_staging,
+            None if preserve_backup else staging,
+        ):
+            if directory is not None and directory.exists():
                 try:
+                    if directory == staged:
+                        directory.chmod(0o700)
                     shutil.rmtree(directory)
                 except OSError as exc:
                     logger.warning(

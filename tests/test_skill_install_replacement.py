@@ -135,7 +135,7 @@ def test_publication_failure_preserves_prior_state(
 
     def fail_rename(self: Path, target: Path) -> Path:
         if (failure == "backup-rename" and self == dest) or (
-            failure == "publish-rename" and target == dest and self.name == "new"
+            failure == "publish-rename" and target == dest and self.name != "old"
         ):
             raise OSError("injected rename failure")
         return real_rename(self, target)
@@ -384,7 +384,7 @@ def test_skills_on_another_filesystem(
     assert not list(skills_dir.parent.glob(".skill-*"))
 
 
-@pytest.mark.parametrize("failure_number", [1, 2])
+@pytest.mark.parametrize("failure_number", [1, 2, 3])
 def test_staging_creation_failure_returns_clean_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_number: int
 ) -> None:
@@ -410,3 +410,171 @@ def test_staging_creation_failure_returns_clean_error(
     assert installer.get_manifest_path().read_bytes() == manifest
     assert list(installer.get_skills_dir().iterdir()) == [dest]
     assert not list(installer.get_skills_dir().parent.glob(".skill-*"))
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_relative_metadata_symlink_keeps_publication_coordinates(
+    tmp_path: Path, force: bool
+) -> None:
+    if force:
+        dest, _ = installed_pair(tmp_path)
+    else:
+        dest = installer.get_skills_dir() / "demo"
+    source = make_skill(tmp_path / "sources" / "demo", "2")
+    common = make_skill(source.parent / "common", "source-version")
+    installed_common = installer.get_skills_dir() / "common"
+    installed_common.mkdir(parents=True)
+    (installed_common / "SKILL.md").write_text(
+        (common / "SKILL.md").read_text().replace("source-version", "2")
+    )
+    (source / "SKILL.md").unlink()
+    (source / "SKILL.md").symlink_to("../common/SKILL.md")
+
+    ok, message = installer.install_skill(str(source), force=force)
+
+    assert ok, message
+    assert (dest / "SKILL.md").is_symlink()
+    assert (dest / "SKILL.md").readlink() == Path("../common/SKILL.md")
+    assert (dest / "SKILL.md").read_bytes() == (
+        installed_common / "SKILL.md"
+    ).read_bytes()
+    assert installer.get_manifest().skills["demo"].version == "2"
+    assert not list(installer.get_skills_dir().glob(".skill-*"))
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o640])
+def test_local_install_preserves_existing_manifest_mode(
+    tmp_path: Path, mode: int
+) -> None:
+    import stat
+
+    _, source = installed_pair(tmp_path)
+    manifest_path = installer.get_manifest_path()
+    manifest_path.chmod(mode)
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert ok, message
+    assert stat.S_IMODE(manifest_path.stat().st_mode) == mode
+
+
+def test_new_local_manifest_is_private(tmp_path: Path) -> None:
+    import stat
+
+    source = make_skill(tmp_path / "source")
+    ok, message = installer.install_skill(str(source))
+    assert ok, message
+    assert stat.S_IMODE(installer.get_manifest_path().stat().st_mode) == 0o600
+
+
+def test_validation_tree_is_private_and_published_mode_is_preserved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import stat
+
+    source = make_skill(tmp_path / "source")
+    source.chmod(0o755)
+    real_validate = installer.validate_skill
+    validated = []
+
+    def check_private(path: Path) -> list[str]:
+        assert path.parent == installer.get_skills_dir()
+        assert stat.S_IMODE(path.stat().st_mode) == 0o700
+        validated.append(path)
+        return real_validate(path)
+
+    monkeypatch.setattr(installer, "validate_skill", check_private)
+    ok, message = installer.install_skill(str(source))
+    assert ok, message
+    assert len(validated) == 1
+    assert stat.S_IMODE((installer.get_skills_dir() / "demo").stat().st_mode) == 0o755
+    assert not validated[0].exists()
+
+
+@pytest.mark.parametrize("failure", ["tree-mode", "manifest-mode", "final-tree-mode"])
+def test_permission_preparation_failure_preserves_prior_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest_path = installer.get_manifest_path()
+    manifest = manifest_path.read_bytes()
+    real_chmod = Path.chmod
+
+    def fail_chmod(self: Path, mode: int, **kwargs: object) -> None:
+        if (
+            (failure == "tree-mode" and self.name == "new")
+            or (failure == "manifest-mode" and self.name == installer.MANIFEST_FILE)
+            or (
+                failure == "final-tree-mode"
+                and self.name.startswith(".skill-new-")
+                and mode != 0o700
+            )
+        ):
+            raise OSError("injected permission preparation failure")
+        real_chmod(self, mode)
+
+    monkeypatch.setattr(Path, "chmod", fail_chmod)
+    ok, message = installer.install_skill(str(source), force=True)
+    assert not ok, message
+    assert "permission preparation failure" in message
+    assert snapshot(dest) == before
+    assert manifest_path.read_bytes() == manifest
+    assert list(installer.get_skills_dir().iterdir()) == [dest]
+
+
+def test_relative_metadata_is_validated_in_installed_context(tmp_path: Path) -> None:
+    dest, _ = installed_pair(tmp_path)
+    source = make_skill(tmp_path / "sources" / "demo", "2")
+    make_skill(source.parent / "common", "2")
+    common = installer.get_skills_dir() / "common"
+    common.mkdir()
+    (common / "SKILL.md").write_text("---\nname: demo\n---\n# Invalid\n")
+    (source / "SKILL.md").unlink()
+    (source / "SKILL.md").symlink_to("../common/SKILL.md")
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert "Missing required field: description" in message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+    assert not list(installer.get_skills_dir().glob(".skill-*"))
+
+
+@pytest.mark.parametrize("failure", ["publish-tree", "publish-manifest"])
+def test_readonly_source_failure_cleans_tree_and_restores_prior_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    source.chmod(0o555)
+    before = snapshot(dest)
+    manifest_path = installer.get_manifest_path()
+    manifest = manifest_path.read_bytes()
+    real_rename = Path.rename
+    real_replace = Path.replace
+
+    def fail_rename(self: Path, target: Path) -> Path:
+        if failure == "publish-tree" and target == dest and self.name != "old":
+            raise OSError("injected tree publication failure")
+        return real_rename(self, target)
+
+    def fail_replace(self: Path, target: Path) -> Path:
+        if failure == "publish-manifest" and target == manifest_path:
+            raise OSError("injected manifest publication failure")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "rename", fail_rename)
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    try:
+        ok, message = installer.install_skill(str(source), force=True)
+        assert not ok, message
+        assert snapshot(dest) == before
+        assert manifest_path.read_bytes() == manifest
+        assert list(installer.get_skills_dir().iterdir()) == [dest]
+    finally:
+        source.chmod(0o755)
+        for leftover in installer.get_skills_dir().glob(".skill-new-*"):
+            leftover.chmod(0o700)
