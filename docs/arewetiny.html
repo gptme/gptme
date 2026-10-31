@@ -681,20 +681,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory '/home/runner/work/gptme/gptme'
 Benchmarking import time for gptme
 time uv run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep "import time" | cut -d'|' -f 2- | sort -n | tail -n 10
-     164833 |     anthropic.types
-     166384 |     gptme.lessons
-     166554 |   gptme.lessons.selector
-     166850 | gptme
-     261814 |           anthropic.types.beta
-     261856 |         anthropic.types.beta.beta_message
-     263688 |       anthropic.lib.middleware._fallbacks
-     263777 |     anthropic.lib.middleware
-     682438 |   anthropic
-     682455 | anthropic._types
+     212522 |     gptme.lessons
+     212761 |   gptme.lessons.selector
+     213174 | gptme
+     248049 |     anthropic.types
+     387075 |           anthropic.types.beta
+     387114 |         anthropic.types.beta.beta_message
+     389485 |       anthropic.lib.middleware._fallbacks
+     389651 |     anthropic.lib.middleware
+     983128 |   anthropic
+     983150 | anthropic._types
 
-real	0m1.300s
-user	0m1.115s
-sys	0m0.131s
+real	0m1.761s
+user	0m1.534s
+sys	0m0.257s
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
 </div>
@@ -702,21 +702,23 @@ make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 make[2]: Entering directory '/home/runner/work/gptme/gptme'
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     209.0 ms ±   4.8 ms    [User: 190.8 ms, System: 18.2 ms]
-  Range (min … max):   203.2 ms … 218.5 ms    10 runs
+  Time (mean ± σ):     276.1 ms ±  24.0 ms    [User: 240.4 ms, System: 35.6 ms]
+  Range (min … max):   262.3 ms … 325.8 ms    10 runs
+ 
+  Warning: The first benchmarking run for this command was significantly slower than the rest (316.9 ms). This could be caused by (filesystem) caches that were not filled until after the first run. You are already using the '--warmup' option which helps to fill these caches before the actual benchmark. You can either try to increase the warmup count further or re-run this benchmark on a quiet system in case it was a random outlier. Alternatively, consider using the '--prepare' option to clear the caches before each timing run.
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):      1.071 s ±  0.006 s    [User: 0.983 s, System: 0.088 s]
-  Range (min … max):    1.065 s …  1.082 s    10 runs
+  Time (mean ± σ):      1.565 s ±  0.024 s    [User: 1.374 s, System: 0.191 s]
+  Range (min … max):    1.526 s …  1.621 s    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      2.334 s ±  0.097 s    [User: 2.448 s, System: 0.863 s]
-  Range (min … max):    2.262 s …  2.527 s    10 runs
+  Time (mean ± σ):      3.216 s ±  0.034 s    [User: 3.285 s, System: 1.565 s]
+  Range (min … max):    3.174 s …  3.281 s    10 runs
  
 Summary
   import gptme.cli.main ran
-    5.12 ± 0.12 times faster than gptme --help
-   11.16 ± 0.53 times faster than full start/exit cycle
+    5.67 ± 0.50 times faster than gptme --help
+   11.64 ± 1.02 times faster than full start/exit cycle
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
 </div>
@@ -4084,7 +4086,7 @@ Clone found (python)
 │ Total:     │ 605            │ 241968      │ 1240296      │ 212          │ 2775 (1.15%)     │ 14772 (1.19%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 212 clones.
-time: 490.110ms
+time: 568.239ms
 make[3]: Leaving directory '/home/runner/work/gptme/gptme'
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
