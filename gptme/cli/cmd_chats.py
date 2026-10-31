@@ -470,7 +470,7 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         gptme-util chats clean --delete         # Delete empty conversations
         gptme-util chats clean --include-test   # Include test/eval conversations
     """
-    from ..logmanager import delete_conversation  # fmt: skip
+    from ..logmanager.cleanup import delete_empty_conversation
 
     _ensure_tools()
 
@@ -504,7 +504,9 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         if delete:
             for r in results:
                 try:
-                    if delete_conversation(r["conversation"].id):
+                    if delete_empty_conversation(
+                        r["conversation"].id, max_messages=max_messages
+                    ):
                         deleted_count += 1
                         freed_bytes += r["size_bytes"]
                 except PermissionError as e:
@@ -548,7 +550,7 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         for r in results:
             conv_id = r["conversation"].id
             try:
-                if delete_conversation(conv_id):
+                if delete_empty_conversation(conv_id, max_messages=max_messages):
                     deleted += 1
                     freed_bytes += r["size_bytes"]
             except PermissionError as e:

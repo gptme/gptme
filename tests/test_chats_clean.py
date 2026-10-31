@@ -51,7 +51,9 @@ def test_find_empty_filters_by_message_count(tmp_path: Path):
     for name in ["empty", "one-msg", "two-msg", "full"]:
         conv_dir = tmp_path / name
         conv_dir.mkdir()
-        (conv_dir / "conversation.jsonl").write_text("x" * 100)
+        (conv_dir / "conversation.jsonl").write_text(
+            json.dumps({"role": "system", "content": "fixture"}) + "\n"
+        )
 
     convs = [
         _make_conv("empty", 0, path=str(tmp_path / "empty" / "conversation.jsonl")),
@@ -79,7 +81,8 @@ def test_find_empty_calculates_size(tmp_path: Path):
     """Size calculation includes all files in conversation directory."""
     conv_dir = tmp_path / "test-conv"
     conv_dir.mkdir()
-    (conv_dir / "conversation.jsonl").write_text("a" * 500)
+    transcript = json.dumps({"role": "system", "content": "a" * 500}) + "\n"
+    (conv_dir / "conversation.jsonl").write_text(transcript)
     (conv_dir / "metadata.json").write_text("b" * 200)
 
     conv = _make_conv("test-conv", 0, path=str(conv_dir / "conversation.jsonl"))
@@ -87,7 +90,7 @@ def test_find_empty_calculates_size(tmp_path: Path):
     with patch("gptme.logmanager.get_conversations", return_value=iter([conv])):
         results = find_empty_conversations(include_test=True)
         assert len(results) == 1
-        assert results[0]["size_bytes"] == 700
+        assert results[0]["size_bytes"] == len(transcript.encode()) + 200
 
 
 def test_find_empty_uses_user_conversations():
@@ -156,12 +159,14 @@ def test_cli_clean_delete(mock_empty_convs):
             return_value=mock_empty_convs,
         ),
         patch("gptme.cli.cmd_chats._ensure_tools"),
-        patch("gptme.logmanager.delete_conversation", return_value=True) as mock_delete,
+        patch(
+            "gptme.logmanager.cleanup.delete_empty_conversation", return_value=True
+        ) as mock_delete,
     ):
         result = runner.invoke(chats_clean, ["--delete"])
         assert result.exit_code == 0
         assert "Deleted 1" in result.output
-        mock_delete.assert_called_once_with("empty-chat")
+        mock_delete.assert_called_once_with("empty-chat", max_messages=1)
 
 
 def test_cli_clean_no_results():
@@ -220,7 +225,7 @@ def test_cli_clean_json_delete(mock_empty_convs):
             return_value=mock_empty_convs,
         ),
         patch("gptme.cli.cmd_chats._ensure_tools"),
-        patch("gptme.logmanager.delete_conversation", return_value=True),
+        patch("gptme.logmanager.cleanup.delete_empty_conversation", return_value=True),
     ):
         result = runner.invoke(chats_clean, ["--json", "--delete"])
         assert result.exit_code == 0
