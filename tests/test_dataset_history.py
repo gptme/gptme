@@ -158,9 +158,10 @@ def history(
             last = _commit(
                 repo, "program.py", "import dependency\nprint(dependency.value)\n", True
             )
-            # Ignore inherited PYTHONPATH while retaining normal local imports.
+            # Exclude inherited PYTHONPATH and installed site-packages while
+            # retaining local imports, so only the fixture supplies dependency.
             original = subprocess.run(
-                [sys.executable, "-E", "program.py"],
+                [sys.executable, "-E", "-S", "program.py"],
                 cwd=repo,
                 check=True,
                 capture_output=True,
@@ -173,7 +174,7 @@ def history(
                 _git(replay, "cherry-pick", first, last)
                 assert not (replay / "dependency.py").exists()
                 result = subprocess.run(
-                    [sys.executable, "-E", "program.py"],
+                    [sys.executable, "-E", "-S", "program.py"],
                     cwd=replay,
                     check=False,
                     capture_output=True,
