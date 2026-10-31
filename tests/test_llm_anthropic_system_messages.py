@@ -1,11 +1,12 @@
 """Anthropic native system messages must respect turn and tool-result placement."""
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal
 
 import httpx2
 import pytest
 from anthropic import Anthropic
 from pydantic import TypeAdapter
+from typing_extensions import NotRequired, TypedDict
 
 from gptme.llm import llm_anthropic
 from gptme.message import Message
