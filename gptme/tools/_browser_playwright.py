@@ -39,6 +39,7 @@ _current_page: Page | None = None
 _current_context: BrowserContext | None = None
 logger = logging.getLogger(__name__)
 _inline_data_image = re.compile(r"!\[[^\]]*\]\(data:image[^)]*\)")
+_OPEN_PAGE_HEADERS = {"Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"}
 
 
 def _is_cdp_connection() -> bool:
@@ -581,7 +582,12 @@ def aria_snapshot(url: str) -> str:
 
 
 def _close_current_page() -> None:
-    """Close the current persistent page and context if open."""
+    """Close the current persistent page and owned context if open.
+
+    Explicit reset used by ``close_page()``, failed allowlist checks, and
+    ``load_browser_state()``. Ordinary ``open_page()`` navigation reuses the
+    live session instead of calling this.
+    """
     global _current_page, _current_context
     if _current_page is not None:
         try:
@@ -595,6 +601,56 @@ def _close_current_page() -> None:
         except Exception:
             pass
         _current_context = None
+
+
+def _interactive_page_is_live() -> bool:
+    """Return True if the interactive page handle can be navigated."""
+    if _current_page is None:
+        return False
+    try:
+        return not _current_page.is_closed()
+    except Exception:
+        return False
+
+
+def _live_interactive_context() -> BrowserContext | None:
+    """Return the current interactive context that should survive navigation.
+
+    Launched browsers own ``_current_context``. CDP reuses the session context
+    without taking ownership (``_current_context`` stays None).
+    """
+    if _current_context is not None:
+        return _current_context
+    if _is_cdp_connection() and _browser is not None:
+        return _browser._session_context
+    return None
+
+
+def _drop_current_page_handle() -> None:
+    """Close the current page without discarding the session context."""
+    global _current_page
+    if _current_page is not None:
+        try:
+            _current_page.close()
+        except Exception:
+            pass
+        _current_page = None
+
+
+def _goto_and_snapshot(url: str) -> str:
+    """Navigate the current interactive page and return its ARIA snapshot."""
+    if _current_page is None:
+        raise RuntimeError("No page is currently open")
+    try:
+        _current_page.goto(url)
+        # A redirect may land outside the allowlist; reject the final URL.
+        _validate_page_url(_current_page.url)
+    except Exception as e:
+        _close_current_page()
+        if isinstance(e, ValueError):
+            raise
+        raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
+    return _page_snapshot()
 
 
 def _page_snapshot() -> str:
@@ -633,33 +689,42 @@ def read_page_text() -> str:
 
 
 def _open_page(browser: Browser, url: str) -> str:
-    """Open a page for interactive browsing and return its ARIA snapshot."""
+    """Open a page for interactive browsing and return its ARIA snapshot.
+
+    Ordinary navigation reuses the live interactive context so cookies and
+    localStorage from login survive a second ``open_page()``. Explicit
+    ``close_page()`` / ``load_browser_state()`` still reset or replace it by
+    clearing the page/context globals first.
+    """
     global _current_page, _current_context
 
-    _close_current_page()
+    if _interactive_page_is_live():
+        return _goto_and_snapshot(url)
 
+    ctx = _live_interactive_context()
+    if ctx is not None:
+        # Page is gone; keep the session and open a new tab in it.
+        _drop_current_page_handle()
+        try:
+            page = ctx.new_page()
+            page.set_extra_http_headers(_OPEN_PAGE_HEADERS)
+        except Exception as e:
+            _close_current_page()
+            raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
+        _current_page = page
+        return _goto_and_snapshot(url)
+
+    # First open, or after explicit close/reset/state replacement.
+    _close_current_page()
     managed = _create_page(
         browser,
         **get_context_options(),
-        extra_http_headers={
-            "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
-        },
+        extra_http_headers=_OPEN_PAGE_HEADERS,
     )
     # Store page/context for interactive use; don't auto-close via ManagedPage
     _current_page = managed.page
     _current_context = managed._owned_context
-
-    try:
-        _current_page.goto(url)
-        # A redirect may land outside the allowlist; reject the final URL.
-        _validate_page_url(_current_page.url)
-    except Exception as e:
-        _close_current_page()
-        if isinstance(e, ValueError):
-            raise
-        raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
-
-    return _page_snapshot()
+    return _goto_and_snapshot(url)
 
 
 def _do_close_page(browser: Browser) -> str:
@@ -826,6 +891,10 @@ def open_page(url: str) -> str:
     Use this instead of read_url() when you need to interact with the page
     (click buttons, fill forms, scroll). The page stays open for subsequent
     click_element(), fill_element(), and scroll_page() calls.
+
+    Subsequent calls navigate the current interactive session, so cookies and
+    localStorage from login survive. ``close_page()`` and
+    ``load_browser_state()`` start a fresh context.
     """
     logger.info(f"Opening page for interaction: '{url}'")
     _validate_entry_url(url)
