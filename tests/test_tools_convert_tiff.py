@@ -236,3 +236,37 @@ def test_non_tiff_size_limit_keeps_backend_choice(
         assert len(list(ImageSequence.Iterator(image))) == 1
         assert image.size == (16, 16)
         assert image.convert("RGB").getpixel((0, 0)) == COLORS[0]
+
+
+@pytest.mark.parametrize("backend", ["imagemagick", "both"])
+@pytest.mark.parametrize("bracket_in_directory", [False, True])
+def test_multipage_tiff_literal_bracket_source(
+    tmp_path: Path, backend: str, bracket_in_directory: bool
+) -> None:
+    """The inspected document, not a matching neighboring path, is converted."""
+    if not shutil.which("convert") or not shutil.which("ffmpeg"):
+        pytest.skip("real FFmpeg and ImageMagick required")
+    if bracket_in_directory:
+        source = tmp_path / "scan[0]" / "document.tiff"
+        neighbor = tmp_path / "scan0" / "document.tiff"
+    else:
+        source = tmp_path / "scan[0].tiff"
+        neighbor = tmp_path / "scan0.tiff"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    neighbor.parent.mkdir(parents=True, exist_ok=True)
+    frames = [Image.new("RGB", (16, 16), color) for color in COLORS[:2]]
+    frames[0].save(source, save_all=True, append_images=frames[1:])
+    Image.new("RGB", (16, 16), COLORS[2]).save(neighbor)
+    before = {path: path.read_bytes() for path in (source, neighbor)}
+    destination = tmp_path / "output.tiff"
+    availability = ToolAvailability(ffmpeg=backend == "both", imagemagick=True)
+    with patch("gptme.tools.convert.get_availability", return_value=availability):
+        result = convert_file(source, destination)
+    assert result.success, result.error
+    assert result.converter_used == "imagemagick"
+    with Image.open(destination) as image:
+        assert [
+            frame.convert("RGB").getpixel((0, 0))
+            for frame in ImageSequence.Iterator(image)
+        ] == COLORS[:2]
+    assert {path: path.read_bytes() for path in before} == before
