@@ -519,13 +519,18 @@ def _run_chat_loop(
                             manager.append(hook_msg)
 
                     # Process the message and get response
-                    _process_message_conversation(
+                    interrupted = _process_message_conversation(
                         manager,
                         stream,
                         tool_format,
                         model,
                         output_schema,
                     )
+                    if interrupted and parked_waiting:
+                        # Cancelling a resume is not permission to release held
+                        # intent, including the in-memory parking fallback.
+                        hold_queued_prompts = True
+                        continue
                     # Restore older held work before LOOP_CONTINUE appends new
                     # messages, preserving the queue's pre-failure FIFO order.
                     if parked_waiting:
@@ -682,11 +687,12 @@ def _process_message_conversation(
     tool_format: ToolFormat,
     model: str | None,
     output_schema: type | None = None,
-) -> None:
-    """Process a message and generate responses until no more tools to run.
+) -> bool:
+    """Process a message until no more tools remain; return whether interrupted.
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
+    interrupted = False
     max_steps: int | None = None
     max_steps_str = os.environ.get("GPTME_MAX_STEPS")
     if max_steps_str:
@@ -744,6 +750,7 @@ def _process_message_conversation(
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
+            interrupted = True
             break
         finally:
             clear_interruptible()
@@ -859,6 +866,7 @@ def _process_message_conversation(
             manager.append(msg)
     # Returning to the prompt acknowledges this turn, including hook output.
     manager.write(sync=True)
+    return interrupted
 
 
 def _has_pending_tooluse(log: Log) -> bool:

@@ -1,6 +1,10 @@
 """Offline chat integration: retry generations, never replay committed tool steps."""
 
 import importlib
+from collections.abc import Iterator
+from pathlib import Path
+from types import ModuleType
+from typing import Any
 from unittest.mock import Mock
 
 import httpx
@@ -352,6 +356,97 @@ def test_interactive_resume_runs_parked_prompt_once(offline, monkeypatch, tmp_pa
         "resume after failure",
         "parked follow-through",
     ]
+
+
+@pytest.mark.parametrize("park_fails", [False, True])
+@pytest.mark.parametrize("resume_again", [False, True])
+def test_interrupted_resume_keeps_parked_intent_held(
+    offline: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    park_fails: bool,
+    resume_again: bool,
+) -> None:
+    """A swallowed generation interrupt must not release held follow-through."""
+    from gptme.hooks import HookType
+    from gptme.logmanager import Log
+    from gptme.prompt_queue import drain_prompt_queue
+
+    chat = offline
+    manager = Mock()
+    manager.log = Log()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path
+    manager.append.side_effect = lambda msg: setattr(
+        manager, "log", manager.log.append(msg)
+    )
+    pending = Message("user", "parked follow-through")
+    queue = [Message("user", "initial work"), pending]
+    error = httpx.RemoteProtocolError("synthetic exhausted provider")
+    llm.mark_llm_reply_origin(error)
+    calls: list[str] = []
+    loop_calls: list[str] = []
+    post_calls: list[str] = []
+
+    def step(log: Log, *args: Any, **kwargs: Any) -> Iterator[Message]:
+        current = next(msg.content for msg in reversed(log) if msg.role == "user")
+        calls.append(current)
+        if current == "initial work":
+            raise error
+        if current == "cancel this resume":
+            raise KeyboardInterrupt
+        yield Message("assistant", f"ok:{current}")
+
+    def hook(hook_type: HookType, **kwargs: Any) -> list[Message]:
+        if hook_type == HookType.LOOP_CONTINUE:
+            loop_calls.append(calls[-1])
+        if hook_type == HookType.TURN_POST:
+            post_calls.append(calls[-1])
+        return []
+
+    def fail_park(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    inputs = ["cancel this resume", "/help"]
+    if resume_again:
+        inputs.append("resume successfully")
+
+    def prompt() -> str:
+        # No held work may run before the second explicit normal message.
+        if inputs:
+            assert calls == ["initial work"] or calls == [
+                "initial work",
+                "cancel this resume",
+            ]
+            return inputs.pop(0)
+        raise EOFError
+
+    def execute(msg: Message, manager: Mock) -> bool:
+        if msg.content == "/help":
+            manager.append(Message("system", "help text"))
+            return True
+        return False
+
+    if park_fails:
+        monkeypatch.setattr(chat, "requeue_prompts", fail_park)
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "include_paths", lambda msg, *args: msg)
+    monkeypatch.setattr(chat, "execute_cmd", execute)
+    monkeypatch.setattr(chat, "trigger_hook", hook)
+    monkeypatch.setattr(chat, "prompt_user", prompt)
+
+    chat._run_chat_loop(manager, queue, stream=False, interactive=True, logdir=tmp_path)
+
+    expected = ["initial work", "cancel this resume"]
+    if resume_again:
+        expected += ["resume successfully", pending.content]
+    assert calls == expected
+    assert loop_calls == (expected[2:] if resume_again else [])
+    assert post_calls == expected[1:]
+    held = queue if park_fails else drain_prompt_queue(tmp_path)
+    assert [msg.content for msg in held] == ([] if resume_again else [pending.content])
+    assert sum(msg.content == chat.INTERRUPT_CONTENT for msg in manager.log) == 1
 
 
 @pytest.mark.parametrize("park_fails", [False, True])
