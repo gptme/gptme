@@ -1,5 +1,6 @@
 """Tests for ``gptme-util memory migrate-knowledge-jsonl``."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -460,6 +461,63 @@ def test_migrate_existing_destination_belongs_to_another_identity(
     assert result.exit_code == 0, result.output
     assert ("skipped 1" if skip else "migrated 1") in result.output
     assert len(store.entries()) == 2
+
+
+@pytest.mark.parametrize("skip", [True, False])
+@pytest.mark.parametrize("invalid_utf8_first", [False, True])
+def test_migrate_preserves_unparseable_occupied_destinations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    skip: bool,
+    invalid_utf8_first: bool,
+) -> None:
+    root = tmp_path / "memory"
+    root.mkdir()
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(root))
+    row = {**_ENTRY_A, "problem": "same topic"}
+    source = _make_jsonl(tmp_path / "entries.jsonl", [row])
+    source_before = source.read_bytes()
+    suffix = hashlib.sha256(f"id:{row['id']}".encode()).hexdigest()[:16]
+    occupied = [root / "same-topic.md", root / f"same-topic-{suffix}.md"]
+    payloads = [b"KEEP: no memory frontmatter\n", b"\xffKEEP BYTES\n"]
+    if invalid_utf8_first:
+        payloads.reverse()
+    before = dict(zip(occupied, payloads, strict=True))
+    for path, payload in before.items():
+        path.write_bytes(payload)
+    destination = root / f"same-topic-{suffix}-2.md"
+    args = ["memory", "migrate-knowledge-jsonl", str(source), "--scope", "explicit"]
+    if not skip:
+        args.append("--no-skip-existing")
+    runner = CliRunner()
+
+    dry = runner.invoke(util_main, [*args, "--dry-run"])
+    assert dry.exit_code == 0, dry.output
+    assert "would migrate 1, skipped 0" in dry.output
+    assert {p: p.read_bytes() for p in root.glob("*.md")} == before
+
+    result = runner.invoke(util_main, args)
+    assert result.exit_code == 0, result.output
+    assert "migrated 1, skipped 0" in result.output
+    assert {p: p.read_bytes() for p in occupied} == before
+    store = MemoryStore([MemoryRoot("explicit", root)])
+    entries = store.entries()
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.name == destination.stem
+    assert destination.exists()
+    assert str(row["problem"]) in entry.body
+    assert str(row["resolution"]) in entry.body
+    assert entry.metadata["provenance"]["original_id"] == row["id"]
+    published = {p: p.read_bytes() for p in root.glob("*.md")}
+
+    rerun = runner.invoke(util_main, args)
+    assert rerun.exit_code == 0, rerun.output
+    assert (
+        "migrated 0, skipped 1" if skip else "migrated 1, skipped 0"
+    ) in rerun.output
+    assert {p: p.read_bytes() for p in root.glob("*.md")} == published
+    assert source.read_bytes() == source_before
 
 
 @pytest.mark.parametrize("scope", [None, "user", "project"])
