@@ -49,6 +49,14 @@ describe('shared transcript fence boundaries', () => {
     expect(content.slice(block.end)).toBe('After');
   });
 
+  it('widens unequal tagged descendants without carrying widths across roots', () => {
+    const content =
+      '```markdown\n````text\n`````xml\nliteral\n`````\n````\n```text\nsibling\n```\n```\n```python\nordinary\n```';
+    expect(processNestedCodeBlocks(content).processedContent).toBe(
+      '```````markdown\n``````text\n`````xml\nliteral\n`````\n``````\n```text\nsibling\n```\n```````\n```python\nordinary\n```'
+    );
+  });
+
   it('can stop after the first outer block without classifying later content', () => {
     const content = '```text\nliteral\n```\n```shell\ncommand\n```';
     expect(scanMarkdownFences(content, true)).toHaveLength(1);
