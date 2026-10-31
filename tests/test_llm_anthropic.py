@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from typing import cast
 
 import httpx2
 import pytest
@@ -961,12 +962,14 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     assert text == "Hello"
 
 
-def test_chat_omits_unset_optional_sdk_parameters(monkeypatch):
+def test_chat_omits_unset_optional_sdk_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Unset tools and disabled reasoning stay absent from the SDK payload."""
-    payloads = []
+    payloads: list[dict[str, object]] = []
 
-    def serve(request):
-        payloads.append(json.loads(request.content))
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        payloads.append(cast(dict[str, object], json.loads(request.content)))
         return httpx2.Response(
             200,
             json={
