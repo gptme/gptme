@@ -30,6 +30,7 @@ def raster_kernel(
     workspace.mkdir()
     monkeypatch.chdir(workspace)
     monkeypatch.setenv("GPTME_IPYTHON_BACKEND", "kernel")
+    monkeypatch.setattr(py_mod, "_IPYTHON_BACKEND", "kernel")
     monkeypatch.setenv("GPTME_SANDBOX", "none")
     # The running interpreter has the dependencies checked above. Do not select
     # an unrelated project venv or bootstrap dependencies through uv.
@@ -206,6 +207,52 @@ def test_kernel_multiple_pngs(raster_kernel: LogManager) -> None:
     assert "Result:" in content and "42" in content
     assert _assert_rasters(messages, raster_kernel, 2) == [first, second]
     _assert_provider_roundtrip(messages, raster_kernel)
+
+
+@pytest.mark.parametrize("wait", [False, True])
+@pytest.mark.parametrize("replacement", [False, True])
+def test_kernel_clear_rasters(
+    raster_kernel: LogManager, wait: bool, replacement: bool
+) -> None:
+    first, second = _png("red"), _png("blue")
+    code = _image_code(first) + "display(image)\n"
+    code += f"from IPython.display import clear_output\nclear_output(wait={wait!r})\n"
+    if replacement:
+        code += _image_code(second) + "display(image)\n"
+    messages = _execute(code)
+    expected = [second] if replacement else ([first] if wait else [])
+    assert _assert_rasters(messages, raster_kernel, len(expected)) == expected
+
+
+def test_kernel_deferred_clear_on_stream(raster_kernel: LogManager) -> None:
+    messages = _execute(
+        _image_code(_png("red"))
+        + "display(image)\nfrom IPython.display import clear_output\n"
+        + "clear_output(wait=True)\nprint('replacement stream')\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 0) == []
+    assert "replacement stream" in "\n".join(message.content for message in messages)
+
+
+@pytest.mark.parametrize("budget", ["count", "bytes"])
+def test_kernel_clear_preserves_cell_raster_budget(
+    raster_kernel: LogManager, monkeypatch: pytest.MonkeyPatch, budget: str
+) -> None:
+    from gptme.tools import python_kernel as kernel
+
+    data = _png("red")
+    if budget == "count":
+        monkeypatch.setattr(kernel, "_MAX_RASTER_IMAGES", 1)
+    else:
+        monkeypatch.setattr(kernel, "_MAX_RASTER_TOTAL_BYTES", len(data))
+    messages = _execute(
+        _image_code(data)
+        + "display(image)\nfrom IPython.display import clear_output\n"
+        + "clear_output(wait=False)\ndisplay(image)\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 0) == []
+    limit = "count" if budget == "count" else "byte"
+    assert f"image {limit} limit" in "\n".join(message.content for message in messages)
 
 
 def test_kernel_matplotlib_inline(raster_kernel: LogManager) -> None:

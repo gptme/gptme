@@ -910,6 +910,10 @@ class KernelBackend:
         error: dict | None = None
         images: list[KernelRaster] = []
         image_notices: list[str] = []
+        # Keep cumulative collection for the cell-wide decode budget, but only
+        # forward rasters still visible after Jupyter clear_output messages.
+        visible_images_start = 0
+        clear_images_pending = False
 
         self._bridge.cell_context = copy_context()
         msg_id = self._kc.execute(code, silent=False, store_history=True)
@@ -950,6 +954,22 @@ class KernelBackend:
 
             msg_type: str = msg["msg_type"]
             content: dict = msg["content"]
+
+            if msg_type == "clear_output":
+                if content.get("wait", False):
+                    clear_images_pending = True
+                else:
+                    visible_images_start = len(images)
+                    clear_images_pending = False
+                continue
+            if clear_images_pending and msg_type in (
+                "stream",
+                "execute_result",
+                "display_data",
+                "error",
+            ):
+                visible_images_start = len(images)
+                clear_images_pending = False
 
             if msg_type == "stream":
                 name = content.get("name", "")
@@ -1060,7 +1080,7 @@ class KernelBackend:
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
             result_text=result_text,
             error=error,
-            images=images,
+            images=images[visible_images_start:],
             image_notices=image_notices,
         )
 
