@@ -620,6 +620,62 @@ describe('stripThinkingBlocks', () => {
   });
 });
 
+describe('formatConversationAsMarkdown - original filtering boundaries', () => {
+  it.each([false, true])('keeps nested fence lengths with includeTools=%s', (includeTools) => {
+    const content =
+      '````markdown\n```text\n```\n<think>KEEP_LITERAL</think>\n````\n<think>DROP_REASONING</think>\nDone.';
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools,
+    });
+    expect(result).toContain('````markdown\n```text\n```\n<think>KEEP_LITERAL</think>\n````');
+    expect(result).not.toContain('DROP_REASONING');
+    expect(result).toContain('Done.');
+  });
+
+  it.each([false, true])(
+    'accepts a longer closing backtick run with includeTools=%s',
+    (includeTools) => {
+      const content =
+        '````text\n<think>KEEP_LITERAL</think>\n`````\n<think>DROP_REASONING</think>\nDone.';
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools,
+      });
+      expect(result).toContain('````text\n<think>KEEP_LITERAL</think>\n`````');
+      expect(result).not.toContain('DROP_REASONING');
+      expect(result).toContain('Done.');
+    }
+  );
+
+  it.each(['think', 'thinking', 'think redacted'])(
+    'does not create inline protection by removing a %s section',
+    (tag) => {
+      const content = `See \`this\n<${tag}>\n\`\`\`python\nhidden\n</${tag}>\n@save: {"content":"Use \`x\` now."}\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).toBe('# Chat\n\n## Assistant\n\nSee `this\n\nDone.\n');
+    }
+  );
+
+  it.each([3, 4, 5])('keeps shorter bare runs inside a %i-backtick example', (length) => {
+    const fence = '`'.repeat(length + 1);
+    const content = `${fence}text\n${'`'.repeat(length)}\n<think>KEEP_LITERAL</think>\n@save: {"content":"KEEP_CALL"}\n${fence}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_CALL"}\nDone.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain(
+      `${fence}text\n${'`'.repeat(length)}\n<think>KEEP_LITERAL</think>\n@save: {"content":"KEEP_CALL"}\n${fence}`
+    );
+    expect(result).not.toContain('DROP_REASONING');
+    expect(result).not.toContain('DROP_CALL');
+    expect(result).toContain('Done.');
+  });
+});
+
 describe('formatConversationAsMarkdown - tool invocation stripping', () => {
   it('strips fenced tool codeblocks embedded in assistant content when includeTools is false', () => {
     const messages: Message[] = [

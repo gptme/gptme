@@ -80,7 +80,7 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
     // Tilde fences are Markdown examples, not gptme tool delimiters.
     const tilde = match[2][0] === '~';
     const tag = tilde ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
-    let depth = 1;
+    const fenceLengths = [match[2].length];
     i++;
     let closed = false;
     while (i < lines.length) {
@@ -96,10 +96,11 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
             break;
           }
         } else if (inner[3].trim()) {
-          depth++;
-        } else {
-          depth--;
-          if (depth === 0) {
+          fenceLengths.push(inner[2].length);
+        } else if (inner[2].length >= fenceLengths[fenceLengths.length - 1]) {
+          // A shorter bare run is literal content, not the current closer.
+          fenceLengths.pop();
+          if (fenceLengths.length === 0) {
             ranges.push({ start, end: lineEnd(lines, starts, i), tag });
             i++;
             closed = true;
@@ -410,9 +411,29 @@ function stripAtFormatToolCalls(content: string): string {
  * (fenced tool codeblocks and `@tool: {...}` calls). Distinct from filtering
  * `role: 'tool'` result messages, which getExportableMessages handles.
  */
-function stripToolInvocations(content: string): string {
+function stripToolInvocations(content: string, includeThinking: boolean): string {
   const stripSection = stripAtFormatToolCalls;
   const thinking = getThinkingRanges(content, getTopLevelFenceRanges(content));
+  if (!includeThinking) {
+    const sections: string[] = [];
+    let cursor = 0;
+    for (const range of thinking) {
+      sections.push(content.slice(cursor, range.start));
+      cursor = range.end;
+    }
+    sections.push(content.slice(cursor));
+    // Preserve stripThinkingBlocks' outer trimming before tool removal, but
+    // never parse across a deleted reasoning section's Markdown boundary.
+    for (let i = 0; i < sections.length; i++) {
+      sections[i] = sections[i].trimStart();
+      if (sections[i]) break;
+    }
+    for (let i = sections.length - 1; i >= 0; i--) {
+      sections[i] = sections[i].trimEnd();
+      if (sections[i]) break;
+    }
+    return sections.map(stripSection).join('');
+  }
   let result = '';
   let cursor = 0;
   for (const range of thinking) {
@@ -474,8 +495,8 @@ export function formatConversationAsMarkdown(
     lines.push(header, '');
     let content = msg.content;
     if (msg.role === 'assistant') {
-      if (!includeThinking) content = stripThinkingBlocks(content);
-      if (!includeTools) content = stripToolInvocations(content);
+      if (!includeTools) content = stripToolInvocations(content, includeThinking);
+      else if (!includeThinking) content = stripThinkingBlocks(content);
     }
     lines.push(content, '');
   }
