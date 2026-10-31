@@ -7,8 +7,10 @@ Supports installing skills from:
 """
 
 import logging
+import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -109,7 +111,8 @@ def _parse_skill_frontmatter(skill_md: Path) -> dict:
         return {}
 
     try:
-        return yaml.safe_load(parts[1]) or {}
+        data = yaml.safe_load(parts[1])
+        return data if isinstance(data, dict) else {}
     except yaml.YAMLError:
         return {}
 
@@ -237,6 +240,201 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
         return dest
 
 
+def _staged_metadata_path(path: Path, dest: Path, staged: Path) -> Path:
+    """Resolve metadata links against the future tree without publishing it."""
+    # Walk components rather than normalizing '..' before symlink traversal.
+    pending = list(path.absolute().parts[1:])
+    current = Path(path.anchor)
+    links = 0
+    dest = dest.parent.resolve() / dest.name
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            current = current.parent
+            continue
+        current /= part
+        physical = (
+            staged / current.relative_to(dest)
+            if current.is_relative_to(dest)
+            else current
+        )
+        if physical.is_symlink():
+            links += 1
+            if links > 40:
+                raise OSError("Too many symbolic links in skill metadata")
+            # Path.readlink() normalizes away trailing '/' and '/.', which
+            # require the preceding component to be a directory on disk.
+            target = os.readlink(physical)
+            if os.altsep:
+                target = target.replace(os.altsep, os.sep)
+            target_path = Path(target)
+            current = (
+                Path(target_path.anchor)
+                if target_path.is_absolute()
+                else current.parent
+            )
+            pending = target[len(target_path.anchor) :].split(os.sep) + pending
+        elif pending and not physical.is_dir():
+            raise OSError(
+                f"Skill metadata path component is not a directory: {current}"
+            )
+    return (
+        staged / current.relative_to(dest) if current.is_relative_to(dest) else current
+    )
+
+
+def _install_local_skill(
+    source: str,
+    local_path: Path,
+    name: str | None,
+    force: bool,
+    manifest: SkillManifest,
+) -> tuple[bool, str]:
+    """Stage local replacements before publishing either the tree or manifest.
+
+    Rollback covers ordinary filesystem errors, not concurrent installers or
+    process/power loss. If rollback itself fails, keep the backup for recovery
+    and report its location rather than deleting the last good installation.
+    """
+    from datetime import datetime, timezone
+
+    if local_path.is_file() and local_path.name.lower() == "skill.md":
+        local_path = local_path.parent
+    skill_md = _find_skill_md(local_path)
+    if not skill_md:
+        return False, f"No SKILL.md found in {local_path}"
+
+    try:
+        fm = _parse_skill_frontmatter(skill_md) if not name else {}
+    except OSError as exc:
+        return False, f"Failed to read skill metadata: {exc}"
+    raw_name = name or fm.get("name") or local_path.name
+    if not isinstance(raw_name, str):
+        return False, "Skill name must be a string"
+    skill_name = _sanitize_skill_name(raw_name)
+    skills_dir = get_skills_dir()
+    dest = skills_dir / skill_name
+    # Publication renames the entry, not its symlink target. Check both views.
+    for target in (skills_dir.resolve() / skill_name, dest.resolve()):
+        if (
+            local_path == target
+            or local_path.is_relative_to(target)
+            or target.is_relative_to(local_path)
+        ):
+            return (
+                False,
+                f"Skill source and destination overlap: {local_path} and {dest}",
+            )
+    if (dest.exists() or dest.is_symlink()) and not force:
+        return (
+            False,
+            f"Skill '{skill_name}' already installed. Use --force to overwrite.",
+        )
+
+    # Stage each artifact on its publication filesystem: skills/ may be a mount
+    # or symlink to another device. Hidden directories are excluded by discovery.
+    staging: Path | None = None
+    manifest_staging: Path | None = None
+    staged: Path | None = None
+    backup: Path | None = None
+    published = False
+    preserve_backup = False
+    try:
+        staging = Path(tempfile.mkdtemp(prefix=".skill-install-", dir=skills_dir))
+        copied = staging / "new"
+        backup = staging / "old"
+        manifest_path = get_manifest_path()
+        manifest_staging = Path(
+            tempfile.mkdtemp(prefix=".skill-manifest-", dir=manifest_path.parent)
+        )
+        shutil.copytree(local_path, copied, symlinks=True)
+        # Keep the copied tree private during validation. Metadata resolution
+        # projects links onto its final path without publishing or rewriting them.
+        tree_mode = stat.S_IMODE(copied.stat().st_mode)
+        copied.chmod(0o700)
+        staged = Path(tempfile.mkdtemp(prefix=".skill-new-", dir=skills_dir))
+        staged.rmdir()
+        copied.rename(staged)
+        staged_md = _find_skill_md(staged)
+        if staged_md is None:
+            return False, "Skill validation failed:\nMissing SKILL.md file"
+        metadata_path = _staged_metadata_path(dest / staged_md.name, dest, staged)
+        errors = [
+            e
+            for e in validate_skill(staged, metadata_path=metadata_path)
+            if not e.startswith("Missing recommended marketplace field:")
+        ]
+        if errors:
+            return False, "Skill validation failed:\n" + "\n".join(errors)
+        fm = _parse_skill_frontmatter(metadata_path)
+        metadata = fm.get("metadata", {})
+        version = (
+            metadata.get("version", "unknown")
+            if isinstance(metadata, dict)
+            else "unknown"
+        )
+        if fm.get("version"):
+            version = fm["version"]
+        manifest.skills[skill_name] = InstalledSkill(
+            name=skill_name,
+            version=str(version),
+            source=source,
+            install_path=str(dest),
+            installed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        staged_manifest = manifest_staging / MANIFEST_FILE
+        manifest.save(staged_manifest)
+        manifest_mode = (
+            stat.S_IMODE(manifest_path.stat().st_mode)
+            if manifest_path.exists()
+            else 0o600
+        )
+        staged_manifest.chmod(manifest_mode)
+
+        staged.chmod(tree_mode)
+        if dest.exists() or dest.is_symlink():
+            dest.rename(backup)
+        staged.rename(dest)
+        published = True
+        # The old manifest is never truncated: this is the final publication step.
+        staged_manifest.replace(manifest_path)
+    except (OSError, shutil.Error) as exc:
+        try:
+            if published:
+                dest.chmod(0o700)
+                shutil.rmtree(dest)
+            if backup is not None and (backup.exists() or backup.is_symlink()):
+                backup.rename(dest)
+        except OSError as rollback_exc:
+            preserve_backup = True
+            return False, (
+                f"Failed to install skill: {exc}. Rollback failed: {rollback_exc}. "
+                f"Recovery files retained at {staging}"
+            )
+        return False, f"Failed to install skill: {exc}"
+    finally:
+        for directory in (
+            staged if not published else None,
+            manifest_staging,
+            None if preserve_backup else staging,
+        ):
+            if directory is not None and directory.exists():
+                try:
+                    if directory == staged:
+                        directory.chmod(0o700)
+                    shutil.rmtree(directory)
+                except OSError as exc:
+                    logger.warning(
+                        "Could not remove skill staging directory %s: %s",
+                        directory,
+                        exc,
+                    )
+
+    return True, f"Installed '{skill_name}' v{version} to {dest}"
+
+
 def install_skill(
     source: str,
     name: str | None = None,
@@ -305,30 +503,7 @@ def install_skill(
             return False, f"Failed to install skill from {git_url}"
 
     elif local_path:
-        # Verify it's a valid skill
-        if local_path.is_file() and local_path.name.lower() == "skill.md":
-            local_path = local_path.parent
-
-        skill_md = _find_skill_md(local_path)
-        if not skill_md:
-            return False, f"No SKILL.md found in {local_path}"
-
-        # Get name from SKILL.md if not provided; always sanitize to prevent path traversal
-        if not name:
-            fm = _parse_skill_frontmatter(skill_md)
-            raw_name = fm.get("name") or local_path.name
-            name = _sanitize_skill_name(raw_name)
-        else:
-            name = _sanitize_skill_name(name)
-
-        dest = skills_dir / name
-
-        if dest.exists() and not force:
-            return False, f"Skill '{name}' already installed. Use --force to overwrite."
-
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(local_path, dest, symlinks=True)
+        return _install_local_skill(source, local_path, name, force, manifest)
     else:
         return False, "Could not determine source type"
 
@@ -417,11 +592,12 @@ def uninstall_skill(name: str) -> tuple[bool, str]:
     return False, f"Skill '{name}' not found"
 
 
-def validate_skill(path: Path) -> list[str]:
+def validate_skill(path: Path, *, metadata_path: Path | None = None) -> list[str]:
     """Validate a skill directory.
 
     Args:
         path: Path to skill directory or SKILL.md file
+        metadata_path: Resolved metadata in a staged installation's future view.
 
     Returns:
         List of validation errors (empty if valid)
@@ -439,7 +615,7 @@ def validate_skill(path: Path) -> list[str]:
         errors.append("Missing SKILL.md file")
         return errors
 
-    fm = _parse_skill_frontmatter(skill_md)
+    fm = _parse_skill_frontmatter(metadata_path or skill_md)
     if not fm:
         errors.append("SKILL.md has no YAML frontmatter")
         return errors
