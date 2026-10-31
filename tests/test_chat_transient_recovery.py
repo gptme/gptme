@@ -360,14 +360,16 @@ def test_interactive_resume_runs_parked_prompt_once(offline, monkeypatch, tmp_pa
 
 @pytest.mark.parametrize("park_fails", [False, True])
 @pytest.mark.parametrize("resume_again", [False, True])
-def test_interrupted_resume_keeps_parked_intent_held(
+@pytest.mark.parametrize("cancellation", ["interrupt", "decline"])
+def test_cancelled_resume_keeps_parked_intent_held(
     offline: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     park_fails: bool,
     resume_again: bool,
+    cancellation: str,
 ) -> None:
-    """A swallowed generation interrupt must not release held follow-through."""
+    """Interrupting or declining a resume must not release held follow-through."""
     from gptme.hooks import HookType
     from gptme.logmanager import Log
     from gptme.prompt_queue import drain_prompt_queue
@@ -394,7 +396,10 @@ def test_interrupted_resume_keeps_parked_intent_held(
         if current == "initial work":
             raise error
         if current == "cancel this resume":
-            raise KeyboardInterrupt
+            if cancellation == "interrupt":
+                raise KeyboardInterrupt
+            yield Message("system", chat.DECLINED_CONTENT)
+            return
         yield Message("assistant", f"ok:{current}")
 
     def hook(hook_type: HookType, **kwargs: Any) -> list[Message]:
@@ -446,7 +451,12 @@ def test_interrupted_resume_keeps_parked_intent_held(
     assert post_calls == expected[1:]
     held = queue if park_fails else drain_prompt_queue(tmp_path)
     assert [msg.content for msg in held] == ([] if resume_again else [pending.content])
-    assert sum(msg.content == chat.INTERRUPT_CONTENT for msg in manager.log) == 1
+    marker = (
+        chat.INTERRUPT_CONTENT if cancellation == "interrupt" else chat.DECLINED_CONTENT
+    )
+    assert sum(msg.content == marker for msg in manager.log) == 1
+    # Both cancellation paths still acknowledge their transcript/hook output.
+    assert manager.write.call_args.kwargs == {"sync": True}
 
 
 @pytest.mark.parametrize("park_fails", [False, True])

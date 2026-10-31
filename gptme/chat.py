@@ -688,7 +688,7 @@ def _process_message_conversation(
     model: str | None,
     output_schema: type | None = None,
 ) -> bool:
-    """Process a message until no more tools remain; return whether interrupted.
+    """Process a message until no tools remain; return whether cancelled or declined.
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
@@ -774,6 +774,7 @@ def _process_message_conversation(
         if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
             if not is_output_json() and not is_output_quiet():
                 console.log("Execution declined, returning to prompt.")
+            interrupted = True
             break
 
         pending_continuation = _has_pending_tooluse(manager.log)
