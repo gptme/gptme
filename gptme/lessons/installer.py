@@ -109,7 +109,8 @@ def _parse_skill_frontmatter(skill_md: Path) -> dict:
         return {}
 
     try:
-        return yaml.safe_load(parts[1]) or {}
+        data = yaml.safe_load(parts[1])
+        return data if isinstance(data, dict) else {}
     except yaml.YAMLError:
         return {}
 
@@ -237,6 +238,119 @@ def _clone_skill_from_git(url: str, skill_path: str | None, dest: Path) -> Path 
         return dest
 
 
+def _install_local_skill(
+    source: str,
+    local_path: Path,
+    name: str | None,
+    force: bool,
+    manifest: SkillManifest,
+) -> tuple[bool, str]:
+    """Stage local replacements before publishing either the tree or manifest.
+
+    Rollback covers ordinary filesystem errors, not concurrent installers or
+    process/power loss. If rollback itself fails, keep the backup for recovery
+    and report its location rather than deleting the last good installation.
+    """
+    from datetime import datetime, timezone
+
+    if local_path.is_file() and local_path.name.lower() == "skill.md":
+        local_path = local_path.parent
+    skill_md = _find_skill_md(local_path)
+    if not skill_md:
+        return False, f"No SKILL.md found in {local_path}"
+
+    fm = _parse_skill_frontmatter(skill_md)
+    raw_name = name or fm.get("name") or local_path.name
+    if not isinstance(raw_name, str):
+        return False, "Skill name must be a string"
+    skill_name = _sanitize_skill_name(raw_name)
+    skills_dir = get_skills_dir()
+    dest = skills_dir / skill_name
+    # Publication renames the entry, not its symlink target. Check both views.
+    for target in (skills_dir.resolve() / skill_name, dest.resolve()):
+        if (
+            local_path == target
+            or local_path.is_relative_to(target)
+            or target.is_relative_to(local_path)
+        ):
+            return (
+                False,
+                f"Skill source and destination overlap: {local_path} and {dest}",
+            )
+    if (dest.exists() or dest.is_symlink()) and not force:
+        return (
+            False,
+            f"Skill '{skill_name}' already installed. Use --force to overwrite.",
+        )
+
+    # A sibling of skills/ stays on the same filesystem without exposing staging
+    # trees to skill discovery. Overlap admission also prevents recursive copies.
+    staging = Path(tempfile.mkdtemp(prefix=".skill-install-", dir=skills_dir.parent))
+    staged = staging / "new"
+    backup = staging / "old"
+    published = False
+    preserve_backup = False
+    try:
+        shutil.copytree(local_path, staged, symlinks=True)
+        errors = [
+            e
+            for e in validate_skill(staged)
+            if not e.startswith("Missing recommended marketplace field:")
+        ]
+        if errors:
+            return False, "Skill validation failed:\n" + "\n".join(errors)
+        staged_md = _find_skill_md(staged)
+        assert staged_md is not None  # validated above
+        fm = _parse_skill_frontmatter(staged_md)
+        metadata = fm.get("metadata", {})
+        version = (
+            metadata.get("version", "unknown")
+            if isinstance(metadata, dict)
+            else "unknown"
+        )
+        if fm.get("version"):
+            version = fm["version"]
+        manifest.skills[skill_name] = InstalledSkill(
+            name=skill_name,
+            version=str(version),
+            source=source,
+            install_path=str(dest),
+            installed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        staged_manifest = staging / MANIFEST_FILE
+        manifest.save(staged_manifest)
+
+        if dest.exists() or dest.is_symlink():
+            dest.rename(backup)
+        staged.rename(dest)
+        published = True
+        # The old manifest is never truncated: this is the final publication step.
+        staged_manifest.replace(get_manifest_path())
+    except (OSError, shutil.Error) as exc:
+        try:
+            if published:
+                shutil.rmtree(dest)
+            if backup.exists() or backup.is_symlink():
+                backup.rename(dest)
+        except OSError as rollback_exc:
+            preserve_backup = True
+            return False, (
+                f"Failed to install skill: {exc}. Rollback failed: {rollback_exc}. "
+                f"Recovery files retained at {staging}"
+            )
+        return False, f"Failed to install skill: {exc}"
+    finally:
+        if not preserve_backup:
+            try:
+                shutil.rmtree(staging)
+            except OSError as exc:
+                logger.warning(
+                    "Could not remove skill staging directory %s: %s", staging, exc
+                )
+
+    return True, f"Installed '{skill_name}' v{version} to {dest}"
+
+
 def install_skill(
     source: str,
     name: str | None = None,
@@ -305,30 +419,7 @@ def install_skill(
             return False, f"Failed to install skill from {git_url}"
 
     elif local_path:
-        # Verify it's a valid skill
-        if local_path.is_file() and local_path.name.lower() == "skill.md":
-            local_path = local_path.parent
-
-        skill_md = _find_skill_md(local_path)
-        if not skill_md:
-            return False, f"No SKILL.md found in {local_path}"
-
-        # Get name from SKILL.md if not provided; always sanitize to prevent path traversal
-        if not name:
-            fm = _parse_skill_frontmatter(skill_md)
-            raw_name = fm.get("name") or local_path.name
-            name = _sanitize_skill_name(raw_name)
-        else:
-            name = _sanitize_skill_name(name)
-
-        dest = skills_dir / name
-
-        if dest.exists() and not force:
-            return False, f"Skill '{name}' already installed. Use --force to overwrite."
-
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(local_path, dest, symlinks=True)
+        return _install_local_skill(source, local_path, name, force, manifest)
     else:
         return False, "Could not determine source type"
 

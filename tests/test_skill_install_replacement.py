@@ -1,0 +1,340 @@
+"""Real-filesystem coverage of local skill replacement and its failure boundaries."""
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from gptme.lessons import installer
+
+
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(installer, "get_config_dir", lambda: tmp_path / "config")
+
+
+def make_skill(path: Path, version: str = "1") -> Path:
+    path.mkdir(parents=True)
+    (path / "SKILL.md").write_text(
+        f"---\nname: demo\ndescription: Synthetic skill\nversion: '{version}'\n---\n# Demo\n"
+    )
+    (path / "payload.txt").write_text(f"payload {version}")
+    return path
+
+
+def snapshot(path: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(path)): p.read_bytes() for p in path.rglob("*") if p.is_file()
+    }
+
+
+def installed_pair(tmp_path: Path) -> tuple[Path, Path]:
+    original = make_skill(tmp_path / "original")
+    assert installer.install_skill(str(original))[0]
+    return installer.get_skills_dir() / "demo", make_skill(
+        tmp_path / "replacement", "2"
+    )
+
+
+@pytest.mark.parametrize(
+    "input_kind", ["directory", "file", "alias", "nested", "ancestor"]
+)
+def test_overlap_refusal_preserves_installation(
+    tmp_path: Path, input_kind: str
+) -> None:
+    dest, _ = installed_pair(tmp_path)
+    source = dest
+    if input_kind == "file":
+        source = dest / "SKILL.md"
+    elif input_kind == "alias":
+        source = tmp_path / "alias"
+        source.symlink_to(dest, target_is_directory=True)
+    elif input_kind == "nested":
+        source = make_skill(dest / "nested", "2")
+    elif input_kind == "ancestor":
+        source = dest.parent
+        (source / "SKILL.md").write_bytes((dest / "SKILL.md").read_bytes())
+    before = snapshot(installer.get_skills_dir())
+    manifest = installer.get_manifest_path().read_bytes()
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert snapshot(installer.get_skills_dir()) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_partial_copy_failure_preserves_prior_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
+) -> None:
+    if existing:
+        dest, source = installed_pair(tmp_path)
+    else:
+        source = make_skill(tmp_path / "source")
+        dest = installer.get_skills_dir() / "demo"
+    before = snapshot(dest)
+    manifest_path = installer.get_manifest_path()
+    manifest = manifest_path.read_bytes() if manifest_path.exists() else None
+
+    def fail_copy(src: Path, dst: Path, **kwargs: object) -> None:
+        dst.mkdir()
+        shutil.copy2(src / "payload.txt", dst / "payload.txt")
+        raise shutil.Error("injected partial copy failure")
+
+    monkeypatch.setattr(installer.shutil, "copytree", fail_copy)
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert snapshot(dest) == before
+    assert dest.exists() == existing
+    assert (manifest_path.read_bytes() if manifest_path.exists() else None) == manifest
+    assert list(installer.get_skills_dir().iterdir()) == ([dest] if existing else [])
+
+
+@pytest.mark.parametrize(
+    "invalid", ["missing-description", "list", "numeric-name", "bad-yaml"]
+)
+def test_invalid_replacement_preserves_prior_state(
+    tmp_path: Path, invalid: str
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    bad_content = {
+        "missing-description": "name: demo",
+        "list": "- demo",
+        "numeric-name": "name: 42\ndescription: Invalid name",
+        "bad-yaml": "name: [",
+    }[invalid]
+    (source / "SKILL.md").write_text(f"---\n{bad_content}\n---\n# Invalid\n")
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+
+    ok, message = installer.install_skill(str(source), name="demo", force=True)
+
+    assert not ok, message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+@pytest.mark.parametrize(
+    "failure", ["manifest-write", "backup-rename", "publish-rename", "manifest-publish"]
+)
+def test_publication_failure_preserves_prior_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest_path = installer.get_manifest_path()
+    manifest = manifest_path.read_bytes()
+    real_rename = Path.rename
+    real_replace = Path.replace
+
+    def fail_save(self: installer.SkillManifest, path: Path) -> None:
+        path.write_text("partial manifest")
+        raise OSError("injected manifest write failure")
+
+    def fail_rename(self: Path, target: Path) -> Path:
+        if (failure == "backup-rename" and self == dest) or (
+            failure == "publish-rename" and target == dest and self.name == "new"
+        ):
+            raise OSError("injected rename failure")
+        return real_rename(self, target)
+
+    def fail_replace(self: Path, target: Path) -> Path:
+        if target == manifest_path:
+            raise OSError("injected manifest publication failure")
+        return real_replace(self, target)
+
+    if failure == "manifest-write":
+        monkeypatch.setattr(installer.SkillManifest, "save", fail_save)
+    monkeypatch.setattr(Path, "rename", fail_rename)
+    if failure == "manifest-publish":
+        monkeypatch.setattr(Path, "replace", fail_replace)
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert snapshot(dest) == before
+    assert manifest_path.read_bytes() == manifest
+    assert list(installer.get_skills_dir().iterdir()) == [dest]
+
+
+@pytest.mark.parametrize("from_file", [False, True])
+def test_success_replaces_files_and_manifest(tmp_path: Path, from_file: bool) -> None:
+    dest, source = installed_pair(tmp_path)
+    (dest / "obsolete.txt").write_text("must disappear")
+    # A symlink is copied as a symlink, not expanded into its target bytes.
+    (source / "payload-link").symlink_to("payload.txt")
+    ok, message = installer.install_skill(
+        str(source / "SKILL.md" if from_file else source), force=True
+    )
+    assert ok, message
+    assert snapshot(dest) == snapshot(source)
+    assert (dest / "payload-link").is_symlink()
+    record = installer.get_manifest().skills["demo"]
+    assert record.version == "2"
+    assert record.install_path == str(dest)
+    assert list(installer.get_skills_dir().iterdir()) == [dest]
+
+
+def test_no_force_does_not_touch_installation(tmp_path: Path) -> None:
+    dest, source = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+    assert not installer.install_skill(str(source))[0]
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+def test_initial_install_name_override_and_minimal_metadata(tmp_path: Path) -> None:
+    source = make_skill(tmp_path / "source")
+    (source / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Minimal\n---\n# Demo\n"
+    )
+    ok, message = installer.install_skill(str(source / "SKILL.md"), name="custom")
+    assert ok, message
+    dest = installer.get_skills_dir() / "custom"
+    assert snapshot(dest) == snapshot(source)
+    record = installer.get_manifest().skills["custom"]
+    assert record.version == "unknown"
+    assert record.install_path == str(dest)
+
+
+@pytest.mark.parametrize("failure", ["remove-new", "restore-old"])
+def test_rollback_failure_retains_recovery_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest_path = installer.get_manifest_path()
+    manifest = manifest_path.read_bytes()
+    real_rename = Path.rename
+    real_rmtree = shutil.rmtree
+
+    def fail_replace(self: Path, target: Path) -> Path:
+        raise OSError("injected publication failure")
+
+    def fail_rename(self: Path, target: Path) -> Path:
+        if failure == "restore-old" and self.name == "old":
+            raise OSError("injected rollback rename failure")
+        return real_rename(self, target)
+
+    def fail_remove(path: Path, *args: object, **kwargs: object) -> None:
+        if failure == "remove-new" and path == dest:
+            raise OSError("injected rollback remove failure")
+        real_rmtree(path)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    monkeypatch.setattr(Path, "rename", fail_rename)
+    monkeypatch.setattr(installer.shutil, "rmtree", fail_remove)
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok
+    assert "Rollback failed" in message
+    recovery_dirs = list(installer.get_skills_dir().parent.glob(".skill-install-*"))
+    assert len(recovery_dirs) == 1
+    recovery = recovery_dirs[0]
+    assert str(recovery) in message
+    assert snapshot(recovery / "old") == before
+    assert manifest_path.read_bytes() == manifest
+
+
+def test_cli_overlap_failure_is_clean_and_non_destructive(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from gptme.cli.cmd_skills import skills
+
+    dest, _ = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+    result = CliRunner().invoke(skills, ["install", str(dest / "SKILL.md"), "--force"])
+    assert result.exit_code == 1
+    assert "overlap" in result.output
+    assert "Traceback" not in result.output
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+def test_validation_checks_copied_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+    real_copytree = shutil.copytree
+
+    def corrupt_copy(src: Path, dst: Path, **kwargs: object) -> Path:
+        result = real_copytree(src, dst, symlinks=True)
+        (dst / "SKILL.md").write_text("---\nname: demo\n---\n# Invalid staged copy\n")
+        return result
+
+    monkeypatch.setattr(installer.shutil, "copytree", corrupt_copy)
+    ok, message = installer.install_skill(str(source), force=True)
+    assert not ok
+    assert "validation failed" in message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+@pytest.mark.parametrize("existing_link", [False, True])
+def test_destination_symlink_does_not_delete_its_target(
+    tmp_path: Path, existing_link: bool
+) -> None:
+    source = make_skill(tmp_path / "source")
+    external = tmp_path / "external"
+    if existing_link:
+        external.mkdir()
+        (external / "keep.txt").write_text("external bytes")
+    skills_dir = installer.get_skills_dir()
+    skills_dir.mkdir(parents=True)
+    dest = skills_dir / "demo"
+    dest.symlink_to(external, target_is_directory=True)
+    before = snapshot(external)
+
+    assert not installer.install_skill(str(source))[0]
+    assert dest.is_symlink()
+    ok, message = installer.install_skill(str(source), force=True)
+    assert ok, message
+    assert not dest.is_symlink()
+    assert snapshot(dest) == snapshot(source)
+    assert snapshot(external) == before
+
+
+def test_ancestor_overlap_through_destination_symlink_is_refused(
+    tmp_path: Path,
+) -> None:
+    dest, _ = installed_pair(tmp_path)
+    external = tmp_path / "external"
+    external.mkdir()
+    shutil.rmtree(dest)
+    dest.symlink_to(external, target_is_directory=True)
+    source = dest.parent
+    (source / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Ancestor\n---\n# Demo\n"
+    )
+    before = snapshot(source)
+    manifest = installer.get_manifest_path().read_bytes()
+
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert dest.is_symlink()
+    assert snapshot(source) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+
+
+def test_validation_error_containing_recommended_is_not_a_warning(
+    tmp_path: Path,
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    (source / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Invalid dependency\n"
+        "depends: ['recommended/invalid']\n---\n# Demo\n"
+    )
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+    ok, message = installer.install_skill(str(source), force=True)
+    assert not ok, message
+    assert "invalid characters" in message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
