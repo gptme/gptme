@@ -214,14 +214,15 @@ function filterAssistantContent(
   let paragraphEnd = 0;
   const quoteViews = new Map<string, QuoteView>();
   const linkMetadata = new Map<number, number>();
-  let labelEnd = content.length;
+  const labelEnds: number[] = [];
   while (i < content.length) {
-    if (i > labelEnd) labelEnd = content.length;
+    while (labelEnds.length && i > labelEnds[labelEnds.length - 1]) labelEnds.pop();
+    const labelEnd = labelEnds[labelEnds.length - 1] ?? content.length;
     const metadataEnd = linkMetadata.get(i);
     if (metadataEnd !== undefined) {
       out.push(content.slice(i, metadataEnd));
       i = metadataEnd;
-      labelEnd = content.length;
+      while (labelEnds.length && i >= labelEnds[labelEnds.length - 1]) labelEnds.pop();
       continue;
     }
     // Discover fences only after skipping opaque thinking/native payloads: a
@@ -236,7 +237,7 @@ function filterAssistantContent(
       }
     }
     // Markdown escapes consume the following punctuation before inline parsing.
-    if (content[i] === '\\' && /[\\`]/.test(content[i + 1] ?? '')) {
+    if (content[i] === '\\' && /[\\`[\]!]/.test(content[i + 1] ?? '')) {
       out.push(content.slice(i, i + 2));
       i += 2;
       continue;
@@ -245,13 +246,14 @@ function filterAssistantContent(
     // scanning labels in the original source: reasoning can cross their end.
     if (content[i] === '[' || (content[i] === '!' && content[i + 1] === '[')) {
       if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
-      const source = content.slice(i, paragraphEnd);
+      const source = content.slice(i, Math.min(paragraphEnd, labelEnd));
       const link = tokenizer.link(source);
       if (link) {
         const label = tokenizer.rules.inline.link.exec(source)![1];
         const prefix = content[i] === '!' ? '![' : '[';
-        labelEnd = i + prefix.length + label.length;
-        linkMetadata.set(labelEnd, i + link.raw.length);
+        const end = i + prefix.length + label.length;
+        labelEnds.push(end);
+        linkMetadata.set(end, i + link.raw.length);
         out.push(prefix);
         i += prefix.length;
         continue;

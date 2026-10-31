@@ -276,6 +276,21 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       expect(result).toContain('](https://example.com/`) Here is `code`.');
     });
 
+    it.each(['\\[label](url "<think>private reasoning</think>") Public answer.'])(
+      'does not manufacture code or metadata from escaped or nested labels: %s',
+      async (source) => {
+        const result = await consume(consumer, source, options);
+        expect(result.includes('private reasoning')).toBe(options.includeThinking);
+        expect(result).toContain('Public answer.');
+        if (options.includeThinking) expect(result).toBe(documentFor(source));
+      }
+    );
+
+    it('preserves a real code span following an invalid outer image label', async () => {
+      const source = '![outer [inner](u) `](v) <think>literal reasoning</think> `. Public answer.';
+      expect(await consume(consumer, source, options)).toBe(documentFor(source));
+    });
+
     it('keeps reasoning opaque when it crosses the end of a link label', async () => {
       const source = '[label <think>private reasoning](url) private tail</think> Public answer.';
       const result = await consume(consumer, source, options);
