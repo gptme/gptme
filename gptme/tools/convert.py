@@ -216,7 +216,7 @@ class Converter(ABC):
 
 
 class PDFToImageConverter(Converter):
-    """PDF pages → raster images (PNG/JPEG) via pdftoppm or ImageMagick."""
+    """PDF first page → one raster image (PNG/JPEG) via pdftoppm or ImageMagick."""
 
     name = "pdf-to-image"
     supported = [
@@ -251,7 +251,7 @@ class PDFToImageConverter(Converter):
             )
 
         if avail.pdftoppm:
-            # pdftoppm outputs <dest_stem>-<N>.ppm / .png; we want single page or first
+            # Bound rendering itself, not just the output selected below.
             fmt_flag = "-png" if dest_ext == "png" else "-jpeg"
             with tempfile.TemporaryDirectory() as _tmpdir:
                 tmp_prefix = Path(_tmpdir) / dest.stem
@@ -260,6 +260,10 @@ class PDFToImageConverter(Converter):
                     fmt_flag,
                     "-r",
                     str(dpi),
+                    "-f",
+                    "1",
+                    "-l",
+                    "1",
                     _arg(src),
                     _arg(tmp_prefix),
                 ]
@@ -298,10 +302,10 @@ class PDFToImageConverter(Converter):
                                 error=f"Destination {dest} was replaced by a directory during conversion",
                                 warnings=warnings,
                             )
-                        if len(candidates) > 1:
-                            warnings.append(
-                                f"Multi-page PDF: only first page saved ({len(candidates)} pages total)"
-                            )
+                        # Rendered files cannot tell us the PDF's total page count.
+                        warnings.append(
+                            "PDF-to-image conversion saves only the first page"
+                        )
                         return ConversionResult(
                             success=True,
                             output_path=dest,
@@ -326,6 +330,7 @@ class PDFToImageConverter(Converter):
             ]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
+                warnings.append("PDF-to-image conversion saves only the first page")
                 return ConversionResult(
                     success=True,
                     output_path=dest,
