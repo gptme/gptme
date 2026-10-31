@@ -71,7 +71,7 @@ def cleanup_conversation(
                 shutil.rmtree(logdir)
                 CostTracker.end_session(session_id_for_logdir(logdir))
             return True
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         if deleting:
             # Removal may already be partial. Do not disguise a failed deletion
             # as a candidate that was protected before any changes occurred.

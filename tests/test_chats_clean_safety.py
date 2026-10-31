@@ -187,6 +187,42 @@ def test_invalid_message_role_is_preserved(
     assert target.read_bytes() == payload
 
 
+@pytest.mark.parametrize("history", ["lossless.jsonl", "views/compacted.jsonl"])
+def test_deeply_nested_history_is_preserved_and_cleanup_continues(
+    histories: Path, history: str
+) -> None:
+    from gptme.logmanager.cleanup import delete_empty_conversation
+
+    directory = make_history(histories, "damaged")
+    target = directory / history
+    target.parent.mkdir(exist_ok=True)
+    payload = (
+        '{"role":"system","content":"Recoverable work","extra":'
+        + "[" * 10000
+        + "0"
+        + "]" * 10000
+        + "}\n"
+    ).encode()
+    target.write_bytes(payload)
+    before = {
+        path.relative_to(directory): path.read_bytes()
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+    abandoned = make_history(histories, "abandoned")
+
+    assert not delete_empty_conversation(directory.name)
+    assert clean()["found"] == 1
+    result = clean("--delete")
+    assert result["deleted"] == 1
+    assert not abandoned.exists()
+    assert {
+        path.relative_to(directory): path.read_bytes()
+        for path in directory.rglob("*")
+        if path.is_file()
+    } == before
+
+
 @pytest.mark.parametrize("extra", ["lossless.jsonl", "views/compacted.jsonl"])
 def test_alternate_history_is_preserved(histories: Path, extra: str) -> None:
     directory = make_history(histories)
