@@ -102,6 +102,18 @@ def _task_from_user_content(content: str) -> str:
                 return task[:2000]
         elif label:
             task = label.group(1).strip()
+            if not task:
+                # Legacy labels also accept a value on the next nonempty line,
+                # but never promote a fenced/quoted/indented example as a value.
+                for offset in range(index + 1, len(lines)):
+                    following = lines[offset]
+                    if not following.strip():
+                        continue
+                    if unfenced[offset] and not following.startswith(
+                        (" ", "\t", ">", "#", "---")
+                    ):
+                        task = following.strip()
+                    break
             if len(task) > 50:
                 return task[:2000]
     return content.strip()[:2000]

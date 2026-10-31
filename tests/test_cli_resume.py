@@ -522,3 +522,14 @@ def test_resume_leading_literal_before_real_heading(
     )
     session = _make_session(tmp_path, "leading-then-real", task=content)
     assert _user_message(session) == task
+
+
+@pytest.mark.parametrize("label", ["Mission", "Title", "Objective"])
+def test_resume_next_line_label(tmp_path: Path, label: str) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    session = _make_session(
+        tmp_path,
+        "next-line-label",
+        task=f"Setup context.\n\n**{label}**:\n\n{task}\n\n## Limits\nKeep scope narrow.",
+    )
+    assert _user_message(session) == task
