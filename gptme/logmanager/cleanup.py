@@ -33,8 +33,10 @@ def _eligible(logdir: Path, max_messages: int) -> bool:
                 # Tolerant history readers may skip damage. Cleanup cannot:
                 # a damaged record may be the only copy of user work.
                 record = json.loads(line)
-                if not isinstance(record, dict) or not isinstance(
-                    record.get("content"), str
+                if (
+                    not isinstance(record, dict)
+                    or not isinstance(record.get("role"), str)
+                    or not isinstance(record.get("content"), str)
                 ):
                     return False
                 count += 1

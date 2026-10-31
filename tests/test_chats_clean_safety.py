@@ -165,6 +165,28 @@ def test_damaged_history_is_not_empty(histories: Path, payload: str) -> None:
     assert (directory / "conversation.jsonl").read_text() == payload
 
 
+@pytest.mark.parametrize("role", [None, 42, [], {}])
+@pytest.mark.parametrize(
+    "history", ["conversation.jsonl", "lossless.jsonl", "views/compacted.jsonl"]
+)
+def test_invalid_message_role_is_preserved(
+    histories: Path, role: object, history: str
+) -> None:
+    from gptme.logmanager.cleanup import delete_empty_conversation
+
+    directory = make_history(histories)
+    target = directory / history
+    target.parent.mkdir(exist_ok=True)
+    record: dict[str, object] = {"content": "Recoverable user work"}
+    if role is not None:
+        record["role"] = role
+    payload = (json.dumps(record) + "\n").encode()
+    target.write_bytes(payload)
+    assert clean("--delete")["deleted"] == 0
+    assert not delete_empty_conversation(directory.name)
+    assert target.read_bytes() == payload
+
+
 @pytest.mark.parametrize("extra", ["lossless.jsonl", "views/compacted.jsonl"])
 def test_alternate_history_is_preserved(histories: Path, extra: str) -> None:
     directory = make_history(histories)
