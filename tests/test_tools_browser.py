@@ -1574,6 +1574,46 @@ class TestOpenPageSessionReuse:
         close.assert_not_called()
         assert bp._session_owner == "conv-a"
 
+    @pytest.mark.parametrize("new_owner", ["conv-b", None])
+    def test_other_conversation_replaces_cdp_session_context(self, new_owner):
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import _browser_playwright as bp
+
+        old_page = MagicMock()
+        old_ctx = MagicMock()
+        old_ctx.new_page.return_value.url = "https://example.com/account"
+        new_page = MagicMock()
+        new_page.url = "https://example.com/account"
+        new_ctx = MagicMock()
+        new_ctx.new_page.return_value = new_page
+        browser = MagicMock()
+        browser.new_context.return_value = new_ctx
+        thread = MagicMock()
+        thread.cdp_url = "http://127.0.0.1:9222"
+        thread._session_context = old_ctx
+        bp._current_page = old_page
+        bp._session_owner = "conv-a"
+        token = current_conversation_id.set(new_owner)
+        try:
+            with (
+                patch.object(bp, "_browser", thread),
+                patch.object(bp, "get_context_options", return_value={}),
+                patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            ):
+                result = bp._open_page(browser, "https://example.com/account")
+        finally:
+            current_conversation_id.reset(token)
+
+        assert result == "snapshot"
+        old_page.close.assert_called_once_with()
+        old_ctx.close.assert_called_once_with()
+        old_ctx.new_page.assert_not_called()
+        browser.new_context.assert_called_once_with()
+        assert thread._session_context is new_ctx
+        assert bp._current_page is new_page
+        assert bp._current_context is None  # BrowserThread retains CDP ownership
+        assert bp._session_owner == new_owner
+
     def test_other_conversation_gets_fresh_context(self):
         from gptme.hooks import current_conversation_id
         from gptme.tools import _browser_playwright as bp
