@@ -1343,27 +1343,30 @@ def test_chat_preserves_tool_input(
 ) -> None:
     """Native arguments survive the real SDK, persisted syntax, and API replay."""
     init_tools(["save"])
+    response_encoder = TypeAdapter(dict[str, object])
 
     def serve(request: httpx2.Request) -> httpx2.Response:
+        response_payload: dict[str, object] = {
+            "id": "msg_tool",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-6",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_save",
+                    "name": "save",
+                    "input": tool_input,
+                }
+            ],
+            "stop_reason": "tool_use",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
         return httpx2.Response(
             200,
-            json={
-                "id": "msg_tool",
-                "type": "message",
-                "role": "assistant",
-                "model": "claude-sonnet-4-6",
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "id": "toolu_save",
-                        "name": "save",
-                        "input": tool_input,
-                    }
-                ],
-                "stop_reason": "tool_use",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            },
+            content=response_encoder.dump_json(response_payload),
+            headers={"Content-Type": "application/json"},
         )
 
     messages = [Message("system", "Be helpful."), Message("user", "Save the file.")]
