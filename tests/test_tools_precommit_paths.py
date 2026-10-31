@@ -148,16 +148,66 @@ def hook_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> HookRepo:
     return repo
 
 
+def runner_executable(name: str) -> str:
+    executable = shutil.which(name)
+    if executable is None:
+        if os.environ.get("GPTME_TEST_REQUIRE_PRECOMMIT_RUNNERS") == "1":
+            pytest.fail(f"Required runner {name} is not installed")
+        pytest.skip(f"{name} is not installed")
+    return executable
+
+
+@pytest.mark.parametrize("required", [False, True])
+def test_missing_runner_policy(monkeypatch: pytest.MonkeyPatch, required: bool) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setenv("GPTME_TEST_REQUIRE_PRECOMMIT_RUNNERS", "1" if required else "0")
+    outcome = pytest.fail.Exception if required else pytest.skip.Exception
+    with pytest.raises(outcome, match="prek.*not installed"):
+        runner_executable("prek")
+
+
 @pytest.fixture(params=["pre-commit", "prek"])
 def runner(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
     name = str(request.param)
-    executable = shutil.which(name)
-    if executable is None:
-        pytest.skip(f"{name} is not installed")
+    executable = runner_executable(name)
     # Only enablement and runner selection are mocked; Git and hooks are real.
     monkeypatch.setattr(precommit, "use_checks", lambda: True)
     monkeypatch.setattr(precommit, "get_precommit_runner", lambda: executable)
     return name
+
+
+@pytest.mark.parametrize("runner_name", ["pre-commit", "prek"])
+@pytest.mark.parametrize("all_files", [False, True])
+@POSIX_PATH
+def test_relative_path_runner_survives_root_cwd(
+    hook_repo: HookRepo,
+    monkeypatch: pytest.MonkeyPatch,
+    runner_name: str,
+    all_files: bool,
+) -> None:
+    executable = runner_executable(runner_name)
+    nested = hook_repo.root / "nested"
+    bin_dir = nested / "runner-bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / runner_name).symlink_to(executable)
+    # Keep Git and the hook's interpreter available, but expose the selected
+    # runner only through a PATH entry relative to the caller's nested cwd.
+    git_executable = shutil.which("git")
+    assert git_executable is not None
+    (bin_dir / "git").symlink_to(git_executable)
+    monkeypatch.chdir(nested)
+    monkeypatch.setenv("PATH", "runner-bin" + os.pathsep + os.defpath)
+    monkeypatch.setattr(precommit, "PRECOMMIT_RUNNERS", (runner_name,))
+    monkeypatch.setattr(precommit, "use_checks", lambda: True)
+    hook_repo.write("changed.txt", "REJECT\n")
+    hook_repo.write("clean-sentinel.txt", "REJECT\n")
+    success, output = precommit.run_precommit_checks(all_files=all_files)
+    assert success is False
+    assert output is not None and "REJECTED TARGET" in output, output
+    expected = ["clean-sentinel.txt"]
+    if not all_files:
+        expected.append("changed.txt")
+    assert sorted(hook_repo.recorded_files()) == sorted(expected)
 
 
 @pytest.mark.parametrize("name", PATH_NAMES)

@@ -63,7 +63,7 @@ def _mock_subprocess_run(
     return result
 
 
-def _mock_which(path: str | None = "/usr/bin/pre-commit"):
+def _mock_which(path: str | None = os.path.abspath("/usr/bin/pre-commit")):
     """Return a patched shutil.which."""
     return patch("gptme.tools.precommit.shutil.which", return_value=path)
 
@@ -72,7 +72,9 @@ def _mock_which_available(*available: str):
     """Return a patched shutil.which that only resolves the named binaries."""
     return patch(
         "gptme.tools.precommit.shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}" if name in available else None,
+        side_effect=lambda name: (
+            os.path.abspath(f"/usr/bin/{name}") if name in available else None
+        ),
     )
 
 
@@ -189,11 +191,18 @@ class TestGetPrecommitRunner:
 
     def test_prefers_pre_commit(self):
         with _mock_which_available("pre-commit", "prek"):
-            assert get_precommit_runner() == "pre-commit"
+            assert get_precommit_runner() == os.path.abspath("/usr/bin/pre-commit")
 
     def test_falls_back_to_prek(self):
         with _mock_which_available("prek"):
-            assert get_precommit_runner() == "prek"
+            assert get_precommit_runner() == os.path.abspath("/usr/bin/prek")
+
+    def test_keeps_symlink_parent_components(self, tmp_path: Path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with _mock_which("runner-link/../bin/pre-commit"):
+            assert get_precommit_runner() == os.path.join(
+                str(tmp_path), "runner-link/../bin/pre-commit"
+            )
 
     def test_returns_none_when_neither_installed(self):
         with _mock_which_available():
@@ -400,7 +409,7 @@ class TestRunPrecommitChecks:
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
             run_precommit_checks(all_files=True)
         mock_run.assert_called_once_with(
-            ["pre-commit", "run", "--all-files"],
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -419,7 +428,7 @@ class TestRunPrecommitChecks:
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which_available("prek"):
             run_precommit_checks(all_files=True)
         args = mock_run.call_args[0][0]
-        assert args == ["prek", "run", "--all-files"]
+        assert args == [os.path.abspath("/usr/bin/prek"), "run", "--all-files"]
         assert mock_run.call_count == 1
         assert mock_run.call_args.kwargs["cwd"] == tmp_path
 
@@ -441,7 +450,7 @@ class TestRunPrecommitChecks:
             run_precommit_checks(all_files=False)
         mock_modified.assert_called_once_with(tmp_path)
         mock_run.assert_called_once_with(
-            ["pre-commit", "run", "--files", "a.py", "b.py"],
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--files", "a.py", "b.py"],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -485,7 +494,7 @@ class TestRunPrecommitChecks:
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
             assert run_precommit_checks(all_files=all_files) == (True, None)
         mock_run.assert_called_once_with(
-            ["pre-commit", "run", "--all-files"],
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
             cwd=None,
             capture_output=True,
             text=True,
@@ -506,7 +515,7 @@ class TestRunPrecommitChecks:
                 "Pre-commit checks timed out after 300s",
             )
         mock_run.assert_called_once_with(
-            ["pre-commit", "run", "--all-files"],
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -543,7 +552,7 @@ class TestRunPrecommitChecks:
         assert output is not None
         assert "Pre-commit checks failed" in output
         mock_run.assert_called_once_with(
-            ["pre-commit", "run", "--all-files"],
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
             cwd=tmp_path,
             capture_output=True,
             text=True,
@@ -777,8 +786,13 @@ class TestRunPrecommitOnFile:
         ):
             list(run_precommit_on_file(None, tmp_path, tmp_path / "f.py", "content"))
         calls = [call.args[0] for call in mock_run.call_args_list]
-        assert calls[0] == ["prek", "--version"]
-        assert calls[1] == ["prek", "run", "--files", str(tmp_path / "f.py")]
+        assert calls[0] == [os.path.abspath("/usr/bin/prek"), "--version"]
+        assert calls[1] == [
+            os.path.abspath("/usr/bin/prek"),
+            "run",
+            "--files",
+            str(tmp_path / "f.py"),
+        ]
 
     @patch("subprocess.run")
     def test_check_fails(self, mock_run: MagicMock, tmp_path: Path, monkeypatch):

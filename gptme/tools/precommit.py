@@ -61,10 +61,12 @@ PRECOMMIT_RUNNERS = ("pre-commit", "prek")
 
 
 def get_precommit_runner() -> str | None:
-    """Return the available pre-commit runner, or None if neither is installed."""
+    """Return an absolute runner path, or None if neither is installed."""
     for candidate in PRECOMMIT_RUNNERS:
-        if shutil.which(candidate):
-            return candidate
+        if executable := shutil.which(candidate):
+            # PATH entries may be relative to the caller; execution can use a
+            # different cwd. Preserve the selected entry (including symlinks).
+            return os.path.join(os.getcwd(), executable)
     return None
 
 
