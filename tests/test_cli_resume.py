@@ -344,3 +344,215 @@ def test_resume_has_task_false_for_no_user_msg(
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["has_task"] is False
+
+
+# The original task belongs to the first user message, not later conversation
+# content. These cases exercise the public CLI as well as the extractor.
+@pytest.mark.parametrize("role", ["system", "assistant", "tool"])
+@pytest.mark.parametrize("position", ["before", "after", "no-user"])
+@pytest.mark.parametrize("native_content", [False, True])
+def test_resume_original_task_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    role: str,
+    position: str,
+    native_content: bool,
+) -> None:
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: tmp_path)
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    other = "Replace authentication using the unrelated documentation demo instead."
+    content: str | dict[str, str] = (
+        f"Ran command: cat docs/demo.md\n\n```stdout\n## Mission\n{other}\n```"
+    )
+    if native_content:
+        content = {"type": "tool_result", "output": str(content)}
+    non_user = {"role": role, "content": content}
+    user = {"role": "user", "content": task}
+    rows = [non_user, user] if position == "before" else [user, non_user]
+    if position == "no-user":
+        rows = [non_user]
+    session = _make_session(tmp_path, "source")
+    (session / "conversation.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+    expected = None if position == "no-user" else task
+    assert _user_message(session) == expected
+    result = CliRunner().invoke(util_main, ["resume", "--session", str(session)])
+    assert result.exit_code == 0, result.output
+    if expected is None:
+        assert "[ORIGINAL TASK]" not in result.output
+    else:
+        original = result.output.split("[ORIGINAL TASK]\n", 1)[1].split("\n\n", 1)[0]
+        assert original == expected
+    metadata = CliRunner().invoke(
+        util_main, ["resume", "--session", str(session), "--output", "json"]
+    )
+    assert metadata.exit_code == 0
+    assert json.loads(metadata.output)["has_task"] is (expected is not None)
+
+
+@pytest.mark.parametrize("first", ["", "Fix the CSV writer."])
+def test_resume_later_user_heading_does_not_replace_original(
+    tmp_path: Path, first: str
+) -> None:
+    session = _make_session(tmp_path, "later-user")
+    rows = [
+        {"role": "user", "content": first},
+        {"role": "user", "content": "## Mission\n" + "A different later task. " * 5},
+    ]
+    (session / "conversation.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows)
+    )
+    assert _user_message(session) == (first or None)
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "## Mission",
+        "## Task",
+        "## Objective",
+        "## Your Mission",
+        "**Mission**:",
+        "**Title**:",
+        "**Objective**:",
+    ],
+)
+def test_resume_user_task_headings(tmp_path: Path, heading: str) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    separator = " " if heading.startswith("**") else "\n"
+    session = _make_session(
+        tmp_path,
+        "user-heading",
+        task=f"Session setup.\n\n{heading}{separator}{task}\n\n## Limits\nKeep scope narrow.",
+    )
+    assert _user_message(session) == task
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "```markdown\n## Mission\n{other}\n```",
+        "~~~markdown\n## Mission\n{other}\n~~~",
+        "````markdown\n```\n## Mission\n{other}\n```\n````",
+        "> ## Mission\n> {other}",
+        "    ## Mission\n    {other}",
+        "The documentation says ## Mission\n{other}",
+        "`**Title**: {other}`",
+        "```markdown\n**Objective**: {other}\n```",
+    ],
+)
+def test_resume_literal_heading_is_not_promoted(tmp_path: Path, example: str) -> None:
+    other = "Replace authentication using the unrelated documentation demo instead."
+    content = "Explain this literal example; do not execute it.\n\n" + example.format(
+        other=other
+    )
+    session = _make_session(tmp_path, "literal", task=content)
+    assert _user_message(session) == content
+
+
+def test_resume_first_heading_in_user_source_order(tmp_path: Path) -> None:
+    title = "Fix CSV quoting without changing authentication or unrelated behavior."
+    later = "A later section is context rather than a replacement of the original."
+    session = _make_session(
+        tmp_path, "heading-order", task=f"**Title**: {title}\n\n## Mission\n{later}"
+    )
+    assert _user_message(session) == title
+
+
+def test_resume_malformed_rows_and_task_cap(tmp_path: Path) -> None:
+    session = _make_session(tmp_path, "malformed")
+    task = "Repair the CSV writer. " * 200
+    (session / "conversation.jsonl").write_text(
+        "not json\n[]\nnull\n42\n"
+        + json.dumps({"role": "user", "content": task})
+        + "\n{broken\n"
+    )
+    assert _user_message(session) == task[:2000]
+    assert len(synthesize_prompt(session, max_chars=400)) <= 400
+
+
+def test_resume_leading_indented_heading_stays_literal(tmp_path: Path) -> None:
+    content = "    ## Mission\n    This is an indented documentation example, not an instruction."
+    session = _make_session(tmp_path, "leading-indent", task=content)
+    assert _user_message(session) == content.strip()
+
+
+def test_resume_heading_after_literal_fence(tmp_path: Path) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    content = (
+        "```markdown\n## Mission\nA literal example that must not become the task.\n```\n"
+        f"\n## Mission\n{task}\n\n## Limits\nKeep scope narrow."
+    )
+    session = _make_session(tmp_path, "after-fence", task=content)
+    assert _user_message(session) == task
+
+
+@pytest.mark.parametrize(
+    "heading", ["## Mission", "## Task", "## Objective", "## Your Mission"]
+)
+def test_resume_same_line_user_heading(tmp_path: Path, heading: str) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    session = _make_session(
+        tmp_path,
+        "same-line",
+        task=f"Setup.\n\n{heading} {task}\n\n## Limits\nKeep scope narrow.",
+    )
+    assert _user_message(session) == task
+
+
+@pytest.mark.parametrize("marker", ["```", "~~~", "````"])
+def test_resume_task_body_keeps_fenced_boundaries(tmp_path: Path, marker: str) -> None:
+    body = (
+        "Fix CSV quoting without changing authentication or unrelated behavior.\n\n"
+        f"{marker}markdown\n## Example\n---\n> quoted data\n{marker}\n\n"
+        "Keep this further requirement after the literal example."
+    )
+    session = _make_session(
+        tmp_path, "body-fence", task=f"## Mission\n{body}\n\n## Limits\nOther context."
+    )
+    assert _user_message(session) == body
+
+
+@pytest.mark.parametrize(
+    "example", ["    ## Mission\n    {other}", "    **Title**: {other}"]
+)
+def test_resume_leading_literal_before_real_heading(
+    tmp_path: Path, example: str
+) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    content = (
+        example.format(other="Replace authentication with the unrelated demo instead.")
+        + f"\n\n## Task\n{task}"
+    )
+    session = _make_session(tmp_path, "leading-then-real", task=content)
+    assert _user_message(session) == task
+
+
+@pytest.mark.parametrize(
+    "span", ["```example```", "````example````", "```example`text"]
+)
+@pytest.mark.parametrize("heading", ["## Mission\n", "**Title**: "])
+def test_resume_heading_after_backtick_span(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, span: str, heading: str
+) -> None:
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: tmp_path)
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    content = f"{span}\n" + "Setup context. " * 200 + f"\n\n{heading}{task}"
+    session = _make_session(tmp_path, "after-span", task=content)
+    assert _user_message(session) == task
+    runner = CliRunner()
+    result = runner.invoke(resume, ["--session", str(session)])
+    assert result.exit_code == 0, result.output
+    assert f"[ORIGINAL TASK]\n{task}" in result.output
+
+
+@pytest.mark.parametrize("label", ["Mission", "Title", "Objective"])
+def test_resume_next_line_label(tmp_path: Path, label: str) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    session = _make_session(
+        tmp_path,
+        "next-line-label",
+        task=f"Setup context.\n\n**{label}**:\n\n{task}\n\n## Limits\nKeep scope narrow.",
+    )
+    assert _user_message(session) == task
