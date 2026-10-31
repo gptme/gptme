@@ -64,3 +64,53 @@ def test_del_swallows_shutdown_attribute_errors(
 
     monkeypatch.undo()
     manager._release_lock()
+
+
+def test_windows_registry_reuse_with_raw_handles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise Windows registry logic on every platform, not native OS trust."""
+    from io import FileIO
+    from types import SimpleNamespace
+
+    from gptme.logmanager import manager as module
+
+    first = LogManager(logdir=tmp_path / "conversation", lock=False)
+    second = LogManager(logdir=first.logdir, lock=False)
+    for manager in (first, second):
+        manager._lockfile = manager.logdir / ".lock"
+        manager._lockfile.touch(exist_ok=True)
+        manager._lock_fd = FileIO(manager._lockfile, "r+")
+    unlocks: list[int] = []
+    monkeypatch.setattr(module, "os", SimpleNamespace(name="nt", getpid=os.getpid))
+    monkeypatch.setattr(LogManager, "_platform_lock", staticmethod(lambda fd: None))
+    monkeypatch.setattr(
+        LogManager,
+        "_platform_unlock",
+        staticmethod(lambda fd: unlocks.append(fd.fileno())),
+    )
+    try:
+        assert first._acquire_lock_fd()
+        assert not second._acquire_lock_fd()
+        state = module._windows_lock_owners[first._lockfile.resolve()]
+        assert state.refcount == 2
+        assert isinstance(state.fd, FileIO)
+        assert first._lockfile.read_text() == str(os.getpid())
+        first._release_lock()
+        first._release_lock()
+        assert state.refcount == 1
+        assert not state.fd.closed
+        assert not unlocks
+        second._release_lock()
+        second._release_lock()
+        assert state.fd.closed
+        assert len(unlocks) == 1
+        assert first._lockfile.resolve() not in module._windows_lock_owners
+    finally:
+        first._release_lock()
+        second._release_lock()
+
+
+def test_partial_constructor_cleanup_is_harmless() -> None:
+    manager = LogManager.__new__(LogManager)
+    manager.__del__()

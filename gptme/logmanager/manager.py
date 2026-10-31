@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timezone
+from io import FileIO
 from itertools import islice, zip_longest
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -64,7 +65,7 @@ RoleLiteral = Literal["user", "assistant", "system"]
 
 @dataclass
 class _WindowsLockState:
-    fd: TextIO
+    fd: FileIO
     refcount: int = 1
 
 
@@ -72,6 +73,26 @@ class _WindowsLockState:
 # Share one OS lock across same-process managers until the final user releases it.
 _windows_lock_owners_guard = threading.Lock()
 _windows_lock_owners: dict[Path, _WindowsLockState] = {}
+
+
+def _reset_lock_owners_after_fork() -> None:
+    """Discard inherited ownership without unlocking the parent's descriptions."""
+    global _windows_lock_owners_guard, _windows_lock_owners
+    # A vanished parent thread may have held the old guard. Never acquire it.
+    inherited = _windows_lock_owners
+    _windows_lock_owners_guard = threading.Lock()
+    _windows_lock_owners = {}
+    for state in inherited.values():
+        # FileIO is unbuffered: no inherited buffered-I/O mutex to wait for.
+        # Close only: LOCK_UN would also release the parent's lock.
+        try:
+            state.fd.close()
+        except OSError:
+            pass  # Already closed; logging may itself use inherited thread locks.
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_lock_owners_after_fork)
 
 # Field names accepted by Message.__init__, used to drop unknown keys when
 # reading stored logs (forward-compatibility with logs from newer versions).
@@ -239,7 +260,7 @@ class LogManager:
             pass
     """
 
-    _lock_fd: TextIO | None = None
+    _lock_fd: FileIO | None = None
     _windows_lock_key: Path | None = None
     _tmpdir: TemporaryDirectory | None = None  # Store to prevent premature GC
 
@@ -275,6 +296,8 @@ class LogManager:
         lock: bool = True,
         view: str | None = None,
     ):
+        # Cleanup callbacks and descriptors survive os.fork(), ownership does not.
+        self._lock_pid = os.getpid()
         self.current_branch = branch or "main"
         # View branch support: compacted views stored separately from user branches
         # When current_view is set, new messages go to BOTH master AND the view
@@ -298,7 +321,7 @@ class LogManager:
         if lock and not is_pytest:
             self._lockfile = self.logdir / ".lock"
             self._lockfile.touch(exist_ok=True)
-            self._lock_fd = self._lockfile.open("r+")
+            self._lock_fd = FileIO(self._lockfile, "r+")
 
             self._acquire_lock()
 
@@ -382,7 +405,7 @@ class LogManager:
                 self._platform_lock(self._lock_fd)
                 self._lock_fd.seek(0)
                 self._lock_fd.truncate()
-                self._lock_fd.write(str(os.getpid()))
+                self._lock_fd.write(str(os.getpid()).encode("ascii"))
                 self._lock_fd.flush()
                 _windows_lock_owners[lock_key] = _WindowsLockState(self._lock_fd)
                 self._windows_lock_key = lock_key
@@ -392,7 +415,7 @@ class LogManager:
         self._platform_lock(self._lock_fd)
         self._lock_fd.seek(0)
         self._lock_fd.truncate()
-        self._lock_fd.write(str(os.getpid()))
+        self._lock_fd.write(str(os.getpid()).encode("ascii"))
         self._lock_fd.flush()
         return True
 
@@ -444,7 +467,7 @@ class LogManager:
                     self._lock_fd.close()
                     self._lockfile.unlink()
                     self._lockfile.touch(exist_ok=True)
-                    self._lock_fd = self._lockfile.open("r+")
+                    self._lock_fd = FileIO(self._lockfile, "r+")
                     # Retry lock acquisition
                     reused = not self._acquire_lock_fd()
                     atexit.register(self._release_lock)
@@ -460,7 +483,7 @@ class LogManager:
             ) from None
 
     @staticmethod
-    def _platform_lock(fd: TextIO) -> None:
+    def _platform_lock(fd: TextIO | FileIO) -> None:
         """Acquire a non-blocking exclusive lock using platform-appropriate API."""
         if fcntl is not None:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -472,7 +495,7 @@ class LogManager:
             pass
 
     @staticmethod
-    def _platform_unlock(fd: TextIO) -> None:
+    def _platform_unlock(fd: TextIO | FileIO) -> None:
         """Release a lock using platform-appropriate API."""
         if fcntl is not None:
             fcntl.flock(fd, fcntl.LOCK_UN)
@@ -497,6 +520,17 @@ class LogManager:
 
     def _release_lock(self):
         """Release this manager's reference to the conversation lock."""
+        if self._lock_pid != os.getpid():
+            # The open-file description is shared with the living parent.
+            # Do not unlock it or touch the child's fresh ownership registry.
+            self._windows_lock_key = None
+            fd, self._lock_fd = self._lock_fd, None
+            if fd is not None:
+                try:
+                    fd.close()
+                except OSError:
+                    pass
+            return
         if os.name == "nt" and self._windows_lock_key is not None:
             lock_key = self._windows_lock_key
             self._windows_lock_key = None
