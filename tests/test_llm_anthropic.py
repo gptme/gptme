@@ -20,7 +20,7 @@ from gptme.llm.llm_anthropic import (
     _resolve_effort_level,
     _resolve_thinking_budget,
 )
-from gptme.message import Message, MessageMetadata
+from gptme.message import Message
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import ToolUse, get_tool, init_tools
 
@@ -962,54 +962,26 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     assert text == "Hello"
 
 
-def test_chat_omits_unset_optional_sdk_parameters(
+@pytest.mark.parametrize(
+    ("model", "reasoning", "include_tools"),
+    [
+        ("claude-opus-4-7", "0", False),
+        ("claude-sonnet-5-5", "1", True),
+    ],
+)
+def test_chat_serializes_optional_sdk_parameters(
     monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    reasoning: str,
+    include_tools: bool,
 ) -> None:
-    """Unset tools and disabled reasoning stay absent from the SDK payload."""
-    payloads: list[dict[str, object]] = []
-    payload_parser = TypeAdapter(dict[str, object])
-
-    def serve(request: httpx2.Request) -> httpx2.Response:
-        payloads.append(payload_parser.validate_json(request.content))
-        response: httpx2.Response = httpx2.Response(
-            200,
-            content=(
-                b'{"id":"msg_test","type":"message","role":"assistant",'
-                b'"model":"claude-opus-4-7","content":[{"type":"text",'
-                b'"text":"Hello"}],"stop_reason":"end_turn",'
-                b'"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}'
-            ),
-            headers={"content-type": "application/json"},
-        )
-        return response
-
-    monkeypatch.setenv("GPTME_REASONING", "0")
-    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
-    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
-    monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
-    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
-        client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
-        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-        response: tuple[str, MessageMetadata | None] = llm_anthropic.chat(
-            [Message("system", "Be helpful."), Message("user", "Hello")],
-            "claude-opus-4-7",
-            tools=None,
-        )
-        answer = response[0]
-
-    assert answer == "Hello"
-    assert "tools" not in payloads[0]
-    assert "thinking" not in payloads[0]
-    assert "output_config" not in payloads[0]
-
-
-def test_chat_includes_set_optional_sdk_parameters(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Configured tools and reasoning are included in the SDK payload."""
-    init_tools(allowlist=["save"])
-    tool_save = get_tool("save")
-    assert tool_save is not None
+    """Optional SDK fields are omitted when unset and serialized when set."""
+    tools = None
+    if include_tools:
+        init_tools(allowlist=["save"])
+        tool_save = get_tool("save")
+        assert tool_save is not None
+        tools = [tool_save]
 
     payloads: list[dict[str, object]] = []
     payload_parser = TypeAdapter(dict[str, object])
@@ -1018,35 +990,44 @@ def test_chat_includes_set_optional_sdk_parameters(
         payloads.append(payload_parser.validate_json(request.content))
         return httpx2.Response(
             200,
-            content=(
-                b'{"id":"msg_test","type":"message","role":"assistant",'
-                b'"model":"claude-sonnet-5-5","content":[{"type":"text",'
-                b'"text":"Hello"}],"stop_reason":"end_turn",'
-                b'"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}'
-            ),
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [{"type": "text", "text": "Hello"}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
             headers={"content-type": "application/json"},
         )
 
-    monkeypatch.setenv("GPTME_REASONING", "1")
+    monkeypatch.setenv("GPTME_REASONING", reasoning)
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
     monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
     monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
     with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
         client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
         monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-        answer, _ = llm_anthropic.chat(
+        answer, _metadata = llm_anthropic.chat(
             [Message("system", "Be helpful."), Message("user", "Hello")],
-            "claude-sonnet-5-5",
-            tools=[tool_save],
+            model,
+            tools=tools,
         )
 
     assert answer == "Hello"
-    tools_payload = payloads[0]["tools"]
-    assert isinstance(tools_payload, list)
-    assert isinstance(tools_payload[0], dict)
-    assert tools_payload[0]["name"] == "save"
-    assert payloads[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
-    assert payloads[0]["output_config"] == {"effort": "high"}
+    if include_tools:
+        tools_payload = payloads[0]["tools"]
+        assert isinstance(tools_payload, list)
+        assert isinstance(tools_payload[0], dict)
+        assert tools_payload[0]["name"] == "save"
+        assert payloads[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert payloads[0]["output_config"] == {"effort": "high"}
+    else:
+        assert "tools" not in payloads[0]
+        assert "thinking" not in payloads[0]
+        assert "output_config" not in payloads[0]
 
 
 def test_opus_47_returns_adaptive():
