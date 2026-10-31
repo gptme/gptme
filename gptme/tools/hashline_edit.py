@@ -471,7 +471,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             if reg not in registers:
                 raise ValueError(
                     f"Register @{reg} is not defined — "
-                    "add a 'CUT N.=M @{reg}' operation earlier in the same edit block"
+                    f"add a 'CUT N.=M @{reg}' operation earlier in the same edit block"
                 )
             source = register_sources[reg]
             if op.start <= source.end and source.start <= op.end:
