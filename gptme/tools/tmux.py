@@ -708,7 +708,7 @@ def execute_tmux(
 
 
 instructions = """
-You can use the tmux tool to run long-lived and/or interactive applications in a tmux session.
+Run long-lived or interactive applications in tmux sessions.
 
 ### When to use tmux
 
@@ -721,13 +721,12 @@ continuing.
 
 ### Command boundaries
 
-Top-level semicolons and newlines separate tmux commands. For multiple shell
-commands in one new session, use a Bash compound, for example
-`new-session (printf LEFT; printf RIGHT)`. Heredocs and nested shell compounds
-stay intact. Put heredoc terminators on their own lines, then start the next
-tmux command on a new line. `send-keys` remains literal tmux input, not Bash.
-Malformed or unsupported shell boundaries are rejected before any batch command
-runs; use the shell tool or a script file for grammar the splitter cannot bound.
+Top-level semicolons and newlines separate tmux commands. For a shell sequence,
+use a Bash compound: `new-session (printf LEFT; printf RIGHT)`.
+Heredocs and nested compounds stay intact. Put heredoc terminators on their own
+lines, then the next tmux command on a new line. `send-keys` is literal input,
+not Bash. Invalid or unsupported boundaries reject the whole batch; use the
+shell tool or a script file for unsupported grammar.
 """
 # TODO: change the "commands" to Python functions registered with the Python tool?
 
