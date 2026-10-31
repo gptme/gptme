@@ -82,7 +82,7 @@ def test_find_empty_calculates_size(tmp_path: Path):
     conv_dir = tmp_path / "test-conv"
     conv_dir.mkdir()
     transcript = json.dumps({"role": "system", "content": "a" * 500}) + "\n"
-    (conv_dir / "conversation.jsonl").write_text(transcript)
+    (conv_dir / "conversation.jsonl").write_bytes(transcript.encode())
     (conv_dir / "metadata.json").write_text("b" * 200)
 
     conv = _make_conv("test-conv", 0, path=str(conv_dir / "conversation.jsonl"))
