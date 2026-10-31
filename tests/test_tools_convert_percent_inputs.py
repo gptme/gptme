@@ -91,6 +91,40 @@ def test_percent_named_animation_keeps_frames(
     assert source.read_bytes() == original
 
 
+@pytest.mark.parametrize("name", ["ordinary.png", "literal%03d.png"])
+@pytest.mark.parametrize("path_entry", ["./bin", "."])
+def test_image_conversion_with_relative_executable_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, path_entry: str
+) -> None:
+    """Resolve FFmpeg from the caller's PATH before changing its working directory."""
+    import gptme.tools.convert as conversion
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("FFmpeg not installed")
+    executable = Path(ffmpeg).absolute()
+    monkeypatch.chdir(tmp_path)
+    binary_directory = tmp_path / path_entry
+    binary_directory.mkdir(exist_ok=True)
+    (binary_directory / "ffmpeg").symlink_to(executable)
+    monkeypatch.setenv("PATH", path_entry)
+    monkeypatch.setattr(conversion, "_tool_avail", None)
+    assert conversion.get_availability().ffmpeg
+    source = Path(name)
+    Image.new("RGB", (16, 16), "red").save(source)
+    original = source.read_bytes()
+    destination = Path("output.png")
+
+    result = ImageConverter().convert(source, destination)
+
+    assert result.success, result.error
+    assert result.converter_used == "ffmpeg"
+    assert result.output_path == destination
+    assert source.read_bytes() == original
+    with Image.open(destination) as image:
+        assert image.convert("RGB").getpixel((8, 8)) == (255, 0, 0)
+
+
 @pytest.mark.parametrize("fail_copy", [False, True])
 def test_percent_temporary_input_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_copy: bool
