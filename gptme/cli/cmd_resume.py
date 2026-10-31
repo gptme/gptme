@@ -57,50 +57,71 @@ def _session_name(session_dir: Path) -> str:
     return re.sub(r"^run-[a-z]+-", "", name)
 
 
+def _task_from_user_content(content: str) -> str:
+    """Prefer the first explicit, unquoted task heading; otherwise keep the request.
+
+    Heading recognition is deliberately conservative: column-zero Markdown
+    headings/labels outside fenced code. This is not an intent classifier for
+    arbitrary quoted prose. Keep the original text intact for the fallback.
+    """
+    lines = content.splitlines()
+    # Use the same fence state for candidate headings and section boundaries.
+    unfenced = []
+    fence: str | None = None
+    for line in lines:
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        unfenced.append(fence is None and marker is None)
+        if fence is not None:
+            if marker and re.fullmatch(
+                re.escape(fence[0]) + "{" + str(len(fence)) + ",}\\s*", line.lstrip()
+            ):
+                fence = None
+        elif marker:
+            fence = marker.group(1)
+
+    for index, line in enumerate(lines):
+        if not unfenced[index]:
+            continue
+        heading = re.fullmatch(
+            r"## (?:Mission|Task|Objective|Your Mission)(?:[ \t]+(.*))?",
+            line,
+            re.IGNORECASE,
+        )
+        label = re.match(
+            r"^\*\*(?:Mission|Title|Objective)\*\*:\s*(.*)$", line, re.IGNORECASE
+        )
+        if heading:
+            body = [heading.group(1) or ""]
+            for offset in range(index + 1, len(lines)):
+                following = lines[offset]
+                if unfenced[offset] and re.match(r"^(?:##|---|>)", following):
+                    break
+                body.append(following)
+            task = "\n".join(body).strip()
+            if len(task) > 30:
+                return task[:2000]
+        elif label:
+            task = label.group(1).strip()
+            if len(task) > 50:
+                return task[:2000]
+    return content.strip()[:2000]
+
+
 def _user_message(session_dir: Path) -> str | None:
-    """Extract the original task/mission from user or system messages."""
+    """Extract the original task only from the first user-authored message."""
     conv = session_dir / "conversation.jsonl"
     if not conv.exists():
         return None
 
-    messages = []
     for line in conv.read_text(errors="replace").splitlines():
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(msg, dict):
-            messages.append(msg)
-
-    mission_patterns = [
-        r"## Mission\s*\n(.*?)(?=\n##|\n---|\Z)",
-        r"\*\*Mission\*\*:\s*(.*?)(?=\n|$)",
-        r"\*\*Title\*\*:\s*(.*?)(?=\n|$)",
-        r"\*\*Objective\*\*:\s*(.*?)(?=\n|$)",
-    ]
-    for msg in messages:
-        content = str(msg.get("content", ""))
-        for pattern in mission_patterns:
-            m = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
-            if m:
-                task = m.group(1).strip()
-                if len(task) > 50:
-                    return task[:2000]
-
-    for msg in messages:
-        if msg.get("role") == "user":
-            content = str(msg.get("content", "")).strip()
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = str(msg.get("content", ""))
             content = re.sub(r"\n{3,}", "\n\n", content)
-            m = re.search(
-                r"(?:## Mission|## Task|## Objective|## Your Mission)(.*?)(?=\n##|\n---|\n>|---|\Z)",
-                content,
-                re.DOTALL | re.IGNORECASE,
-            )
-            if m:
-                task = m.group(1).strip()
-                if len(task) > 30:
-                    return task[:2000]
-            return content[:2000] or None
+            return _task_from_user_content(content) or None
     return None
 
 
