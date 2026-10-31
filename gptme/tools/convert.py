@@ -436,6 +436,9 @@ class ImageConverter(Converter):
                             converter_used=self.name,
                             error=f"Could not prepare literal image input: {error}",
                         )
+                    # Anchor relative PATH entries before changing the child cwd.
+                    if executable := shutil.which(cmd[0]):
+                        cmd[0] = str(Path(executable).absolute())
                     # Use a basename even if the temporary parent contains '%'.
                     cmd[cmd.index("-i") + 1] = literal.name
                     cmd[-1] = str(dest.absolute())
