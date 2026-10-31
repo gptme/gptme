@@ -407,3 +407,109 @@ def test_kernel_display_update_does_not_revive_cleared_slot(
         + "handle.update(image)\n"
     )
     assert _assert_rasters(messages, raster_kernel, 0) == []
+
+
+@pytest.mark.parametrize("update_text_id", [False, True])
+def test_kernel_text_display_ids_do_not_block_rasters(
+    raster_kernel: LogManager, update_text_id: bool
+) -> None:
+    data = _png("blue")
+    code = (
+        "from IPython.display import display\n"
+        "for index in range(16):\n"
+        "    display('status', display_id=f'status-{index}')\n" + _image_code(data)
+    )
+    code += (
+        "from IPython.display import update_display\n"
+        "update_display(image, display_id='status-0')\n"
+        if update_text_id
+        else "display(image)\n"
+    )
+    messages = _execute(code)
+    assert _assert_rasters(messages, raster_kernel, 1) == [data]
+    assert not any("image count limit" in message.content for message in messages)
+
+
+@pytest.mark.parametrize("budget", ["count", "bytes"])
+def test_kernel_shared_updates_bound_retained_attachments(
+    raster_kernel: LogManager, monkeypatch: pytest.MonkeyPatch, budget: str
+) -> None:
+    from gptme.tools import python_kernel as kernel
+
+    first = _png("red")
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 32), "blue").save(buffer, format="PNG")
+    second = buffer.getvalue()
+    # Three text placeholders cost no decoding allowance; their shared update
+    # must still fit the expanded attachment count and byte limits.
+    if budget == "count":
+        monkeypatch.setattr(kernel, "_MAX_RASTER_IMAGES", 2)
+        expected = 2
+    else:
+        monkeypatch.setattr(kernel, "_MAX_RASTER_TOTAL_BYTES", len(first) + len(second))
+        expected = 1
+    messages = _execute(
+        _image_code(first)
+        + "for _ in range(3):\n"
+        + "    display('status', display_id='shared')\n"
+        + _image_code(second)
+        + "from IPython.display import update_display\n"
+        + "update_display(image, display_id='shared')\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, expected) == [second] * expected
+    retained = list((raster_kernel.logdir / "attachments").glob("kernel-*"))
+    assert (
+        sum(path.stat().st_size for path in retained) <= kernel._MAX_RASTER_TOTAL_BYTES
+    )
+    assert len(retained) <= kernel._MAX_RASTER_IMAGES
+    limit = "count" if budget == "count" else "byte"
+    assert f"image {limit} limit" in "\n".join(message.content for message in messages)
+
+
+def test_kernel_shared_raster_update_bounds_storage(
+    raster_kernel: LogManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.tools import python_kernel as kernel
+
+    first = _png("red")
+    buffer = io.BytesIO()
+    Image.new("RGB", (128, 128), "blue").save(buffer, format="PNG")
+    second = buffer.getvalue()
+    limit = 3 * len(first) + len(second)
+    assert len(second) <= limit < 2 * len(second)
+    monkeypatch.setattr(kernel, "_MAX_RASTER_TOTAL_BYTES", limit)
+    messages = _execute(
+        _image_code(first)
+        + "for _ in range(3):\n"
+        + "    display(image, display_id='shared')\n"
+        + _image_code(second)
+        + "from IPython.display import update_display\n"
+        + "update_display(image, display_id='shared')\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 1) == [second]
+    retained = list((raster_kernel.logdir / "attachments").glob("kernel-*"))
+    assert sum(path.stat().st_size for path in retained) <= limit
+    assert "image byte limit" in "\n".join(message.content for message in messages)
+
+
+def test_kernel_text_tracking_limit_keeps_raster_allowance(
+    raster_kernel: LogManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.tools import python_kernel as kernel
+
+    monkeypatch.setattr(kernel, "_MAX_TEXT_DISPLAY_SLOTS", 2)
+    first, second = _png("red"), _png("blue")
+    messages = _execute(
+        "from IPython.display import display, update_display\n"
+        "for index in range(3):\n"
+        "    display('status', display_id=f'status-{index}')\n"
+        + _image_code(first)
+        + "update_display(image, display_id='status-0')\n"
+        + "update_display(image, display_id='status-2')\n"
+        + _image_code(second)
+        + "display(image)\n"
+    )
+    assert _assert_rasters(messages, raster_kernel, 2) == [first, second]
+    assert "text display-ID tracking limit" in "\n".join(
+        message.content for message in messages
+    )

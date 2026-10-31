@@ -49,6 +49,7 @@ _MAX_RASTER_BYTES = 5 * 1024 * 1024
 _MAX_RASTER_TOTAL_BYTES = 20 * 1024 * 1024
 _MAX_RASTER_IMAGES = 16
 _MAX_RASTER_PIXELS = 16_000_000
+_MAX_TEXT_DISPLAY_SLOTS = 1024  # bound display-ID metadata independently of rasters
 _RASTER_FORMATS = {
     "image/png": "PNG",
     "image/jpeg": "JPEG",
@@ -957,13 +958,16 @@ class KernelBackend:
             if updating:
                 for index in matches:
                     visible_images[index] = (display_id, image)
-            elif image is not None or display_id is not None:
-                if len(visible_images) < _MAX_RASTER_IMAGES:
-                    visible_images.append((display_id, image))
+            elif image is not None:
+                # Decoding already bounds actual images. Text-only display IDs
+                # must not consume their allowance or block a later plot.
+                visible_images.append((display_id, image))
+            elif display_id is not None:
+                text_slots = sum(image is None for _, image in visible_images)
+                if text_slots < _MAX_TEXT_DISPLAY_SLOTS:
+                    visible_images.append((display_id, None))
                 else:
-                    notice = (
-                        "Kernel image count limit reached; additional images omitted."
-                    )
+                    notice = "Kernel text display-ID tracking limit reached; additional IDs omitted."
                     if notice not in image_notices:
                         image_notices.append(notice)
 
@@ -1122,13 +1126,32 @@ class KernelBackend:
                 )
             return text
 
+        # An update can expand one decoded raster into many visible slots.
+        # Bound the expanded output too: each slot becomes a retained file.
+        retained_images: list[KernelRaster] = []
+        retained_bytes = 0
+        for _, image in visible_images:
+            if image is None:
+                continue
+            notice = None
+            if len(retained_images) >= _MAX_RASTER_IMAGES:
+                notice = "Kernel image count limit reached; additional images omitted."
+            elif retained_bytes + len(image.data) > _MAX_RASTER_TOTAL_BYTES:
+                notice = "Kernel image byte limit reached; additional images omitted."
+            if notice is not None:
+                if notice not in image_notices:
+                    image_notices.append(notice)
+                continue
+            retained_images.append(image)
+            retained_bytes += len(image.data)
+
         self._bridge.active_cell = None
         return KernelExecResult(
             stdout=_with_marker(stdout_parts, stdout_bytes, stdout_total_bytes),
             stderr=_with_marker(stderr_parts, stderr_bytes, stderr_total_bytes),
             result_text=result_text,
             error=error,
-            images=[image for _, image in visible_images if image is not None],
+            images=retained_images,
             image_notices=image_notices,
         )
 
