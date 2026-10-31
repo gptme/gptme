@@ -441,12 +441,28 @@ def _get_ipython():
     from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
 
     if _ipython is None:
+        from IPython.core.displayhook import DisplayHook
+
+        class ResultDisplayHook(DisplayHook):
+            """Collect results without writing them; the caller renders them once."""
+
+            def write_output_prompt(self) -> None:
+                pass
+
+            def write_format_data(
+                self, format_dict: dict, md_dict: dict | None = None
+            ) -> None:
+                pass
+
+            def finish_displayhook(self) -> None:
+                pass
+
         _setup_venv_paths()
 
         # Disable colors in IPython to avoid ANSI escape codes in output
         # Note: We set IPython's colors mode directly rather than using NO_COLOR
         # globally, as that would affect other parts of the application (like Rich)
-        _ipython = InteractiveShell()
+        _ipython = InteractiveShell(displayhook_class=ResultDisplayHook)
         _ipython.colors = "NoColor"
         _ipython.push(registered_functions)
 
@@ -457,20 +473,12 @@ class TeeIO(io.StringIO):
     def __init__(self, original_stream):
         super().__init__()
         self.original_stream = original_stream
-        self.in_result_block = False
         self._byte_count = 0
         self._buffered_bytes = 0
         self._truncated = False
 
     def write(self, s):
-        # hack to get rid of ipython result-prompt ("Out[0]: ...") and everything after it
-        if s.startswith("Out["):
-            self.in_result_block = True
-        if self.in_result_block:
-            if s.startswith("\n"):
-                self.in_result_block = False
-            else:
-                s = ""
+
         self.original_stream.write(s)
         self.original_stream.flush()  # Ensure immediate display
         # Stop buffering once the cap is reached to avoid unbounded memory growth,
