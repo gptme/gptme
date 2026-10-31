@@ -146,7 +146,12 @@ def chats_search(
     matches: int,
     all_agents: bool,
 ):
-    """Search conversation logs."""
+    """Search conversation logs.
+
+    JSON snippets center on the first literal case-insensitive match. The
+    normal 200-character budget expands for longer queries or when surrounding
+    Unicode context is needed to preserve the match's lowercase form.
+    """
     if not query.strip():
         raise click.UsageError("search query cannot be empty")
     _ensure_tools()
@@ -159,7 +164,7 @@ def chats_search(
                 err=True,
             )
         from ..logmanager import LogManager, get_user_conversations  # fmt: skip
-        from ..tools.chats import _get_matching_messages  # fmt: skip
+        from ..tools.chats import _get_matching_messages, _matching_excerpt  # fmt: skip
 
         results = []
         for conv in get_user_conversations():
@@ -174,7 +179,7 @@ def chats_search(
                         "index": idx,
                         "message_number": idx + 1,
                         "role": msg.role,
-                        "content": msg.content[:200],
+                        "content": _matching_excerpt(msg.content, query, budget=200),
                     }
                     for idx, msg in matching[:3]
                 ]
