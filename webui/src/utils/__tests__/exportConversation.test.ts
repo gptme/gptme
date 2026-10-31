@@ -621,6 +621,86 @@ describe('stripThinkingBlocks', () => {
 });
 
 describe('formatConversationAsMarkdown - original filtering boundaries', () => {
+  it.each(['\n\n', '\n \t\n', '\r\n\t\r\n'])(
+    'does not pair inline backticks across a paragraph break: %j',
+    (separator) => {
+      const prefix = 'A lone ` character.';
+      const content = `${prefix}${separator}<think>DROP_REASONING</think>${separator}Use \`x\`.`;
+      expect(stripThinkingBlocks(content)).toBe(
+        `${prefix}${separator}${separator.replace(/^\n/, '')}Use \`x\`.`
+      );
+      for (const includeThinking of [true, false]) {
+        const result = formatConversationAsMarkdown(
+          'Chat',
+          [
+            {
+              role: 'assistant',
+              content: `${prefix}${separator}@save: {"content":"Use \`x\` DROP_TOOL"}\nDone.`,
+            },
+          ],
+          { includeThinking, includeTools: false }
+        );
+        expect(result).toContain(prefix);
+        expect(result).toContain('Done.');
+        expect(result).not.toContain('DROP_TOOL');
+      }
+    }
+  );
+
+  it('keeps a multiline inline example within one paragraph', () => {
+    const content = '`example\n<think>KEEP_REASONING</think>\n@save: {"content":"KEEP_TOOL"}\nend`';
+    expect(stripThinkingBlocks(content)).toBe(content);
+    expect(
+      formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      })
+    ).toContain(content);
+  });
+
+  it.each([true, false])(
+    'keeps mid-line call text after reasoning (thinking: %s)',
+    (includeThinking) => {
+      const content = 'Before <think>hidden</think>@save: {"content":"KEEP_LITERAL"} after.';
+      const expected = includeThinking
+        ? content
+        : 'Before @save: {"content":"KEEP_LITERAL"} after.';
+      expect(
+        formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+          includeThinking,
+          includeTools: false,
+        })
+      ).toBe(`# Chat\n\n## Assistant\n\n${expected}\n`);
+    }
+  );
+
+  it.each([true, false])(
+    'keeps mid-line fence text after reasoning (thinking: %s)',
+    (includeThinking) => {
+      const content = 'Before <think>hidden</think>```save file.txt\nKEEP_LITERAL\n```';
+      const expected = includeThinking ? content : 'Before ```save file.txt\nKEEP_LITERAL\n```';
+      expect(
+        formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+          includeThinking,
+          includeTools: false,
+        })
+      ).toBe(`# Chat\n\n## Assistant\n\n${expected}\n`);
+    }
+  );
+
+  it.each([true, false])(
+    'removes an actual line-start call after reasoning (thinking: %s)',
+    (includeThinking) => {
+      const content = 'Before <think>hidden</think>\n@save: {"content":"DROP_TOOL"}\nDone.';
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking,
+        includeTools: false,
+      });
+      expect(result).toContain('Done.');
+      expect(result).not.toContain('DROP_TOOL');
+    }
+  );
+
   it.each([false, true])('keeps nested fence lengths with includeTools=%s', (includeTools) => {
     const content =
       '````markdown\n```text\n```\n<think>KEEP_LITERAL</think>\n````\n<think>DROP_REASONING</think>\nDone.';

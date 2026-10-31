@@ -135,7 +135,7 @@ function isBackslashEscaped(content: string, index: number): boolean {
 /**
  * End offset of a CommonMark-style inline code span starting at `start`,
  * or null if the backtick run is unclosed. A span cannot cross a fenced
- * block: a closer on the other side of a fence is not part of this span.
+ * block or blank line: those boundaries end the containing paragraph.
  */
 function findInlineCodeEnd(
   content: string,
@@ -149,6 +149,7 @@ function findInlineCodeEnd(
   let j = start + openLen;
   while (j < content.length) {
     if (rangeContains(fenceRanges, j)) return null;
+    if (content[j] === '\n' && /^\n[\t \r]*\n/.test(content.slice(j))) return null;
     if (content[j] !== '`') {
       j++;
       continue;
@@ -412,41 +413,58 @@ function stripAtFormatToolCalls(content: string): string {
  * `role: 'tool'` result messages, which getExportableMessages handles.
  */
 function stripToolInvocations(content: string, includeThinking: boolean): string {
-  const stripSection = stripAtFormatToolCalls;
+  // Sections reset Markdown context, not physical line context. A harmless
+  // prose prefix keeps a mid-line suffix from becoming a call/fence opener.
+  const stripSection = (section: string, atLineStart: boolean): string =>
+    atLineStart ? stripAtFormatToolCalls(section) : stripAtFormatToolCalls('x' + section).slice(1);
+  const isLineStart = (offset: number): boolean => offset === 0 || content[offset - 1] === '\n';
   const thinking = getThinkingRanges(content, getTopLevelFenceRanges(content));
   if (!includeThinking) {
     const sections: string[] = [];
+    const lineStarts: boolean[] = [];
     let cursor = 0;
     for (const range of thinking) {
       sections.push(content.slice(cursor, range.start));
+      lineStarts.push(isLineStart(cursor));
       cursor = range.end;
     }
     sections.push(content.slice(cursor));
+    lineStarts.push(isLineStart(cursor));
     // Preserve stripThinkingBlocks' outer trimming before tool removal, but
     // never parse across a deleted reasoning section's Markdown boundary.
     for (let i = 0; i < sections.length; i++) {
-      sections[i] = sections[i].trimStart();
+      const trimmed = sections[i].trimStart();
+      if (sections[i].slice(0, sections[i].length - trimmed.length).includes('\n')) {
+        lineStarts[i] = true;
+      }
+      sections[i] = trimmed;
       if (sections[i]) break;
     }
     for (let i = sections.length - 1; i >= 0; i--) {
       sections[i] = sections[i].trimEnd();
       if (sections[i]) break;
     }
-    return sections.map(stripSection).join('');
+    return sections.map((section, i) => stripSection(section, lineStarts[i])).join('');
   }
   let result = '';
   let cursor = 0;
   for (const range of thinking) {
-    result += stripSection(content.slice(cursor, range.start));
+    result += stripSection(content.slice(cursor, range.start), isLineStart(cursor));
     const block = content.slice(range.start, range.end);
     const open = block.match(THINK_OPEN_RE)![0];
     const close = block.match(/<\/think(?:ing)?(?: redacted)?>\n?$/)?.[0] ?? '';
     // Keep the reasoning wrapper when requested, but parse its Markdown
     // separately so unfinished fences cannot swallow the answer or its tools.
-    result += open + stripSection(block.slice(open.length, block.length - close.length)) + close;
+    result +=
+      open +
+      stripSection(
+        block.slice(open.length, block.length - close.length),
+        isLineStart(range.start + open.length)
+      ) +
+      close;
     cursor = range.end;
   }
-  return result + stripSection(content.slice(cursor));
+  return result + stripSection(content.slice(cursor), isLineStart(cursor));
 }
 
 export function getExportableMessages(
