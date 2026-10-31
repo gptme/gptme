@@ -750,7 +750,9 @@ def test_cli_export_preserves_git_filenames(
 ) -> None:
     from gptme.cli.cmd_dataset import dataset
 
-    if os.name == "nt" and any(char in filename for char in '\t\n"\\'):
+    if os.name == "nt" and (
+        any(char in filename for char in '\t\n"\\') or filename.endswith(" ")
+    ):
         pytest.skip("Filename is not supported by Windows")
     repo = make_repo(tmp_path)
     _git(["config", "core.quotePath", quote_path], cwd=repo)
