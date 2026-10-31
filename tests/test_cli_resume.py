@@ -352,8 +352,13 @@ def test_resume_has_task_false_for_no_user_msg(
 @pytest.mark.parametrize("position", ["before", "after", "no-user"])
 @pytest.mark.parametrize("native_content", [False, True])
 def test_resume_original_task_source(
-    tmp_path: Path, role: str, position: str, native_content: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    role: str,
+    position: str,
+    native_content: bool,
 ) -> None:
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: tmp_path)
     task = "Fix CSV quoting without changing authentication or unrelated behavior."
     other = "Replace authentication using the unrelated documentation demo instead."
     content: str | dict[str, str] = (
@@ -529,8 +534,9 @@ def test_resume_leading_literal_before_real_heading(
 )
 @pytest.mark.parametrize("heading", ["## Mission\n", "**Title**: "])
 def test_resume_heading_after_backtick_span(
-    tmp_path: Path, span: str, heading: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, span: str, heading: str
 ) -> None:
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: tmp_path)
     task = "Fix CSV quoting without changing authentication or unrelated behavior."
     content = f"{span}\n" + "Setup context. " * 200 + f"\n\n{heading}{task}"
     session = _make_session(tmp_path, "after-span", task=content)
