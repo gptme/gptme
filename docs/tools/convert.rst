@@ -21,6 +21,12 @@ input produces its first frame at the exact requested output path, not a numbere
 image sequence. Animation-capable GIF and WebP targets are not subject to this
 first-frame selection.
 
+Percent-bearing image source paths are literal too: ``scan%03d.png`` reads
+that file, not ``scan001.png``. For FFmpeg, these inputs are copied into a
+private temporary directory under a safe basename, preserving normal content
+probing (including animated PNG and GIF). This uses additional temporary disk
+space equal to the source size; the copy is removed after conversion.
+
 .. automodule:: gptme.tools.convert
     :members:
     :noindex:
