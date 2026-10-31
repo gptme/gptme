@@ -696,6 +696,19 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     expect(result).toContain('Done.');
   });
 
+  it('still strips @tool calls after an unmatched backtick run', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'See ``this\n@save: {"content":"Use `x` now."}\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('Use `x` now.');
+    expect(result).toContain('See ``this');
+    expect(result).toContain('Done.');
+  });
+
   it('strips @tool calls whose JSON arguments contain backticks', () => {
     const messages: Message[] = [
       {

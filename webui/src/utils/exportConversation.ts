@@ -141,6 +141,12 @@ function findInlineCodeEnd(
   return null;
 }
 
+function skipBacktickRun(content: string, start: number): number {
+  let i = start;
+  while (i < content.length && content[i] === '`') i++;
+  return i === start ? start + 1 : i;
+}
+
 /**
  * Index just after the closing brace of the JSON object starting at `start`
  * (`content[start]` must be `{`), or null if the object never closes.
@@ -192,7 +198,7 @@ function getThinkingRanges(content: string, fenceRanges: CharRange[]): CharRange
     }
     if (content[i] === '`') {
       const end = findInlineCodeEnd(content, i, fenceRanges);
-      i = end ?? i + 1;
+      i = end ?? skipBacktickRun(content, i);
       continue;
     }
     const open = matchAt(content, i, THINK_OPEN_RE);
@@ -363,7 +369,7 @@ function stripAtFormatToolCalls(content: string): string {
     }
     if (content[i] === '`') {
       const end = findInlineCodeEnd(content, i, fences);
-      i = end ?? i + 1;
+      i = end ?? skipBacktickRun(content, i);
       continue;
     }
     i++;
