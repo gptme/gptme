@@ -605,6 +605,15 @@ def _close_current_page() -> None:
         except Exception:
             pass
         _current_context = None
+    if _is_cdp_connection() and _browser is not None:
+        # Reset authentication together with ownership, including explicit close.
+        ctx = _browser._session_context
+        _browser._session_context = None
+        if ctx is not None:
+            try:
+                ctx.close()
+            except Exception:
+                pass
     _session_owner = None
 
 
@@ -717,14 +726,6 @@ def _open_page(browser: Browser, url: str) -> str:
 
     if not _session_belongs_to_caller():
         _close_current_page()
-        if _is_cdp_connection() and _browser is not None:
-            # The CDP context belongs to BrowserThread, not _current_context.
-            # Closing only the tab would leak the previous caller's login.
-            ctx = _browser._session_context
-            _browser._session_context = None
-            if ctx is not None:
-                ctx.close()
-            _browser._session_context = browser.new_context(**get_context_options())
 
     if _interactive_page_is_live():
         return _goto_and_snapshot(url)
@@ -745,6 +746,8 @@ def _open_page(browser: Browser, url: str) -> str:
 
     # First open, or after explicit close/reset/state replacement.
     _close_current_page()
+    if _is_cdp_connection() and _browser is not None:
+        _browser._session_context = browser.new_context(**get_context_options())
     managed = _create_page(
         browser,
         **get_context_options(),

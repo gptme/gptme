@@ -200,7 +200,10 @@ def test_close_page_resets_live_auth_state(auth_server: str):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("new_owner", ["conv-b", None])
-def test_cdp_context_switch_drops_other_conversation_auth(auth_server, new_owner):
+@pytest.mark.parametrize("close_first", [False, True])
+def test_cdp_context_switch_drops_other_conversation_auth(
+    auth_server, new_owner, close_first
+):
     """Exercise CDP context ownership with real Chromium storage, without a host CDP.
 
     Install the BrowserThread-owned context used by CDP onto an isolated launched
@@ -223,6 +226,8 @@ def test_cdp_context_switch_drops_other_conversation_auth(auth_server, new_owner
         assert "cookie-ok" in account
         assert "localstorage-ok" in account
 
+        if close_first:
+            bp.close_page()
         current_conversation_id.set(new_owner)
         account = bp.open_page(f"{auth_server}/account")
         assert "cookie-missing" in account
