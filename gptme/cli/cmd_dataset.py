@@ -27,7 +27,9 @@ def dataset() -> None:
 
     Uses commit-message session-ID attribution to recover the git state
     before and after each session, producing TaskEnvironment JSONL records
-    suitable for fine-tuning pipelines.
+    suitable for fine-tuning pipelines. Only contiguous single-parent solution
+    histories with an entry parent are supported; unsupported histories are
+    skipped with a warning.
 
     References:
       Terminal-Universe paper: https://arxiv.org/abs/2609.04148
@@ -152,6 +154,11 @@ def export_cmd(
     Each line of output is a JSON object describing one reproducible training
     environment derived from a gptme session.  The schema matches the
     ``TaskEnvironment`` dataclass in ``gptme.dataset.trajectory_to_env``.
+
+    Root solutions, merges and interleaved/nonlinear attributed histories are
+    skipped with a warning. Foreign work before the entry is preserved as
+    starting state, never added to the solution. This structural replay check
+    does not establish task correctness or external dependency availability.
 
     Example::
 

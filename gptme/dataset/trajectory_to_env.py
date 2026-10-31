@@ -61,14 +61,17 @@ class TaskEnvironment:
     entry_commit: str
     """SHA of the commit immediately before the first session commit.
 
-    ``git checkout entry_commit`` restores the workspace to the state when
-    the session started.
+    Earlier foreign history is part of this starting state; the actual wall-clock
+    session start is not inferred from attribution.
     """
 
     solution_commits: list[str]
     """Ordered list of commit SHAs produced during the session.
 
-    These are the ground-truth changes the model should replicate.
+    These form a contiguous single-parent chain after ``entry_commit``. Root
+    solutions, merges and interleaved/nonlinear attributed histories are skipped,
+    even if intervening work appears independent. This is a structural replay
+    guarantee, not proof of task correctness or runtime dependency completeness.
     """
 
     files_changed: list[str]
@@ -133,7 +136,7 @@ def _attribution_ids(conversation_id: str) -> list[str]:
 
 
 def _find_session_commits(session_id: str, repo: Path) -> list[str]:
-    """Return reachable commits exactly attributed to a session, oldest first."""
+    """Return reachable, exactly attributed commits in ancestor-first order."""
     attribution_ids = _attribution_ids(session_id)
     grep_args: list[str] = []
     for attribution_id in attribution_ids:
@@ -144,6 +147,7 @@ def _find_session_commits(session_id: str, repo: Path) -> list[str]:
             "HEAD",
             *grep_args,
             "--format=%H%x1f%B%x1e",
+            "--topo-order",
             "--reverse",
         ],
         cwd=repo,
@@ -188,6 +192,48 @@ def _get_entry_commit(first_session_commit: str, repo: Path) -> str:
         cwd=repo,
     )
     return parent
+
+
+def _get_solution_entry(session_id: str, commits: list[str], repo: Path) -> str:
+    """Return the entry for a contiguous single-parent solution, or warn and skip.
+
+    The format cannot represent merge mainlines or omitted intervening commits.
+    Inspect all attributed commits, rather than silently truncating a session or
+    including foreign work. Shallow boundaries without a visible parent also skip.
+    """
+    output = _run_git(
+        ["rev-list", "--parents", "--no-walk=unsorted", *commits], cwd=repo
+    )
+    parents = {}
+    for line in output.splitlines():
+        sha, *commit_parents = line.split()
+        parents[sha] = commit_parents
+
+    entry = ""
+    previous = ""
+    for sha in commits:
+        reason = ""
+        if sha not in parents:
+            reason = "cannot inspect commit parents"
+        elif not parents[sha]:
+            reason = "no parent (root commit or shallow boundary)"
+        elif len(parents[sha]) != 1:
+            reason = "merge commit requires an unsupported mainline"
+        elif previous and parents[sha][0] != previous:
+            reason = "not contiguous (interleaved or nonlinear history)"
+        if reason:
+            logger.warning("Skipping %s: %s at %s", session_id, reason, sha)
+            return ""
+        if not entry:
+            entry = parents[sha][0]
+        previous = sha
+
+    if entry and not _run_git(
+        ["rev-parse", "--verify", f"{entry}^{{commit}}"], cwd=repo
+    ):
+        logger.warning("Skipping %s: cannot inspect entry commit %s", session_id, entry)
+        return ""
+    return entry
 
 
 def _get_files_changed(commits: list[str], repo: Path) -> list[str]:
@@ -560,8 +606,9 @@ def extract_environments(
     """Yield ``TaskEnvironment`` instances from the local gptme session corpus.
 
     Each environment is derived from a session that produced at least
-    *min_commits* commits in *repo_path*.  Sessions with no matching commits
-    are skipped (they are not convertible into reproducible environments).
+    *min_commits* commits in *repo_path*. Only contiguous single-parent attributed
+    histories with an existing entry parent are supported. Unsupported histories
+    are skipped with a warning; foreign commits are never added to the solution.
 
     Args:
         repo_path: Git repository to mine for session-attributed commits.
@@ -596,9 +643,8 @@ def extract_environments(
             )
             continue
 
-        entry = _get_entry_commit(commits[0], repo)
+        entry = _get_solution_entry(session_id, commits, repo)
         if not entry:
-            logger.debug("Skipping %s: no parent commit for %s", session_id, commits[0])
             continue
 
         files_changed = _get_files_changed(commits, repo)
@@ -653,7 +699,7 @@ def corpus_stats(
     ):
         total += 1
         commits = _find_session_commits(session_id, repo)
-        if commits:
+        if commits and _get_solution_entry(session_id, commits, repo):
             convertible += 1
             files = _get_files_changed(commits, repo)
             categories[_categorise_files(files)] += 1
