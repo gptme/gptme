@@ -62,16 +62,29 @@ function lineEnd(lines: string[], starts: number[], index: number): number {
   return starts[index] + lines[index].length + (index < lines.length - 1 ? 1 : 0);
 }
 
+function unquoteLine(line: string, maxDepth = Infinity): { text: string; depth: number } {
+  let depth = 0;
+  while (depth < maxDepth) {
+    const prefix = line.match(/^ {0,3}>[\t ]?/);
+    if (!prefix) break;
+    line = line.slice(prefix[0].length);
+    depth++;
+  }
+  return { text: line, depth };
+}
+
 /**
- * Top-level fenced blocks. Unclosed fences extend to the end of `content`.
+ * Top-level fenced blocks, including quoted examples. Unclosed fences extend
+ * to the end of `content` or their quote container, whichever comes first.
  */
 function getTopLevelFenceRanges(content: string): FenceRange[] {
   const { lines, starts } = splitLines(content);
   const ranges: FenceRange[] = [];
   let i = 0;
   while (i < lines.length) {
-    const match = lines[i].match(FENCE_LINE_RE);
-    if (!match) {
+    const { text, depth: quoteDepth } = unquoteLine(lines[i]);
+    const match = text.match(FENCE_LINE_RE);
+    if (!match || (quoteDepth > 0 && !/^ {0,3}$/.test(match[1]))) {
       i++;
       continue;
     }
@@ -79,12 +92,20 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
     const rawTag = match[3].trim();
     // Tilde fences are Markdown examples, not gptme tool delimiters.
     const tilde = match[2][0] === '~';
-    const tag = tilde ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
+    // Quoted tool-looking fences are examples, never executable top-level tools.
+    const tag = tilde || quoteDepth ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
     const fenceLengths = [match[2].length];
     i++;
     let closed = false;
     while (i < lines.length) {
-      const inner = lines[i].match(FENCE_LINE_RE);
+      const { text: innerLine, depth: innerDepth } = unquoteLine(lines[i], quoteDepth);
+      if (innerDepth < quoteDepth) {
+        // Fenced blocks cannot lazily continue outside their quote container.
+        ranges.push({ start, end: starts[i], tag });
+        closed = true;
+        break;
+      }
+      const inner = innerLine.match(FENCE_LINE_RE);
       if (inner && inner[2][0] === match[2][0]) {
         if (tilde) {
           // CommonMark tilde fences do not nest; only a bare run at least
@@ -135,7 +156,8 @@ function isBackslashEscaped(content: string, index: number): boolean {
 /**
  * End offset of a CommonMark-style inline code span starting at `start`,
  * or null if the backtick run is unclosed. A span cannot cross a fenced
- * block or blank line: those boundaries end the containing paragraph.
+ * block or paragraph boundary. Quote prefixes belong to the container rather
+ * than the inline content, so they do not interrupt a span inside that quote.
  */
 function findInlineCodeEnd(
   content: string,
@@ -146,10 +168,26 @@ function findInlineCodeEnd(
   if (content[start] !== '`' || isBackslashEscaped(content, start)) return null;
   let openLen = 1;
   while (start + openLen < content.length && content[start + openLen] === '`') openLen++;
+  const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+  const quoteDepth = unquoteLine(content.slice(lineStart, start)).depth;
   let j = start + openLen;
   while (j < content.length) {
     if (rangeContains(fenceRanges, j)) return null;
-    if (content[j] === '\n' && /^\n[\t \r]*\n/.test(content.slice(j))) return null;
+    if (content[j] === '\n') {
+      const lineEnd = content.indexOf('\n', j + 1);
+      const rawLine = content.slice(j + 1, lineEnd < 0 ? content.length : lineEnd);
+      const { text: nextLine, depth: nextDepth } = unquoteLine(rawLine, quoteDepth);
+      // These block starts interrupt a paragraph; a later backtick belongs to
+      // a different inline parsing context. Ordered lists interrupt only at 1.
+      if (
+        /^[\t \r]*$/.test(nextLine) ||
+        /^ {0,3}(?:#{1,6}(?:[\t ]|$)|>|[-+*][\t ]|1[.)][\t ])/.test(nextLine) ||
+        /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3,})\r?$/.test(nextLine) ||
+        (nextDepth === quoteDepth && /^ {0,3}(?:=+|-+)[\t ]*\r?$/.test(nextLine))
+      ) {
+        return null;
+      }
+    }
     if (content[j] !== '`') {
       j++;
       continue;
@@ -253,10 +291,11 @@ function getThinkingRanges(content: string, fenceRanges: FenceRange[]): CharRang
         ranges.push({ start: i, end });
         // An unfinished reasoning fence must not protect the answer or later
         // thinking blocks. The answer starts a fresh Markdown context.
-        fenceRanges = getTopLevelFenceRanges(content.slice(end)).map((fence) => ({
+        const prefix = end > 0 && content[end - 1] !== '\n' ? 'x' : '';
+        fenceRanges = getTopLevelFenceRanges(prefix + content.slice(end)).map((fence) => ({
           ...fence,
-          start: fence.start + end,
-          end: fence.end + end,
+          start: fence.start + end - prefix.length,
+          end: fence.end + end - prefix.length,
         }));
         i = end;
         closed = true;

@@ -1299,3 +1299,89 @@ describe('copyConversationToClipboard', () => {
     expect(written).toContain('Answer');
   });
 });
+
+describe('filtered export physical block review regressions', () => {
+  it.each(['think', 'thinking', 'think redacted'])(
+    'does not manufacture a fence after a mid-line %s close',
+    (tag) => {
+      const content = `Before <${tag}>DROP_FIRST</${tag}>\`\`\`xml\n<${tag}>DROP_SECOND</${tag}>\n\`\`\``;
+      expect(stripThinkingBlocks(content)).not.toContain('DROP_');
+      expect(stripThinkingBlocks(content)).toContain('Before ```xml');
+    }
+  );
+
+  it.each([
+    '# Heading',
+    '## Heading',
+    '> Quoted paragraph',
+    '- List item',
+    '1. First item',
+    '---',
+    '===',
+  ])('does not pair inline code across the block boundary %s', (boundary) => {
+    const content = `A lone \` character.\n${boundary}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nUse \`x\` now.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).not.toContain('DROP_');
+    expect(result).toContain('Use `x` now.');
+    expect(result).toContain(boundary);
+  });
+
+  it.each(['> ', '>> ', '> > '])('keeps quoted fences with prefix %s', (prefix) => {
+    const example = `${prefix}\`\`\`xml\n${prefix}<think>KEEP_LITERAL</think>\n${prefix}@save: {"content":"KEEP_TOOL"}\n${prefix}\`\`\``;
+    const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain(example);
+    expect(result).not.toContain('DROP_');
+    expect(result).toContain('Done.');
+  });
+
+  it.each(['```shell', '~~~xml', '````xml'])(
+    'ends an unclosed quoted %s fence when its quote container ends',
+    (opener) => {
+      const example = `> ${opener}\n> <think>KEEP_LITERAL</think>`;
+      const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).toContain(example);
+      expect(result).not.toContain('DROP_');
+      expect(result).toContain('Done.');
+    }
+  );
+
+  it.each(['continued prose', '2. not an interrupting ordered item', '####### not a heading'])(
+    'keeps an ordinary multiline inline example: %s',
+    (line) => {
+      const content = `An example \`first\n${line}\n<think>KEEP_LITERAL</think>\nlast\` done.`;
+
+      expect(stripThinkingBlocks(content)).toBe(content);
+    }
+  );
+});
+
+describe('quoted inline export controls', () => {
+  it.each(['> ', '>> ', '> > '])('keeps a multiline span in the same %s container', (prefix) => {
+    const content = `${prefix}A \`first\n${prefix}<think>KEEP_LITERAL</think>\n${prefix}last\` done.`;
+    expect(stripThinkingBlocks(content)).toBe(content);
+  });
+});
+
+describe('quoted export parser review controls', () => {
+  it('keeps a setext-looking lazy continuation inside a quoted inline span', () => {
+    const content = '> An example `first\n===\n> <think>KEEP_LITERAL</think>\n> last` done.';
+    expect(stripThinkingBlocks(content)).toBe(content);
+  });
+
+  it.each(['    ', '\t'])('does not open a quote-wide fence from indented code: %j', (indent) => {
+    const content = `> ${indent}\`\`\`xml\n> <think>DROP_REASONING</think>\n> Answer.`;
+    expect(stripThinkingBlocks(content)).not.toContain('DROP_REASONING');
+    expect(stripThinkingBlocks(content)).toContain('Answer.');
+  });
+});
