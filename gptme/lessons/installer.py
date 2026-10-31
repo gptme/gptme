@@ -297,7 +297,10 @@ def _install_local_skill(
     if not skill_md:
         return False, f"No SKILL.md found in {local_path}"
 
-    fm = _parse_skill_frontmatter(skill_md)
+    try:
+        fm = _parse_skill_frontmatter(skill_md) if not name else {}
+    except OSError as exc:
+        return False, f"Failed to read skill metadata: {exc}"
     raw_name = name or fm.get("name") or local_path.name
     if not isinstance(raw_name, str):
         return False, "Skill name must be a string"

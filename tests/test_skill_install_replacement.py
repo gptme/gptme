@@ -496,6 +496,7 @@ def test_permission_preparation_failure_preserves_prior_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
     dest, source = installed_pair(tmp_path)
+    source.chmod(0o755)
     before = snapshot(dest)
     manifest_path = installer.get_manifest_path()
     manifest = manifest_path.read_bytes()
@@ -670,3 +671,26 @@ def test_metadata_parent_traversal_requires_real_directory(
     assert snapshot(dest) == before
     assert installer.get_manifest_path().read_bytes() == manifest
     assert not list(installer.get_skills_dir().glob(".skill-*"))
+
+
+def test_explicit_name_allows_metadata_link_only_valid_at_destination(
+    tmp_path: Path,
+) -> None:
+    source = make_skill(tmp_path / "sources" / "demo", "2")
+    common = make_skill(installer.get_skills_dir() / "common", "2")
+    (source / "SKILL.md").unlink()
+    (source / "SKILL.md").symlink_to("../common/SKILL.md")
+    ok, message = installer.install_skill(str(source), name="demo")
+    assert ok, message
+    dest = installer.get_skills_dir() / "demo"
+    assert (dest / "SKILL.md").read_bytes() == (common / "SKILL.md").read_bytes()
+    assert installer.get_manifest().skills["demo"].version == "2"
+
+
+def test_missing_source_metadata_returns_normal_error(tmp_path: Path) -> None:
+    source = make_skill(tmp_path / "source")
+    (source / "SKILL.md").unlink()
+    (source / "SKILL.md").symlink_to("missing.md")
+    ok, message = installer.install_skill(str(source))
+    assert not ok
+    assert "Failed to read skill metadata" in message
