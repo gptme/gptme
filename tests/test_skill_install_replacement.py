@@ -231,7 +231,7 @@ def test_rollback_failure_retains_recovery_files(
 
     assert not ok
     assert "Rollback failed" in message
-    recovery_dirs = list(installer.get_skills_dir().parent.glob(".skill-install-*"))
+    recovery_dirs = list(installer.get_skills_dir().glob(".skill-install-*"))
     assert len(recovery_dirs) == 1
     recovery = recovery_dirs[0]
     assert str(recovery) in message
@@ -338,3 +338,75 @@ def test_validation_error_containing_recommended_is_not_a_warning(
     assert "invalid characters" in message
     assert snapshot(dest) == before
     assert installer.get_manifest_path().read_bytes() == manifest
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_skills_on_another_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, force: bool
+) -> None:
+    """Model device-local rename rules without requiring a second CI filesystem."""
+    import errno
+
+    skills_dir = installer.get_skills_dir()
+    skills_dir.parent.mkdir(parents=True)
+    external = tmp_path / "external-skills"
+    external.mkdir()
+    skills_dir.symlink_to(external, target_is_directory=True)
+    if force:
+        dest, source = installed_pair(tmp_path)
+    else:
+        dest = skills_dir / "demo"
+        source = make_skill(tmp_path / "source")
+    real_rename = Path.rename
+    real_replace = Path.replace
+
+    def on_skill_device(path: Path) -> bool:
+        return path.parent.resolve().is_relative_to(external)
+
+    def device_rename(self: Path, target: Path) -> Path:
+        if on_skill_device(self) != on_skill_device(target):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_rename(self, target)
+
+    def device_replace(self: Path, target: Path) -> Path:
+        if on_skill_device(self) != on_skill_device(target):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "rename", device_rename)
+    monkeypatch.setattr(Path, "replace", device_replace)
+    ok, message = installer.install_skill(str(source), force=force)
+
+    assert ok, message
+    assert snapshot(dest) == snapshot(source)
+    assert installer.get_manifest().skills["demo"].version == ("2" if force else "1")
+    assert list(skills_dir.iterdir()) == [dest]
+    assert not list(skills_dir.parent.glob(".skill-*"))
+
+
+@pytest.mark.parametrize("failure_number", [1, 2])
+def test_staging_creation_failure_returns_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_number: int
+) -> None:
+    dest, source = installed_pair(tmp_path)
+    before = snapshot(dest)
+    manifest = installer.get_manifest_path().read_bytes()
+    real_mkdtemp = installer.tempfile.mkdtemp
+    calls = 0
+
+    def fail_mkdtemp(*, prefix: str, dir: Path) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == failure_number:
+            raise OSError("injected staging creation failure")
+        return real_mkdtemp(prefix=prefix, dir=dir)
+
+    monkeypatch.setattr(installer.tempfile, "mkdtemp", fail_mkdtemp)
+    ok, message = installer.install_skill(str(source), force=True)
+
+    assert not ok, message
+    assert "injected staging creation failure" in message
+    assert snapshot(dest) == before
+    assert installer.get_manifest_path().read_bytes() == manifest
+    assert list(installer.get_skills_dir().iterdir()) == [dest]
+    assert not list(installer.get_skills_dir().parent.glob(".skill-*"))

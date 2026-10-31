@@ -283,14 +283,21 @@ def _install_local_skill(
             f"Skill '{skill_name}' already installed. Use --force to overwrite.",
         )
 
-    # A sibling of skills/ stays on the same filesystem without exposing staging
-    # trees to skill discovery. Overlap admission also prevents recursive copies.
-    staging = Path(tempfile.mkdtemp(prefix=".skill-install-", dir=skills_dir.parent))
-    staged = staging / "new"
-    backup = staging / "old"
+    # Stage each artifact on its publication filesystem: skills/ may be a mount
+    # or symlink to another device. Hidden directories are excluded by discovery.
+    staging: Path | None = None
+    manifest_staging: Path | None = None
+    backup: Path | None = None
     published = False
     preserve_backup = False
     try:
+        staging = Path(tempfile.mkdtemp(prefix=".skill-install-", dir=skills_dir))
+        staged = staging / "new"
+        backup = staging / "old"
+        manifest_path = get_manifest_path()
+        manifest_staging = Path(
+            tempfile.mkdtemp(prefix=".skill-manifest-", dir=manifest_path.parent)
+        )
         shutil.copytree(local_path, staged, symlinks=True)
         errors = [
             e
@@ -317,7 +324,7 @@ def _install_local_skill(
             install_path=str(dest),
             installed_at=datetime.now(timezone.utc).isoformat(),
         )
-        staged_manifest = staging / MANIFEST_FILE
+        staged_manifest = manifest_staging / MANIFEST_FILE
         manifest.save(staged_manifest)
 
         if dest.exists() or dest.is_symlink():
@@ -325,12 +332,12 @@ def _install_local_skill(
         staged.rename(dest)
         published = True
         # The old manifest is never truncated: this is the final publication step.
-        staged_manifest.replace(get_manifest_path())
+        staged_manifest.replace(manifest_path)
     except (OSError, shutil.Error) as exc:
         try:
             if published:
                 shutil.rmtree(dest)
-            if backup.exists() or backup.is_symlink():
+            if backup is not None and (backup.exists() or backup.is_symlink()):
                 backup.rename(dest)
         except OSError as rollback_exc:
             preserve_backup = True
@@ -340,13 +347,16 @@ def _install_local_skill(
             )
         return False, f"Failed to install skill: {exc}"
     finally:
-        if not preserve_backup:
-            try:
-                shutil.rmtree(staging)
-            except OSError as exc:
-                logger.warning(
-                    "Could not remove skill staging directory %s: %s", staging, exc
-                )
+        for directory in (manifest_staging, None if preserve_backup else staging):
+            if directory is not None:
+                try:
+                    shutil.rmtree(directory)
+                except OSError as exc:
+                    logger.warning(
+                        "Could not remove skill staging directory %s: %s",
+                        directory,
+                        exc,
+                    )
 
     return True, f"Installed '{skill_name}' v{version} to {dest}"
 
