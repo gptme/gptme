@@ -11,6 +11,7 @@ expected. The implementation is conservative on purpose:
 - ``clean_git`` workspaces are checkpointed and restored without ceremony.
 - ``dirty_git`` workspaces require explicit ``--include-dirty``.
 - ``non_git`` and ``multi_root`` workspaces are refused entirely in this MVP.
+- ``inspection_failed`` is always refused, including with ``--include-dirty``.
 
 Storage lives in ``$XDG_STATE_HOME/gptme/checkpoints/<fingerprint>.jsonl``
 (via :func:`gptme.dirs.get_state_dir`) so user repos stay clean — no
@@ -23,6 +24,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import re
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -32,7 +34,9 @@ from typing import Literal
 from .dirs import get_state_dir
 from .util.git_cmd import GIT_CMD
 
-BackendKind = Literal["clean_git", "dirty_git", "non_git", "multi_root"]
+BackendKind = Literal[
+    "clean_git", "dirty_git", "non_git", "multi_root", "inspection_failed"
+]
 
 CHECKPOINTS_SUBDIR = "checkpoints"
 
@@ -76,34 +80,52 @@ class CheckpointRecord:
 
 
 def _git(repo: Path, *args: str) -> str:
-    """Run ``git`` in ``repo``; return stripped stdout, or ``''`` on non-zero."""
-    try:
-        proc = subprocess.run(
-            [GIT_CMD, *args],
-            cwd=str(repo),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return ""
-    if proc.returncode != 0:
-        return ""
-    return proc.stdout.strip()
+    """Inspect Git state; unsuccessful queries must never look like empty results."""
+    proc = subprocess.run(
+        [GIT_CMD, *args],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        # Stable discovery diagnostics; inspection must not refresh the index.
+        env={**os.environ, "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"},
+    )
+    proc.check_returncode()
+    return proc.stdout.rstrip("\n")
 
 
 def _find_repo_root(path: Path) -> Path | None:
     if not path.exists():
         return None
-    out = _git(path, "rev-parse", "--show-toplevel")
-    return Path(out) if out else None
+    try:
+        out = _git(path, "rev-parse", "--show-toplevel")
+    except subprocess.CalledProcessError as exc:
+        # Git gives the same discovery error for an ordinary directory and some
+        # damaged repositories. Only the former is positively non-Git.
+        if not exc.stderr.startswith("fatal: not a git repository"):
+            raise
+        if os.environ.get("GIT_DIR"):
+            raise
+        for parent in (path, *path.parents):
+            try:
+                (parent / ".git").lstat()
+            except FileNotFoundError:
+                continue
+            raise exc
+        return None
+    root = Path(out)
+    if not out or not root.is_absolute() or not root.is_dir():
+        raise CheckpointError("git rev-parse returned an invalid repository root")
+    return root
 
 
 def _count_worktrees(repo: Path) -> int:
     out = _git(repo, "worktree", "list", "--porcelain")
-    if not out:
-        return 0
-    return sum(1 for line in out.splitlines() if line.startswith("worktree "))
+    count = sum(1 for line in out.splitlines() if line.startswith("worktree "))
+    if count == 0:
+        raise CheckpointError("git worktree list returned no worktrees")
+    return count
 
 
 def _count_submodules(repo: Path) -> int:
@@ -139,6 +161,30 @@ def classify(path: str | Path) -> BackendDecision:
     """
     workspace = Path(path).expanduser().resolve()
 
+    try:
+        return _classify(workspace)
+    except (OSError, subprocess.SubprocessError, UnicodeError, CheckpointError) as exc:
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = f"{' '.join(exc.cmd)}: {exc.stderr.strip() or str(exc)}"
+        else:
+            detail = str(exc)
+        return BackendDecision(
+            kind="inspection_failed",
+            workspace=workspace,
+            repo_root=None,
+            head_sha=None,
+            dirty_tracked=0,
+            untracked=0,
+            worktree_count=0,
+            submodule_count=0,
+            reason=(
+                f"git inspection failed: {detail}. "
+                "Check Git availability and repository metadata before retrying."
+            ),
+        )
+
+
+def _classify(workspace: Path) -> BackendDecision:
     repo = _find_repo_root(workspace)
     if repo is None:
         return BackendDecision(
@@ -153,7 +199,9 @@ def classify(path: str | Path) -> BackendDecision:
             reason="not inside a git repository",
         )
 
-    head = _git(repo, "rev-parse", "HEAD") or None
+    head = _git(repo, "rev-parse", "--verify", "HEAD^{commit}")
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+        raise CheckpointError("git rev-parse returned a missing or malformed HEAD")
     dirty_tracked, untracked = _porcelain_counts(repo)
     worktrees = _count_worktrees(repo)
     submodules = _count_submodules(repo)
