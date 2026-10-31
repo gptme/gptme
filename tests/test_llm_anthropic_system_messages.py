@@ -1,11 +1,11 @@
 """Anthropic native system messages must respect turn and tool-result placement."""
 
-import json
-from typing import Literal, NotRequired, TypedDict, cast
+from typing import Literal, NotRequired, TypedDict
 
 import httpx2
 import pytest
 from anthropic import Anthropic
+from pydantic import TypeAdapter
 
 from gptme.llm import llm_anthropic
 from gptme.message import Message
@@ -58,7 +58,7 @@ def test_native_system_message_placement(
 ) -> None:
     messages = [Message("system", "Bootstrap")]
     messages.extend(Message(role, f"message {i}") for i, role in enumerate(roles))
-    original = [message.to_dict() for message in messages]
+    original = [(message.role, message.content) for message in messages]
 
     transformed, system = llm_anthropic._transform_system_messages(messages, model)
 
@@ -72,7 +72,7 @@ def test_native_system_message_placement(
             text = f"message {i}"
             expected = text if keep_native else f"<system>{text}</system>"
             assert any(expected in message.content for message in transformed)
-    assert [message.to_dict() for message in messages] == original
+    assert [(message.role, message.content) for message in messages] == original
 
 
 def test_native_system_context_boundary_before_first_user() -> None:
@@ -137,9 +137,11 @@ def test_stream_tool_results_use_user_turn(
         Message("system", "Continue carefully"),
     ]
     payloads: list[_RequestPayload] = []
+    payload_parser = TypeAdapter(_RequestPayload)
+    event_encoder = TypeAdapter(dict[str, object])
 
     def serve(request: httpx2.Request) -> httpx2.Response:
-        payloads.append(cast(_RequestPayload, json.loads(request.content)))
+        payloads.append(payload_parser.validate_json(request.content))
         events: list[dict[str, object]] = [
             {
                 "type": "message_start",
@@ -173,7 +175,8 @@ def test_stream_tool_results_use_user_turn(
             {"type": "message_stop"},
         ]
         sse = "".join(
-            f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+            f"event: {event['type']}\ndata: {event_encoder.dump_json(event).decode()}\n\n"
+            for event in events
         )
         return httpx2.Response(
             200, headers={"content-type": "text/event-stream"}, text=sse
