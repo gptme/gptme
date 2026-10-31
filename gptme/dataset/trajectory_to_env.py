@@ -29,6 +29,7 @@ References:
 
 import json
 import logging
+import os
 import re
 import subprocess
 from collections import Counter
@@ -94,7 +95,13 @@ class TaskEnvironment:
 
     def to_jsonl(self) -> str:
         """Serialise to a single JSONL line."""
-        return json.dumps(asdict(self), ensure_ascii=False)
+        # POSIX paths may contain surrogateescaped bytes. Escape those lone
+        # surrogates for UTF-8 JSONL while keeping ordinary Unicode readable.
+        return (
+            json.dumps(asdict(self), ensure_ascii=False)
+            .encode("utf-8", errors="backslashreplace")
+            .decode("utf-8")
+        )
 
     @classmethod
     def from_dict(cls, d: dict) -> "TaskEnvironment":
@@ -194,14 +201,21 @@ def _get_files_changed(commits: list[str], repo: Path) -> list[str]:
     """Return files changed versus each commit's first parent."""
     files: set[str] = set()
     for sha in commits:
-        output = _run_git(
-            ["diff", "--name-only", f"{sha}^", sha],
-            cwd=repo,
-        )
-        for line in output.splitlines():
-            line = line.strip()
-            if line:
-                files.add(line)
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--name-only", "-z", f"{sha}^", sha],
+                cwd=repo,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.debug("git diff %s failed: %r", sha, result.stderr)
+                continue
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.debug("git diff %s exception: %s", sha, exc)
+            continue
+        files.update(os.fsdecode(path) for path in result.stdout.split(b"\0") if path)
     return sorted(files)
 
 

@@ -727,6 +727,94 @@ def test_get_files_changed(tmp_path):
     assert "utils.py" in files
 
 
+@pytest.mark.parametrize("quote_path", ["true", "false"])
+@pytest.mark.parametrize(
+    ("filename", "category"),
+    [
+        ("script.py", "code"),
+        ("café.py", "code"),
+        ("tab\tname.py", "code"),
+        ("line\nname.py", "code"),
+        ('quote"name.py', "code"),
+        ("back\\slash.py", "code"),
+        (" leading.py", "code"),
+        ("trailing.py ", "other"),
+        ("\tleading.py", "code"),
+        ("trailing.py\n", "other"),
+        ("docs/café.md", "docs"),
+        ("journal/café.md", "journal"),
+    ],
+)
+def test_cli_export_preserves_git_filenames(
+    tmp_path: Path, filename: str, category: str, quote_path: str
+) -> None:
+    from gptme.cli.cmd_dataset import dataset
+
+    if os.name == "nt" and (
+        any(char in filename for char in '\t\n"\\') or filename.endswith(" ")
+    ):
+        pytest.skip("Filename is not supported by Windows")
+    repo = make_repo(tmp_path)
+    _git(["config", "core.quotePath", quote_path], cwd=repo)
+    sha = add_commit(repo, filename, "first\n", "feat: add file (a1b2)")
+    logs = make_logs_dir(tmp_path, "run-a1b2", make_messages("a1b2"))
+
+    result = CliRunner().invoke(
+        dataset, ["export", "--repo", str(repo), "--logs-dir", str(logs)]
+    )
+    assert result.exit_code == 0, result.output
+    record = json.loads(result.stdout)
+    assert record["solution_commits"] == [sha]
+    assert record["files_changed"] == [filename]
+    assert (repo / record["files_changed"][0]).is_file()
+    assert record["category"] == category
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX byte filenames only")
+@pytest.mark.parametrize("output_file", [False, True])
+@pytest.mark.parametrize(
+    "raw_name", [b"raw-\xff.py", b"caf\xc3\xa9-\xff.py", rb"literal-\udcff.py"]
+)
+def test_cli_export_preserves_non_utf8_git_filename(
+    tmp_path: Path, output_file: bool, raw_name: bytes
+) -> None:
+    from gptme.cli.cmd_dataset import dataset
+
+    repo = make_repo(tmp_path)
+    filename = os.fsdecode(raw_name)
+    add_commit(repo, filename, "first\n", "feat: add file (a1b2)")
+    logs = make_logs_dir(tmp_path, "run-a1b2", make_messages("a1b2"))
+    destination = tmp_path / "export.jsonl"
+    args = ["export", "--repo", str(repo), "--logs-dir", str(logs)]
+    if output_file:
+        args.extend(["--output", str(destination)])
+    result = CliRunner().invoke(dataset, args)
+    assert result.exit_code == 0, result.output
+    serialized = (
+        destination.read_text(encoding="utf-8") if output_file else result.stdout
+    )
+    record = json.loads(serialized)
+    assert record["files_changed"] == [filename]
+    assert os.fsencode(record["files_changed"][0]) == raw_name
+    assert (repo / record["files_changed"][0]).is_file()
+    assert record["category"] == "code"
+    # JSONL stays valid UTF-8, including when its source filename is not.
+    serialized.encode("utf-8", errors="strict")
+
+
+def test_get_files_changed_deduplicates_and_sorts_exact_names(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    first = add_commit(repo, "z.py", "first\n", "feat: first (a1b2)")
+    second = add_commit(repo, " café.py", "second\n", "feat: second (a1b2)")
+    third = add_commit(repo, "z.py", "third\n", "feat: third (a1b2)")
+    assert _get_files_changed([third, second, first, second], repo) == [
+        " café.py",
+        "z.py",
+    ]
+    assert _categorise_files(["docs/café.md", "script.py"]) == "code"
+    assert _categorise_files(["script.py", "journal/café.md"]) == "journal"
+
+
 def test_get_files_changed_includes_merge_changes(tmp_path):
     repo = make_repo(tmp_path)
     sha = add_merge_commit(repo, "beef")
