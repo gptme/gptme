@@ -301,6 +301,16 @@ function filterAssistantContent(
       i = end;
       continue;
     }
+    // HTML attributes/comments own their backticks, just like link metadata.
+    // Check transcript thinking first: <think> is also a valid HTML tag.
+    if (content[i] === '<') {
+      const tag = tokenizer.tag(content.slice(i, Math.min(paragraphEnd, labelEnd)));
+      if (tag) {
+        out.push(tag.raw);
+        i += tag.raw.length;
+        continue;
+      }
+    }
     if (i === 0 || content[i - 1] === '\n') {
       const call = content.slice(i).match(/^@[\w.-]+(?:\([^)\n]*\))?:[^\S\n]*(?=\{)/);
       if (call) {

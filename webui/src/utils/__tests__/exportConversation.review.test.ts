@@ -292,6 +292,38 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       expect(result.includes('private reasoning')).toBe(options.includeThinking);
     });
 
+    it.each([
+      '<span title="`">',
+      "<span title='`'>",
+      '<span\n title="`">',
+      '<span\r\n title="`">',
+      '<a href="https://example.com/`">',
+      '<!-- ` -->',
+      '<?example ` ?>',
+    ])('does not open code spans in HTML metadata: %s', async (tag) => {
+      const source = `${tag} ${thinking} Here is \`code\`.\n${toolCall}\nPublic answer.`;
+      const result = await consume(consumer, source, options);
+      expect(result).toContain(tag);
+      expect(result).toContain('Here is `code`.');
+      expect(result).toContain('Public answer.');
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      expect(result.includes('private tool payload')).toBe(options.includeTools);
+      if (options.includeThinking && options.includeTools) expect(result).toBe(documentFor(source));
+    });
+
+    it.each([
+      '\\<span title="`"> <think>literal reasoning</think> `.',
+      '``<span title="`"> <think>literal reasoning</think>``.',
+      '<span title="unfinished ` <think>literal reasoning</think> `.',
+      '<span title=`> <think>literal reasoning</think> `.',
+      '<span title="<think>literal reasoning</think>"> Public answer.',
+    ])(
+      'preserves escaped, inline-code, invalid and attribute HTML literals: %s',
+      async (source) => {
+        expect(await consume(consumer, source, options)).toBe(documentFor(source));
+      }
+    );
+
     it('preserves literal reasoning after an escaped autolink opener', async () => {
       const source = '\\<user`@example.com> <think>literal reasoning</think> `.';
       expect(await consume(consumer, source, options)).toBe(documentFor(source));
