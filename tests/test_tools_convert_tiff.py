@@ -152,3 +152,51 @@ def test_tiff_unsupported_later_pixel_mode(tmp_path: Path, backend: str) -> None
         )
         assert decoded.stdout == bytes([255, 0, 0, 0, 0, 255])
     assert source.read_bytes() == _heterogeneous_tiff()
+
+
+@pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_tiff_size_limit_inspection_failure(
+    tmp_path: Path, backend: str, existing: bool
+) -> None:
+    """Pillow's size guard must not crash conversion or permit page loss."""
+    if not shutil.which("convert") or not shutil.which("ffmpeg"):
+        pytest.skip("real FFmpeg and ImageMagick required")
+    source = tmp_path / "size-limited.tiff"
+    first = Image.new("RGB", (16, 16), COLORS[0])
+    second = Image.new("RGB", (32, 32), COLORS[1])
+    first.save(source, save_all=True, append_images=[second])
+    before = source.read_bytes()
+    destination = tmp_path / "output.tiff"
+    sentinel = b"previous destination"
+    if existing:
+        destination.write_bytes(sentinel)
+    availability = ToolAvailability(
+        ffmpeg=backend != "imagemagick", imagemagick=backend != "ffmpeg"
+    )
+    limit = 100
+    with patch.object(Image, "MAX_IMAGE_PIXELS", limit):
+        # Exercise the actual exception rather than substituting Image.open or
+        # allocating hundreds of megapixels.
+        with pytest.raises(Image.DecompressionBombError), Image.open(source):
+            pass
+        with patch("gptme.tools.convert.get_availability", return_value=availability):
+            result = convert_file(source, destination)
+        assert Image.MAX_IMAGE_PIXELS == 100
+    assert source.read_bytes() == before
+    if backend == "ffmpeg":
+        assert not result.success
+        assert result.error and "multipage TIFF" in result.error
+        assert (
+            destination.read_bytes() == sentinel
+            if existing
+            else not destination.exists()
+        )
+    else:
+        assert result.success, result.error
+        assert result.converter_used == "imagemagick"
+        with Image.open(destination) as image:
+            assert [
+                (frame.size, frame.convert("RGB").getpixel((0, 0)))
+                for frame in ImageSequence.Iterator(image)
+            ] == [((16, 16), COLORS[0]), ((32, 32), COLORS[1])]

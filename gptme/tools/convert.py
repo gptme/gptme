@@ -416,7 +416,7 @@ class ImageConverter(Converter):
                             pass  # A proven single-page TIFF can use FFmpeg.
                         else:
                             multipage_tiff = True
-            except (OSError, SyntaxError, ValueError):
+            except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
                 # An unknown page count is not evidence that FFmpeg is safe.
                 # Pillow cannot inspect every TIFF variant ImageMagick supports.
                 multipage_tiff = True
