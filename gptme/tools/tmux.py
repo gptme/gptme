@@ -420,22 +420,13 @@ def wait_for_output(
         sleep(poll_interval)
 
 
-def execute_tmux(
-    code: str | None,
-    args: list[str] | None,
-    kwargs: dict[str, str] | None,
-) -> Generator[Message, None, None]:
-    """Executes a command in tmux and returns the output."""
+def _split_tmux_commands(cmd: str) -> list[str]:
+    """Split tmux batches, treating each new-session Bash unit as opaque.
 
-    # Get the command string
-    cmd = ""
-    if code is not None and args is not None:
-        assert not args
-        cmd = code.strip()
-    elif kwargs is not None:
-        cmd = kwargs.get("command", "")
-
-    # Split into multiple commands, handling quoted strings and newlines
+    Top-level semicolons/newlines remain tmux separators, not implicit shell
+    continuations. Use a shell compound (e.g. parentheses) for a shell sequence.
+    Other verbs, especially send-keys, retain their literal quoting rules.
+    """
     commands = []
     current = []
     in_quotes = False
@@ -446,36 +437,102 @@ def execute_tmux(
     command_word: list[str] = []
     command_word_done = False
     is_shell_command = False
-    substitution_ends: dict[int, int] = {}
     source = cmd.encode("utf-8")
     byte_offset = 0
-    substitution_end = 0
+    shell_end = 0
 
     for char in cmd:
         start_byte = byte_offset
         byte_offset += len(char.encode("utf-8"))
-        if start_byte < substitution_end:
+        if start_byte < shell_end:
             current.append(char)
             continue
         if not command_word_done:
             if char.isspace() and command_word:
                 command_word_done = True
                 is_shell_command = "".join(command_word) == "new-session"
-                if is_shell_command and b"$(" in source[start_byte:]:
-                    # Parse only this shell suffix: earlier send-keys text is
-                    # literal tmux input, not Bash comments or quoting syntax.
+                # A newline/separator before any shell argument is still a
+                # tmux boundary, not permission to consume the following verb.
+                suffix = source[start_byte:].lstrip(b" \t\r")
+                if is_shell_command and suffix and suffix[:1] not in (b"\n", b";"):
+                    # Only parse the shell suffix: preceding/following send-keys
+                    # payloads are not Bash. A top-level node owns all internal
+                    # separators, including heredoc bodies and nested compounds.
                     from .shell import _parse_bash
 
-                    substitution_ends = {}
-                    nodes = [_parse_bash(source[start_byte:])]
-                    while nodes:
-                        node = nodes.pop()
-                        if node.type == "command_substitution":
-                            substitution_ends[start_byte + node.start_byte] = (
-                                start_byte + node.end_byte
+                    root = _parse_bash(source[start_byte:])
+                    if root.named_children:
+                        node = root.named_children[0]
+                        if node.type == "ERROR" and node.children:
+                            # A later literal send-keys payload can make the
+                            # parser wrap an otherwise complete first unit in
+                            # ERROR. Recover only a clean leading child ending
+                            # at an explicit batch separator, never a child from
+                            # inside an unfinished compound.
+                            first = node.children[0]
+                            boundary = first.next_sibling
+                            if (
+                                first.is_named
+                                and not first.has_error
+                                and first.start_byte == node.start_byte
+                                and boundary is not None
+                                and (
+                                    boundary.type == ";"
+                                    or b"\n"
+                                    in source[
+                                        start_byte + first.end_byte : start_byte
+                                        + boundary.start_byte
+                                    ].replace(b"\\\n", b"")
+                                )
+                            ):
+                                node = first
+                        # Recovery can detach an unfinished heredoc from its
+                        # command as a sibling ERROR, leaving `cat` apparently
+                        # valid. Never dispatch that truncated prefix.
+                        following = node.next_sibling
+                        detached_error = (
+                            following is not None
+                            and following.type == "ERROR"
+                            and not source[
+                                start_byte + node.end_byte : start_byte
+                                + following.start_byte
+                            ].strip()
+                        )
+                        if node.has_error or node.type == "ERROR" or detached_error:
+                            raise ValueError(
+                                "Incomplete or unsupported new-session shell syntax"
                             )
-                        else:
-                            nodes.extend(node.named_children)
+                        nodes = [node]
+                        suffix = source[start_byte:]
+                        while nodes:
+                            child = nodes.pop()
+                            if child.type == "heredoc_end":
+                                # The grammar accepts `EOF; verb` or ` EOF` as
+                                # a terminator. Bash requires the delimiter to
+                                # occupy its physical line (only <<- strips tabs).
+                                line_start = (
+                                    suffix.rfind(b"\n", 0, child.start_byte) + 1
+                                )
+                                line_end = suffix.find(b"\n", child.end_byte)
+                                if line_end == -1:
+                                    line_end = len(suffix)
+                                prefix = suffix[line_start : child.start_byte]
+                                parent = child.parent
+                                strip_tabs = (
+                                    parent is not None
+                                    and suffix[
+                                        parent.start_byte : parent.start_byte + 3
+                                    ]
+                                    == b"<<-"
+                                )
+                                if (
+                                    prefix.strip(b"\t") if strip_tabs else prefix
+                                ) or suffix[child.end_byte : line_end]:
+                                    raise ValueError("Invalid heredoc terminator line")
+                            nodes.extend(child.named_children)
+                        shell_end = start_byte + node.end_byte
+                        current.append(char)
+                        continue
             elif not char.isspace():
                 command_word.append(char)
         if in_comment and char != "\n":
@@ -496,11 +553,7 @@ def execute_tmux(
             current.append(char)
             escaped = True
             continue
-        if is_shell_command and start_byte in substitution_ends:
-            substitution_end = substitution_ends[start_byte]
-            at_word_start = False
-            current.append(char)
-            continue
+
         if char == "#" and not in_quotes and is_shell_command and at_word_start:
             # Only new-session forwards shell syntax; send-keys treats # literally.
             in_comment = True
@@ -515,7 +568,8 @@ def execute_tmux(
             current.append(char)
         elif char in "\n;" and not in_quotes:
             if current:
-                commands.append("".join(current).strip())
+                text = "".join(current)
+                commands.append(text.lstrip() if is_shell_command else text.strip())
                 current = []
             command_word = []
             command_word_done = False
@@ -525,10 +579,63 @@ def execute_tmux(
 
         at_word_start = not in_quotes and (char.isspace() or char in ";|&()<>")
 
-    # Leave shell validation to Bash and preserve send_keys' existing literal
-    # fallback for unmatched quotes and trailing backslashes (e.g. C-\\).
+    # Preserve send_keys' literal fallback for unmatched quotes and trailing
+    # backslashes (e.g. C-\\), but validate every shell unit before any dispatch.
     if current:
-        commands.append("".join(current).strip())
+        text = "".join(current)
+        commands.append(text.lstrip() if is_shell_command else text.strip())
+
+    for command in commands:
+        parts = command.split(maxsplit=1)
+        if len(parts) == 2 and parts[0] == "new-session":
+            bash = shutil.which("bash")
+            if bash is None:
+                raise ValueError(
+                    "Cannot validate new-session shell syntax: Bash unavailable"
+                )
+            try:
+                result = subprocess.run(
+                    [bash, "-n"],
+                    input=parts[1],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ValueError(
+                    f"Cannot validate new-session shell syntax: {exc}"
+                ) from exc
+            # Bash returns zero for unterminated heredocs with an EOF warning.
+            # Unlike shell.split_commands, tmux must not send an incomplete unit
+            # and then interpret the remaining body as separate tool commands.
+            if result.returncode or result.stderr:
+                raise ValueError(
+                    result.stderr.strip() or "Invalid new-session shell syntax"
+                )
+    return commands
+
+
+def execute_tmux(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+) -> Generator[Message, None, None]:
+    """Executes a command in tmux and returns the output."""
+    cmd = ""
+    if code is not None and args is not None:
+        assert not args
+        # Trailing spaces can invalidate a heredoc terminator; keep the source
+        # intact until shell boundaries have been validated.
+        cmd = code
+    elif kwargs is not None:
+        cmd = kwargs.get("command", "")
+
+    try:
+        commands = _split_tmux_commands(cmd)
+    except ValueError as exc:
+        yield Message("system", f"Error: {exc}")
+        return
 
     # Get confirmation via hook system (hook will display preview)
     confirm_result = get_confirmation()
@@ -611,6 +718,16 @@ need to revisit. Prefer tmux over the shell's `bg` command when the application
 requires send-keys interaction or repeated pane inspection. Use `wait
 <session_id> [timeout] [stable_time]` when you need output to stabilize before
 continuing.
+
+### Command boundaries
+
+Top-level semicolons and newlines separate tmux commands. For multiple shell
+commands in one new session, use a Bash compound, for example
+`new-session (printf LEFT; printf RIGHT)`. Heredocs and nested shell compounds
+stay intact. Put heredoc terminators on their own lines, then start the next
+tmux command on a new line. `send-keys` remains literal tmux input, not Bash.
+Malformed or unsupported shell boundaries are rejected before any batch command
+runs; use the shell tool or a script file for grammar the splitter cannot bound.
 """
 # TODO: change the "commands" to Python functions registered with the Python tool?
 

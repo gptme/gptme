@@ -200,6 +200,46 @@ def test_new_session_preserves_nested_shell_quotes(
     pytest.fail("new-session did not execute the nested shell quotes")
 
 
+@pytest.mark.parametrize(
+    ("shell", "expected"),
+    [
+        ("(printf 'subshell-%s' LEFT; printf '_%s\\n' RIGHT)", "subshell-LEFT_RIGHT"),
+        (
+            "cat <<'END' | tr '[:lower:]' '[:upper:]'\n"
+            'heredoc-marker; list-sessions\n"unmatched\nEND',
+            'HEREDOC-MARKER; LIST-SESSIONS\n"UNMATCHED',
+        ),
+        ("cat <<-END\n\theredoc-$(printf '%s' expanded)\n\tEND", "heredoc-expanded"),
+        (
+            "if true; then (printf 'nested-%s' LEFT; printf '_%s\\n' RIGHT); fi",
+            "nested-LEFT_RIGHT",
+        ),
+        (
+            "for word in LEFT RIGHT; do printf '%s' \"$word\"; done",
+            "LEFTRIGHT",
+        ),
+        (
+            "{ printf 'redirected-%s' LEFT; printf '_%s\\n' RIGHT; } | cat",
+            "redirected-LEFT_RIGHT",
+        ),
+    ],
+)
+def test_compound_executes_in_private_bash(
+    private_tmux: None, shell: str, expected: str
+) -> None:
+    # The output differs from terminal echo, so completion requires real Bash.
+    assert expected not in shell
+    messages = list(tmux.execute_tmux(f"new-session {shell}\nlist-sessions", [], None))
+    assert len(messages) == 2
+    assert not any(message.content.startswith("Error:") for message in messages)
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if expected in tmux._capture_pane("gptme_2"):
+            return
+        time.sleep(0.01)
+    pytest.fail(f"compound did not execute: {tmux._capture_pane('gptme_2')!r}")
+
+
 def test_case_pattern_substitution_keeps_outer_batch(private_tmux: None) -> None:
     command = (
         "new-session printf '%s-%s\\n' case "
@@ -260,8 +300,8 @@ def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
             ['echo "\\$(literal"', "list"],
         ),
         (
-            'new-session echo "$(case x in [(][(]) echo no;; esac)"; list-sessions',
-            ['echo "$(case x in [(][(]) echo no;; esac)"', "list"],
+            'new-session echo "$(case x in \\(\\() echo no;; esac)"; list-sessions',
+            ['echo "$(case x in \\(\\() echo no;; esac)"', "list"],
         ),
         (
             "send-keys 1 C-\\\nlist-sessions",
@@ -272,8 +312,8 @@ def test_new_session_keeps_shell_quoting(private_tmux: None) -> None:
             ['"λ" Enter', 'echo "$(printf " # tag")"', "list"],
         ),
         (
-            'new-session echo "$(case x in [)]) echo no;; *) echo yes;; esac)"; list-sessions',
-            ['echo "$(case x in [)]) echo no;; *) echo yes;; esac)"', "list"],
+            'new-session echo "$(case x in \\)) echo no;; *) echo yes;; esac)"; list-sessions',
+            ['echo "$(case x in \\)) echo no;; *) echo yes;; esac)"', "list"],
         ),
         (
             'new-session echo "$( (printf "%s" ok) )"; list-sessions',
