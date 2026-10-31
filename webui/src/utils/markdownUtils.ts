@@ -1,6 +1,7 @@
 import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import { highlightCode } from './highlightUtils';
+import { scanMarkdownFences } from './markdownFences';
 
 // Create custom renderer
 const renderer = new marked.Renderer();
@@ -55,58 +56,22 @@ marked.use(
  */
 export function processNestedCodeBlocks(content: string) {
   const lines = content.split('\n');
-  const langtags: string[] = [];
   const fenceRe = /^(\s*)(`{3,})(.*)$/;
+  const blocks = scanMarkdownFences(content);
+  const langtags = blocks.map((block) => block.tag);
 
-  // Parse fences using gptme convention and record ALL opener-closer pairs
-  // at every nesting depth (not just depth-0).
-  interface Block {
-    openerLine: number;
-    closerLine: number;
-    depth: number;
-    maxDescendantDepth: number; // deepest nesting level inside this block
-  }
-  const blocks: Block[] = [];
-  // Stack: [openerLine, depth, maxDescendantDepth]
-  const stack: [number, number, number][] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(fenceRe);
-    if (!m) continue;
-    const [, , , tag] = m;
-    const trimmedTag = tag.trim();
-    const depth = stack.length;
-
-    if (stack.length === 0) {
-      if (trimmedTag) langtags.push(trimmedTag);
-      stack.push([i, depth, depth]);
-    } else if (trimmedTag) {
-      // Nested opener
-      langtags.push(trimmedTag);
-      // Update ancestor maxDescendantDepth
-      for (const frame of stack) {
-        frame[2] = Math.max(frame[2], depth);
-      }
-      stack.push([i, depth, depth]);
-    } else {
-      // Closer
-      const [openerLine, blockDepth, maxDescendantDepth] = stack.pop()!;
-      blocks.push({ openerLine, closerLine: i, depth: blockDepth, maxDescendantDepth });
-    }
-  }
-
-  // Widen fences: each block's backtick count = 3 + (maxDescendantDepth - depth)
-  // so inner fences are always shorter than outer fences.
+  // Work from descendants outward so even longer tagged inner fences fit
+  // beneath a strictly wider outer fence in both Markdown rendering paths.
   const adjustments = new Map<number, number>();
-  for (const block of blocks) {
-    const nestingBelow = block.maxDescendantDepth - block.depth;
-    if (nestingBelow > 0) {
-      const needed = 3 + nestingBelow;
-      const current = lines[block.openerLine].match(fenceRe)![2].length;
-      if (needed > current) {
-        adjustments.set(block.openerLine, needed);
-        adjustments.set(block.closerLine, needed);
-      }
+  const childWidths: number[] = [];
+  for (const block of [...blocks].reverse()) {
+    if (block.marker[0] !== '`') continue;
+    const needed = Math.max(block.marker.length, (childWidths[block.depth + 1] ?? 0) + 1);
+    childWidths[block.depth + 1] = 0;
+    childWidths[block.depth] = Math.max(childWidths[block.depth] ?? 0, needed);
+    if (needed > block.marker.length && block.closerLine !== null) {
+      adjustments.set(block.openerLine, needed);
+      adjustments.set(block.closerLine, needed);
     }
   }
 
