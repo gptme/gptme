@@ -266,6 +266,45 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       }
     );
 
+    it.each([
+      { label: 'quoted', prefix: '> ' },
+      { label: 'nested quote', prefix: '> > ' },
+      { label: 'indented quote', prefix: '  > ' },
+    ])('preserves $label multiline inline examples', async ({ prefix }) => {
+      for (const newline of ['\n', '\r\n']) {
+        const literal = [
+          `${prefix}Use \`literal`,
+          `${prefix}<think>example</think>`,
+          `${prefix}end\``,
+        ].join(newline);
+        const source = `${literal}${newline}${newline}${thinking}\n${toolCall}\nPublic answer.`;
+        const result = await consume(consumer, source, options);
+        expect(result).toContain(literal);
+        expect(result.includes('private reasoning')).toBe(options.includeThinking);
+        expect(result.includes('private tool payload')).toBe(options.includeTools);
+        jest.clearAllMocks();
+      }
+    });
+
+    it.each([
+      '> Heading with unmatched `\n>\n> <think>private reasoning</think>\n> Here is `code`.',
+      '> # Heading with unmatched `\n> <think>private reasoning</think>\n> Here is `code`.',
+      '> Unmatched `\n> > <think>private reasoning</think>\n> Here is `code`.',
+      '> Heading `\n> ===\n> <think>private reasoning</think>\n> Here is `code`.',
+    ])('does not pair quoted backticks across block boundaries: %s', async (source) => {
+      const result = await consume(consumer, source, options);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+    });
+
+    it.each([
+      '> > Use `literal\n> <think>example</think>\n> end`',
+      '> Multiline\n> heading `literal\n> <think>example</think>\n> end`\n> ===',
+    ])('preserves valid quoted lazy continuation or multiline heading: %s', async (literal) => {
+      const result = await consume(consumer, `${literal}\n\n${thinking}\nPublic answer.`, options);
+      expect(result).toContain(literal);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+    });
+
     it('keeps complete heading inline literals opaque', async () => {
       const literal = '# Heading with `<think>literal reasoning</think>`';
       const result = await consume(consumer, `${literal}\n${thinking}\nPublic answer.`, options);
@@ -294,6 +333,31 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
 });
 
 describe('inline paragraph boundary search work', () => {
+  it('does not unwrap the whole suffix for each quoted paragraph', () => {
+    const content = '> Use `literal <think>example</think>`\n>\n'.repeat(400);
+    const originalIndexOf = String.prototype.indexOf;
+    let newlineSearches = 0;
+    const indexOf = jest.spyOn(String.prototype, 'indexOf').mockImplementation(function (
+      this: string,
+      searchString: string,
+      position?: number
+    ) {
+      if (searchString === '\n') newlineSearches++;
+      return originalIndexOf.call(this, searchString, position);
+    });
+    try {
+      expect(
+        formatConversationAsMarkdown(title, [{ role: 'assistant', content }], {
+          includeThinking: false,
+          includeTools: false,
+        })
+      ).toBe(documentFor(content));
+      expect(newlineSearches).toBeLessThanOrEqual(400 * 6);
+    } finally {
+      indexOf.mockRestore();
+    }
+  });
+
   it('reuses each paragraph boundary across many short code spans', () => {
     const content = '`x` '.repeat(2000) + '\n\n' + '`y` '.repeat(2000);
     const originalSearch = String.prototype.search;

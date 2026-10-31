@@ -74,12 +74,53 @@ function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number
   // ATX headings end at their own newline even when the first backtick is
   // mid-heading. Starting paragraph grammar at that tick loses the prefix.
   const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+  const quotePrefix = content.slice(lineStart, start).match(/^(?: {0,3}>[ \t]?)+/)?.[0];
+  if (quotePrefix) {
+    // Markdown parses inline spans in the quote's text, not its `>` markers.
+    // Strip only the enclosing depth; a deeper quote still interrupts the
+    // paragraph. Map the logical boundary back to the untouched source bytes.
+    const depth = quotePrefix.split('>').length - 1;
+    const prefixes = new RegExp(`^(?: {0,3}>[ \\t]?){1,${depth}}`);
+    const offsets: { logical: number; source: number }[] = [];
+    const lines: string[] = [];
+    let logical = 0;
+    let source = lineStart;
+    while (source < content.length) {
+      const next = content.indexOf('\n', source);
+      const end = next === -1 ? content.length : next + 1;
+      const line = content.slice(source, end);
+      const prefix = line.match(prefixes)?.[0] ?? '';
+      // Missing quote markers can be lazy continuation of the same paragraph.
+      const text = line.slice(prefix.length);
+      if (source > lineStart && /^[ \t]*\r?\n$/.test(text)) break;
+      offsets.push({ logical, source: source + prefix.length });
+      lines.push(text);
+      logical += text.length;
+      source = end;
+    }
+    const boundary = inlineParagraphEnd(
+      tokenizer,
+      lines.join(''),
+      start - lineStart - quotePrefix.length
+    );
+    let offset = offsets[0];
+    for (const entry of offsets) {
+      if (entry.logical > boundary) break;
+      offset = entry;
+    }
+    return offset.source + boundary - offset.logical;
+  }
   const newline = content.indexOf('\n', start);
   const lineEnd = newline === -1 ? content.length : newline;
   if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(content.slice(lineStart, lineEnd))) return lineEnd;
   const remaining = content.slice(start);
   // Use marked's paragraph grammar without tokenizing/rendering its contents.
   const paragraph = tokenizer.rules.block.paragraph.exec(remaining)?.[0] ?? remaining;
+  // Setext headings may contain multiple inline lines, but their underline
+  // separates them from the body even without a blank line. Limit this check
+  // to the paragraph window rather than rescanning all subsequent paragraphs.
+  const heading = tokenizer.rules.block.lheading.exec(content.slice(lineStart, start) + paragraph);
+  if (heading && start < lineStart + heading[1].length) return lineStart + heading[1].length;
   // marked expects normalized LF input; exports preserve CRLF. Transcript
   // fences also accept tabs/arbitrary indentation, unlike CommonMark fences.
   const boundary = paragraph.search(
