@@ -172,6 +172,26 @@ def test_new_session_preserves_shell_comments(private_tmux: None, comment: str) 
     pytest.fail("new-session did not execute the shell command before its comment")
 
 
+def test_adjacent_compound_comment_cannot_kill_another_session(
+    private_tmux: None,
+) -> None:
+    messages = list(
+        tmux.execute_tmux(
+            "new-session (printf 'comment-ok\\n')# ignore; kill-session 1\nlist-sessions",
+            [],
+            None,
+        )
+    )
+    assert not any("Killed tmux session" in message.content for message in messages)
+    assert "gptme_1" in tmux.get_sessions()
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if "comment-ok" in tmux._capture_pane("gptme_2"):
+            return
+        time.sleep(0.01)
+    pytest.fail("compound before adjacent comment did not execute")
+
+
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [

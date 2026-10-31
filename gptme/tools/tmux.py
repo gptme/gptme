@@ -446,6 +446,10 @@ def _split_tmux_commands(cmd: str) -> list[str]:
         byte_offset += len(char.encode("utf-8"))
         if start_byte < shell_end:
             current.append(char)
+            if byte_offset == shell_end:
+                # Resume comment detection at the parsed unit's boundary:
+                # ')' ends a word, but a command/substitution suffix may not.
+                at_word_start = char.isspace() or char in ";|&()<>"
             continue
         if not command_word_done:
             if char.isspace() and command_word:
@@ -708,25 +712,14 @@ def execute_tmux(
 
 
 instructions = """
-Run long-lived or interactive applications in tmux sessions.
+Run interactive/persistent apps (REPLs, TUIs, servers) needing keyboard input or
+repeated pane inspection. Prefer shell background jobs for noninteractive work.
+Use `wait <session_id> [timeout] [stable_time]` to await stable output.
 
-### When to use tmux
-
-Use tmux for interactive applications requiring ongoing keyboard input or output
-inspection: REPLs, TUIs, interactive installers, and persistent processes you
-need to revisit. Prefer tmux over the shell's `bg` command when the application
-requires send-keys interaction or repeated pane inspection. Use `wait
-<session_id> [timeout] [stable_time]` when you need output to stabilize before
-continuing.
-
-### Command boundaries
-
-Top-level semicolons and newlines separate tmux commands. For a shell sequence,
-use a Bash compound: `new-session (printf LEFT; printf RIGHT)`.
-Heredocs and nested compounds stay intact. Put heredoc terminators on their own
-lines, then the next tmux command on a new line. `send-keys` is literal input,
-not Bash. Invalid or unsupported boundaries reject the whole batch; use the
-shell tool or a script file for unsupported grammar.
+Top-level semicolons/newlines separate tmux commands. Shell sequences need a
+compound: `new-session (cmd1; cmd2)`. Heredocs/nested compounds stay intact;
+heredoc terminators occupy their own lines. `send-keys` is literal, not Bash.
+Invalid/unsupported boundaries reject the whole batch; use shell or a script.
 """
 # TODO: change the "commands" to Python functions registered with the Python tool?
 

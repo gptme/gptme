@@ -53,6 +53,31 @@ def test_shell_unit_is_one_dispatch(shell: str, dispatched: list[str]) -> None:
     assert dispatched == [shell, "list"], [m.content for m in messages]
 
 
+@pytest.mark.parametrize(
+    "shell",
+    [
+        "(printf ok)# ignore; kill-session 1",
+        "(printf 'λ')# ignore; kill-session 1",
+        "(printf ok) # ignore; kill-session 1",
+        "{ printf ok; } # ignore; kill-session 1",
+    ],
+)
+def test_shell_comment_after_compound_is_not_a_tmux_command(
+    shell: str, dispatched: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tmux, "kill_session", lambda target: pytest.fail(target))
+    messages = list(tmux.execute_tmux(f"new-session {shell}\nlist-sessions", [], None))
+    assert dispatched == [shell, "list"], [m.content for m in messages]
+
+
+@pytest.mark.parametrize("shell", ["printf x#literal", "printf $(printf x)#literal"])
+def test_shell_word_suffix_hash_stays_literal(
+    shell: str, dispatched: list[str]
+) -> None:
+    list(tmux.execute_tmux(f"new-session {shell}; list-sessions", [], None))
+    assert dispatched == [shell, "list"]
+
+
 def test_top_level_separators_are_tmux_not_shell(dispatched: list[str]) -> None:
     messages = list(
         tmux.execute_tmux(
