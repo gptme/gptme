@@ -301,6 +301,19 @@ def test_cleanup_wins_queue_publication_race(
     assert not directory.exists()
 
 
+def test_deletion_permission_failure_is_observable(histories: Path) -> None:
+    directory = make_history(histories)
+    with patch(
+        "gptme.logmanager.cleanup.shutil.rmtree",
+        side_effect=PermissionError("Synthetic deletion failure"),
+    ):
+        result = CliRunner().invoke(chats_clean, ["--include-test", "--delete"])
+    assert result.exit_code == 0, result.output
+    assert "Synthetic deletion failure" in result.output
+    assert "Deleted 0 conversation(s)" in result.output
+    assert directory.exists()
+
+
 def test_text_cleanup_counts_only_abandoned(histories: Path) -> None:
     abandoned = make_history(histories, "abandoned")
     pending = make_history(histories, "pending")

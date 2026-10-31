@@ -56,6 +56,7 @@ def cleanup_conversation(
     before rmtree so Windows can remove the lock file too.
     """
     logdir = Path(conv.path).parent
+    deleting = False
     try:
         with conversation_lifecycle_lock(logdir, blocking=False):
             if not logdir.is_dir():
@@ -66,10 +67,15 @@ def cleanup_conversation(
             if delete:
                 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 
+                deleting = True
                 shutil.rmtree(logdir)
                 CostTracker.end_session(session_id_for_logdir(logdir))
             return True
     except (OSError, ValueError) as exc:
+        if deleting:
+            # Removal may already be partial. Do not disguise a failed deletion
+            # as a candidate that was protected before any changes occurred.
+            raise
         logger.debug("Cleanup protected %s: %s", conv.id, exc)
         return False
 
