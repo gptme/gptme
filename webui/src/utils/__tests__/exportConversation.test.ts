@@ -696,6 +696,31 @@ describe('formatConversationAsMarkdown - tool invocation stripping', () => {
     expect(result).toContain('Done.');
   });
 
+  it('strips @tool calls whose JSON arguments contain backticks', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Running it.\n@save: {"content":"Use `x` now."}\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('Use `x` now.');
+    expect(result).not.toContain('now."}');
+    expect(result).toContain('Running it.');
+    expect(result).toContain('Done.');
+  });
+
+  it('does not duplicate fenced examples when a prose backtick sits before a fence', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'See `this\n```xml\nKEEP_ONCE\n```\nand `that`.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result.match(/KEEP_ONCE/g)).toEqual(['KEEP_ONCE']);
+  });
+
   it('preserves trailing text after closing brace of an @tool call when includeTools is false', () => {
     const messages: Message[] = [
       {

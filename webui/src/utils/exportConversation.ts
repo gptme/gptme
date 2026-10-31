@@ -115,8 +115,8 @@ function matchAt(content: string, index: number, re: RegExp): string | null {
 
 /**
  * End offset of a CommonMark-style inline code span starting at `start`,
- * or null if the backtick run is unclosed. Fences are skipped so a span
- * cannot swallow a fenced example.
+ * or null if the backtick run is unclosed. A span cannot cross a fenced
+ * block: a closer on the other side of a fence is not part of this span.
  */
 function findInlineCodeEnd(
   content: string,
@@ -128,11 +128,7 @@ function findInlineCodeEnd(
   while (start + openLen < content.length && content[start + openLen] === '`') openLen++;
   let j = start + openLen;
   while (j < content.length) {
-    const fence = rangeContains(fenceRanges, j);
-    if (fence) {
-      j = fence.end;
-      continue;
-    }
+    if (rangeContains(fenceRanges, j)) return null;
     if (content[j] !== '`') {
       j++;
       continue;
@@ -146,31 +142,37 @@ function findInlineCodeEnd(
 }
 
 /**
- * CommonMark-style inline code spans in prose (not inside fenced blocks).
- * Unclosed backtick runs are treated as literal text, not code.
+ * Index just after the closing brace of the JSON object starting at `start`
+ * (`content[start]` must be `{`), or null if the object never closes.
+ * Tracks strings so backticks and braces inside quotes are not delimiters.
  */
-function getInlineCodeRanges(content: string, fenceRanges: CharRange[]): CharRange[] {
-  const ranges: CharRange[] = [];
-  let i = 0;
-  while (i < content.length) {
-    const fence = rangeContains(fenceRanges, i);
-    if (fence) {
-      i = fence.end;
+function findJsonObjectEnd(content: string, start: number): number | null {
+  if (content[start] !== '{') return null;
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  for (let i = start; i < content.length; i++) {
+    const ch = content[i];
+    if (escapeNext) {
+      escapeNext = false;
       continue;
     }
-    if (content[i] !== '`') {
-      i++;
+    if (ch === '\\' && inString) {
+      escapeNext = true;
       continue;
     }
-    const end = findInlineCodeEnd(content, i, fenceRanges);
-    if (end !== null) {
-      ranges.push({ start: i, end });
-      i = end;
-    } else {
-      while (i < content.length && content[i] === '`') i++;
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i + 1;
     }
   }
-  return ranges;
+  return null;
 }
 
 /**
@@ -330,88 +332,43 @@ function stripFencedToolBlocks(content: string): string {
  *
  * Calls inside fenced or inline-code examples are left unchanged. A top-level
  * `@tool: {...}` line is treated as a real invocation even if it was meant as
- * an example.
+ * an example. JSON arguments are scanned as a whole so backticks inside a
+ * string (e.g. `"Use \`x\` now."`) stay part of the call, not inline code.
  */
 function stripAtFormatToolCalls(content: string): string {
   const fences = getTopLevelFenceRanges(content);
-  const skipped = [...fences, ...getInlineCodeRanges(content, fences)].sort(
-    (a, b) => a.start - b.start
-  );
-  if (skipped.length === 0) {
-    return stripAtFormatToolCallsInProse(content);
-  }
-  let result = '';
-  let cursor = 0;
-  for (const range of skipped) {
-    result += stripAtFormatToolCallsInProse(content.slice(cursor, range.start));
-    result += content.slice(range.start, range.end);
-    cursor = range.end;
-  }
-  result += stripAtFormatToolCallsInProse(content.slice(cursor));
-  return result;
-}
-
-function stripAtFormatToolCallsInProse(content: string): string {
-  const lines = content.split('\n');
   const callPrefix = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
-  const out: string[] = [];
+  const toRemove: CharRange[] = [];
   let i = 0;
-  while (i < lines.length) {
-    const match = lines[i].match(callPrefix);
-    if (!match) {
-      out.push(lines[i]);
-      i++;
+  while (i < content.length) {
+    const fence = rangeContains(fences, i);
+    if (fence) {
+      i = fence.end;
       continue;
     }
-    const rest = lines[i].slice(match[0].length);
-    if (!rest.startsWith('{')) {
-      // Not a JSON tool call — preserve the line as-is.
-      out.push(lines[i]);
-      i++;
-      continue;
-    }
-    let depth = 0;
-    let sawOpen = false;
-    let inString = false;
-    let escapeNext = false;
-    let j = i;
-    let trailingText = '';
-    outer: for (; j < lines.length; j++) {
-      const scanLine = j === i ? rest : lines[j];
-      for (let k = 0; k < scanLine.length; k++) {
-        const ch = scanLine[k];
-        if (escapeNext) {
-          escapeNext = false;
+    const atLineStart = i === 0 || content[i - 1] === '\n';
+    if (atLineStart) {
+      const match = content.slice(i).match(callPrefix);
+      if (match && content[i + match[0].length] === '{') {
+        const jsonEnd = findJsonObjectEnd(content, i + match[0].length);
+        if (jsonEnd !== null) {
+          toRemove.push({ start: i, end: jsonEnd });
+          i = jsonEnd;
           continue;
         }
-        if (ch === '\\' && inString) {
-          escapeNext = true;
-          continue;
-        }
-        if (ch === '"') {
-          inString = !inString;
-          continue;
-        }
-        if (inString) continue;
-        if (ch === '{') {
-          depth++;
-          sawOpen = true;
-        } else if (ch === '}') {
-          depth--;
-        }
-        if (sawOpen && depth <= 0) {
-          trailingText = scanLine.slice(k + 1).trim();
-          j++;
-          break outer;
-        }
+        const nextFence = fences.find((range) => range.start >= i);
+        toRemove.push({ start: i, end: nextFence ? nextFence.start : content.length });
+        break;
       }
     }
-    if (trailingText) {
-      out.push(trailingText);
+    if (content[i] === '`') {
+      const end = findInlineCodeEnd(content, i, fences);
+      i = end ?? i + 1;
+      continue;
     }
-    i = j;
+    i++;
   }
-  return out.join('\n');
+  return removeCharRanges(content, toRemove);
 }
 
 /**
