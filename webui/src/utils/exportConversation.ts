@@ -178,10 +178,12 @@ function findInlineCodeEnd(
       const rawLine = content.slice(j + 1, lineEnd < 0 ? content.length : lineEnd);
       const { text: nextLine, depth: nextDepth } = unquoteLine(rawLine, quoteDepth);
       // These block starts interrupt a paragraph; a later backtick belongs to
-      // a different inline parsing context. Ordered lists interrupt only at 1.
+      // a different inline parsing context. Lists need nonempty content to
+      // interrupt, and ordered lists must start at 1. A bare dash can still
+      // be a setext underline, checked separately below.
       if (
         /^[\t \r]*$/.test(nextLine) ||
-        /^ {0,3}(?:#{1,6}(?:[\t ]|$)|>|[-+*][\t ]|1[.)][\t ])/.test(nextLine) ||
+        /^ {0,3}(?:#{1,6}(?:[\t ]|$)|>|(?:[-+*]|1[.)])[\t ]+\S)/.test(nextLine) ||
         /^ {0,3}(?:(?:\*[\t ]*){3,}|(?:_[\t ]*){3,}|(?:-[\t ]*){3,})\r?$/.test(nextLine) ||
         (nextDepth === quoteDepth && /^ {0,3}(?:=+|-+)[\t ]*\r?$/.test(nextLine))
       ) {

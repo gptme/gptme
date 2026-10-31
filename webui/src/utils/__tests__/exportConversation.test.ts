@@ -1329,6 +1329,34 @@ describe('filtered export physical block review regressions', () => {
     expect(result).toContain(boundary);
   });
 
+  it.each(['+ ', '* ', '1. ', '1) ', '  + \t ', '1. \t '])(
+    'keeps a multiline inline example across an empty list marker: %j',
+    (marker) => {
+      const example = `An example \`first\n${marker}\n<think>KEEP_LITERAL</think>\n@save: {"content":"KEEP_TOOL"}\nlast\` done.`;
+      const content = `${example}\n\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).toContain(example);
+      expect(result).not.toContain('DROP_');
+      expect(result).toContain('Done.');
+    }
+  );
+
+  it.each(['- ', '- \t ', '  - '])(
+    'still treats an empty dash marker as a setext boundary: %j',
+    (marker) => {
+      const content = `A lone \` character.\n${marker}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nUse \`x\` now.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).not.toContain('DROP_');
+      expect(result).toContain('Use `x` now.');
+    }
+  );
+
   it.each(['> ', '>> ', '> > '])('keeps quoted fences with prefix %s', (prefix) => {
     const example = `${prefix}\`\`\`xml\n${prefix}<think>KEEP_LITERAL</think>\n${prefix}@save: {"content":"KEEP_TOOL"}\n${prefix}\`\`\``;
     const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
