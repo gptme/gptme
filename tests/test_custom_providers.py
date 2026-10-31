@@ -403,6 +403,34 @@ def test_custom_provider_supports_tools_api():
     assert "parameters" in result["function"]
 
 
+def test_jzstoken_docs_config_snippet_loads():
+    """The JZSTOKEN [[providers]] example in providers-custom.rst must parse.
+
+    Issue gptme/gptme#4697: a shareable OpenAI-compatible gateway with ordinary
+    API-key auth uses a named custom provider, not a built-in entry. Keep this
+    snippet in lockstep with the Remote cloud gateways docs example.
+    """
+    config_toml = """
+[[providers]]
+name = "jzstoken"
+base_url = "https://jzstoken.com/api/v1"
+api_key_env = "JZSTOKEN_API_KEY"
+default_model = "gpt-5.6-terra"
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+    try:
+        config = load_user_config(f.name)
+        assert len(config.providers) == 1
+        provider = config.providers[0]
+        assert provider.name == "jzstoken"
+        assert provider.base_url == "https://jzstoken.com/api/v1"
+        assert provider.api_key_env == "JZSTOKEN_API_KEY"
+        assert provider.default_model == "gpt-5.6-terra"
+    finally:
+        os.remove(f.name)
+
+
 # Example configuration that would be in gptme.toml:
 EXAMPLE_CONFIG = """
 [prompt]
