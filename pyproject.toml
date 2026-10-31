@@ -72,7 +72,7 @@ browser = [
 ]
 docs = [  # enhanced HTML/XML parsing + PDF extraction; not required for basic use
     "lxml",  # HTML/XML parsing; optional — falls back to stdlib xml.etree.ElementTree
-    "pypdf>=6.21.1",  # PDF extraction in browser tool (CVE fix: RAM exhaustion + infinite loop; >=6.21.1 for GHSA-5hx5-vpf9-5wcv)
+    "pypdf>=6.21.4",  # PDF extraction; fixes PDF parsing denial-of-service advisories through 6.21.4
 ]
 minimal = []  # no native extensions beyond pydantic-core; works on ARM/musl/Termux/Lambda
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
@@ -127,7 +127,7 @@ all = [
     "textual>=8,<9",
     "playwright==1.61.0",
     "lxml",
-    "pypdf>=6.21.1",
+    "pypdf>=6.21.4",
     "matplotlib",
     "pandas",
     "numpy",
