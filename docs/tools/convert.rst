@@ -21,6 +21,11 @@ input produces its first frame at the exact requested output path, not a numbere
 image sequence. Animation-capable GIF and WebP targets are not subject to this
 first-frame selection.
 
+TIFF-to-TIFF conversion preserves document pages in their original order using
+ImageMagick. If a TIFF has multiple pages and ImageMagick is unavailable, the
+conversion fails explicitly without writing the destination; FFmpeg alone cannot
+preserve these pages. Single-page TIFF conversions can still use FFmpeg.
+
 .. automodule:: gptme.tools.convert
     :members:
     :noindex:
