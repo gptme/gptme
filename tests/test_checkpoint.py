@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -31,7 +32,12 @@ from gptme.commands.base import handle_cmd
 
 @pytest.fixture(autouse=True)
 def isolated_state_dir(tmp_path, monkeypatch):
-    """Force ledger to live under a per-test XDG_STATE_HOME."""
+    """Keep Git routing/config and checkpoint ledgers isolated from the host."""
+    for key in list(os.environ):
+        if key.startswith("GIT_"):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     state = tmp_path / "xdg-state"
     state.mkdir()
     monkeypatch.setenv("XDG_STATE_HOME", str(state))
@@ -403,3 +409,233 @@ def test_cli_list_empty_repo(clean_repo):
     result = runner.invoke(checkpoint_main, ["list", str(clean_repo)])
     assert result.exit_code == 0
     assert "No checkpoints" in result.output
+
+
+# --- Unknown inspection must never authorize a mutation ---
+
+
+@pytest.mark.parametrize("query", ["root", "head", "status", "worktree", "submodule"])
+@pytest.mark.parametrize("failure", ["nonzero", "missing", "permission", "timeout"])
+@pytest.mark.parametrize("include_dirty", [False, True])
+def test_failed_inspection_refuses_operations(
+    clean_repo, monkeypatch, query, failure, include_dirty
+):
+    from gptme import checkpoint
+
+    create_checkpoint(clean_repo)
+    (clean_repo / "README.md").write_text("later committed bytes\n")
+    _git(clean_repo, "commit", "-qam", "later")
+    head = _git(clean_repo, "rev-parse", "HEAD")
+    (clean_repo / "README.md").write_text("valuable dirty bytes\n")
+    (clean_repo / "untracked.txt").write_text("valuable untracked bytes\n")
+    index = (clean_repo / ".git" / "index").read_bytes()
+    ledger = get_ledger_path(clean_repo)
+    ledger_bytes = ledger.read_bytes()
+    real_run = subprocess.run
+    mutations = []
+
+    def fail_query(command, *args, **kwargs):
+        git_args = command[1:]
+        kind = git_args[0]
+        if kind == "rev-parse":
+            kind = "root" if "--show-toplevel" in git_args else "head"
+        if kind in {"reset", "clean"}:
+            mutations.append(command)
+        if kind == query:
+            if failure == "missing":
+                raise FileNotFoundError("synthetic missing git")
+            if failure == "permission":
+                raise PermissionError("synthetic denied git")
+            if failure == "timeout":
+                raise subprocess.TimeoutExpired(command, 30)
+            return subprocess.CompletedProcess(
+                command, 128, "", "synthetic query error"
+            )
+        return real_run(command, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(checkpoint.subprocess, "run", fail_query)
+        decision = classify(clean_repo)
+        assert decision.kind == "inspection_failed"
+        assert not decision.safe_to_create() and not decision.safe_to_restore()
+        for operation in ("create", "restore"):
+            with pytest.raises(CheckpointError, match="inspection"):
+                if operation == "create":
+                    create_checkpoint(clean_repo, include_dirty=include_dirty)
+                else:
+                    restore_checkpoint(clean_repo, "1", include_dirty=include_dirty)
+
+    assert mutations == []
+    assert _git(clean_repo, "rev-parse", "HEAD") == head
+    assert (clean_repo / "README.md").read_text() == "valuable dirty bytes\n"
+    assert (clean_repo / "untracked.txt").read_text() == "valuable untracked bytes\n"
+    assert (clean_repo / ".git" / "index").read_bytes() == index
+    assert ledger.read_bytes() == ledger_bytes
+
+
+@pytest.mark.parametrize(
+    ("query", "output"),
+    [
+        ("root", ""),
+        ("root", "relative/path\n"),
+        ("head", ""),
+        ("head", "HEAD\n"),
+        ("head", "abcd\n"),
+        ("head", "g" * 40 + "\n"),
+        ("worktree", ""),
+        ("worktree", "unexpected output\n"),
+    ],
+)
+def test_invalid_inspection_output_refuses_operations(
+    clean_repo, monkeypatch, query, output
+):
+    from gptme import checkpoint
+
+    create_checkpoint(clean_repo)
+    original = get_ledger_path(clean_repo).read_bytes()
+    real_run = subprocess.run
+    mutations = []
+
+    def invalid_query(command, *args, **kwargs):
+        git_args = command[1:]
+        kind = git_args[0]
+        if kind == "rev-parse":
+            kind = "root" if "--show-toplevel" in git_args else "head"
+        if kind in {"reset", "clean"}:
+            mutations.append(command)
+        if kind == query:
+            return subprocess.CompletedProcess(command, 0, output, "")
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(checkpoint.subprocess, "run", invalid_query)
+    assert classify(clean_repo).kind == "inspection_failed"
+    with pytest.raises(CheckpointError, match="inspection"):
+        create_checkpoint(clean_repo, include_dirty=True)
+    with pytest.raises(CheckpointError, match="inspection"):
+        restore_checkpoint(clean_repo, "1", include_dirty=True)
+    assert mutations == []
+    assert get_ledger_path(clean_repo).read_bytes() == original
+
+
+@pytest.mark.parametrize("damage", ["index", "head", "missing_head", "missing_objects"])
+def test_unusable_metadata_is_not_a_clean_or_non_git_workspace(clean_repo, damage):
+    create_checkpoint(clean_repo)
+    if damage == "missing_objects":
+        (clean_repo / ".git" / "objects").rename(clean_repo / "saved-objects")
+    elif damage == "missing_head":
+        (clean_repo / ".git" / "HEAD").unlink()
+    else:
+        (clean_repo / ".git" / ("HEAD" if damage == "head" else "index")).write_bytes(
+            b"broken metadata\n"
+        )
+    ledger = get_ledger_path(clean_repo).read_bytes()
+    assert classify(clean_repo).kind == "inspection_failed"
+    with pytest.raises(CheckpointError, match="inspection"):
+        create_checkpoint(clean_repo, include_dirty=True)
+    with pytest.raises(CheckpointError, match="inspection"):
+        restore_checkpoint(clean_repo, "1", include_dirty=True)
+    assert get_ledger_path(clean_repo).read_bytes() == ledger
+    assert (clean_repo / "README.md").read_text() == "hello\n"
+
+
+def test_unborn_repository_refuses_checkpoint(tmp_path):
+    _git(tmp_path, "init", "-q")
+    assert classify(tmp_path).kind == "inspection_failed"
+    with pytest.raises(CheckpointError, match="inspection"):
+        create_checkpoint(tmp_path)
+    assert not get_ledger_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize("command", ["create", "restore", "list", "diff"])
+def test_cli_inspection_failure_has_diagnostic(clean_repo, monkeypatch, command):
+    from gptme import checkpoint
+
+    monkeypatch.setattr(checkpoint, "GIT_CMD", str(clean_repo / "missing-git"))
+    args = [command]
+    if command in {"restore", "diff"}:
+        args.append("1")
+    result = CliRunner().invoke(checkpoint_main, [*args, str(clean_repo)])
+    assert result.exit_code == 1
+    assert "inspection" in result.output
+    assert "missing-git" in result.output
+    assert "Traceback" not in result.output
+    assert not get_ledger_path(clean_repo).exists()
+
+
+def test_multiple_worktrees_still_refused(clean_repo, tmp_path):
+    other = tmp_path / "other-worktree"
+    _git(clean_repo, "worktree", "add", "--detach", str(other))
+    decision = classify(clean_repo)
+    assert decision.kind == "multi_root"
+    assert decision.worktree_count == 2
+    with pytest.raises(CheckpointError, match="multi_root"):
+        create_checkpoint(clean_repo, include_dirty=True)
+    with pytest.raises(CheckpointError, match="multi_root"):
+        restore_checkpoint(clean_repo, "1", include_dirty=True)
+
+
+def test_submodule_still_refused(clean_repo, tmp_path):
+    child = tmp_path / "child"
+    _git(tmp_path, "clone", "-q", str(clean_repo), str(child))
+    _git(
+        clean_repo,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        str(child),
+        "child",
+    )
+    decision = classify(clean_repo)
+    assert decision.kind == "multi_root"
+    assert decision.submodule_count == 1
+    with pytest.raises(CheckpointError, match="multi_root"):
+        create_checkpoint(clean_repo, include_dirty=True)
+    with pytest.raises(CheckpointError, match="multi_root"):
+        restore_checkpoint(clean_repo, "1", include_dirty=True)
+
+
+@pytest.mark.parametrize("object_format", ["sha1", "sha256"])
+def test_supported_head_formats(tmp_path, object_format):
+    repo = tmp_path / "repo with spaces"
+    repo.mkdir()
+    _git(repo, "init", "-q", f"--object-format={object_format}")
+    _git(repo, "config", "user.name", "Test")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(
+        repo,
+        "-c",
+        "core.hooksPath=" + os.devnull,
+        "commit",
+        "-qm",
+        "init",
+        "--allow-empty",
+    )
+    decision = classify(repo)
+    assert decision.kind == "clean_git"
+    assert decision.repo_root == repo
+    record, _ = create_checkpoint(repo)
+    assert record is not None
+    assert record.head_sha == _git(repo, "rev-parse", "HEAD")
+
+
+def test_head_must_name_a_commit(clean_repo):
+    blob = _git(clean_repo, "rev-parse", "HEAD:README.md")
+    (clean_repo / ".git" / "HEAD").write_text(blob + "\n")
+    assert classify(clean_repo).kind == "inspection_failed"
+    with pytest.raises(CheckpointError, match="inspection"):
+        create_checkpoint(clean_repo, include_dirty=True)
+    assert not get_ledger_path(clean_repo).exists()
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="Win32 normalizes trailing directory spaces"
+)
+def test_repository_root_preserves_trailing_space(clean_repo):
+    renamed = clean_repo.with_name("repo with trailing space ")
+    clean_repo.rename(renamed)
+    decision = classify(renamed)
+    assert decision.kind == "clean_git"
+    assert decision.repo_root == renamed
+    record, _ = create_checkpoint(renamed)
+    assert record is not None
