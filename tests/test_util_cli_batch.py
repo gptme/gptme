@@ -190,6 +190,7 @@ def test_summarize_child_output_counts_tokens_and_max_turns():
                     "type": "message",
                     "role": "system",
                     "content": "Stopped: reached max steps limit (1)",
+                    "metadata": {"max_steps_stop": True},
                 }
             ),
         ]
