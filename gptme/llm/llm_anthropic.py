@@ -11,9 +11,9 @@ from typing import (
     Any,
     Literal,
     ParamSpec,
+    Protocol,
     TypedDict,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -59,6 +59,7 @@ _THINKING_EFFORT_BUDGETS: dict[str, int] = {
     "max": 32000,
 }
 _EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
+
 
 # Models that reject the legacy ``thinking: {type: "enabled", budget_tokens: N}``
 # format with HTTP 400 and require ``thinking: {type: "adaptive"}`` + the
@@ -167,19 +168,30 @@ def _extract_schema_result(content_blocks):
     return None
 
 
-def _record_usage(
-    usage: Union["anthropic.types.Usage", "anthropic.types.MessageDeltaUsage"],
-    model: str,
-) -> MessageMetadata | None:
+class _UsageMetrics(Protocol):
+    @property
+    def input_tokens(self) -> int | None: ...
+
+    @property
+    def output_tokens(self) -> int | None: ...
+
+    @property
+    def cache_creation_input_tokens(self) -> int | None: ...
+
+    @property
+    def cache_read_input_tokens(self) -> int | None: ...
+
+
+def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
         return None
 
     # Extract token counts
-    input_tokens = getattr(usage, "input_tokens", None)
-    output_tokens = getattr(usage, "output_tokens", None)
-    cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
-    cache_read_tokens = getattr(usage, "cache_read_input_tokens", None)
+    input_tokens = usage.input_tokens
+    output_tokens = usage.output_tokens
+    cache_creation_tokens = usage.cache_creation_input_tokens
+    cache_read_tokens = usage.cache_read_input_tokens
 
     # Calculate total tokens
     total_tokens = 0
@@ -349,9 +361,16 @@ def _stamp_reasoning_effort(
     return metadata
 
 
-def _served_model_of(message: Any) -> str | None:
+class _HasModel(Protocol):
+    @property
+    def model(self) -> object: ...
+
+
+def _served_model_of(message: _HasModel) -> str | None:
     """Return the provider-reported ``message.model`` if it is a non-empty string."""
-    value = getattr(message, "model", None)
+    if not hasattr(message, "model"):
+        return None
+    value = message.model
     if isinstance(value, str) and value.strip():
         return value
     return None
@@ -375,7 +394,7 @@ def _stamp_served_model(
 
 def _partial_stream_metadata(
     model: str,
-    usage: Any,
+    usage: _UsageMetrics | None,
     *,
     use_thinking: bool,
     served_model: str | None = None,
@@ -390,13 +409,13 @@ def _partial_stream_metadata(
     metadata: MessageMetadata = {"model": model}
     if served_model is not None:
         metadata["served_model"] = served_model
-    if usage:
+    if usage is not None:
         partial_usage: UsageData = {}
-        if (v := getattr(usage, "input_tokens", None)) is not None:
+        if (v := usage.input_tokens) is not None:
             partial_usage["input_tokens"] = v
-        if (v := getattr(usage, "cache_read_input_tokens", None)) is not None:
+        if (v := usage.cache_read_input_tokens) is not None:
             partial_usage["cache_read_tokens"] = v
-        if (v := getattr(usage, "cache_creation_input_tokens", None)) is not None:
+        if (v := usage.cache_creation_input_tokens) is not None:
             partial_usage["cache_creation_tokens"] = v
         if partial_usage:
             metadata["usage"] = partial_usage
