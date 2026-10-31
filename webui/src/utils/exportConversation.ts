@@ -5,7 +5,18 @@ import { isTauriEnvironment } from '@/utils/tauri';
 export interface ExportMarkdownOptions {
   includeSystem?: boolean;
   includeTimestamps?: boolean;
+  /**
+   * When false, strip actual assistant `<think>` / `<thinking>` / `<think redacted>`
+   * blocks. Literal examples in fenced or inline code are kept. Top-level tags
+   * that look like thinking are treated as real (ambiguous by design).
+   */
   includeThinking?: boolean;
+  /**
+   * When false, omit `role: 'tool'` messages and strip actual assistant tool
+   * fences / `@tool: {...}` calls. Literal examples in non-tool fences or
+   * inline code are kept. Top-level tool syntax is treated as real. This is a
+   * display filter, not a secret-redaction guarantee.
+   */
   includeTools?: boolean;
 }
 
@@ -20,24 +31,201 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+interface CharRange {
+  start: number;
+  end: number;
+}
+
+interface FenceRange extends CharRange {
+  tag: string;
+}
+
+// gptme convention (see processNestedCodeBlocks): ```lang is always an opener,
+// a bare ``` is always a closer. Nested fences are part of the outer block.
+const FENCE_LINE_RE = /^(\s*)(`{3,})(.*)$/;
+
+const THINK_CLOSED_RE = /<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g;
+const THINK_UNCLOSED_RE = /<think(?:ing)?(?: redacted)?>[\s\S]*$/;
+
+function splitLines(content: string): { lines: string[]; starts: number[] } {
+  const lines = content.split('\n');
+  const starts: number[] = [];
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    starts.push(offset);
+    offset += lines[i].length + (i < lines.length - 1 ? 1 : 0);
+  }
+  return { lines, starts };
+}
+
+function lineEnd(lines: string[], starts: number[], index: number): number {
+  return starts[index] + lines[index].length + (index < lines.length - 1 ? 1 : 0);
+}
+
+/**
+ * Top-level fenced blocks. Unclosed fences extend to the end of `content`.
+ */
+function getTopLevelFenceRanges(content: string): FenceRange[] {
+  const { lines, starts } = splitLines(content);
+  const ranges: FenceRange[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const match = lines[i].match(FENCE_LINE_RE);
+    if (!match) {
+      i++;
+      continue;
+    }
+    const start = starts[i];
+    const rawTag = match[3].trim();
+    const tag = rawTag.split(/\s+/)[0]?.toLowerCase() ?? '';
+    let depth = 1;
+    i++;
+    let closed = false;
+    while (i < lines.length) {
+      const inner = lines[i].match(FENCE_LINE_RE);
+      if (inner) {
+        if (inner[3].trim()) {
+          depth++;
+        } else {
+          depth--;
+          if (depth === 0) {
+            ranges.push({ start, end: lineEnd(lines, starts, i), tag });
+            i++;
+            closed = true;
+            break;
+          }
+        }
+      }
+      i++;
+    }
+    if (!closed) {
+      ranges.push({ start, end: content.length, tag });
+    }
+  }
+  return ranges;
+}
+
+function rangeContains(ranges: CharRange[], index: number): CharRange | undefined {
+  return ranges.find((range) => index >= range.start && index < range.end);
+}
+
+/**
+ * CommonMark-style inline code spans in prose (not inside fenced blocks).
+ * Unclosed backtick runs are treated as literal text, not code.
+ */
+function getInlineCodeRanges(content: string, fenceRanges: CharRange[]): CharRange[] {
+  const ranges: CharRange[] = [];
+  let i = 0;
+  while (i < content.length) {
+    const fence = rangeContains(fenceRanges, i);
+    if (fence) {
+      i = fence.end;
+      continue;
+    }
+    if (content[i] !== '`') {
+      i++;
+      continue;
+    }
+    let openLen = 1;
+    while (i + openLen < content.length && content[i + openLen] === '`') openLen++;
+    let j = i + openLen;
+    let found = false;
+    while (j < content.length) {
+      const nestedFence = rangeContains(fenceRanges, j);
+      if (nestedFence) {
+        j = nestedFence.end;
+        continue;
+      }
+      if (content[j] !== '`') {
+        j++;
+        continue;
+      }
+      let closeLen = 1;
+      while (j + closeLen < content.length && content[j + closeLen] === '`') closeLen++;
+      if (closeLen === openLen) {
+        ranges.push({ start: i, end: j + closeLen });
+        i = j + closeLen;
+        found = true;
+        break;
+      }
+      j += closeLen;
+    }
+    if (!found) {
+      i += openLen;
+    }
+  }
+  return ranges;
+}
+
+function maskRanges(content: string, ranges: CharRange[]): string {
+  if (ranges.length === 0) return content;
+  const chars = content.split('');
+  for (const range of ranges) {
+    for (let i = range.start; i < range.end && i < chars.length; i++) {
+      if (chars[i] !== '\n') chars[i] = ' ';
+    }
+  }
+  return chars.join('');
+}
+
+function removeCharRanges(content: string, ranges: CharRange[]): string {
+  if (ranges.length === 0) return content;
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged: CharRange[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) {
+      last.end = Math.max(last.end, range.end);
+    } else {
+      merged.push({ start: range.start, end: range.end });
+    }
+  }
+  let result = '';
+  let cursor = 0;
+  for (const range of merged) {
+    result += content.slice(cursor, range.start);
+    cursor = range.end;
+  }
+  result += content.slice(cursor);
+  return result;
+}
+
 /**
  * Strip thinking/reasoning blocks from assistant message content.
- * Handles <thinking>/<think> tags as well as the `<think redacted>` variant
+ *
+ * Handles `<thinking>` / `<think>` tags and the `<think redacted>` variant
  * gptme emits for Anthropic's RedactedThinkingBlock (see llm_anthropic.py).
  * Also strips a trailing *unclosed* thinking tag: if generation is
  * interrupted mid-thinking, gptme never streams the closing `</think>`, so
  * the reasoning would otherwise leak into the exported "response" content.
+ *
+ * Literal examples inside fenced code blocks or inline code are not rewritten.
+ * A top-level think tag (not fenced and not inline-coded) is treated as real
+ * thinking even if it was meant as an example — that case is ambiguous.
+ * This is a display filter, not a secret-redaction guarantee.
  */
 export function stripThinkingBlocks(content: string): string {
-  return content
-    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g, '')
-    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*$/, '')
-    .trim();
+  const fences = getTopLevelFenceRanges(content);
+  const inline = getInlineCodeRanges(content, fences);
+  const protectedRanges = [...fences, ...inline];
+  const masked = maskRanges(content, protectedRanges);
+  const closedRanges: CharRange[] = [];
+  for (const match of masked.matchAll(THINK_CLOSED_RE)) {
+    if (match.index !== undefined) {
+      closedRanges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  const unclosed = THINK_UNCLOSED_RE.exec(maskRanges(masked, closedRanges));
+  if (unclosed && unclosed.index !== undefined) {
+    closedRanges.push({ start: unclosed.index, end: content.length });
+  }
+  return removeCharRanges(content, closedRanges).trim();
 }
 
 // Built-in gptme tool block types (markdown codeblock langtags that represent
 // a tool invocation rather than example code). Mirrors block_types across
-// gptme/tools/*.py.
+// gptme/tools/*.py. view_anchored/patch_anchored were removed from the Python
+// tools but remain here so older transcripts still filter.
 const TOOL_BLOCK_TYPES = new Set([
   'clarify',
   'complete',
@@ -63,6 +251,9 @@ const TOOL_BLOCK_TYPES = new Set([
   'tmux',
   'read',
   'restart',
+  'memory',
+  'watch',
+  'request_tool_change',
 ]);
 
 // MCP server tools register block types dynamically as `{server}.{tool}`
@@ -76,13 +267,15 @@ function isToolBlockTag(tag: string): boolean {
 
 /**
  * Strip fenced tool-invocation codeblocks (```shell, ```save path, ```server.tool, etc.)
- * from assistant message content.
+ * from assistant message content. Nested fences inside a non-tool example (```xml,
+ * ```text, ```markdown, …) are kept. Interrupted/unclosed top-level tool fences
+ * are stripped through the end of the message.
  */
 function stripFencedToolBlocks(content: string): string {
-  return content.replace(/```([^\n`]*)\n[\s\S]*?```/g, (block, langLine: string) => {
-    const tag = langLine.trim().split(/\s+/)[0]?.toLowerCase();
-    return tag && isToolBlockTag(tag) ? '' : block;
-  });
+  const toolFences = getTopLevelFenceRanges(content).filter(
+    (fence) => fence.tag && isToolBlockTag(fence.tag)
+  );
+  return removeCharRanges(content, toolFences);
 }
 
 /**
@@ -90,8 +283,27 @@ function stripFencedToolBlocks(content: string): string {
  * "tool" format, and the live-streaming shape) from assistant message content.
  * Scans braces rather than regex-matching JSON so pretty-printed or compact
  * argument objects are both handled correctly.
+ *
+ * Calls inside fenced examples are left unchanged. A top-level `@tool: {...}`
+ * line is treated as a real invocation even if it was meant as an example.
  */
 function stripAtFormatToolCalls(content: string): string {
+  const fences = getTopLevelFenceRanges(content);
+  if (fences.length === 0) {
+    return stripAtFormatToolCallsInProse(content);
+  }
+  let result = '';
+  let cursor = 0;
+  for (const fence of fences) {
+    result += stripAtFormatToolCallsInProse(content.slice(cursor, fence.start));
+    result += content.slice(fence.start, fence.end);
+    cursor = fence.end;
+  }
+  result += stripAtFormatToolCallsInProse(content.slice(cursor));
+  return result;
+}
+
+function stripAtFormatToolCallsInProse(content: string): string {
   const lines = content.split('\n');
   const callPrefix = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
   const out: string[] = [];
@@ -182,6 +394,14 @@ function getImportableMessages(messages: Message[]): Message[] {
 
 /**
  * Format a conversation's messages as a Markdown document.
+ *
+ * `includeThinking` / `includeTools` filter actual assistant transcript syntax.
+ * They do not rewrite literal examples in fenced or inline code, do not touch
+ * user/system content, and do nothing in full mode (both flags true). A
+ * top-level think tag or tool fence/call that is not wrapped in a non-tool
+ * fence or inline code is treated as real — that case is ambiguous. Interrupted
+ * (unclosed) top-level tool fences are stripped. This is not secret redaction
+ * and does not change JSON download / full-history fetching.
  */
 export function formatConversationAsMarkdown(
   name: string,
