@@ -988,20 +988,17 @@ def test_chat_serializes_optional_sdk_parameters(
 
     def serve(request: httpx2.Request) -> httpx2.Response:
         payloads.append(payload_parser.validate_json(request.content))
-        return httpx2.Response(
-            200,
-            json={
-                "id": "msg_test",
-                "type": "message",
-                "role": "assistant",
-                "model": model,
-                "content": [{"type": "text", "text": "Hello"}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            },
-            headers={"content-type": "application/json"},
-        )
+        response_payload = {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "model": model,
+            "content": [{"type": "text", "text": "Hello"}],
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+        return httpx2.Response(200, json=response_payload)
 
     monkeypatch.setenv("GPTME_REASONING", reasoning)
     monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
