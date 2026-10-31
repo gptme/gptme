@@ -33,6 +33,26 @@ SNAPSHOTS_SUBDIR = "workspace-snapshots"
 SNAPSHOT_REF = "refs/heads/snapshots"
 DEFAULT_MAX_SNAPSHOTS = 50
 
+# Repository routing belongs to the shadow, not the invoking user's Git session.
+# Keep configuration and author/date overrides: pruning intentionally uses them.
+_REPOSITORY_ENV = frozenset(
+    {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_PREFIX",
+        "GIT_GRAFT_FILE",
+        "GIT_SHALLOW_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_NO_REPLACE_OBJECTS",
+    }
+)
+
 
 @dataclass
 class Shadow:
@@ -48,8 +68,13 @@ class Shadow:
         git_dir = get_state_dir() / SNAPSHOTS_SUBDIR / f"{fp}.git"
         return cls(workspace=wp, git_dir=git_dir)
 
-    def env(self) -> dict[str, str]:
+    def env(self, overrides: dict[str, str] | None = None) -> dict[str, str]:
+        """Preserve intended config/identity, but never caller repository routing."""
         e = os.environ.copy()
+        if overrides:
+            e.update(overrides)
+        for name in _REPOSITORY_ENV:
+            e.pop(name, None)
         e["GIT_DIR"] = str(self.git_dir)
         e["GIT_WORK_TREE"] = str(self.workspace)
         return e
@@ -61,9 +86,7 @@ class Shadow:
         capture: bool = True,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
-        run_env = self.env()
-        if env:
-            run_env.update(env)
+        run_env = self.env(env)
         return subprocess.run(
             [GIT_CMD, *args],
             env=run_env,
@@ -104,12 +127,30 @@ def init_shadow(workspace: Path) -> Shadow:
         return shadow
 
     shadow.git_dir.mkdir(parents=True, exist_ok=True)
+    # Bare initialization has no working tree. Subsequent operations bind the
+    # workspace explicitly through Shadow.env().
+    init_env = shadow.env()
+    init_env.pop("GIT_WORK_TREE")
     subprocess.run(
-        [GIT_CMD, "init", "--quiet", "--bare", str(shadow.git_dir)], check=True
+        [GIT_CMD, "init", "--quiet", "--bare", str(shadow.git_dir)],
+        env=init_env,
+        check=True,
     )
-    # Operate via env vars, not via the bare-repo working-tree machinery.
+    # GIT_CONFIG selects a config write target and conflicts with --local.
+    # Preserve it for ordinary reads, but bind initialization writes locally.
+    config_env = shadow.env()
+    config_env.pop("GIT_CONFIG", None)
     subprocess.run(
-        [GIT_CMD, "--git-dir", str(shadow.git_dir), "config", "core.bare", "false"],
+        [
+            GIT_CMD,
+            "--git-dir",
+            str(shadow.git_dir),
+            "config",
+            "--local",
+            "core.bare",
+            "false",
+        ],
+        env=config_env,
         check=True,
     )
     subprocess.run(
@@ -118,9 +159,11 @@ def init_shadow(workspace: Path) -> Shadow:
             "--git-dir",
             str(shadow.git_dir),
             "config",
+            "--local",
             "user.email",
             "snapshot@gptme.local",
         ],
+        env=config_env,
         check=True,
     )
     subprocess.run(
@@ -129,9 +172,11 @@ def init_shadow(workspace: Path) -> Shadow:
             "--git-dir",
             str(shadow.git_dir),
             "config",
+            "--local",
             "user.name",
             "gptme-workspace-snapshot",
         ],
+        env=config_env,
         check=True,
     )
     # Distinct branch name so user-installed hooks targeting master/main
@@ -145,6 +190,7 @@ def init_shadow(workspace: Path) -> Shadow:
             "HEAD",
             SNAPSHOT_REF,
         ],
+        env=shadow.env(),
         check=True,
     )
     excludes = shadow.git_dir / "info" / "exclude"
