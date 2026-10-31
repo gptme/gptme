@@ -1394,6 +1394,110 @@ describe('filtered export physical block review regressions', () => {
   );
 });
 
+describe('list-contained fence export regressions', () => {
+  it.each([
+    ['- ', '  '],
+    ['+ ', '  '],
+    ['* ', '  '],
+    ['1. ', '   '],
+    ['12) ', '    '],
+    ['- - ', '    '],
+    ['> - ', '>   '],
+    ['- > ', '  > '],
+    ['> - > ', '>   > '],
+    ['-\t', '    '],
+  ])('keeps a fence in list container %j', (prefix, continuation) => {
+    const example = `${prefix}\`\`\`xml\n${continuation}<think>KEEP_LITERAL</think>\n${continuation}@save: {"content":"KEEP_TOOL"}\n${continuation}\`\`\``;
+    const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain(example);
+    expect(result).not.toContain('DROP_');
+    expect(result).toContain('Done.');
+  });
+
+  it.each(['```shell', '~~~xml', '````xml'])(
+    'bounds an unclosed list %s fence at dedent, including continuation openers',
+    (opener) => {
+      const example = `- Example:\n\n  ${opener}\n  <think>KEEP_LITERAL</think>\n\n  @save: {"content":"KEEP_TOOL"}`;
+      const content = `${example}\n\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).toContain(example);
+      expect(result).not.toContain('DROP_');
+      expect(result).toContain('Done.');
+    }
+  );
+
+  it.each([
+    '- ```shell\n  <think>KEEP_LITERAL</think>\n  ```',
+    '- ~~~xml\n  <think>KEEP_LITERAL</think>\n  ~~~',
+    '- ````xml\n  ```text\n  <think>KEEP_LITERAL</think>\n  ```\n  ````',
+    '- Example:\n  ```xml\n  <think>KEEP_LITERAL</think>\n  ```',
+    '~~~text\n- ```xml\n  <think>KEEP_LITERAL</think>\n  ```\n~~~',
+  ])('retains container examples without changing delimiters: %j', (example) => {
+    const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain(example);
+    expect(result).not.toContain('DROP_');
+    expect(result).toContain('Done.');
+  });
+
+  it.each(['- - -', '* * *', '_ _ _'])(
+    'does not create a list container from the thematic break %s',
+    (boundary) => {
+      const content = `${boundary}\n  \`\`\`shell\n  DROP_TOOL\n  \`\`\`\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).not.toContain('DROP_TOOL');
+      expect(result).toContain('Done.');
+    }
+  );
+
+  it.each(['```', '```text', '~~~', '~~~text'])(
+    'keeps over-indented fence-looking body lines literal: %s',
+    (inner) => {
+      const fence = inner.startsWith('~') ? '~~~' : '```';
+      const example = `- ${fence}xml\n  <think>KEEP_ONE</think>\n      ${inner}\n  <think>KEEP_TWO</think>\n  ${fence}`;
+      const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).toContain(example);
+      expect(result).not.toContain('DROP_');
+      expect(result).toContain('Done.');
+    }
+  );
+
+  it('does not open a list-wide fence from indented code', () => {
+    const content = '- Example:\n      ```xml\n  <think>DROP_REASONING</think>\n  Answer.';
+    expect(stripThinkingBlocks(content)).not.toContain('DROP_REASONING');
+    expect(stripThinkingBlocks(content)).toContain('Answer.');
+  });
+
+  it('ends an unclosed list fence before a sibling item', () => {
+    const example = '- ```xml\n  <think>KEEP_LITERAL</think>';
+    const content = `${example}\n- <think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain(example);
+    expect(result).not.toContain('DROP_');
+    expect(result).toContain('Done.');
+  });
+});
+
 describe('heading-origin inline export regressions', () => {
   it.each(['# Heading', '## Heading', '###### Heading', '> # Quoted heading'])(
     'does not pair a backtick from %s with a later paragraph',

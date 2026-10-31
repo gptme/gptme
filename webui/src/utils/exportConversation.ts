@@ -73,18 +73,89 @@ function unquoteLine(line: string, maxDepth = Infinity): { text: string; depth: 
   return { text: line, depth };
 }
 
+type FenceContainer = { kind: 'quote' } | { kind: 'list'; indent: number };
+
+// Normalize only the recognition view. Ranges always use original byte-for-byte
+// text offsets. Markdown tab stops are four columns, not four spaces per tab.
+function expandMarkdownTabs(line: string): string {
+  let result = '';
+  for (const char of line) {
+    result += char === '\t' ? ' '.repeat(4 - (result.length % 4)) : char;
+  }
+  return result;
+}
+
+function continueFenceContainers(
+  line: string,
+  containers: FenceContainer[]
+): { text: string; matched: number } {
+  let matched = 0;
+  for (const container of containers) {
+    if (container.kind === 'quote') {
+      const prefix = line.match(/^ {0,3}> ?/);
+      if (!prefix) break;
+      line = line.slice(prefix[0].length);
+    } else if (!line.trim()) {
+      // Blank lines do not close a list, but never authorize a later dedent.
+      line = '';
+    } else {
+      if (!line.startsWith(' '.repeat(container.indent))) break;
+      line = line.slice(container.indent);
+    }
+    matched++;
+  }
+  return { text: line, matched };
+}
+
+function openFenceContainers(
+  line: string,
+  containers: FenceContainer[]
+): { text: string; containers: FenceContainer[] } {
+  const path = [...containers];
+  while (true) {
+    const quote = line.match(/^ {0,3}> ?/);
+    if (quote) {
+      path.push({ kind: 'quote' });
+      line = line.slice(quote[0].length);
+      continue;
+    }
+    // A thematic break takes precedence over list-item markers.
+    if (/^ {0,3}(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,})\r?$/.test(line)) break;
+    const item = line.match(/^( {0,3})([-+*]|\d{1,9}[.)])( +)(?=\S)/);
+    if (!item) break;
+    // Five or more padding spaces mean one separator plus indented content.
+    const padding = item[3].length <= 4 ? item[3].length : 1;
+    const indent = item[1].length + item[2].length + padding;
+    path.push({ kind: 'list', indent });
+    line = line.slice(indent);
+  }
+  return { text: line, containers: path };
+}
+
 /**
- * Top-level fenced blocks, including quoted examples. Unclosed fences extend
- * to the end of `content` or their quote container, whichever comes first.
+ * Top-level fenced blocks, including quoted/list examples. Unclosed fences
+ * extend to the end of `content` or their container, whichever comes first.
  */
 function getTopLevelFenceRanges(content: string): FenceRange[] {
   const { lines, starts } = splitLines(content);
   const ranges: FenceRange[] = [];
+  let containers: FenceContainer[] = [];
   let i = 0;
   while (i < lines.length) {
-    const { text, depth: quoteDepth } = unquoteLine(lines[i]);
+    const continued = continueFenceContainers(expandMarkdownTabs(lines[i]), containers);
+    const opened = openFenceContainers(continued.text, containers.slice(0, continued.matched));
+    const { text } = opened;
+    containers = opened.containers;
     const match = text.match(FENCE_LINE_RE);
-    if (!match || (quoteDepth > 0 && !/^ {0,3}$/.test(match[1]))) {
+    const quotedIndent = unquoteLine(lines[i]).text.match(FENCE_LINE_RE)?.[1];
+    // Retain the existing quoted indented-code boundary used by the renderer;
+    // its tab handling differs from CommonMark's global column expansion.
+    const quotedCode =
+      containers.length > 0 &&
+      containers.every((container) => container.kind === 'quote') &&
+      quotedIndent !== undefined &&
+      !/^ {0,3}$/.test(quotedIndent);
+    if (!match || quotedCode || (containers.length > 0 && !/^ {0,3}$/.test(match[1]))) {
       i++;
       continue;
     }
@@ -92,21 +163,28 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
     const rawTag = match[3].trim();
     // Tilde fences are Markdown examples, not gptme tool delimiters.
     const tilde = match[2][0] === '~';
-    // Quoted tool-looking fences are examples, never executable top-level tools.
-    const tag = tilde || quoteDepth ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
+    // Container-contained tool-looking fences are examples, never real tools.
+    const tag = tilde || containers.length ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
     const fenceLengths = [match[2].length];
     i++;
     let closed = false;
     while (i < lines.length) {
-      const { text: innerLine, depth: innerDepth } = unquoteLine(lines[i], quoteDepth);
-      if (innerDepth < quoteDepth) {
-        // Fenced blocks cannot lazily continue outside their quote container.
+      const { text: innerLine, matched } = continueFenceContainers(
+        expandMarkdownTabs(lines[i]),
+        containers
+      );
+      if (matched < containers.length) {
+        // Fenced blocks cannot lazily continue outside their saved containers.
         ranges.push({ start, end: starts[i], tag });
         closed = true;
         break;
       }
       const inner = innerLine.match(FENCE_LINE_RE);
-      if (inner && inner[2][0] === match[2][0]) {
+      if (
+        inner &&
+        inner[2][0] === match[2][0] &&
+        (containers.length === 0 || /^ {0,3}$/.test(inner[1]))
+      ) {
         if (tilde) {
           // CommonMark tilde fences do not nest; only a bare run at least
           // as long as the opener closes the block.
