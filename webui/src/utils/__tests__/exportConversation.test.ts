@@ -800,6 +800,25 @@ describe('formatConversationAsMarkdown - review boundary regressions', () => {
     );
   });
 
+  it.each([true, false])(
+    'removes complete tool JSON containing thinking tags with includeThinking=%s',
+    (includeThinking) => {
+      const content = '@save: {"content":"<think>DROP_PAYLOAD</think>"}\nDone.';
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking,
+        includeTools: false,
+      });
+      expect(result).toBe('# Chat\n\n## Assistant\n\n\nDone.\n');
+    }
+  );
+
+  it('preserves JSON argument text when only thinking is excluded', () => {
+    const call = '@save: {"content":"<think>KEEP_PAYLOAD</think>"}';
+    expect(stripThinkingBlocks(`${call}\n<think>DROP_REASONING</think>\nDone.`)).toBe(
+      `${call}\nDone.`
+    );
+  });
+
   it('does not pair an unfinished reasoning fence with an unlabelled answer fence', () => {
     const content = '<think>\n```python\nx = 1\n</think>\nAnswer:\n```\n42\n```';
     expect(stripThinkingBlocks(content)).toBe('Answer:\n```\n42\n```');

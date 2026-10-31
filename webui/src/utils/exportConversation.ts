@@ -45,6 +45,7 @@ interface FenceRange extends CharRange {
 const FENCE_LINE_RE = /^(\s*)(`{3,})(.*)$/;
 const THINK_OPEN_RE = /^<think(?:ing)?(?: redacted)?>/;
 const THINK_CLOSE_RE = /^<\/think(?:ing)?(?: redacted)?>/;
+const TOOL_CALL_PREFIX_RE = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
 
 function splitLines(content: string): { lines: string[]; starts: number[] } {
   const lines = content.split('\n');
@@ -210,6 +211,18 @@ function getThinkingRanges(content: string, fenceRanges: FenceRange[]): CharRang
       i = end ?? skipBacktickRun(content, i);
       continue;
     }
+    // JSON argument strings are tool data, not prose reasoning wrappers.
+    // Consume the whole call before inspecting tags inside its arguments.
+    if (i === 0 || content[i - 1] === '\n') {
+      const prefix = content.slice(i).match(TOOL_CALL_PREFIX_RE);
+      if (prefix) {
+        const end = findJsonObjectEnd(content, i + prefix[0].length);
+        if (end !== null) {
+          i = end;
+          continue;
+        }
+      }
+    }
     const open = matchAt(content, i, THINK_OPEN_RE);
     if (!open) {
       i++;
@@ -356,7 +369,7 @@ function stripFencedToolBlocks(content: string): string {
  */
 function stripAtFormatToolCalls(content: string): string {
   const fences = getTopLevelFenceRanges(content);
-  const callPrefix = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
+
   const toRemove: CharRange[] = [];
   let i = 0;
   while (i < content.length) {
@@ -367,7 +380,7 @@ function stripAtFormatToolCalls(content: string): string {
     }
     const atLineStart = i === 0 || content[i - 1] === '\n';
     if (atLineStart) {
-      const match = content.slice(i).match(callPrefix);
+      const match = content.slice(i).match(TOOL_CALL_PREFIX_RE);
       if (match && content[i + match[0].length] === '{') {
         const jsonEnd = findJsonObjectEnd(content, i + match[0].length);
         if (jsonEnd !== null) {
