@@ -42,7 +42,7 @@ interface FenceRange extends CharRange {
 
 // gptme convention (see processNestedCodeBlocks): ```lang is always an opener,
 // a bare ``` is always a closer. Nested fences are part of the outer block.
-const FENCE_LINE_RE = /^(\s*)(`{3,})(.*)$/;
+const FENCE_LINE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 const THINK_OPEN_RE = /^<think(?:ing)?(?: redacted)?>/;
 const THINK_CLOSE_RE = /^<\/think(?:ing)?(?: redacted)?>/;
 const TOOL_CALL_PREFIX_RE = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
@@ -77,14 +77,25 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
     }
     const start = starts[i];
     const rawTag = match[3].trim();
-    const tag = rawTag.split(/\s+/)[0]?.toLowerCase() ?? '';
+    // Tilde fences are Markdown examples, not gptme tool delimiters.
+    const tilde = match[2][0] === '~';
+    const tag = tilde ? '' : (rawTag.split(/\s+/)[0]?.toLowerCase() ?? '');
     let depth = 1;
     i++;
     let closed = false;
     while (i < lines.length) {
       const inner = lines[i].match(FENCE_LINE_RE);
-      if (inner) {
-        if (inner[3].trim()) {
+      if (inner && inner[2][0] === match[2][0]) {
+        if (tilde) {
+          // CommonMark tilde fences do not nest; only a bare run at least
+          // as long as the opener closes the block.
+          if (!inner[3].trim() && inner[2].length >= match[2].length) {
+            ranges.push({ start, end: lineEnd(lines, starts, i), tag });
+            i++;
+            closed = true;
+            break;
+          }
+        } else if (inner[3].trim()) {
           depth++;
         } else {
           depth--;
@@ -344,21 +355,9 @@ function isToolBlockTag(tag: string): boolean {
 }
 
 /**
- * Strip fenced tool-invocation codeblocks (```shell, ```save path, ```server.tool, etc.)
- * from assistant message content. Nested fences inside a non-tool example (```xml,
- * ```text, ```markdown, …) are kept. Interrupted/unclosed top-level tool fences
- * are stripped through the end of the message.
- */
-function stripFencedToolBlocks(content: string): string {
-  const toolFences = getTopLevelFenceRanges(content).filter(
-    (fence) => fence.tag && isToolBlockTag(fence.tag)
-  );
-  return removeCharRanges(content, toolFences);
-}
-
-/**
- * Strip `@tool(id): {...}` / `@tool: {...}` invocation lines (the non-markdown
- * "tool" format, and the live-streaming shape) from assistant message content.
+ * Strip top-level tool fences and `@tool(id): {...}` / `@tool: {...}` calls
+ * from assistant message content, using original offsets for both forms.
+ * Nested tool fences inside examples are kept; unclosed tool fences are removed.
  * Scans braces rather than regex-matching JSON so pretty-printed or compact
  * argument objects are both handled correctly.
  *
@@ -375,6 +374,7 @@ function stripAtFormatToolCalls(content: string): string {
   while (i < content.length) {
     const fence = rangeContains(fences, i);
     if (fence) {
+      if (fence.tag && isToolBlockTag(fence.tag)) toRemove.push(fence);
       i = fence.end;
       continue;
     }
@@ -411,7 +411,7 @@ function stripAtFormatToolCalls(content: string): string {
  * `role: 'tool'` result messages, which getExportableMessages handles.
  */
 function stripToolInvocations(content: string): string {
-  const stripSection = (section: string) => stripAtFormatToolCalls(stripFencedToolBlocks(section));
+  const stripSection = stripAtFormatToolCalls;
   const thinking = getThinkingRanges(content, getTopLevelFenceRanges(content));
   let result = '';
   let cursor = 0;

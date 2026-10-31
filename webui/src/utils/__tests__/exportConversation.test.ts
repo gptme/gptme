@@ -769,6 +769,50 @@ describe('getExportableMessages - includeTools option', () => {
 });
 
 describe('formatConversationAsMarkdown - review boundary regressions', () => {
+  it.each([false, true])(
+    'does not manufacture inline spans across removed tool fences (thinking: %s)',
+    (includeThinking) => {
+      const content = 'See `this\n```shell\nls\n```\n@save: {"content":"Use `x` now."}\nDone.';
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking,
+        includeTools: false,
+      });
+      expect(result).toContain('See `this');
+      expect(result).toContain('Done.');
+      expect(result).not.toContain('@save');
+      expect(result).not.toContain('Use `x` now.');
+      expect(result).not.toContain('```shell');
+    }
+  );
+
+  it.each([
+    '~~~xml\n<think>KEEP_LITERAL</think>\n~~~',
+    '~~~text\n@save: {"content":"KEEP_LITERAL"}\n~~~',
+    '~~~shell\nKEEP_LITERAL\n~~~',
+    '~~~~markdown\n~~~\n```save example.md\nKEEP_LITERAL\n```\n~~~~',
+    '~~~text\nKEEP_LITERAL\n```\n<think>also literal</think>',
+  ])('keeps tilde-fenced examples byte-for-byte: %s', (example) => {
+    const result = formatConversationAsMarkdown(
+      'Chat',
+      [{ role: 'assistant', content: `${example}\n\nDone.` }],
+      { includeThinking: false, includeTools: false }
+    );
+    expect(result).toContain(`${example}\n\nDone.`);
+  });
+
+  it('resumes filtering after a tilde fence closes with a longer run', () => {
+    const example = '~~~text\n<think>KEEP_LITERAL</think>\n~~~~';
+    const content = `${example}\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain(example);
+    expect(result).toContain('Done.');
+    expect(result).not.toContain('DROP_REASONING');
+    expect(result).not.toContain('DROP_TOOL');
+  });
+
   it.each(['think', 'thinking', 'think redacted'])(
     'ends real %s at its closing tag despite an unfinished reasoning fence',
     (tag) => {
