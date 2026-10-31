@@ -260,6 +260,8 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       '![image](https://example.com/`)',
       '[link](https://example.com/path "title with `")',
       '[link](<https://example.com/`>)',
+      '<https://example.com/`>',
+      '<user`@example.com>',
       '[label `literal <think>example</think>`](https://example.com/`)',
     ])('does not open code spans in link metadata: %s', async (link) => {
       const source = `${link} ${thinking} Here is \`code\`.`;
@@ -267,6 +269,11 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       expect(result).toContain(link);
       expect(result).toContain('Here is `code`.');
       expect(result.includes('private reasoning')).toBe(options.includeThinking);
+    });
+
+    it('preserves literal reasoning after an escaped autolink opener', async () => {
+      const source = '\\<user`@example.com> <think>literal reasoning</think> `.';
+      expect(await consume(consumer, source, options)).toBe(documentFor(source));
     });
 
     it('still filters actual thinking in link labels', async () => {

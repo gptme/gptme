@@ -237,7 +237,7 @@ function filterAssistantContent(
       }
     }
     // Markdown escapes consume the following punctuation before inline parsing.
-    if (content[i] === '\\' && /[\\`[\]!]/.test(content[i + 1] ?? '')) {
+    if (content[i] === '\\' && /[\\`[\]!<]/.test(content[i + 1] ?? '')) {
       out.push(content.slice(i, i + 2));
       i += 2;
       continue;
@@ -256,6 +256,17 @@ function filterAssistantContent(
         linkMetadata.set(end, i + link.raw.length);
         out.push(prefix);
         i += prefix.length;
+        continue;
+      }
+    }
+    // Autolink text is consumed as a URL/email, not parsed for code spans.
+    // A backtick in it cannot make subsequent reasoning into literal code.
+    if (content[i] === '<') {
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
+      const autolink = tokenizer.autolink(content.slice(i, Math.min(paragraphEnd, labelEnd)));
+      if (autolink) {
+        out.push(autolink.raw);
+        i += autolink.raw.length;
         continue;
       }
     }
