@@ -139,6 +139,7 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         report_type: test_results
+        files: junit.xml,junit-perf.xml
 
   # Minimal install test: no extras, tests the most common user installation config
   test-minimal:

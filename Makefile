@@ -73,7 +73,7 @@ test: ## Run fast tests
 test-perf: ## Run performance tests without xdist worker contention
 	uv run pytest tests -v --log-level INFO --durations=5 --no-cov -n 0 \
 		-m "perf$(if $(SLOW),, and not slow)" \
-		--timeout 60 --retries 2 --retry-delay 5
+		--timeout 60 --retries 2 --retry-delay 5 --junitxml=junit-perf.xml
 
 test-api: ## Run only API-dependent tests (requires_api marker)
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
