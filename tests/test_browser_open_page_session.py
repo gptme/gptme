@@ -62,9 +62,11 @@ def _isolated_browser_env(monkeypatch):
         "GPTME_BROWSER_EXECUTABLE_PATH",
         "GPTME_BROWSER_CDP_URL",
         "GPTME_BROWSER_STORAGE_STATE",
+        "GPTME_BROWSER_ENGINE",
         "BROWSER_EXECUTABLE_PATH",
         "BROWSER_CDP_URL",
         "BROWSER_STORAGE_STATE",
+        "BROWSER_ENGINE",
     ):
         monkeypatch.delenv(key, raising=False)
     from gptme.tools._browser_playwright import _restart_browser
