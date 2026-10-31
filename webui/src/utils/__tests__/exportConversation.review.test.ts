@@ -209,5 +209,33 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
         expect(await consume(consumer, prefix + fence, options)).toBe(documentFor(expected));
       }
     );
+
+    it.each([
+      { label: 'LF blank lines', newline: '\n' },
+      { label: 'CRLF blank lines', newline: '\r\n' },
+    ])(
+      'does not treat unmatched backticks across $label as a code span covering later payloads',
+      async ({ newline }) => {
+        const source =
+          `An unmatched \` tick.${newline}${newline}` +
+          `${thinking}${newline}${newline}` +
+          `${toolCall}${newline}${newline}` +
+          'Here is `code`.';
+        const result = await consume(consumer, source, options);
+        expect(result).toContain('An unmatched ` tick.');
+        expect(result).toContain('Here is `code`.');
+        expect(result.includes('private reasoning')).toBe(options.includeThinking);
+        expect(result.includes('private tool payload')).toBe(options.includeTools);
+      }
+    );
+
+    it('still treats a CommonMark multiline code span without a blank line as opaque', async () => {
+      const literal = '`span\n<think>literal reasoning</think>\nspan`';
+      const source = `${literal}\n${thinking}\n${toolCall}\nPublic answer.`;
+      const result = await consume(consumer, source, options);
+      expect(result).toContain(literal);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      expect(result.includes('private tool payload')).toBe(options.includeTools);
+    });
   });
 });

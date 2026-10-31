@@ -69,6 +69,13 @@ function isToolBlockTag(tag: string): boolean {
   return TOOL_BLOCK_TYPES.has(tag) || MCP_BLOCK_TYPE_RE.test(tag);
 }
 
+/** CommonMark code spans cannot contain a blank line. marked's matcher can. */
+function paragraphWindow(content: string, start: number): string {
+  const remaining = content.slice(start);
+  const blank = remaining.search(/\r?\n[ \t]*\r?\n/);
+  return blank === -1 ? remaining : remaining.slice(0, blank);
+}
+
 /** End of a native JSON-object invocation, including interrupted arguments. */
 function nativeCallEnd(content: string, start: number): number {
   let depth = 0;
@@ -129,7 +136,7 @@ function filterAssistantContent(
       continue;
     }
     if (content[i] === '`') {
-      const code = tokenizer.codespan(content.slice(i));
+      const code = tokenizer.codespan(paragraphWindow(content, i));
       if (code) {
         out.push(code.raw);
         i += code.raw.length;
