@@ -412,7 +412,7 @@ class _OutputConfig(TypedDict):
 
 
 class _OutputConfigKwargs(TypedDict, total=False):
-    output_config: _OutputConfig
+    output_config: "anthropic.types.OutputConfigParam"
 
 
 def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
@@ -424,6 +424,11 @@ def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
         return {}
 
     return {"output_config": {"effort": effort_level}}
+
+
+class _ChatOptionalParams(TypedDict, total=False):
+    tools: list["anthropic.types.ToolParam"]
+    thinking: "anthropic.types.ThinkingConfigParam"
 
 
 def _matches_model(model: str, models: frozenset[str]) -> bool:
@@ -453,7 +458,7 @@ def _requires_adaptive_thinking(model: str) -> bool:
 
 def _build_thinking_param(
     model: str, use_thinking: bool, thinking_budget: int
-) -> dict[str, object] | None:
+) -> "anthropic.types.ThinkingConfigParam | None":
     """Build the ``thinking`` kwarg for Anthropic's messages API.
 
     Returns ``None`` when legacy thinking is disabled so callers can substitute
@@ -911,8 +916,6 @@ def chat(
     top_p: float | None = None,
     via_gptme: bool = False,
 ) -> tuple[str, MessageMetadata | None]:
-    from anthropic import NOT_GIVEN  # fmt: skip
-
     if temperature is not None or top_p is not None:
         logger.warning(
             "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
@@ -983,19 +986,24 @@ def chat(
     else:
         _call_timeout = _chat_timeout()
 
+    send_client: Anthropic
     with bounded_client(client, "anthropic") as send_client:
         reserve_request(
             send_client,
             "anthropic",
             {"messages": messages_dicts, "system": system_messages},
         )
+        optional_params: _ChatOptionalParams = {}
+        if tools_dict:
+            optional_params["tools"] = tools_dict
+        if thinking_param is not None:
+            optional_params["thinking"] = thinking_param
         response: anthropic.types.Message = send_client.messages.create(
             model=api_model,
             messages=messages_dicts,
             system=system_messages,
             max_tokens=max_tokens,
-            tools=tools_dict or NOT_GIVEN,
-            thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
+            **optional_params,
             **output_config_kwargs,
             **_compaction_betas_kwargs(messages),
             **_fast_mode_kwargs(),

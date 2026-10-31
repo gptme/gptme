@@ -961,6 +961,45 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     assert text == "Hello"
 
 
+def test_chat_omits_unset_optional_sdk_parameters(monkeypatch):
+    """Unset tools and disabled reasoning stay absent from the SDK payload."""
+    payloads = []
+
+    def serve(request):
+        payloads.append(json.loads(request.content))
+        return httpx2.Response(
+            200,
+            json={
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-4-7",
+                "content": [{"type": "text", "text": "Hello"}],
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        )
+
+    monkeypatch.setenv("GPTME_REASONING", "0")
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
+    monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        answer, _ = llm_anthropic.chat(
+            [Message("system", "Be helpful."), Message("user", "Hello")],
+            "claude-opus-4-7",
+            tools=None,
+        )
+
+    assert answer == "Hello"
+    assert "tools" not in payloads[0]
+    assert "thinking" not in payloads[0]
+    assert "output_config" not in payloads[0]
+
+
 def test_opus_47_returns_adaptive():
     # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
     assert _build_thinking_param(
