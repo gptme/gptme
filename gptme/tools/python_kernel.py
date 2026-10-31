@@ -783,7 +783,9 @@ class KernelBackend:
 
     def _exec_silent(self, code: str, timeout: float = 10) -> None:
         """Execute code silently (no output capture, for setup)."""
-        msg_id = self._kc.execute(code, silent=True, store_history=False)
+        msg_id = self._kc.execute(
+            code, silent=True, store_history=False, allow_stdin=False
+        )
         deadline = _monotonic() + timeout
         while True:
             remaining = deadline - _monotonic()
@@ -829,7 +831,11 @@ class KernelBackend:
         error: dict | None = None
 
         self._bridge.cell_context = copy_context()
-        msg_id = self._kc.execute(code, silent=False, store_history=True)
+        # No frontend services stdin requests; fail in the kernel instead of
+        # waiting for an answer until the execution timeout (possibly disabled).
+        msg_id = self._kc.execute(
+            code, silent=False, store_history=True, allow_stdin=False
+        )
         self._bridge.active_cell = msg_id
         deadline = _monotonic() + timeout if timeout is not None else None
 
