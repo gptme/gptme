@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -271,6 +272,49 @@ class TestPDFToImageConverter:
         assert result.success
         assert result.converter_used == "pdftoppm"
 
+    @pytest.mark.parametrize(
+        ("quality", "dpi"), [("low", 72), ("medium", 150), ("high", 300)]
+    )
+    @pytest.mark.parametrize("extension", ["png", "jpg", "jpeg"])
+    def test_bounds_poppler_to_first_page(
+        self,
+        avail_all: ToolAvailability,
+        tmp_path: Path,
+        quality: str,
+        dpi: int,
+        extension: str,
+    ) -> None:
+        src = tmp_path / "input [12] pages.pdf"
+        original = b"%PDF-1.4"
+        src.write_bytes(original)
+        dest = tmp_path / f"output [first].{extension}"
+
+        def fake_run(cmd, **kwargs):
+            assert cmd[0] == "pdftoppm"  # No metadata renderer/tool is required.
+            assert "-f" in cmd and "-l" in cmd
+            assert cmd[cmd.index("-f") + 1] == "1"
+            assert cmd[cmd.index("-l") + 1] == "1"
+            assert cmd[cmd.index("-r") + 1] == str(dpi)
+            assert cmd[1] == ("-png" if extension == "png" else "-jpeg")
+            assert cmd[-2] == str(src)
+            prefix = Path(cmd[-1])
+            output_ext = "png" if extension == "png" else "jpg"
+            Path(f"{prefix}-01.{output_ext}").write_bytes(b"first page")
+            return MagicMock(returncode=0, stderr=b"")
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("subprocess.run", side_effect=fake_run) as run,
+        ):
+            result = self.conv.convert(src, dest, quality=quality)
+        assert result.success
+        assert result.output_path == dest
+        assert dest.read_bytes() == b"first page"
+        assert src.read_bytes() == original
+        assert result.lossy == (extension != "png")
+        assert result.warnings == ["PDF-to-image conversion saves only the first page"]
+        run.assert_called_once()
+
     def test_falls_back_to_imagemagick_on_pdftoppm_failure(self, avail_all, tmp_path):
         src = tmp_path / "doc.pdf"
         src.write_bytes(b"%PDF-1.4")
@@ -295,6 +339,44 @@ class TestPDFToImageConverter:
         assert result.success
         assert result.converter_used == "imagemagick"
         assert call_count["n"] == 2
+        assert result.warnings == [
+            "pdftoppm failed; falling back to ImageMagick",
+            "PDF-to-image conversion saves only the first page",
+        ]
+
+    @pytest.mark.parametrize("poppler", [False, True])
+    def test_missing_poppler_output_falls_back(
+        self, avail_all: ToolAvailability, tmp_path: Path, poppler: bool
+    ) -> None:
+        """A successful exit without an image must not publish a false success."""
+        src = tmp_path / "doc.pdf"
+        src.write_bytes(b"%PDF-1.4")
+        dest = tmp_path / "out.jpeg"
+        avail_all.pdftoppm = poppler
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            commands.append(cmd)
+            if cmd[0] == "convert":
+                assert cmd[-2] == f"{src}[0]"
+                dest.write_bytes(b"first page jpeg")
+            return MagicMock(returncode=0, stderr=b"")
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = self.conv.convert(src, dest)
+        assert result.success
+        assert result.converter_used == "imagemagick"
+        assert result.lossy
+        assert dest.read_bytes() == b"first page jpeg"
+        assert [cmd[0] for cmd in commands] == (
+            ["pdftoppm", "convert"] if poppler else ["convert"]
+        )
+        assert (
+            result.warnings[-1] == "PDF-to-image conversion saves only the first page"
+        )
 
     def test_rejects_existing_directory_as_dest(self, avail_all, tmp_path):
         """shutil.move silently moves the file INTO a directory; guard must catch this."""
@@ -591,6 +673,7 @@ def test_convert_file_dry_run(avail_all, tmp_path):
         patch("gptme.tools.convert._detect_mime", return_value="application/pdf"),
     ):
         result = convert_file(src, dest, dry_run=True)
+    assert src.read_bytes() == b"%PDF-1.4"
     assert result.success
     assert result.metadata.get("dry_run") is True
     assert not dest.exists()  # dry_run should NOT create the file
