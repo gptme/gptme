@@ -1,4 +1,6 @@
 import { toast } from 'sonner';
+import { Lexer, Tokenizer } from 'marked';
+import { scanMarkdownFences } from './markdownFences';
 import type { Message } from '@/types/conversation';
 import { isTauriEnvironment } from '@/utils/tauri';
 
@@ -20,19 +22,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * Strip thinking/reasoning blocks from assistant message content.
- * Handles <thinking>/<think> tags as well as the `<think redacted>` variant
- * gptme emits for Anthropic's RedactedThinkingBlock (see llm_anthropic.py).
- * Also strips a trailing *unclosed* thinking tag: if generation is
- * interrupted mid-thinking, gptme never streams the closing `</think>`, so
- * the reasoning would otherwise leak into the exported "response" content.
- */
+/** Strip reasoning using the same literal-code boundaries as filtered exports. */
 export function stripThinkingBlocks(content: string): string {
-  return content
-    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*?<\/think(?:ing)?(?: redacted)?>\n?/g, '')
-    .replace(/<think(?:ing)?(?: redacted)?>[\s\S]*$/, '')
-    .trim();
+  return filterAssistantContent(content, false, true).trim();
 }
 
 // Built-in gptme tool block types (markdown codeblock langtags that represent
@@ -63,6 +55,9 @@ const TOOL_BLOCK_TYPES = new Set([
   'tmux',
   'read',
   'restart',
+  'memory',
+  'watch',
+  'request_tool_change',
 ]);
 
 // MCP server tools register block types dynamically as `{server}.{tool}`
@@ -74,93 +69,307 @@ function isToolBlockTag(tag: string): boolean {
   return TOOL_BLOCK_TYPES.has(tag) || MCP_BLOCK_TYPE_RE.test(tag);
 }
 
-/**
- * Strip fenced tool-invocation codeblocks (```shell, ```save path, ```server.tool, etc.)
- * from assistant message content.
- */
-function stripFencedToolBlocks(content: string): string {
-  return content.replace(/```([^\n`]*)\n[\s\S]*?```/g, (block, langLine: string) => {
-    const tag = langLine.trim().split(/\s+/)[0]?.toLowerCase();
-    return tag && isToolBlockTag(tag) ? '' : block;
-  });
+interface QuoteView {
+  text: string;
+  offsets: { logical: number; source: number }[];
+  line: number;
+}
+
+/** Bound inline parsing by Markdown blocks, not just the next closing backtick. */
+function inlineParagraphEnd(
+  tokenizer: Tokenizer,
+  content: string,
+  start: number,
+  quoteViews = new Map<string, QuoteView>()
+): number {
+  // ATX headings end at their own newline even when the first backtick is
+  // mid-heading. Starting paragraph grammar at that tick loses the prefix.
+  const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+  const quotePrefix = content.slice(lineStart, start).match(/^(?: {0,3}>[ \t]?)+/)?.[0];
+  if (quotePrefix) {
+    const newline = content.indexOf('\n', start);
+    const lineEnd = newline === -1 ? content.length : newline;
+    if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(content.slice(lineStart + quotePrefix.length, lineEnd))) {
+      return lineEnd;
+    }
+    // Markdown parses inline spans in the quote's text, not its `>` markers.
+    // Strip only the enclosing depth; a deeper quote still interrupts the
+    // paragraph. Map the logical boundary back to the untouched source bytes.
+    const depth = quotePrefix.split('>').length - 1;
+    const key = `${depth}:${lineStart}`;
+    let view = quoteViews.get(key);
+    if (!view) {
+      const prefixes = new RegExp(`^(?: {0,3}>[ \\t]?){1,${depth}}`);
+      const offsets: QuoteView['offsets'] = [];
+      const sourceLines: number[] = [];
+      const lines: string[] = [];
+      let logical = 0;
+      let source = lineStart;
+      while (source < content.length) {
+        const next = content.indexOf('\n', source);
+        const end = next === -1 ? content.length : next + 1;
+        const line = content.slice(source, end);
+        const prefix = line.match(prefixes)?.[0] ?? '';
+        // Missing quote markers can be lazy continuation of the same paragraph.
+        const text = line.slice(prefix.length);
+        if (source > lineStart && /^[ \t]*\r?\n$/.test(text)) break;
+        sourceLines.push(source);
+        offsets.push({ logical, source: source + prefix.length });
+        lines.push(text);
+        logical += text.length;
+        source = end;
+      }
+      const text = lines.join('');
+      // Reuse this logical view across all blocks at the same quote depth.
+      // Headings/lists end paragraphs, but must not cause suffix unwrapping
+      // and allocation again for every following paragraph in the quote.
+      sourceLines.forEach((sourceLine, line) => {
+        quoteViews.set(`${depth}:${sourceLine}`, { text, offsets, line });
+      });
+      view = quoteViews.get(key)!;
+    }
+    let offset = view.offsets[view.line];
+    const boundary = inlineParagraphEnd(
+      tokenizer,
+      view.text,
+      offset.logical + start - offset.source
+    );
+    for (let line = view.line + 1; line < view.offsets.length; line++) {
+      const entry = view.offsets[line];
+      if (entry.logical > boundary) break;
+      offset = entry;
+    }
+    return offset.source + boundary - offset.logical;
+  }
+  const newline = content.indexOf('\n', start);
+  const lineEnd = newline === -1 ? content.length : newline;
+  if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(content.slice(lineStart, lineEnd))) return lineEnd;
+  const remaining = content.slice(start);
+  // Use marked's paragraph grammar without tokenizing/rendering its contents.
+  const paragraph = tokenizer.rules.block.paragraph.exec(remaining)?.[0] ?? remaining;
+  // Setext headings may contain multiple inline lines, but their underline
+  // separates them from the body even without a blank line. Limit this check
+  // to the paragraph window rather than rescanning all subsequent paragraphs.
+  const headingSource = content.slice(lineStart, start) + paragraph;
+  const heading = tokenizer.rules.block.lheading.exec(headingSource.replace(/\r\n/g, '\n'));
+  if (heading) {
+    let end = 0;
+    let normalized = 0;
+    while (normalized < heading[1].length) {
+      if (headingSource[end] === '\r' && headingSource[end + 1] === '\n') end++;
+      end++;
+      normalized++;
+    }
+    if (start < lineStart + end) return lineStart + end;
+  }
+  // marked expects normalized LF input; exports preserve CRLF. Transcript
+  // fences also accept tabs/arbitrary indentation, unlike CommonMark fences.
+  const boundary = paragraph.search(
+    /\r?\n(?:[ \t]*\r?\n|[ \t]*(?:`{3,}[^`\r\n]*|~{3,}[^\r\n]*)(?:\r?\n|$))/
+  );
+  return start + (boundary === -1 ? paragraph.length : boundary);
 }
 
 /**
- * Strip `@tool(id): {...}` / `@tool: {...}` invocation lines (the non-markdown
- * "tool" format, and the live-streaming shape) from assistant message content.
- * Scans braces rather than regex-matching JSON so pretty-printed or compact
- * argument objects are both handled correctly.
+ * End of a Markdown reference definition starting at a line boundary, or null.
+ * Destinations and titles are link metadata: a backtick there cannot open a
+ * later code span. marked's def grammar is LF-anchored, so CRLF is mapped back.
  */
-function stripAtFormatToolCalls(content: string): string {
-  const lines = content.split('\n');
-  const callPrefix = /^@[\w.-]+(?:\([^)\n]*\))?:\s*/;
+function referenceDefinitionEnd(
+  tokenizer: Tokenizer,
+  content: string,
+  start: number
+): number | null {
+  let indent = start;
+  while (indent < start + 3 && content[indent] === ' ') indent++;
+  if (content[indent] !== '[') return null;
+
+  let windowEnd = start;
+  for (let lines = 0; lines < 4 && windowEnd < content.length; lines++) {
+    const newline = content.indexOf('\n', windowEnd);
+    windowEnd = newline === -1 ? content.length : newline + 1;
+  }
+  const window = content.slice(start, windowEnd);
+  const normalized = window.includes('\r') ? window.replace(/\r\n/g, '\n') : window;
+  const def = tokenizer.def(normalized);
+  if (!def) return null;
+  if (normalized === window) return start + def.raw.length;
+  let source = 0;
+  let logical = 0;
+  while (logical < def.raw.length && source < window.length) {
+    if (window[source] === '\r' && window[source + 1] === '\n') source++;
+    source++;
+    logical++;
+  }
+  return start + source;
+}
+
+/** End of a native JSON-object invocation, including interrupted arguments. */
+function nativeCallEnd(content: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  for (let i = start; i < content.length; i++) {
+    const ch = content[i];
+    if (escapeNext) {
+      escapeNext = false;
+    } else if (ch === '\\' && inString) {
+      escapeNext = true;
+    } else if (ch === '"') {
+      inString = !inString;
+    } else if (!inString) {
+      if (ch === '{') depth++;
+      if (ch === '}' && --depth === 0) return i + 1;
+    }
+  }
+  return content.length;
+}
+
+/**
+ * Classify original source once: retained payloads are opaque too, so disabling
+ * one category cannot expose syntax in another. Literal fences/code spans keep
+ * their exact bytes. Top-level tool-tag fences and @name: JSON objects count as
+ * invocations even when nearby prose calls them examples; unfinished blocks
+ * extend to EOF. This is transcript filtering, not intent inference/redaction.
+ */
+function filterAssistantContent(
+  content: string,
+  includeThinking: boolean,
+  includeTools: boolean
+): string {
+  if (includeThinking && includeTools) return content;
+
+  const tokenizer = new Tokenizer();
+  // Lexer installs marked's inline-code rules on the tokenizer (including
+  // variable-length and multiline code spans), without rendering/normalizing.
+  new Lexer({ tokenizer });
   const out: string[] = [];
   let i = 0;
-  while (i < lines.length) {
-    const match = lines[i].match(callPrefix);
-    if (!match) {
-      out.push(lines[i]);
-      i++;
+  let paragraphEnd = 0;
+  const quoteViews = new Map<string, QuoteView>();
+  const linkMetadata = new Map<number, number>();
+  const labelEnds: number[] = [];
+  while (i < content.length) {
+    while (labelEnds.length && i > labelEnds[labelEnds.length - 1]) labelEnds.pop();
+    const labelEnd = labelEnds[labelEnds.length - 1] ?? content.length;
+    const metadataEnd = linkMetadata.get(i);
+    if (metadataEnd !== undefined) {
+      out.push(content.slice(i, metadataEnd));
+      i = metadataEnd;
+      while (labelEnds.length && i >= labelEnds[labelEnds.length - 1]) labelEnds.pop();
       continue;
     }
-    const rest = lines[i].slice(match[0].length);
-    if (!rest.startsWith('{')) {
-      // Not a JSON tool call — preserve the line as-is.
-      out.push(lines[i]);
-      i++;
-      continue;
-    }
-    let depth = 0;
-    let sawOpen = false;
-    let inString = false;
-    let escapeNext = false;
-    let j = i;
-    let trailingText = '';
-    outer: for (; j < lines.length; j++) {
-      const scanLine = j === i ? rest : lines[j];
-      for (let k = 0; k < scanLine.length; k++) {
-        const ch = scanLine[k];
-        if (escapeNext) {
-          escapeNext = false;
-          continue;
-        }
-        if (ch === '\\' && inString) {
-          escapeNext = true;
-          continue;
-        }
-        if (ch === '"') {
-          inString = !inString;
-          continue;
-        }
-        if (inString) continue;
-        if (ch === '{') {
-          depth++;
-          sawOpen = true;
-        } else if (ch === '}') {
-          depth--;
-        }
-        if (sawOpen && depth <= 0) {
-          trailingText = scanLine.slice(k + 1).trim();
-          j++;
-          break outer;
-        }
+    // Discover fences only after skipping opaque thinking/native payloads: a
+    // fence inside retained JSON/reasoning must not capture later answer text.
+    if (i === 0 || content[i - 1] === '\n') {
+      const opener = content.slice(i).match(/^((?: {0,3}>[ \t]?)*)([ \t]*)(`{3,}|~{3,})/);
+      const quoteDepth = opener ? opener[1].split('>').length - 1 : 0;
+      const fence = opener && scanMarkdownFences(content, true, i, quoteDepth)[0];
+      if (fence) {
+        const tag = fence.tag.split(/\s+/)[0].toLowerCase();
+        // Only top-level tool-tag fences are invocations; quoted fences are examples.
+        if (quoteDepth || includeTools || !isToolBlockTag(tag))
+          out.push(content.slice(i, fence.end));
+        i = fence.end;
+        continue;
+      }
+      // Reference definitions are block metadata, not inline-code source.
+      const definitionEnd = referenceDefinitionEnd(tokenizer, content, i);
+      if (definitionEnd !== null) {
+        out.push(content.slice(i, definitionEnd));
+        i = definitionEnd;
+        continue;
       }
     }
-    if (trailingText) {
-      out.push(trailingText);
+    // Markdown escapes consume the following punctuation before inline parsing.
+    if (content[i] === '\\' && /[\\`[\]!<]/.test(content[i + 1] ?? '')) {
+      out.push(content.slice(i, i + 2));
+      i += 2;
+      continue;
     }
-    i = j;
+    // Link destinations/titles are metadata, not inline-code source. Keep
+    // scanning labels in the original source: reasoning can cross their end.
+    if (content[i] === '[' || (content[i] === '!' && content[i + 1] === '[')) {
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
+      const source = content.slice(i, Math.min(paragraphEnd, labelEnd));
+      const link = tokenizer.link(source);
+      if (link) {
+        const label = tokenizer.rules.inline.link.exec(source)![1];
+        const prefix = content[i] === '!' ? '![' : '[';
+        const end = i + prefix.length + label.length;
+        labelEnds.push(end);
+        linkMetadata.set(end, i + link.raw.length);
+        out.push(prefix);
+        i += prefix.length;
+        continue;
+      }
+    }
+    // Autolink text is consumed as a URL/email, not parsed for code spans.
+    // A backtick in it cannot make subsequent reasoning into literal code.
+    if (content[i] === '<') {
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
+      const autolink = tokenizer.autolink(content.slice(i, Math.min(paragraphEnd, labelEnd)));
+      if (autolink) {
+        out.push(autolink.raw);
+        i += autolink.raw.length;
+        continue;
+      }
+    }
+    if (content[i] === '`') {
+      // Reuse the boundary for all spans in this paragraph rather than
+      // searching the remaining message again for every short inline span.
+      if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
+      const code = tokenizer.codespan(content.slice(i, Math.min(paragraphEnd, labelEnd)));
+      if (code) {
+        out.push(code.raw);
+        i += code.raw.length;
+        continue;
+      }
+      // An unmatched run is prose, not a shorter code-span opener.
+      const run = content.slice(i).match(/^`+/)![0];
+      out.push(run);
+      i += run.length;
+      continue;
+    }
+    const thinking = content[i] === '<' && content.slice(i).match(/^<think(?:ing)?(?: redacted)?>/);
+    if (thinking) {
+      const closing = /<\/think(?:ing)?(?: redacted)?>/g;
+      closing.lastIndex = i + thinking[0].length;
+      const close = closing.exec(content);
+      let end = close ? close.index + close[0].length : content.length;
+      if (!includeThinking && content[end] === '\n') end++;
+      if (includeThinking) out.push(content.slice(i, end));
+      i = end;
+      continue;
+    }
+    // HTML attributes/comments own their backticks, just like link metadata.
+    // Check transcript thinking first: <think> is also a valid HTML tag.
+    if (content[i] === '<') {
+      const tag = tokenizer.tag(content.slice(i, Math.min(paragraphEnd, labelEnd)));
+      if (tag) {
+        out.push(tag.raw);
+        i += tag.raw.length;
+        continue;
+      }
+    }
+    if (i === 0 || content[i - 1] === '\n') {
+      const call = content.slice(i).match(/^@[\w.-]+(?:\([^)\n]*\))?:[^\S\n]*(?=\{)/);
+      if (call) {
+        let end = nativeCallEnd(content, i + call[0].length);
+        if (includeTools) out.push(content.slice(i, end));
+        else {
+          // Keep same-line answer text, but omit the removed call's empty line.
+          while (content[end] === ' ' || content[end] === '\t' || content[end] === '\r') end++;
+          if (content[end] === '\n') end++;
+        }
+        i = end;
+        continue;
+      }
+    }
+    out.push(content[i]);
+    i++;
   }
-  return out.join('\n');
-}
-
-/**
- * Strip tool invocations embedded directly in assistant message content
- * (fenced tool codeblocks and `@tool: {...}` calls). Distinct from filtering
- * `role: 'tool'` result messages, which getExportableMessages handles.
- */
-function stripToolInvocations(content: string): string {
-  return stripAtFormatToolCalls(stripFencedToolBlocks(content));
+  return out.join('');
 }
 
 export function getExportableMessages(
@@ -201,8 +410,7 @@ export function formatConversationAsMarkdown(
     lines.push(header, '');
     let content = msg.content;
     if (msg.role === 'assistant') {
-      if (!includeThinking) content = stripThinkingBlocks(content);
-      if (!includeTools) content = stripToolInvocations(content);
+      content = filterAssistantContent(content, includeThinking, includeTools);
     }
     lines.push(content, '');
   }
