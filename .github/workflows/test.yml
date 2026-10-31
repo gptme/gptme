@@ -112,6 +112,12 @@ jobs:
         MODEL: local/test
       run: make test ${{ github.event_name != 'pull_request' && 'SLOW=true' || '' }}
 
+    - name: Run performance tests serially
+      env:
+        TERM: xterm
+        MODEL: local/test
+      run: make test-perf ${{ github.event_name != 'pull_request' && 'SLOW=true' || '' }}
+
     - name: Upload visual snapshot diffs on failure
       if: failure()
       uses: actions/upload-artifact@v7
@@ -133,6 +139,7 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         report_type: test_results
+        files: junit.xml,junit-perf.xml
 
   # Minimal install test: no extras, tests the most common user installation config
   test-minimal:

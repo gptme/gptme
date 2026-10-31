@@ -60,15 +60,20 @@ validate-release-package: ## Verify built packages contain the modern webui
 # first test ran. `auto` = one worker per CPU. Override: make test PYTEST_WORKERS=16
 PYTEST_WORKERS ?= auto
 
-test: ## Run tests
+# Keep perf tests out of xdist because worker contention distorts timings.
+test: ## Run fast tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		$(if $(NO_COVERAGE),,--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html) --junitxml=junit.xml \
 		-n $(PYTEST_WORKERS) \
-		$(if $(EVAL), , -m "not eval") \
-		$(if $(SLOW), , -m "not slow and not eval") \
+		-m "$(if $(EVAL),not perf,$(if $(SLOW),not eval and not perf,not slow and not eval and not perf))" \
 		--timeout 60 --retries 2 --retry-delay 5 \
 		$(if $(PROFILE), --profile-svg)
+
+test-perf: ## Run performance tests without xdist worker contention
+	uv run pytest tests -v --log-level INFO --durations=5 --no-cov -n 0 \
+		-m "perf$(if $(SLOW),, and not slow)" \
+		--timeout 60 --retries 2 --retry-delay 5 --junitxml=junit-perf.xml
 
 test-api: ## Run only API-dependent tests (requires_api marker)
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
