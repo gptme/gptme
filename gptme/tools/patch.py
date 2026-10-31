@@ -30,7 +30,8 @@ To patch/modify files, we use an adapted version of git conflict markers.
 
 Keep patches small. ORIGINAL must match the file exactly, including ellipsis
 comments (`# ...`): these are literal, not wildcards. Use separate
-ORIGINAL/UPDATED blocks to skip unchanged code.
+ORIGINAL/UPDATED blocks to skip unchanged code. ORIGINAL must have exactly one
+match, including overlapping occurrences; add surrounding context to disambiguate.
 
 ### When to use patch vs save
 
@@ -102,11 +103,12 @@ class Patch:
 
     def apply(self, content: str) -> str:
         # Fast path: try exact match first (backward compatible)
-        if self.original in content:
-            count = content.count(self.original)
-            if count > 1:
+        first_match = content.find(self.original)
+        if first_match != -1:
+            # Start one character later, not after the chunk: matches can overlap.
+            if content.find(self.original, first_match + 1) != -1:
                 raise ValueError(
-                    f"original chunk is not unique ({count} matches found). "
+                    "original chunk is not unique (at least 2 matches found). "
                     "Provide more surrounding context to make the match unique."
                 )
             new_content = content.replace(self.original, self.updated, 1)
