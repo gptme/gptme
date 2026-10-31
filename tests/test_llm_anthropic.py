@@ -20,7 +20,7 @@ from gptme.llm.llm_anthropic import (
     _resolve_effort_level,
     _resolve_thinking_budget,
 )
-from gptme.message import Message
+from gptme.message import Message, MessageMetadata
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import ToolUse, get_tool, init_tools
 
@@ -990,7 +990,7 @@ def test_chat_omits_unset_optional_sdk_parameters(
     with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
         client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
         monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-        response: tuple[str, object] = llm_anthropic.chat(
+        response: tuple[str, MessageMetadata | None] = llm_anthropic.chat(
             [Message("system", "Be helpful."), Message("user", "Hello")],
             "claude-opus-4-7",
             tools=None,
