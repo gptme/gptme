@@ -70,6 +70,9 @@ def _task_from_user_content(content: str) -> str:
     fence: str | None = None
     for line in lines:
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        # Backtick fence info strings cannot contain backticks (unlike tildes).
+        if marker and marker.group(1).startswith("`") and "`" in marker.group(2):
+            marker = None
         unfenced.append(fence is None and marker is None)
         if fence is not None:
             if marker and re.fullmatch(

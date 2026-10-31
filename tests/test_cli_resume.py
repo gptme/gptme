@@ -524,6 +524,23 @@ def test_resume_leading_literal_before_real_heading(
     assert _user_message(session) == task
 
 
+@pytest.mark.parametrize(
+    "span", ["```example```", "````example````", "```example`text"]
+)
+@pytest.mark.parametrize("heading", ["## Mission\n", "**Title**: "])
+def test_resume_heading_after_backtick_span(
+    tmp_path: Path, span: str, heading: str
+) -> None:
+    task = "Fix CSV quoting without changing authentication or unrelated behavior."
+    content = f"{span}\n" + "Setup context. " * 200 + f"\n\n{heading}{task}"
+    session = _make_session(tmp_path, "after-span", task=content)
+    assert _user_message(session) == task
+    runner = CliRunner()
+    result = runner.invoke(resume, ["--session", str(session)])
+    assert result.exit_code == 0, result.output
+    assert f"[ORIGINAL TASK]\n{task}" in result.output
+
+
 @pytest.mark.parametrize("label", ["Mission", "Title", "Objective"])
 def test_resume_next_line_label(tmp_path: Path, label: str) -> None:
     task = "Fix CSV quoting without changing authentication or unrelated behavior."
