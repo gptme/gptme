@@ -14,21 +14,34 @@ export interface MarkdownFence {
  * Shorter fences inside a longer fence are literal, as in Markdown examples.
  * Same-length or longer tagged backtick fences nest; tilde fences use Markdown closing
  * rules. Open fences extend to EOF. Nothing here rewrites the source bytes.
+ * firstOnly requires a fence at startOffset and stops at its outer closer;
+ * offsets are absolute, while line numbers are relative to startOffset.
  */
-export function scanMarkdownFences(content: string, firstOnly = false): MarkdownFence[] {
+export function scanMarkdownFences(
+  content: string,
+  firstOnly = false,
+  startOffset = 0
+): MarkdownFence[] {
   const blocks: MarkdownFence[] = [];
   const stack: MarkdownFence[] = [];
-  let offset = 0;
-  for (const [lineNumber, line] of content.split('\n').entries()) {
+  let offset = startOffset;
+  let lineNumber = 0;
+  while (offset < content.length) {
+    const newline = content.indexOf('\n', offset);
+    const lineEnd = newline === -1 ? content.length : newline;
+    const nextOffset = newline === -1 ? content.length : newline + 1;
+    const line = content.slice(offset, lineEnd);
     const match = line.match(/^[ \t]*(`{3,}|~{3,})([^\r\n]*)\r?$/);
-    if (match) {
+    // Backtick info strings cannot contain backticks. In particular, a
+    // line-start ```inline span``` must reach inline parsing, not hide EOF.
+    if (match && !(match[1][0] === '`' && match[2].includes('`'))) {
       const marker = match[1];
       const tag = match[2].trim();
       const parent = stack.at(-1);
       const sameMarker = parent && marker[0] === parent.marker[0];
       if (parent && sameMarker && !tag && marker.length >= parent.marker.length) {
         parent.closerLine = lineNumber;
-        parent.end = Math.min(content.length, offset + line.length + 1);
+        parent.end = nextOffset;
         stack.pop();
         if (firstOnly && stack.length === 0) break;
       } else if (
@@ -53,7 +66,9 @@ export function scanMarkdownFences(content: string, firstOnly = false): Markdown
         stack.push(block);
       }
     }
-    offset += line.length + 1;
+    if (firstOnly && blocks.length === 0) break;
+    offset = nextOffset;
+    lineNumber++;
   }
   return blocks;
 }

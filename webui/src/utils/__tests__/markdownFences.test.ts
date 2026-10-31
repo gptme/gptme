@@ -57,6 +57,40 @@ describe('shared transcript fence boundaries', () => {
     );
   });
 
+  it('does not mistake a line-start inline span for an unfinished fence', () => {
+    expect(scanMarkdownFences('```literal```\n<think>reasoning</think>')).toEqual([]);
+  });
+
+  it('does not let invalid nested backtick tags capture the outer closer', () => {
+    const content = '```text\n```literal```\n```\nPublic answer.';
+    const [block, ...rest] = scanMarkdownFences(content);
+    expect(rest).toEqual([]);
+    expect(block.closerLine).toBe(2);
+    expect(content.slice(block.end)).toBe('Public answer.');
+  });
+
+  it('scans a first block from a source offset without splitting the remaining text', () => {
+    const prefix = '```text\nprevious block\n```\n';
+    const first = '  ```shell\r\ncommand\r\n  ```\r\n';
+    const content = prefix + first + '```text\nremaining block\n```\n'.repeat(100);
+    const split = jest.spyOn(String.prototype, 'split');
+    let blocks: ReturnType<typeof scanMarkdownFences>;
+    try {
+      blocks = scanMarkdownFences(content, true, prefix.length);
+      expect(split).not.toHaveBeenCalled();
+    } finally {
+      split.mockRestore();
+    }
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].start).toBe(prefix.length);
+    expect(blocks[0].end).toBe(prefix.length + first.length);
+    expect(content.slice(blocks[0].start, blocks[0].end)).toBe(first);
+  });
+
+  it('does not search past an inline span for a later fence in first-block mode', () => {
+    expect(scanMarkdownFences('```literal```\n```shell\ncommand\n```', true)).toEqual([]);
+  });
+
   it('can stop after the first outer block without classifying later content', () => {
     const content = '```text\nliteral\n```\n```shell\ncommand\n```';
     expect(scanMarkdownFences(content, true)).toHaveLength(1);

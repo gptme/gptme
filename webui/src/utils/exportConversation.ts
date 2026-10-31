@@ -114,11 +114,13 @@ function filterAssistantContent(
     // Discover fences only after skipping opaque thinking/native payloads: a
     // fence inside retained JSON/reasoning must not capture later answer text.
     if ((i === 0 || content[i - 1] === '\n') && /^[ \t]*(`{3,}|~{3,})/.test(content.slice(i))) {
-      const fence = scanMarkdownFences(content.slice(i), true)[0];
-      const tag = fence.tag.split(/\s+/)[0].toLowerCase();
-      if (includeTools || !isToolBlockTag(tag)) out.push(content.slice(i, i + fence.end));
-      i += fence.end;
-      continue;
+      const fence = scanMarkdownFences(content, true, i)[0];
+      if (fence) {
+        const tag = fence.tag.split(/\s+/)[0].toLowerCase();
+        if (includeTools || !isToolBlockTag(tag)) out.push(content.slice(i, fence.end));
+        i = fence.end;
+        continue;
+      }
     }
     // Markdown escapes consume the following punctuation before inline parsing.
     if (content[i] === '\\' && /[\\`]/.test(content[i + 1] ?? '')) {
