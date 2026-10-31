@@ -257,15 +257,29 @@ def test_windows_privilege_fallback_still_publishes_config(
     ).read_bytes() == b"new workspace\x00\xfe"
 
 
+@pytest.mark.parametrize("cleanup_probe", [None, "exists", "is_symlink"])
 def test_rollback_failure_is_explicit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    cleanup_probe: str | None,
 ) -> None:
     """A failed restore must not masquerade as an ordinary, preserved save failure."""
     state = _seed(tmp_path, "symlink")
+    original_entry = state.entry.lstat()
     original_replace = Path.replace
     original_rename = Path.rename
     original_symlink = Path.symlink_to
-    restores = []
+    restores: list[Path] = []
+    probes: list[Path] = []
+    original_probe = getattr(Path, cleanup_probe) if cleanup_probe else None
+
+    def fail_cleanup_probe(path: Path) -> bool:
+        if restores and path == restores[-1]:
+            probes.append(path)
+            raise OSError(errno.EIO, "injected recovery inspection failure")
+        assert original_probe is not None
+        return original_probe(path)
 
     def is_old_link(path: Path) -> bool:
         return path.is_symlink() and os.readlink(path) == state.namespace[1]
@@ -297,13 +311,29 @@ def test_rollback_failure_is_explicit(
         patch.setattr(Path, "replace", fail_replace)
         patch.setattr(Path, "rename", fail_rename)
         patch.setattr(Path, "symlink_to", fail_restore_link)
-        with pytest.raises((RuntimeError, OSError)) as caught:
+        if cleanup_probe:
+            patch.setattr(Path, cleanup_probe, fail_cleanup_probe)
+        with pytest.raises(RuntimeError, match="Workspace rollback failed") as caught:
             state.candidate().save()
 
     assert restores, "Exercise a real failed restoration after config publication fails"
     error = caught.value
-    assert isinstance(error, RuntimeError) or error.__cause__ is not None
-    assert re.search(r"(?i)roll.?back|restor", str(error)), str(error)
+    assert isinstance(error.__cause__, OSError)
+    assert "injected workspace restoration failure" in str(error.__cause__)
+    assert "injected config replacement failure" in str(error)
+    recovery = Path(str(error).split("Recovery entry retained at ", 1)[1])
+    assert recovery == restores[-1]
+    assert recovery.is_symlink()
+    assert os.readlink(recovery) == state.namespace[1]
+    recovered_entry = recovery.lstat()
+    assert (recovered_entry.st_dev, recovered_entry.st_ino) == (
+        original_entry.st_dev,
+        original_entry.st_ino,
+    )
+    if cleanup_probe:
+        assert probes == [recovery]
+        assert str(recovery.parent) in caplog.text
+        assert "injected recovery inspection failure" in caplog.text
     # Rollback is explicitly not claimed here. The config must still be old and
     # neither external workspace's valuable data may be lost.
     assert state.config_path.read_bytes() == state.old_bytes
@@ -425,3 +455,52 @@ def test_prepublication_fsync_failure_leaves_no_staged_config(
     assert attempts, "Exercise fsync of the real staged config, not another file"
     _assert_preserved(state)
     assert list(state.logdir.glob("*.toml.tmp")) == []
+
+
+@pytest.mark.parametrize("cleanup_probe", ["exists", "is_symlink"])
+def test_postpublication_staging_probe_failure_does_not_report_failed_save(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    cleanup_probe: str,
+) -> None:
+    state = _seed(tmp_path, "symlink")
+    original_unlink = Path.unlink
+    original_probe = getattr(Path, cleanup_probe)
+    removed = []
+    probes = []
+
+    def record_backup_removal(path: Path, missing_ok: bool = False) -> None:
+        original_unlink(path, missing_ok=missing_ok)
+        if path.name == "previous" and path.parent.parent == state.logdir:
+            removed.append(path)
+
+    def fail_final_probe(path: Path) -> bool:
+        if path in removed:
+            probes.append(path)
+            raise OSError(errno.EIO, "injected staging inspection failure")
+        return original_probe(path)
+
+    candidate = state.candidate()
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", record_backup_removal)
+        patch.setattr(Path, cleanup_probe, fail_final_probe)
+        with caplog.at_level("WARNING", logger="gptme.config.chat"):
+            assert candidate.save() is candidate
+
+    assert len(removed) == 1
+    assert probes == removed
+    assert removed[0].parent.is_dir()
+    assert not removed[0].exists()
+    assert str(removed[0].parent) in caplog.text
+    assert "injected staging inspection failure" in caplog.text
+    loaded = ChatConfig.from_logdir(state.logdir)
+    assert loaded.model == "test/new-model"
+    assert loaded.workspace == state.new_workspace
+    assert state.entry.resolve() == state.new_workspace
+    assert (
+        state.old_workspace / "valuable.bin"
+    ).read_bytes() == b"old workspace\x00\xff"
+    assert (
+        state.new_workspace / "valuable.bin"
+    ).read_bytes() == b"new workspace\x00\xfe"

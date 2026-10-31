@@ -402,13 +402,13 @@ class ChatConfig:
                     )
         finally:
             # An occupied staging directory is recovery evidence, not garbage.
-            if not (backup.exists() or backup.is_symlink()):
-                try:
+            try:
+                if not (backup.exists() or backup.is_symlink()):
                     tmp.rmdir()
-                except OSError as error:
-                    logger.warning(
-                        "Could not remove workspace staging dir %s: %s", tmp, error
-                    )
+            except OSError as error:
+                logger.warning(
+                    "Could not clean workspace staging dir %s: %s", tmp, error
+                )
 
     def save(self) -> Self:
         """Save the chat config to the log directory.
