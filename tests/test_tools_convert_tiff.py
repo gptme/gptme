@@ -200,3 +200,39 @@ def test_tiff_size_limit_inspection_failure(
                 (frame.size, frame.convert("RGB").getpixel((0, 0)))
                 for frame in ImageSequence.Iterator(image)
             ] == [((16, 16), COLORS[0]), ((32, 32), COLORS[1])]
+
+
+@pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
+@pytest.mark.parametrize("source_suffix", [".png", ".tiff", ".bin"])
+def test_non_tiff_size_limit_keeps_backend_choice(
+    tmp_path: Path, backend: str, source_suffix: str
+) -> None:
+    """Non-TIFF content needs no page inspection, even with a TIFF suffix."""
+    if not shutil.which("convert") or not shutil.which("ffmpeg"):
+        pytest.skip("real FFmpeg and ImageMagick required")
+    source = tmp_path / f"size-limited{source_suffix}"
+    Image.new("RGB", (16, 16), COLORS[0]).save(source, format="PNG")
+    before = source.read_bytes()
+    destination = tmp_path / "output.tiff"
+    availability = ToolAvailability(
+        ffmpeg=backend != "imagemagick", imagemagick=backend != "ffmpeg"
+    )
+    with patch.object(Image, "MAX_IMAGE_PIXELS", 100):
+        with pytest.raises(Image.DecompressionBombError), Image.open(source):
+            pass
+        with patch("gptme.tools.convert.get_availability", return_value=availability):
+            result = (
+                ImageConverter().convert(source, destination)
+                if source_suffix == ".bin"
+                else convert_file(source, destination)
+            )
+        assert Image.MAX_IMAGE_PIXELS == 100
+    assert result.success, result.error
+    assert result.converter_used == (
+        "imagemagick" if backend == "imagemagick" else "ffmpeg"
+    )
+    assert source.read_bytes() == before
+    with Image.open(destination) as image:
+        assert len(list(ImageSequence.Iterator(image))) == 1
+        assert image.size == (16, 16)
+        assert image.convert("RGB").getpixel((0, 0)) == COLORS[0]

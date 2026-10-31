@@ -405,11 +405,15 @@ class ImageConverter(Converter):
         multipage_tiff = False
         if dest_ext == "tiff":
             from PIL import Image
-            from PIL.TiffImagePlugin import TiffImageFile
+            from PIL.TiffImagePlugin import PREFIXES
 
             try:
-                with Image.open(src) as image:
-                    if isinstance(image, TiffImageFile):
+                # Identify TIFF content before Pillow's pixel-size guard runs.
+                # Non-TIFF inputs need no page inspection, regardless of suffix.
+                with src.open("rb") as stream:
+                    is_tiff = stream.read(4).startswith(tuple(PREFIXES))
+                if is_tiff:
+                    with Image.open(src) as image:
                         try:
                             image.seek(1)
                         except EOFError:
