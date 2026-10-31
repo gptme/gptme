@@ -800,6 +800,38 @@ describe('formatConversationAsMarkdown - review boundary regressions', () => {
     );
   });
 
+  it('does not pair an unfinished reasoning fence with an unlabelled answer fence', () => {
+    const content = '<think>\n```python\nx = 1\n</think>\nAnswer:\n```\n42\n```';
+    expect(stripThinkingBlocks(content)).toBe('Answer:\n```\n42\n```');
+  });
+
+  it.each(['```python\nx = 1', '```save file.txt\nDROP_INNER_TOOL'])(
+    'keeps thinking without letting its unfinished fence shield answer tools: %s',
+    (reasoning) => {
+      const content = `<think>\n${reasoning}\n</think>\n@save: {"content":"DROP_TOOL"}\nDone.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: true,
+        includeTools: false,
+      });
+      expect(result).toContain('<think>');
+      expect(result).toContain('</think>');
+      expect(result).toContain('Done.');
+      expect(result).not.toContain('DROP_TOOL');
+      if (reasoning.startsWith('```save')) expect(result).not.toContain('DROP_INNER_TOOL');
+      else expect(result).toContain('x = 1');
+    }
+  );
+
+  it('keeps fenced literal thinking tags while removing later answer tools', () => {
+    const content = '```xml\n<think>KEEP_LITERAL</think>\n```\n@save: {"content":"DROP_TOOL"}';
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeThinking: true,
+      includeTools: false,
+    });
+    expect(result).toContain('<think>KEEP_LITERAL</think>');
+    expect(result).not.toContain('DROP_TOOL');
+  });
+
   it.each([1, 3])('does not let %i backslashes create an inline-code opener', (count) => {
     const prefix = `A literal ${'\\'.repeat(count)}\` character.`;
     const content = `${prefix}\n<think>DROP_THINKING</think>\nUse \`x\` now.`;

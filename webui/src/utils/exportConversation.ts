@@ -38,7 +38,6 @@ interface CharRange {
 
 interface FenceRange extends CharRange {
   tag: string;
-  closed: boolean;
 }
 
 // gptme convention (see processNestedCodeBlocks): ```lang is always an opener,
@@ -89,7 +88,7 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
         } else {
           depth--;
           if (depth === 0) {
-            ranges.push({ start, end: lineEnd(lines, starts, i), tag, closed: true });
+            ranges.push({ start, end: lineEnd(lines, starts, i), tag });
             i++;
             closed = true;
             break;
@@ -99,7 +98,7 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
       i++;
     }
     if (!closed) {
-      ranges.push({ start, end: content.length, tag, closed: false });
+      ranges.push({ start, end: content.length, tag });
     }
   }
   return ranges;
@@ -219,11 +218,8 @@ function getThinkingRanges(content: string, fenceRanges: FenceRange[]): CharRang
     let j = i + open.length;
     let closed = false;
     while (j < content.length) {
-      const nestedFence = rangeContains(fenceRanges, j);
-      if (nestedFence?.closed) {
-        j = nestedFence.end;
-        continue;
-      }
+      // Once real reasoning starts, its wrapper owns the boundary, even if
+      // Markdown inside it is unfinished or pairs with fences in the answer.
       const close = matchAt(content, j, THINK_CLOSE_RE);
       if (close) {
         let end = j + close.length;
@@ -402,7 +398,21 @@ function stripAtFormatToolCalls(content: string): string {
  * `role: 'tool'` result messages, which getExportableMessages handles.
  */
 function stripToolInvocations(content: string): string {
-  return stripAtFormatToolCalls(stripFencedToolBlocks(content));
+  const stripSection = (section: string) => stripAtFormatToolCalls(stripFencedToolBlocks(section));
+  const thinking = getThinkingRanges(content, getTopLevelFenceRanges(content));
+  let result = '';
+  let cursor = 0;
+  for (const range of thinking) {
+    result += stripSection(content.slice(cursor, range.start));
+    const block = content.slice(range.start, range.end);
+    const open = block.match(THINK_OPEN_RE)![0];
+    const close = block.match(/<\/think(?:ing)?(?: redacted)?>\n?$/)?.[0] ?? '';
+    // Keep the reasoning wrapper when requested, but parse its Markdown
+    // separately so unfinished fences cannot swallow the answer or its tools.
+    result += open + stripSection(block.slice(open.length, block.length - close.length)) + close;
+    cursor = range.end;
+  }
+  return result + stripSection(content.slice(cursor));
 }
 
 export function getExportableMessages(
