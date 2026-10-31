@@ -925,6 +925,7 @@ class LogManager:
             logdir = Path(logdir).parent
         logdir = Path(logdir)
         if not logdir.is_absolute():
+            # Resolve once, relative to the logs root rather than the current workspace.
             logdir = get_logs_dir() / logdir
         locking = lock and "PYTEST_CURRENT_TEST" not in os.environ
         if create:
@@ -944,25 +945,14 @@ class LogManager:
     @classmethod
     def _load_owned(
         cls,
-        logdir: PathLike,
+        logdir: Path,
         initial_msgs: list[Message] | None,
         branch: str,
         create: bool,
         lock: bool,
         **kwargs,
     ) -> "LogManager":
-        """Load while the caller holds startup admission, if locking is enabled."""
-        if str(logdir).endswith(".jsonl"):
-            logdir = Path(logdir).parent
-
-        logsdir = get_logs_dir()
-        logdir = Path(logdir)
-        if not logdir.is_absolute():
-            # Relative path: always resolve relative to logsdir, not CWD.
-            # Using resolve() here would be CWD-dependent and breaks when
-            # session_step.py calls os.chdir(workspace) mid-execution.
-            logdir = logsdir / logdir
-
+        """Load the normalized directory under the caller's startup admission."""
         if branch == "main":
             logfile = logdir / "conversation.jsonl"
         else:

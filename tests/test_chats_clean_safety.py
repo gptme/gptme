@@ -92,13 +92,14 @@ def test_same_process_owner_is_not_reused_for_cleanup(
         assert directory.exists()
 
 
-@pytest.mark.parametrize("lock_contents", [None, "999999999", str(os.getpid())])
+@pytest.mark.parametrize("lock_contents", [None, "999999999", "current-pid"])
 def test_abandoned_and_stale_lock_controls(
     histories: Path, lock_contents: str | None
 ) -> None:
     directory = make_history(histories)
     if lock_contents is not None:
-        (directory / ".lock").write_text(lock_contents)
+        contents = str(os.getpid()) if lock_contents == "current-pid" else lock_contents
+        (directory / ".lock").write_text(contents)
     before = {p.name: p.read_bytes() for p in directory.iterdir()}
     dry = clean()
     assert dry["found"] == 1 and dry["deleted"] == 0
@@ -413,3 +414,32 @@ with conversation_lifecycle_lock(Path(sys.argv[1])):
     assert all(
         p.stat().st_size == 0 for p in (histories / ".conversation-locks").iterdir()
     )
+
+
+@pytest.mark.parametrize("name", ["example", "example.jsonl"])
+@pytest.mark.parametrize("lock", [False, True])
+def test_load_normalizes_history_file_once(
+    histories: Path, monkeypatch: pytest.MonkeyPatch, name: str, lock: bool
+) -> None:
+    directory = make_history(histories, name)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    with LogManager.load(directory / "conversation.jsonl", lock=lock) as manager:
+        assert manager.logdir == directory
+        assert manager.log.messages[0].content == "Synthetic cleanup fixture"
+        if lock:
+            assert clean("--delete")["deleted"] == 0
+    assert clean("--delete")["deleted"] == 1
+
+
+def test_read_and_search_jsonl_named_chat(
+    histories: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from gptme.tools.chats import read_chat, search_chats
+
+    directory = make_history(histories, "example.jsonl")
+    with (directory / "conversation.jsonl").open("a") as file:
+        file.write(json.dumps({"role": "user", "content": "searchable fixture"}) + "\n")
+    read_chat(directory.name)
+    assert "searchable fixture" in capsys.readouterr().out
+    search_chats("searchable fixture")
+    assert "searchable fixture" in capsys.readouterr().out
