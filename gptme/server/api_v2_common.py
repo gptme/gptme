@@ -332,7 +332,7 @@ class FormFieldDict(TypedDict):
     type: str
     options: NotRequired[list[str] | None]
     required: NotRequired[bool]
-    default: NotRequired[str | None]
+    default: NotRequired[str | bool | int | float | None]
 
 
 class ElicitPendingEvent(BaseEvent):
@@ -352,7 +352,7 @@ class ElicitPendingEvent(BaseEvent):
     prompt: str
     options: NotRequired[list[str]]
     fields: NotRequired[list[FormFieldDict]]
-    default: NotRequired[str]
+    default: NotRequired[str | bool | int | float]
     description: NotRequired[str]
 
 

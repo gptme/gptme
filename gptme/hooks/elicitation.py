@@ -73,7 +73,7 @@ class FormField:
     type: Literal["text", "secret", "choice", "boolean", "number"] = "text"
     options: list[str] | None = None  # For "choice" type
     required: bool = True
-    default: str | None = None
+    default: str | bool | int | float | None = None
 
 
 @dataclass
@@ -96,7 +96,7 @@ class ElicitationRequest:
     prompt: str
     options: list[str] | None = None
     fields: list[FormField] | None = None
-    default: str | None = None
+    default: str | bool | int | float | None = None
     sensitive: bool = False
     description: str | None = None
 
@@ -198,10 +198,11 @@ def cli_elicit(request: ElicitationRequest) -> ElicitationResponse:
 def _cli_text(request: ElicitationRequest) -> ElicitationResponse:
     """CLI handler for text elicitation."""
     prompt = request.prompt
-    if request.default:
-        prompt = f"{prompt} [{request.default}]"
+    default = str(request.default) if request.default is not None else ""
+    if default:
+        prompt = f"{prompt} [{default}]"
     prompt = f"{prompt}: "
-    value = input(prompt).strip() or request.default or ""
+    value = input(prompt).strip() or default
     return ElicitationResponse.text(value)
 
 
@@ -209,6 +210,8 @@ def _cli_secret(request: ElicitationRequest) -> ElicitationResponse:
     """CLI handler for secret elicitation using getpass."""
     prompt = f"{request.prompt}: "
     value = getpass.getpass(prompt)
+    if not value and request.default is not None:
+        value = str(request.default)
     return ElicitationResponse.text(value, sensitive=True)
 
 
@@ -218,12 +221,18 @@ def _cli_choice(request: ElicitationRequest) -> ElicitationResponse:
         logger.warning("choice elicitation without options, falling back to text")
         return _cli_text(request)
 
+    default = request.default
+    if default is not None and default not in request.options:
+        logger.warning("choice elicitation has a default outside its options")
+        return ElicitationResponse.cancel()
+
     try:
         import questionary
 
         value = questionary.select(
             request.prompt,
             choices=request.options,
+            default=default,
             use_shortcuts=True,
         ).ask()
 
@@ -237,7 +246,10 @@ def _cli_choice(request: ElicitationRequest) -> ElicitationResponse:
         for i, opt in enumerate(request.options, 1):
             print(f"  {i}. {opt}")
         while True:
-            raw = input("Enter number: ").strip()
+            suffix = f" [{default}]" if default is not None else ""
+            raw = input(f"Enter number{suffix}: ").strip()
+            if not raw and isinstance(default, str):
+                return ElicitationResponse.text(default)
             try:
                 idx = int(raw) - 1
                 if 0 <= idx < len(request.options):
@@ -283,26 +295,55 @@ def _cli_multi_choice(request: ElicitationRequest) -> ElicitationResponse:
 
 
 def _cli_confirmation(request: ElicitationRequest) -> ElicitationResponse:
-    """CLI handler for yes/no confirmation."""
+    """Confirm with bool or yes/no, true/false, y/n, 1/0 string defaults.
+
+    Missing defaults retain the historical affirmative choice. Unsupported
+    explicit defaults cancel rather than silently selecting yes.
+    """
+    if request.default is None:
+        default = True
+    elif isinstance(request.default, bool):
+        default = request.default
+    elif isinstance(request.default, str) and request.default.strip().lower() in (
+        "yes",
+        "true",
+        "1",
+        "y",
+        "no",
+        "false",
+        "0",
+        "n",
+    ):
+        default = request.default.strip().lower() in ("yes", "true", "1", "y")
+    else:
+        logger.warning("confirmation elicitation has an unsupported default")
+        return ElicitationResponse.cancel()
+
     try:
         import questionary
 
-        result = questionary.confirm(request.prompt, default=True).ask()
+        result = questionary.confirm(request.prompt, default=default).ask()
         if result is None:
             return ElicitationResponse.cancel()
         return ElicitationResponse.text("yes" if result else "no")
 
     except ImportError:
-        prompt = f"{request.prompt} [Y/n]: "
-        raw = input(prompt).strip().lower()
-        if raw in ("n", "no"):
-            return ElicitationResponse.text("no")
-        return ElicitationResponse.text("yes")
+        prompt = f"{request.prompt} {'[Y/n]' if default else '[y/N]'}: "
+        while True:
+            raw = input(prompt).strip().lower()
+            if not raw:
+                return ElicitationResponse.text("yes" if default else "no")
+            if raw in ("n", "no"):
+                return ElicitationResponse.text("no")
+            if raw in ("y", "yes"):
+                return ElicitationResponse.text("yes")
+            print("Please enter yes or no")
 
 
 def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
     """CLI handler for multi-field form elicitation."""
     import json
+    import math
 
     fields = request.fields or []
     if not fields:
@@ -333,20 +374,37 @@ def _cli_form(request: ElicitationRequest) -> ElicitationResponse:
             default=f.default,
         )
 
-        response = cli_elicit(sub_request)
-        if response.cancelled:
-            return ElicitationResponse.cancel()
+        while True:
+            response = cli_elicit(sub_request)
+            if response.cancelled:
+                return ElicitationResponse.cancel()
 
-        val: object = response.value
-        if f.type == "boolean":
-            val = response.value in ("yes", "true", "1", "y")
-        elif f.type == "number":
-            try:
-                v = response.value or ""
-                val = float(v) if "." in v else int(v)
-            except (ValueError, TypeError):
-                val = response.value
-        elif f.type == "secret":
+            raw = response.value or ""
+            if f.required and not raw.strip():
+                print("This field is required")
+                continue
+
+            val: object = raw
+            if f.type == "boolean":
+                val = raw == "yes"
+            elif f.type == "number":
+                # An omitted optional number is null, never zero or invalid text.
+                if not raw.strip():
+                    val = None
+                else:
+                    try:
+                        val = int(raw)
+                    except ValueError:
+                        try:
+                            val = float(raw)
+                            if not math.isfinite(val):
+                                raise ValueError
+                        except ValueError:
+                            print("Please enter a finite number")
+                            continue
+            break
+
+        if f.type == "secret":
             # Track secret fields so we can redact them from visible form output.
             # Secret values are not safe to include in the form JSON in plaintext.
             secret_fields.add(f.name)
