@@ -160,3 +160,44 @@ def test_configuration_and_commit_identity_remain_supported(
         ).stdout.strip()
         == "call-config"
     )
+
+
+def test_initialization_config_writes_are_shadow_local(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = workspace / ".git/config"
+    before = config.read_bytes()
+    monkeypatch.setenv("GIT_CONFIG", str(config))
+    shadow = init_shadow(workspace)
+    assert config.read_bytes() == before
+    assert shadow.env()["GIT_CONFIG"] == str(config)
+    monkeypatch.delenv("GIT_CONFIG")
+    assert (
+        shadow.run("config", "--local", "--get", "core.bare").stdout.strip() == "false"
+    )
+    assert (
+        shadow.run("config", "--local", "--get", "user.email").stdout.strip()
+        == "snapshot@gptme.local"
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "GIT_NAMESPACE",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_GRAFT_FILE",
+        "GIT_SHALLOW_FILE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_PREFIX",
+    ],
+)
+def test_secondary_routes_removed_at_environment_boundary(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    shadow = Shadow.for_workspace(workspace)
+    monkeypatch.setenv(name, "foreign-route")
+    assert name not in shadow.env()
+    assert name not in shadow.env({name: "call-route"})

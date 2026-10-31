@@ -136,10 +136,21 @@ def init_shadow(workspace: Path) -> Shadow:
         env=init_env,
         check=True,
     )
-    # Operate via env vars, not via the bare-repo working-tree machinery.
+    # GIT_CONFIG selects a config write target and conflicts with --local.
+    # Preserve it for ordinary reads, but bind initialization writes locally.
+    config_env = shadow.env()
+    config_env.pop("GIT_CONFIG", None)
     subprocess.run(
-        [GIT_CMD, "--git-dir", str(shadow.git_dir), "config", "core.bare", "false"],
-        env=shadow.env(),
+        [
+            GIT_CMD,
+            "--git-dir",
+            str(shadow.git_dir),
+            "config",
+            "--local",
+            "core.bare",
+            "false",
+        ],
+        env=config_env,
         check=True,
     )
     subprocess.run(
@@ -148,10 +159,11 @@ def init_shadow(workspace: Path) -> Shadow:
             "--git-dir",
             str(shadow.git_dir),
             "config",
+            "--local",
             "user.email",
             "snapshot@gptme.local",
         ],
-        env=shadow.env(),
+        env=config_env,
         check=True,
     )
     subprocess.run(
@@ -160,10 +172,11 @@ def init_shadow(workspace: Path) -> Shadow:
             "--git-dir",
             str(shadow.git_dir),
             "config",
+            "--local",
             "user.name",
             "gptme-workspace-snapshot",
         ],
-        env=shadow.env(),
+        env=config_env,
         check=True,
     )
     # Distinct branch name so user-installed hooks targeting master/main
