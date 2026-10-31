@@ -144,8 +144,9 @@ def test_configuration_and_commit_identity_remain_supported(
         shadow.run("config", "--get", "snapshot-test.marker").stdout.strip()
         == "inherited-config"
     )
-    assert shadow.run("log", "-1", "--format=%an|%ae|%aI").stdout.strip() == (
-        "Configured Author|author@example.invalid|2020-01-02T03:04:05+00:00"
+    # Git versions differ in whether strict ISO UTC is rendered as Z or +00:00.
+    assert shadow.run("log", "-1", "--format=%an|%ae|%at").stdout.strip() == (
+        "Configured Author|author@example.invalid|1577934245"
     )
     assert (
         shadow.run(
