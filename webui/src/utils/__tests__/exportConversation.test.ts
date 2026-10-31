@@ -1394,6 +1394,27 @@ describe('filtered export physical block review regressions', () => {
   );
 });
 
+describe('heading-origin inline export regressions', () => {
+  it.each(['# Heading', '## Heading', '###### Heading', '> # Quoted heading'])(
+    'does not pair a backtick from %s with a later paragraph',
+    (heading) => {
+      const content = `${heading} \` character\n<think>DROP_REASONING</think>\n@save: {"content":"DROP_TOOL"}\nUse \`x\` now.`;
+      const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+        includeThinking: false,
+        includeTools: false,
+      });
+      expect(result).not.toContain('DROP_');
+      expect(result).toContain(`${heading} \` character`);
+      expect(result).toContain('Use `x` now.');
+    }
+  );
+
+  it('keeps same-line inline code in a heading', () => {
+    const content = '# An example `<think>KEEP_LITERAL</think>` heading';
+    expect(stripThinkingBlocks(content)).toBe(content);
+  });
+});
+
 describe('quoted inline export controls', () => {
   it.each(['> ', '>> ', '> > '])('keeps a multiline span in the same %s container', (prefix) => {
     const content = `${prefix}A \`first\n${prefix}<think>KEEP_LITERAL</think>\n${prefix}last\` done.`;

@@ -169,11 +169,15 @@ function findInlineCodeEnd(
   let openLen = 1;
   while (start + openLen < content.length && content[start + openLen] === '`') openLen++;
   const lineStart = content.lastIndexOf('\n', start - 1) + 1;
-  const quoteDepth = unquoteLine(content.slice(lineStart, start)).depth;
+  const { text: openingLine, depth: quoteDepth } = unquoteLine(content.slice(lineStart, start));
+  // ATX headings own only one physical line, even when their backticks are
+  // unmatched. A delimiter in a later paragraph cannot close a heading span.
+  const inHeading = /^ {0,3}#{1,6}(?:[\t ]|$)/.test(openingLine);
   let j = start + openLen;
   while (j < content.length) {
     if (rangeContains(fenceRanges, j)) return null;
     if (content[j] === '\n') {
+      if (inHeading) return null;
       const lineEnd = content.indexOf('\n', j + 1);
       const rawLine = content.slice(j + 1, lineEnd < 0 ? content.length : lineEnd);
       const { text: nextLine, depth: nextDepth } = unquoteLine(rawLine, quoteDepth);
