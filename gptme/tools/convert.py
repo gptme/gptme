@@ -402,8 +402,34 @@ class ImageConverter(Converter):
         q = self._QUALITY.get(quality, 80)
         lossy = dest_ext in ("jpg", "jpeg", "webp")
         single_frame = dest_ext in ("png", "jpg", "jpeg")
+        multipage_tiff = False
+        if dest_ext == "tiff":
+            from PIL import Image
+            from PIL.TiffImagePlugin import TiffImageFile
 
-        if avail.ffmpeg:
+            try:
+                with Image.open(src) as image:
+                    if isinstance(image, TiffImageFile):
+                        try:
+                            image.seek(1)
+                        except EOFError:
+                            pass  # A proven single-page TIFF can use FFmpeg.
+                        else:
+                            multipage_tiff = True
+            except (OSError, SyntaxError, ValueError):
+                # An unknown page count is not evidence that FFmpeg is safe.
+                # Pillow cannot inspect every TIFF variant ImageMagick supports.
+                multipage_tiff = True
+        if multipage_tiff and not avail.imagemagick:
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used=self.name,
+                error="Preserving multipage TIFF requires ImageMagick. Install: imagemagick",
+            )
+
+        # FFmpeg's TIFF decoder reads only one page, even when it exits successfully.
+        if avail.ffmpeg and not multipage_tiff:
             cmd = ["ffmpeg", "-y", "-i", _arg(src)]
             if single_frame:
                 cmd += ["-frames:v", "1"]
