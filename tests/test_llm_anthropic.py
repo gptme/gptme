@@ -990,11 +990,12 @@ def test_chat_omits_unset_optional_sdk_parameters(
     with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
         client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
         monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-        answer, _ = llm_anthropic.chat(
+        response: tuple[str, object] = llm_anthropic.chat(
             [Message("system", "Be helpful."), Message("user", "Hello")],
             "claude-opus-4-7",
             tools=None,
         )
+        answer = response[0]
 
     assert answer == "Hello"
     assert "tools" not in payloads[0]
