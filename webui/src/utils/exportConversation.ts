@@ -170,6 +170,40 @@ function inlineParagraphEnd(
   return start + (boundary === -1 ? paragraph.length : boundary);
 }
 
+/**
+ * End of a Markdown reference definition starting at a line boundary, or null.
+ * Destinations and titles are link metadata: a backtick there cannot open a
+ * later code span. marked's def grammar is LF-anchored, so CRLF is mapped back.
+ */
+function referenceDefinitionEnd(
+  tokenizer: Tokenizer,
+  content: string,
+  start: number
+): number | null {
+  let indent = start;
+  while (indent < start + 3 && content[indent] === ' ') indent++;
+  if (content[indent] !== '[') return null;
+
+  let windowEnd = start;
+  for (let lines = 0; lines < 4 && windowEnd < content.length; lines++) {
+    const newline = content.indexOf('\n', windowEnd);
+    windowEnd = newline === -1 ? content.length : newline + 1;
+  }
+  const window = content.slice(start, windowEnd);
+  const normalized = window.includes('\r') ? window.replace(/\r\n/g, '\n') : window;
+  const def = tokenizer.def(normalized);
+  if (!def) return null;
+  if (normalized === window) return start + def.raw.length;
+  let source = 0;
+  let logical = 0;
+  while (logical < def.raw.length && source < window.length) {
+    if (window[source] === '\r' && window[source + 1] === '\n') source++;
+    source++;
+    logical++;
+  }
+  return start + source;
+}
+
 /** End of a native JSON-object invocation, including interrupted arguments. */
 function nativeCallEnd(content: string, start: number): number {
   let depth = 0;
@@ -237,6 +271,13 @@ function filterAssistantContent(
         if (quoteDepth || includeTools || !isToolBlockTag(tag))
           out.push(content.slice(i, fence.end));
         i = fence.end;
+        continue;
+      }
+      // Reference definitions are block metadata, not inline-code source.
+      const definitionEnd = referenceDefinitionEnd(tokenizer, content, i);
+      if (definitionEnd !== null) {
+        out.push(content.slice(i, definitionEnd));
+        i = definitionEnd;
         continue;
       }
     }

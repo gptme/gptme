@@ -293,6 +293,37 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
     });
 
     it.each([
+      { label: 'bare destination', def: '[id]: https://example.com/`' },
+      { label: 'angle-bracket destination', def: '[id]: <https://example.com/`>' },
+      { label: 'double-quoted title', def: '[id]: https://example.com/ "title with `"' },
+      { label: 'single-quoted title', def: "[id]: https://example.com/ 'title with `'" },
+      { label: 'parenthesized title', def: '[id]: https://example.com/ (title with `)' },
+      { label: 'indented definition', def: '  [id]: https://example.com/`' },
+      {
+        label: 'next-line title',
+        def: '[id]: https://example.com/\n    "title with `"',
+      },
+      {
+        label: 'CRLF next-line title',
+        def: '[id]: https://example.com/\r\n    "title with `"',
+      },
+    ])('does not open code spans in $label reference definitions', async ({ def }) => {
+      for (const newline of ['\n', '\r\n']) {
+        const source = [def, thinking, 'Here is `code`.', toolCall, 'Public answer.'].join(newline);
+        const result = await consume(consumer, source, options);
+        expect(result).toContain(def);
+        expect(result).toContain('Here is `code`.');
+        expect(result).toContain('Public answer.');
+        expect(result.includes('private reasoning')).toBe(options.includeThinking);
+        expect(result.includes('private tool payload')).toBe(options.includeTools);
+        if (options.includeThinking && options.includeTools) {
+          expect(result).toBe(documentFor(source));
+        }
+        jest.clearAllMocks();
+      }
+    });
+
+    it.each([
       '<span title="`">',
       "<span title='`'>",
       '<span\n title="`">',
