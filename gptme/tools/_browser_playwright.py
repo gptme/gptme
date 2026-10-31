@@ -636,18 +636,20 @@ def _open_page(browser: Browser, url: str) -> str:
     """Open a page for interactive browsing and return its ARIA snapshot."""
     global _current_page, _current_context
 
-    _close_current_page()
-
-    managed = _create_page(
-        browser,
-        **get_context_options(),
-        extra_http_headers={
-            "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
-        },
-    )
-    # Store page/context for interactive use; don't auto-close via ManagedPage
-    _current_page = managed.page
-    _current_context = managed._owned_context
+    # Ordinary navigation stays in the live session, including authentication
+    # acquired since startup. Explicit close/load/restart still replace it.
+    if _current_page is None or _current_page.is_closed():
+        _close_current_page()
+        managed = _create_page(
+            browser,
+            **get_context_options(),
+            extra_http_headers={
+                "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
+            },
+        )
+        # Store page/context for interactive use; don't auto-close via ManagedPage
+        _current_page = managed.page
+        _current_context = managed._owned_context
 
     try:
         _current_page.goto(url)
