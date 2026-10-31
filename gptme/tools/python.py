@@ -33,6 +33,7 @@ import os
 import re
 import site
 import sys
+import tempfile
 import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
@@ -67,6 +68,7 @@ if TYPE_CHECKING:
     )
 
     from ..message import ArtifactDescriptor, MessageMetadata
+    from .python_kernel import KernelExecResult
 
 
 logger = getLogger(__name__)
@@ -518,6 +520,60 @@ def capture_and_display():
         sys.stdout, sys.stderr = old_stdout, old_stderr
 
 
+def _kernel_image_attachments(
+    result: "KernelExecResult",
+) -> tuple[list[Path], "list[ArtifactDescriptor]", list[str]]:
+    """Write private rasters into the existing conversation attachment lifecycle."""
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    directory = manager.logdir / "attachments" if manager is not None else None
+    files: list[Path] = []
+    artifacts: list[ArtifactDescriptor] = []
+    notices = list(result.image_notices)
+    suffixes = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }
+    for image in result.images:
+        path: Path | None = None
+        try:
+            if directory is not None:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # Without a current conversation, use the same private retained temp
+            # file approach as vision. LogManager snapshots Message.files later.
+            with tempfile.NamedTemporaryFile(
+                prefix="kernel-",
+                suffix=suffixes[image.mime_type],
+                dir=directory,
+                delete=False,
+            ) as file:
+                path = Path(file.name)
+                file.write(image.data)
+            files.append(path)
+            if manager is not None:
+                artifacts.append(
+                    {
+                        "source_type": "attachment",
+                        "path": path.relative_to(manager.logdir).as_posix(),
+                        "kind": "image",
+                        "mime_type": image.mime_type,
+                        "tool": "python",
+                        "title": f"Kernel {image.output_type} image",
+                    }
+                )
+        except OSError:
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove incomplete kernel image %s", path)
+            notices.append("Could not retain kernel image attachment; image omitted.")
+    return files, artifacts, notices
+
+
 def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     """Execute *code* in the separate Jupyter kernel process."""
     from .python_kernel import get_backend
@@ -548,6 +604,8 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         and not result.stdout
         and not result.stderr
         and not result.error
+        and not result.images
+        and not result.image_notices
     ):
         yield from backend._bridge.messages
         return
@@ -575,7 +633,15 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
 
     output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
 
-    yield Message("system", "Executed code block (kernel).\n\n" + output)
+    files, artifacts, notices = _kernel_image_attachments(result)
+    if notices:
+        output += "\n".join(dict.fromkeys(notices)) + "\n"
+    yield Message(
+        "system",
+        "Executed code block (kernel).\n\n" + output,
+        files=list(files),
+        metadata={"artifacts": artifacts} if artifacts else None,
+    )
 
 
 def execute_python(
