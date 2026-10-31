@@ -279,8 +279,12 @@ class ChatConfig:
         )
 
     @classmethod
-    def from_logdir(cls, path: Path) -> Self:
-        """Load ChatConfig from a log directory."""
+    def from_logdir(cls, path: Path, *, create_workspace: bool = True) -> Self:
+        """Load ChatConfig, optionally resolving workspaces without creating them.
+
+        Metadata discovery must pass ``create_workspace=False``; explicit
+        conversation startup keeps the default isolated-workspace initialization.
+        """
         chat_config_path = path / "config.toml"
         if not chat_config_path.exists():
             # For new conversations without a saved config, use a
@@ -288,13 +292,14 @@ class ChatConfig:
             # This ensures server sessions get isolated workspaces
             # instead of sharing the server process's cwd.
             workspace = path / "workspace"
-            try:
-                ensure_workspace_dir(workspace)
-            except PermissionError:
-                logger.warning(
-                    f"Could not create workspace dir {workspace} (permission denied); "
-                    "log dir may be owned by another user"
-                )
+            if create_workspace:
+                try:
+                    ensure_workspace_dir(workspace)
+                except PermissionError:
+                    logger.warning(
+                        f"Could not create workspace dir {workspace} (permission denied); "
+                        "log dir may be owned by another user"
+                    )
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
             # `_read_config_text` decodes as UTF-8 per the TOML spec, with a
@@ -305,7 +310,7 @@ class ChatConfig:
             else:
                 config_data = tomlkit.loads(text).unwrap()
             config_data["_logdir"] = path
-            return cls.from_dict(config_data)
+            return cls.from_dict(config_data, create_workspace=create_workspace)
         except _CHAT_CONFIG_LOAD_ERRORS as e:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
             # Keep _logdir unset so save() cannot overwrite an unreadable config
