@@ -38,6 +38,7 @@ interface CharRange {
 
 interface FenceRange extends CharRange {
   tag: string;
+  closed: boolean;
 }
 
 // gptme convention (see processNestedCodeBlocks): ```lang is always an opener,
@@ -88,7 +89,7 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
         } else {
           depth--;
           if (depth === 0) {
-            ranges.push({ start, end: lineEnd(lines, starts, i), tag });
+            ranges.push({ start, end: lineEnd(lines, starts, i), tag, closed: true });
             i++;
             closed = true;
             break;
@@ -98,19 +99,25 @@ function getTopLevelFenceRanges(content: string): FenceRange[] {
       i++;
     }
     if (!closed) {
-      ranges.push({ start, end: content.length, tag });
+      ranges.push({ start, end: content.length, tag, closed: false });
     }
   }
   return ranges;
 }
 
-function rangeContains(ranges: CharRange[], index: number): CharRange | undefined {
+function rangeContains<T extends CharRange>(ranges: T[], index: number): T | undefined {
   return ranges.find((range) => index >= range.start && index < range.end);
 }
 
 function matchAt(content: string, index: number, re: RegExp): string | null {
   const match = content.slice(index).match(re);
   return match ? match[0] : null;
+}
+
+function isBackslashEscaped(content: string, index: number): boolean {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && content[i] === '\\'; i--) backslashes++;
+  return backslashes % 2 !== 0;
 }
 
 /**
@@ -123,7 +130,8 @@ function findInlineCodeEnd(
   start: number,
   fenceRanges: CharRange[]
 ): number | null {
-  if (content[start] !== '`') return null;
+  // Backslash escapes apply in prose, but not to closers inside a code span.
+  if (content[start] !== '`' || isBackslashEscaped(content, start)) return null;
   let openLen = 1;
   while (start + openLen < content.length && content[start + openLen] === '`') openLen++;
   let j = start + openLen;
@@ -142,6 +150,8 @@ function findInlineCodeEnd(
 }
 
 function skipBacktickRun(content: string, start: number): number {
+  // Only the first backtick is escaped; the remainder can open a code span.
+  if (isBackslashEscaped(content, start)) return start + 1;
   let i = start;
   while (i < content.length && content[i] === '`') i++;
   return i === start ? start + 1 : i;
@@ -187,7 +197,7 @@ function findJsonObjectEnd(content: string, start: number): number | null {
  * answer and hide `</think>`. Think tags inside a complete inline-code
  * span stay literal examples.
  */
-function getThinkingRanges(content: string, fenceRanges: CharRange[]): CharRange[] {
+function getThinkingRanges(content: string, fenceRanges: FenceRange[]): CharRange[] {
   const ranges: CharRange[] = [];
   let i = 0;
   while (i < content.length) {
@@ -210,7 +220,7 @@ function getThinkingRanges(content: string, fenceRanges: CharRange[]): CharRange
     let closed = false;
     while (j < content.length) {
       const nestedFence = rangeContains(fenceRanges, j);
-      if (nestedFence) {
+      if (nestedFence?.closed) {
         j = nestedFence.end;
         continue;
       }
@@ -219,6 +229,13 @@ function getThinkingRanges(content: string, fenceRanges: CharRange[]): CharRange
         let end = j + close.length;
         if (content[end] === '\n') end++;
         ranges.push({ start: i, end });
+        // An unfinished reasoning fence must not protect the answer or later
+        // thinking blocks. The answer starts a fresh Markdown context.
+        fenceRanges = getTopLevelFenceRanges(content.slice(end)).map((fence) => ({
+          ...fence,
+          start: fence.start + end,
+          end: fence.end + end,
+        }));
         i = end;
         closed = true;
         break;
@@ -363,8 +380,10 @@ function stripAtFormatToolCalls(content: string): string {
           continue;
         }
         const nextFence = fences.find((range) => range.start >= i);
-        toRemove.push({ start: i, end: nextFence ? nextFence.start : content.length });
-        break;
+        const end = nextFence ? nextFence.start : content.length;
+        toRemove.push({ start: i, end });
+        i = end;
+        continue;
       }
     }
     if (content[i] === '`') {

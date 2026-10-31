@@ -768,6 +768,81 @@ describe('getExportableMessages - includeTools option', () => {
   });
 });
 
+describe('formatConversationAsMarkdown - review boundary regressions', () => {
+  it.each(['think', 'thinking', 'think redacted'])(
+    'ends real %s at its closing tag despite an unfinished reasoning fence',
+    (tag) => {
+      const content = `<${tag}>\n\`\`\`python\nx = 1\n</${tag}>\nThe answer is 42.`;
+      expect(stripThinkingBlocks(content)).toBe('The answer is 42.');
+      expect(
+        formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+          includeThinking: false,
+        })
+      ).toContain('The answer is 42.');
+    }
+  );
+
+  it('does not carry unfinished reasoning fences into later thinking or answer examples', () => {
+    const content = [
+      '<think>',
+      '```python',
+      'DROP_FIRST',
+      '</think>',
+      'First answer.',
+      '<think>DROP_SECOND</think>',
+      '```xml',
+      '<think>KEEP_LITERAL</think>',
+      '```',
+      'Final answer.',
+    ].join('\n');
+    expect(stripThinkingBlocks(content)).toBe(
+      'First answer.\n```xml\n<think>KEEP_LITERAL</think>\n```\nFinal answer.'
+    );
+  });
+
+  it.each([1, 3])('does not let %i backslashes create an inline-code opener', (count) => {
+    const prefix = `A literal ${'\\'.repeat(count)}\` character.`;
+    const content = `${prefix}\n<think>DROP_THINKING</think>\nUse \`x\` now.`;
+    expect(stripThinkingBlocks(content)).toBe(`${prefix}\nUse \`x\` now.`);
+    const result = formatConversationAsMarkdown(
+      'Chat',
+      [
+        {
+          role: 'assistant',
+          content: `${prefix}\n@save: {"content":"Use \`x\` DROP_TOOL"}\nDone.`,
+        },
+      ],
+      { includeTools: false }
+    );
+    expect(result).not.toContain('DROP_TOOL');
+    expect(result).toContain(prefix);
+    expect(result).toContain('Done.');
+  });
+
+  it.each([0, 2, 4])('keeps an inline example after %i backslashes', (count) => {
+    const content = `${'\\'.repeat(count)}\`<think>KEEP_LITERAL</think>\``;
+    expect(stripThinkingBlocks(content)).toBe(content);
+  });
+
+  it('allows a code span to close at a backtick preceded by a backslash inside code', () => {
+    const content = '`example\\`\n<think>DROP_THINKING</think>\nAnswer.';
+    expect(stripThinkingBlocks(content)).toBe('`example\\`\nAnswer.');
+  });
+
+  it('recognizes the remaining backtick run after an escaped first backtick', () => {
+    const content = '\\``<think>KEEP_LITERAL</think>`';
+    expect(stripThinkingBlocks(content)).toBe(content);
+  });
+
+  it('resumes tool filtering after a fence preserved by the malformed-call fallback', () => {
+    const content = '@save: {\n```text\nKEEP_EXAMPLE\n```\n@save: {"content":"DROP_TOOL"}\nDone.';
+    const result = formatConversationAsMarkdown('Chat', [{ role: 'assistant', content }], {
+      includeTools: false,
+    });
+    expect(result).toBe('# Chat\n\n## Assistant\n\n```text\nKEEP_EXAMPLE\n```\n\nDone.\n');
+  });
+});
+
 describe('formatConversationAsMarkdown - example-preserving filters', () => {
   it('keeps a literal <think> example inside an xml fence when thinking is disabled', () => {
     const messages: Message[] = [
