@@ -1387,9 +1387,11 @@ class TestOpenPageSessionReuse:
 
         bp._current_page = None
         bp._current_context = None
+        bp._session_owner = None
         yield
         bp._current_page = None
         bp._current_context = None
+        bp._session_owner = None
 
     def test_second_open_navigates_existing_page_without_closing_context(self):
         from gptme.tools import _browser_playwright as bp
@@ -1533,6 +1535,7 @@ class TestOpenPageSessionReuse:
         ctx = MagicMock()
         bp._current_page = page
         bp._current_context = ctx
+        bp._session_owner = "conv-a"
 
         bp._close_current_page()
 
@@ -1540,6 +1543,72 @@ class TestOpenPageSessionReuse:
         ctx.close.assert_called_once_with()
         assert bp._current_page is None
         assert bp._current_context is None
+        assert bp._session_owner is None
+
+    def test_same_conversation_reuses_owned_context(self):
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import _browser_playwright as bp
+
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://example.com/account"
+        ctx = MagicMock()
+        bp._current_page = page
+        bp._current_context = ctx
+        bp._session_owner = "conv-a"
+        token = current_conversation_id.set("conv-a")
+        try:
+            with (
+                patch.object(bp, "_browser", None),
+                patch.object(bp, "_create_page") as create_page,
+                patch.object(bp, "_page_snapshot", return_value="snapshot"),
+                patch.object(bp, "_close_current_page") as close,
+            ):
+                result = bp._open_page(MagicMock(), "https://example.com/account")
+        finally:
+            current_conversation_id.reset(token)
+
+        assert result == "snapshot"
+        page.goto.assert_called_once_with("https://example.com/account")
+        create_page.assert_not_called()
+        close.assert_not_called()
+        assert bp._session_owner == "conv-a"
+
+    def test_other_conversation_gets_fresh_context(self):
+        from gptme.hooks import current_conversation_id
+        from gptme.tools import _browser_playwright as bp
+
+        old_page = MagicMock()
+        old_page.is_closed.return_value = False
+        old_ctx = MagicMock()
+        new_page = MagicMock()
+        new_page.is_closed.return_value = False
+        new_page.url = "https://example.com/account"
+        new_ctx = MagicMock()
+        managed = MagicMock(page=new_page, _owned_context=new_ctx)
+        bp._current_page = old_page
+        bp._current_context = old_ctx
+        bp._session_owner = "conv-a"
+        token = current_conversation_id.set("conv-b")
+        try:
+            with (
+                patch.object(bp, "_browser", None),
+                patch.object(bp, "_create_page", return_value=managed) as create_page,
+                patch.object(bp, "get_context_options", return_value={}),
+                patch.object(bp, "_page_snapshot", return_value="snapshot"),
+            ):
+                result = bp._open_page(MagicMock(), "https://example.com/account")
+        finally:
+            current_conversation_id.reset(token)
+
+        assert result == "snapshot"
+        create_page.assert_called_once()
+        old_page.close.assert_called()
+        old_ctx.close.assert_called()
+        new_page.goto.assert_called_once_with("https://example.com/account")
+        assert bp._current_page is new_page
+        assert bp._current_context is new_ctx
+        assert bp._session_owner == "conv-b"
 
 
 # ── _select_option — no label= fallback (issue #3100) ────────────────

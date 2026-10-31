@@ -38,6 +38,9 @@ _last_logs: dict = {"logs": [], "errors": [], "url": None}
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
+# Conversation that owns the live interactive session. None is the CLI/test
+# slot. Reuse is allowed only when this matches the caller.
+_session_owner: str | None = None
 logger = logging.getLogger(__name__)
 _inline_data_image = re.compile(r"!\[[^\]]*\]\(data:image[^)]*\)")
 _OPEN_PAGE_HEADERS = {"Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"}
@@ -104,7 +107,7 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
 def _restart_browser() -> None:
     """Restart the browser by resetting the global instance"""
 
-    global _browser, _current_page, _current_context
+    global _browser, _current_page, _current_context, _session_owner
     start_time = time.time()
 
     # Clear persistent page globals — after a restart, old Page/BrowserContext objects
@@ -112,6 +115,7 @@ def _restart_browser() -> None:
     # than silently failing with a low-level Playwright "Target closed" error.
     _current_page = None
     _current_context = None
+    _session_owner = None
 
     if _browser is not None:
         try:
@@ -589,7 +593,7 @@ def _close_current_page() -> None:
     ``load_browser_state()``. Ordinary ``open_page()`` navigation reuses the
     live session instead of calling this.
     """
-    global _current_page, _current_context
+    global _current_page, _current_context, _session_owner
     if _current_page is not None:
         try:
             _current_page.close()
@@ -602,6 +606,19 @@ def _close_current_page() -> None:
         except Exception:
             pass
         _current_context = None
+    _session_owner = None
+
+
+def _conversation_key() -> str | None:
+    """Return the calling conversation id, or None for CLI/tests."""
+    from gptme.hooks import current_conversation_id
+
+    return current_conversation_id.get()
+
+
+def _session_belongs_to_caller() -> bool:
+    """True if the live interactive session may be reused by this caller."""
+    return _session_owner == _conversation_key()
 
 
 def _interactive_page_is_live() -> bool:
@@ -697,13 +714,16 @@ def _open_page(browser: Browser, url: str) -> str:
     ``close_page()`` / ``load_browser_state()`` still reset or replace it by
     clearing the page/context globals first.
     """
-    global _current_page, _current_context
+    global _current_page, _current_context, _session_owner
+
+    if not _session_belongs_to_caller():
+        _close_current_page()
 
     if _interactive_page_is_live():
         return _goto_and_snapshot(url)
 
     ctx = _live_interactive_context()
-    if ctx is not None:
+    if ctx is not None and _session_belongs_to_caller():
         # Page is gone; keep the session and open a new tab in it.
         _drop_current_page_handle()
         try:
@@ -725,6 +745,7 @@ def _open_page(browser: Browser, url: str) -> str:
     # Store page/context for interactive use; don't auto-close via ManagedPage
     _current_page = managed.page
     _current_context = managed._owned_context
+    _session_owner = _conversation_key()
     return _goto_and_snapshot(url)
 
 
