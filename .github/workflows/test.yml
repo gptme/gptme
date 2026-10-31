@@ -101,6 +101,9 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras --frozen
 
+    - name: Install prek for real-runner regressions
+      run: uv tool install prek==0.3.3
+
     - name: Install playwright
       run: uv run playwright install chromium
 
@@ -110,6 +113,8 @@ jobs:
       env:
         TERM: xterm
         MODEL: local/test
+        # Neither runner's integration cases may silently skip in this job.
+        GPTME_TEST_REQUIRE_PRECOMMIT_RUNNERS: '1'
       run: make test ${{ github.event_name != 'pull_request' && 'SLOW=true' || '' }}
 
     - name: Upload visual snapshot diffs on failure
