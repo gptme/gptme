@@ -36,18 +36,22 @@ def _get_prompt_queue_lock_path(logdir: Path) -> Path:
 
 @contextmanager
 def _prompt_queue_lock(logdir: Path):
-    lock_path = _get_prompt_queue_lock_path(logdir)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.touch(exist_ok=True)
+    from .logmanager.locking import conversation_lifecycle_lock
 
-    with lock_path.open("r+") as fd:
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
+    # All queue operations share cleanup's outer gate, including drains whose
+    # initial exists() check may precede deletion. Never recreate a deleted chat.
+    with conversation_lifecycle_lock(logdir):
+        if not logdir.is_dir():
+            raise FileNotFoundError(f"Conversation no longer exists: {logdir}")
+        lock_path = _get_prompt_queue_lock_path(logdir)
+        with lock_path.open("a+") as fd:
             if fcntl is not None:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def queue_prompt(

@@ -68,8 +68,9 @@ class _WindowsLockState:
     refcount: int = 1
 
 
-# Windows byte-range locks prevent a second handle from reading the locked byte.
 # Share one OS lock across same-process managers until the final user releases it.
+# Required on Windows (a second handle cannot read the locked byte) and POSIX
+# (closing the first owner must not leave a reused manager unprotected).
 _windows_lock_owners_guard = threading.Lock()
 _windows_lock_owners: dict[Path, _WindowsLockState] = {}
 
@@ -274,6 +275,7 @@ class LogManager:
         branch: str | None = None,
         lock: bool = True,
         view: str | None = None,
+        _lifecycle_locked: bool = False,
     ):
         self.current_branch = branch or "main"
         # View branch support: compacted views stored separately from user branches
@@ -293,14 +295,28 @@ class LogManager:
 
         # Create and optionally lock the directory
         self._sync_root = existing_parent(self.logdir)
-        self.logdir.mkdir(parents=True, exist_ok=True)
         is_pytest = "PYTEST_CURRENT_TEST" in os.environ
         if lock and not is_pytest:
-            self._lockfile = self.logdir / ".lock"
-            self._lockfile.touch(exist_ok=True)
-            self._lock_fd = self._lockfile.open("r+")
+            from contextlib import nullcontext
 
-            self._acquire_lock()
+            from .locking import conversation_lifecycle_lock
+
+            # Cleanup must not remove the directory between startup's mkdir
+            # and acquisition of the lifetime lock.
+            self.logdir.parent.mkdir(parents=True, exist_ok=True)
+            gate = (
+                nullcontext()
+                if _lifecycle_locked
+                else conversation_lifecycle_lock(self.logdir)
+            )
+            with gate:
+                self.logdir.mkdir(parents=True, exist_ok=True)
+                self._lockfile = self.logdir / ".lock"
+                self._lockfile.touch(exist_ok=True)
+                self._lock_fd = self._lockfile.open("r+")
+                self._acquire_lock()
+        else:
+            self.logdir.mkdir(parents=True, exist_ok=True)
 
         # Snapshot attached files before the first provider render. Startup
         # prompt files must stay byte-identical even if their live source changes.
@@ -369,7 +385,7 @@ class LogManager:
         """Acquire the OS lock and record ownership; false means same-process reuse."""
         assert self._lock_fd is not None, "_acquire_lock_fd called without open fd"
 
-        if os.name == "nt":
+        if fcntl is not None or _msvcrt is not None:
             lock_key = self._lockfile.resolve()
             with _windows_lock_owners_guard:
                 state = _windows_lock_owners.get(lock_key)
@@ -386,7 +402,8 @@ class LogManager:
                 self._lock_fd.flush()
                 _windows_lock_owners[lock_key] = _WindowsLockState(self._lock_fd)
                 self._windows_lock_key = lock_key
-                self._lock_fd = None
+                if os.name == "nt":
+                    self._lock_fd = None
                 return True
 
         self._platform_lock(self._lock_fd)
@@ -497,9 +514,10 @@ class LogManager:
 
     def _release_lock(self):
         """Release this manager's reference to the conversation lock."""
-        if os.name == "nt" and self._windows_lock_key is not None:
+        if self._windows_lock_key is not None:
             lock_key = self._windows_lock_key
             self._windows_lock_key = None
+            self._lock_fd = None
             with _windows_lock_owners_guard:
                 state = _windows_lock_owners.get(lock_key)
                 if state is None:
@@ -898,18 +916,43 @@ class LogManager:
         lock: bool = True,
         **kwargs,
     ) -> "LogManager":
-        """Loads a conversation log."""
+        """Load history and establish ownership under cleanup's lifecycle gate."""
+        from contextlib import nullcontext
+
+        from .locking import conversation_lifecycle_lock
+
         if str(logdir).endswith(".jsonl"):
             logdir = Path(logdir).parent
-
-        logsdir = get_logs_dir()
         logdir = Path(logdir)
         if not logdir.is_absolute():
-            # Relative path: always resolve relative to logsdir, not CWD.
-            # Using resolve() here would be CWD-dependent and breaks when
-            # session_step.py calls os.chdir(workspace) mid-execution.
-            logdir = logsdir / logdir
+            # Resolve once, relative to the logs root rather than the current workspace.
+            logdir = get_logs_dir() / logdir
+        locking = lock and "PYTEST_CURRENT_TEST" not in os.environ
+        if create:
+            logdir.parent.mkdir(parents=True, exist_ok=True)
+        gate = conversation_lifecycle_lock(logdir) if locking else nullcontext()
+        with gate:
+            return cls._load_owned(
+                logdir,
+                initial_msgs,
+                branch,
+                create,
+                lock,
+                _lifecycle_locked=locking,
+                **kwargs,
+            )
 
+    @classmethod
+    def _load_owned(
+        cls,
+        logdir: Path,
+        initial_msgs: list[Message] | None,
+        branch: str,
+        create: bool,
+        lock: bool,
+        **kwargs,
+    ) -> "LogManager":
+        """Load the normalized directory under the caller's startup admission."""
         if branch == "main":
             logfile = logdir / "conversation.jsonl"
         else:

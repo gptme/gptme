@@ -620,6 +620,7 @@ def find_empty_conversations(
         List of dicts with conversation metadata and disk size.
     """
     from ..logmanager import get_conversations, get_user_conversations  # fmt: skip
+    from ..logmanager.cleanup import cleanup_conversation
 
     conversation_iter = (
         get_conversations() if include_test else get_user_conversations()
@@ -630,7 +631,11 @@ def find_empty_conversations(
         # Skip conversations with branch history — conv.messages only counts the main
         # branch, so a conversation with few main-branch messages but significant branch
         # history could be incorrectly flagged as empty.
-        if conv.messages <= max_messages and conv.branches <= 1:
+        if (
+            conv.messages <= max_messages
+            and conv.branches <= 1
+            and cleanup_conversation(conv, max_messages=max_messages)
+        ):
             # Calculate disk usage for the conversation directory
             conv_dir = Path(conv.path).parent
             try:
