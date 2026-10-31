@@ -14,8 +14,8 @@ Paths below are relative to the repository root.
 
 | Entrypoint | Before shared recovery | Recovery behavior / boundary |
 | --- | --- | --- |
-| CLI interactive: `chat._chat` → `chat.step` → `llm.reply` | Adapter retries only before output; tagged failures return control to the user and clear queued prompts. | `reply()` retries an uncommitted generation below tools. Existing terminal-error handling still applies after exhaustion. |
-| CLI headless: same generation path | Provider failure propagates to `cli.main`, records terminal error and exits nonzero. | Same bounded generation recovery; exhaustion still exits, rather than starting a new process. |
+| CLI interactive: `chat._chat` → `chat.step` → `llm.reply` | Adapter retries only before output; tagged failures return control to the user and clear queued prompts. | `reply()` retries an uncommitted generation below tools. Exhaustion parks remaining prompts on disk and returns control; they are not auto-drained under a fresh budget. |
+| CLI headless: same generation path | Provider failure propagates to `cli.main`, records terminal error and exits nonzero. | Same bounded generation recovery; remaining prompts are parked on disk, then this process still exits nonzero. |
 | TUI: `GptmeApp._generation_body` → `chat.step` | Failure ends the worker; app stays open and may dispatch the next queued turn. | Shared `reply()` recovery and `_on_retry` preview reset stay inside the worker; committed messages and queued steering are not reset. |
 | Server: `server/session_step.py::step` | Custom `_stream` / `_chat_complete` loop, overflow recovery, epoch-guarded commit; failure emits error and releases generation. | **No automatic transport replay**: bypasses `reply()`. Needs server-specific preview reset, cancellation and `step_seq` ownership integration. |
 | ACP-backed server/session paths | ACP streams `chat.step` previews via `on_token` in an executor thread. | **Automatic replay explicitly disabled** with `recovery_disabled()` around step creation and consumption in that worker: ACP has no preview-reset protocol. Shared request accounting and adapter-retry suppression remain active; failures retain ACP's error/cancelled response. |
@@ -45,6 +45,13 @@ Paths below are relative to the repository root.
   HTTP status (408/429/5xx), or transient Responses error code. Authentication,
   permission, malformed requests, resource limits and tool/hook failures must
   not become blanket-retry cases. Respect `Retry-After` and strict request limits.
+- Interactive CLI exhaustion parks remaining in-memory prompts on the durable
+  queue and holds drain/consume until the user submits a normal message.
+  Slash commands, Ctrl+C and declining tool execution during an explicit resume
+  do not retry parked work. If the explicit resume turn calls `complete`,
+  pending intent is drained before session completion,
+  just as for chained prompts; the steering queue closes only after that work
+  is exhausted. Headless exhaustion still exits nonzero without auto-resume.
 - Failed output is an uncommitted preview, not persisted assistant content.
   Callback consumers bind `recovery_notifications()` and reset attempt-local
   display/buffers before replay. Plain terminal output cannot be retracted;
@@ -97,4 +104,5 @@ The regression suites `test_llm_generation_recovery`,
 `test_recovery_nested_budget`, `test_chat_transient_recovery` and
 `test_tui_recovery` cover terminal-less EOF, partial preview reset, truncated
 JSON/no execution, retained earlier tool results, queue retention, cancellation,
-bounded physical sends, permanent errors and accurate exhaustion.
+bounded physical sends, permanent errors, accurate exhaustion and interactive
+CLI parking of remaining queued intent.

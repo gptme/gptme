@@ -38,7 +38,7 @@ from .message import (
     len_tokens,
     set_output_format,
 )
-from .prompt_queue import drain_prompt_queue
+from .prompt_queue import drain_prompt_queue, requeue_prompts
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
     ToolFormat,
@@ -408,12 +408,20 @@ def _run_chat_loop(
 ):
     """Main chat loop - extracted to allow clean exception handling."""
 
+    # After an exhausted interactive provider failure, skip drain/consume until
+    # the user submits a normal (non-command) message. Slash commands must not
+    # immediately retry parked work under a fresh budget.
+    hold_queued_prompts = False
+    parked_waiting = False
     while True:
-        _drain_external_prompt_queue(manager, prompt_queue)
+        consume_queue = not hold_queued_prompts
+        if consume_queue:
+            _drain_external_prompt_queue(manager, prompt_queue)
+        hold_queued_prompts = False
         msg: Message | None = None
         try:
             # Process next message (either from prompt queue or user input)
-            if prompt_queue:
+            if consume_queue and prompt_queue:
                 msg = prompt_queue.pop(0)
                 assert msg is not None, "prompt_queue contained None"
                 msg = include_paths(msg, manager.workspace)
@@ -421,6 +429,8 @@ def _run_chat_loop(
 
                 # Handle user commands
                 if msg.role == "user" and execute_cmd(msg, manager):
+                    if parked_waiting:
+                        hold_queued_prompts = True
                     continue
 
                 if msg.role == "user":
@@ -432,36 +442,13 @@ def _run_chat_loop(
                             manager.append(hook_msg)
 
                 # Process the message and get response
-                try:
-                    _process_message_conversation(
-                        manager,
-                        stream,
-                        tool_format,
-                        model,
-                        output_schema,
-                    )
-                except SessionCompleteException:
-                    # Write sentinel BEFORE draining so there is no window
-                    # where the queue file is gone but the sentinel is not yet
-                    # visible.  A concurrent subagent_steer() in that gap would
-                    # see neither the sentinel nor the closed event, write a
-                    # new queue entry, and falsely report success even though
-                    # the chat loop has no remaining drain point.
-                    # If drain finds more chained prompts we unlink the sentinel
-                    # so the loop stays open for steering.
-                    if logdir is not None:
-                        (logdir / "prompt-queue-closed").touch()
-                    _drain_external_prompt_queue(manager, prompt_queue)
-                    if not prompt_queue:
-                        raise
-                    # More chained prompts remain — clear sentinel, keep loop alive.
-                    if logdir is not None:
-                        (logdir / "prompt-queue-closed").unlink(missing_ok=True)
-                    logger.debug(
-                        "complete called but %d chained prompts remain, continuing",
-                        len(prompt_queue),
-                    )
-                    continue
+                _process_message_conversation(
+                    manager,
+                    stream,
+                    tool_format,
+                    model,
+                    output_schema,
+                )
             else:
                 # Get user input or exit if non-interactive
                 if not interactive:
@@ -486,10 +473,17 @@ def _run_chat_loop(
                         continue
                     break
 
-                user_input = _get_user_input(manager.log, manager.workspace)
+                if not consume_queue:
+                    # Commands can mask the failure marker in the log, but
+                    # they are not permission to restart provider generation.
+                    user_input = _get_user_input(
+                        manager.log, manager.workspace, force_prompt=True
+                    )
+                else:
+                    user_input = _get_user_input(manager.log, manager.workspace)
                 if user_input is None:
                     # Either user wants to exit OR we should generate response directly
-                    if _should_prompt_for_input(manager.log):
+                    if not consume_queue or _should_prompt_for_input(manager.log):
                         # User wants to exit
                         break
                     # Don't prompt for input, generate response directly (crash recovery, etc.)
@@ -510,6 +504,8 @@ def _run_chat_loop(
 
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager):
+                        if parked_waiting:
+                            hold_queued_prompts = True
                         continue
 
                     # Trigger turn.pre hooks once per submitted user prompt,
@@ -523,13 +519,23 @@ def _run_chat_loop(
                             manager.append(hook_msg)
 
                     # Process the message and get response
-                    _process_message_conversation(
+                    interrupted = _process_message_conversation(
                         manager,
                         stream,
                         tool_format,
                         model,
                         output_schema,
                     )
+                    if interrupted and parked_waiting:
+                        # Cancelling a resume is not permission to release held
+                        # intent, including the in-memory parking fallback.
+                        hold_queued_prompts = True
+                        continue
+                    # Restore older held work before LOOP_CONTINUE appends new
+                    # messages, preserving the queue's pre-failure FIFO order.
+                    if parked_waiting:
+                        _drain_external_prompt_queue(manager, prompt_queue)
+                    parked_waiting = False
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
@@ -553,12 +559,35 @@ def _run_chat_loop(
                         console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 
+        except SessionCompleteException:
+            # Queued turns and explicit user resumes share the same completion
+            # boundary: complete finishes this prompt, not pending intent.
+            # Write sentinel BEFORE draining so there is no window
+            # where the queue file is gone but the sentinel is not yet
+            # visible. A concurrent subagent_steer() in that gap would
+            # otherwise falsely report success with no remaining drain point.
+            if logdir is not None:
+                (logdir / "prompt-queue-closed").touch()
+            _drain_external_prompt_queue(manager, prompt_queue)
+            if not prompt_queue:
+                raise
+            # More chained prompts remain — reopen steering and consume them.
+            if logdir is not None:
+                (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+            parked_waiting = False
+            logger.debug(
+                "complete called but %d chained prompts remain, continuing",
+                len(prompt_queue),
+            )
+            continue
         except KeyboardInterrupt:
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
+            if parked_waiting:
+                hold_queued_prompts = True
             continue
         except Exception as e:
             # A failed LLM reply (provider outage or detected degeneration) must
@@ -566,14 +595,37 @@ def _run_chat_loop(
             # to the user, who can retry or switch model.  Only errors tagged at
             # the provider call inside `reply()` qualify — tool/hook SDK errors
             # must not be swallowed.  Non-interactive runs still fail loudly.
-            if not interactive or not is_llm_reply_error(e):
+            if not is_llm_reply_error(e):
+                raise
+            # Park remaining intent before interactive continue or headless
+            # raise so a later explicit resume can recover it. Consuming the
+            # in-memory queue here would retry those prompts under a fresh
+            # recovery budget while the provider is still failing.
+            try:
+                parked = _park_remaining_prompts(manager, prompt_queue, logdir)
+            except OSError:
+                logger.exception("Failed to park queued prompts after provider failure")
+                parked = 0
+            if parked:
+                prompt_queue.clear()
+            if not interactive:
                 raise
             logger.error("%s %s", LLM_REQUEST_FAILED_PREFIX, e)
             if not is_output_json() and not is_output_quiet():
                 console.log(f"[red]{LLM_REQUEST_FAILED_PREFIX}[/red] {e}")
             manager.append(Message("system", f"{LLM_REQUEST_FAILED_PREFIX} {e}"))
-            # Drop queued prompts — they were meant for the failed turn.
-            prompt_queue.clear()
+            hold_queued_prompts = True
+            parked_waiting = True
+            if parked and not is_output_json() and not is_output_quiet():
+                console.log(
+                    f"[yellow]Held {parked} queued prompt(s) after provider "
+                    "failure; they will run after your next message.[/yellow]"
+                )
+            elif prompt_queue and not is_output_json() and not is_output_quiet():
+                console.log(
+                    "[yellow]Could not save queued prompts; they remain held "
+                    "in this session until your next message.[/yellow]"
+                )
             continue
 
     # Trigger session end hooks when exiting normally
@@ -582,6 +634,35 @@ def _run_chat_loop(
     ):
         for msg in session_end_msgs:
             manager.append(msg)
+
+
+def _park_remaining_prompts(
+    manager: LogManager,
+    prompt_queue: list[Message],
+    logdir: Path | None,
+) -> int:
+    """Persist remaining in-memory prompts so exhaustion does not discard them."""
+    remaining = [message for message in prompt_queue if message is not None]
+    if not remaining:
+        return 0
+    # Drain reads manager.logdir; park to the same path so resume can find it.
+    target = getattr(manager, "logdir", None)
+    if target is None:
+        target = logdir
+    if target is None:
+        logger.warning(
+            "Cannot park %d queued prompt(s) after provider failure: no logdir",
+            len(remaining),
+        )
+        return 0
+    parked = requeue_prompts(target, remaining)
+    if parked:
+        logger.info(
+            "Parked %d queued prompt(s) after LLM request failure in %s",
+            parked,
+            target,
+        )
+    return parked
 
 
 def _drain_external_prompt_queue(
@@ -606,11 +687,12 @@ def _process_message_conversation(
     tool_format: ToolFormat,
     model: str | None,
     output_schema: type | None = None,
-) -> None:
-    """Process a message and generate responses until no more tools to run.
+) -> bool:
+    """Process a message until no tools remain; return whether cancelled or declined.
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
+    interrupted = False
     max_steps: int | None = None
     max_steps_str = os.environ.get("GPTME_MAX_STEPS")
     if max_steps_str:
@@ -668,6 +750,7 @@ def _process_message_conversation(
             if not is_output_json() and not is_output_quiet():
                 console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
+            interrupted = True
             break
         finally:
             clear_interruptible()
@@ -691,6 +774,7 @@ def _process_message_conversation(
         if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
             if not is_output_json() and not is_output_quiet():
                 console.log("Execution declined, returning to prompt.")
+            interrupted = True
             break
 
         pending_continuation = _has_pending_tooluse(manager.log)
@@ -783,6 +867,7 @@ def _process_message_conversation(
             manager.append(msg)
     # Returning to the prompt acknowledges this turn, including hook output.
     manager.write(sync=True)
+    return interrupted
 
 
 def _has_pending_tooluse(log: Log) -> bool:
@@ -902,12 +987,14 @@ def _should_prompt_for_input(log: Log) -> bool:
     )
 
 
-def _get_user_input(log: Log, workspace: Path | None) -> Message | None:
+def _get_user_input(
+    log: Log, workspace: Path | None, *, force_prompt: bool = False
+) -> Message | None:
     """Get user input, returning None if user wants to exit."""
     clear_interruptible()  # Don't interrupt during user input
 
     # Check if we should prompt for input or generate response directly
-    if not _should_prompt_for_input(log):
+    if not force_prompt and not _should_prompt_for_input(log):
         # Last message was from user (crash recovery, edited log, etc.)
         # Don't ask for input, let the system generate a response
         return None

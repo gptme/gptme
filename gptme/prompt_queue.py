@@ -5,14 +5,14 @@ from __future__ import annotations
 import importlib
 import json
 import logging
+import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any, Literal, cast
 
 from .message import Message, MessageMetadata
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,92 @@ def _prompt_queue_lock(logdir: Path):
         finally:
             if fcntl is not None:
                 fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+_QUEUE_ROLES = {"user", "system", "assistant"}
+
+
+def _record_from_message(message: Message) -> dict | None:
+    """Serialize a queued message for durable storage."""
+    content = str(message.content).strip()
+    if not content:
+        return None
+    record: dict = {
+        "content": content,
+        "queued_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if message.role in _QUEUE_ROLES and message.role != "user":
+        record["role"] = message.role
+    metadata = message.metadata or {}
+    skill_invocation_id = metadata.get("skill_invocation_id")
+    if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
+        record["skill_invocation_id"] = skill_invocation_id
+    if metadata.get("steer") is True:
+        record["steer"] = True
+    return record
+
+
+def _message_from_record(record: dict) -> Message | None:
+    """Rebuild a queued message, defaulting unknown roles to user."""
+    content = str(record.get("content", "")).strip()
+    if not content:
+        return None
+    role = record.get("role", "user")
+    if not isinstance(role, str) or role not in _QUEUE_ROLES:
+        role = "user"
+    metadata: MessageMetadata | None = None
+    skill_invocation_id = record.get("skill_invocation_id")
+    if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
+        metadata = {"skill_invocation_id": skill_invocation_id}
+    return Message(
+        cast(Literal["system", "user", "assistant"], role),
+        content,
+        quiet=True,
+        metadata=metadata,
+    )
+
+
+def requeue_prompts(
+    logdir: Path, messages: list[Message], *, prepend: bool = True
+) -> int:
+    """Write in-memory queued prompts back to disk without executing them.
+
+    Interactive exhaustion parks remaining intent here so the chat loop can
+    return control without discarding work or immediately retrying under a
+    fresh budget. Prepend keeps already-drained FIFO order ahead of prompts
+    that were still on disk.
+    """
+    records = [
+        record
+        for message in messages
+        if (record := _record_from_message(message)) is not None
+    ]
+    if not records:
+        return 0
+
+    queue_path = get_prompt_queue_path(logdir)
+    new_lines = [json.dumps(record) for record in records]
+    with _prompt_queue_lock(logdir):
+        existing: list[str] = []
+        if queue_path.exists():
+            existing = [
+                line
+                for line in queue_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        lines = new_lines + existing if prepend else existing + new_lines
+        # Publish only a complete replacement: ENOSPC during parking must not
+        # truncate prompts that were already durable. Keep the stable lock
+        # held across staging and rename so concurrent appenders stay ordered.
+        fd, name = tempfile.mkstemp(prefix=".prompt-queue-", dir=logdir)
+        staged = Path(name)
+        try:
+            os.close(fd)
+            staged.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            staged.replace(queue_path)
+        finally:
+            staged.unlink(missing_ok=True)
+    return len(records)
 
 
 def queue_prompt(
@@ -119,16 +205,11 @@ def drain_prompt_queue(logdir: Path, max_items: int | None = None) -> list[Messa
                 remaining.append(line)
                 continue
 
-            content = str(record.get("content", "")).strip()
-            if not content:
+            message = _message_from_record(record)
+            if message is None:
                 logger.warning("Skipping empty queued prompt in %s", queue_path)
                 continue
-
-            metadata: MessageMetadata | None = None
-            skill_invocation_id = record.get("skill_invocation_id")
-            if isinstance(skill_invocation_id, str) and skill_invocation_id.strip():
-                metadata = {"skill_invocation_id": skill_invocation_id}
-            drained.append(Message("user", content, quiet=True, metadata=metadata))
+            drained.append(message)
 
         if remaining:
             queue_path.write_text("\n".join(remaining) + "\n", encoding="utf-8")
