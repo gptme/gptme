@@ -292,8 +292,11 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       '> Unmatched `\n> > <think>private reasoning</think>\n> Here is `code`.',
       '> Heading `\n> ===\n> <think>private reasoning</think>\n> Here is `code`.',
     ])('does not pair quoted backticks across block boundaries: %s', async (source) => {
-      const result = await consume(consumer, source, options);
-      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      for (const newline of ['\n', '\r\n']) {
+        const result = await consume(consumer, source.replace(/\n/g, newline), options);
+        expect(result.includes('private reasoning')).toBe(options.includeThinking);
+        jest.clearAllMocks();
+      }
     });
 
     it.each([

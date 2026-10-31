@@ -119,8 +119,18 @@ function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number
   // Setext headings may contain multiple inline lines, but their underline
   // separates them from the body even without a blank line. Limit this check
   // to the paragraph window rather than rescanning all subsequent paragraphs.
-  const heading = tokenizer.rules.block.lheading.exec(content.slice(lineStart, start) + paragraph);
-  if (heading && start < lineStart + heading[1].length) return lineStart + heading[1].length;
+  const headingSource = content.slice(lineStart, start) + paragraph;
+  const heading = tokenizer.rules.block.lheading.exec(headingSource.replace(/\r\n/g, '\n'));
+  if (heading) {
+    let end = 0;
+    let normalized = 0;
+    while (normalized < heading[1].length) {
+      if (headingSource[end] === '\r' && headingSource[end + 1] === '\n') end++;
+      end++;
+      normalized++;
+    }
+    if (start < lineStart + end) return lineStart + end;
+  }
   // marked expects normalized LF input; exports preserve CRLF. Transcript
   // fences also accept tabs/arbitrary indentation, unlike CommonMark fences.
   const boundary = paragraph.search(
