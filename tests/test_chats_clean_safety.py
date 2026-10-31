@@ -196,12 +196,9 @@ def test_deeply_nested_history_is_preserved_and_cleanup_continues(
     directory = make_history(histories, "damaged")
     target = directory / history
     target.parent.mkdir(exist_ok=True)
+    # Truncated JSON stays damaged even on decoders that support deeper nesting.
     payload = (
-        '{"role":"system","content":"Recoverable work","extra":'
-        + "[" * 10000
-        + "0"
-        + "]" * 10000
-        + "}\n"
+        '{"role":"system","content":"Recoverable work","extra":' + "[" * 10000 + "0\n"
     ).encode()
     target.write_bytes(payload)
     before = {
