@@ -76,6 +76,11 @@ function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number
   const lineStart = content.lastIndexOf('\n', start - 1) + 1;
   const quotePrefix = content.slice(lineStart, start).match(/^(?: {0,3}>[ \t]?)+/)?.[0];
   if (quotePrefix) {
+    const newline = content.indexOf('\n', start);
+    const lineEnd = newline === -1 ? content.length : newline;
+    if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(content.slice(lineStart + quotePrefix.length, lineEnd))) {
+      return lineEnd;
+    }
     // Markdown parses inline spans in the quote's text, not its `>` markers.
     // Strip only the enclosing depth; a deeper quote still interrupts the
     // paragraph. Map the logical boundary back to the untouched source bytes.

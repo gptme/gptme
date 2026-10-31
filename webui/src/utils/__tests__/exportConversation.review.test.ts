@@ -336,8 +336,11 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
 });
 
 describe('inline paragraph boundary search work', () => {
-  it('does not unwrap the whole suffix for each quoted paragraph', () => {
-    const content = '> Use `literal <think>example</think>`\n>\n'.repeat(400);
+  it.each([
+    '> Use `literal <think>example</think>`\n>\n',
+    '> # Heading `literal <think>example</think>`\n',
+  ])('bounds quote unwrapping for repeated blocks: %s', (block) => {
+    const content = block.repeat(400);
     const originalIndexOf = String.prototype.indexOf;
     let newlineSearches = 0;
     const indexOf = jest.spyOn(String.prototype, 'indexOf').mockImplementation(function (
