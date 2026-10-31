@@ -255,6 +255,24 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       }
     });
 
+    it.each(['#', '###', '   ##'])(
+      'does not pair a backtick in an ATX heading (%s) with body text',
+      async (heading) => {
+        const source = `${heading} Heading with unmatched \`\n${thinking}\nHere is \`code\`.`;
+        const result = await consume(consumer, source, options);
+        expect(result).toContain(`${heading} Heading with unmatched \``);
+        expect(result).toContain('Here is `code`.');
+        expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      }
+    );
+
+    it('keeps complete heading inline literals opaque', async () => {
+      const literal = '# Heading with `<think>literal reasoning</think>`';
+      const result = await consume(consumer, `${literal}\n${thinking}\nPublic answer.`, options);
+      expect(result).toContain(literal);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+    });
+
     it('does not interrupt a multiline span at a line-start inline literal', async () => {
       const literal = '`span\n```inline literal```\n<think>literal reasoning</think>\nspan`';
       const source = `${literal}\n${thinking}\n${toolCall}\nPublic answer.`;

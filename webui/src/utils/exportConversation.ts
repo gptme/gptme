@@ -71,6 +71,12 @@ function isToolBlockTag(tag: string): boolean {
 
 /** Bound inline parsing by Markdown blocks, not just the next closing backtick. */
 function inlineParagraphEnd(tokenizer: Tokenizer, content: string, start: number): number {
+  // ATX headings end at their own newline even when the first backtick is
+  // mid-heading. Starting paragraph grammar at that tick loses the prefix.
+  const lineStart = content.lastIndexOf('\n', start - 1) + 1;
+  const newline = content.indexOf('\n', start);
+  const lineEnd = newline === -1 ? content.length : newline;
+  if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(content.slice(lineStart, lineEnd))) return lineEnd;
   const remaining = content.slice(start);
   // Use marked's paragraph grammar without tokenizing/rendering its contents.
   const paragraph = tokenizer.rules.block.paragraph.exec(remaining)?.[0] ?? remaining;
