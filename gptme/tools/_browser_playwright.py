@@ -85,18 +85,16 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
     """
     if _is_cdp_connection() and _browser is not None:
         ctx = _browser._session_context
-        if ctx is not None:
-            page = ctx.new_page()
-            headers = context_kwargs.get("extra_http_headers")
-            if headers:
-                page.set_extra_http_headers(headers)
-            return _ManagedPage(page=page, _owned_context=None)
-        # CDP without a session context shouldn't happen (it's recreated on
-        # every reconnect) — warn rather than silently opening a new window.
-        logger.warning(
-            "CDP connection has no session context; falling back to a new "
-            "browser context (may open a new window)"
-        )
+        if ctx is None:
+            # Explicit resets discard authentication; rebuild lazily for all
+            # entry points, including read_url() without an interactive page.
+            ctx = browser.new_context(**get_context_options())
+            _browser._session_context = ctx
+        page = ctx.new_page()
+        headers = context_kwargs.get("extra_http_headers")
+        if headers:
+            page.set_extra_http_headers(headers)
+        return _ManagedPage(page=page, _owned_context=None)
 
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
@@ -784,7 +782,11 @@ def _enforce_current_page_allowlist() -> None:
 
 def close_page() -> str:
     """Close the current interactive browsing page."""
-    if _current_page is None:
+    if _current_page is None and not (
+        _is_cdp_connection()
+        and _browser is not None
+        and _browser._session_context is not None
+    ):
         return "No page is currently open."
     return _execute_with_retry(_do_close_page)
 
