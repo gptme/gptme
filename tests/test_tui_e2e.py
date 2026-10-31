@@ -494,7 +494,13 @@ async def test_e2e_tools_still_run_after_subagent(tmp_path, monkeypatch):
 
     monkeypatch.setenv("GPTME_MAX_STEPS", "1")
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    from gptme.config import ChatConfig, get_config
     from gptme.tools import clear_tools
+
+    # This test checks tool-format isolation, not automatic continuation.
+    # mock/echo repeats the spawning prompt on every completion wake, so
+    # leaving autowake enabled would create an endless chain of children.
+    monkeypatch.setattr(get_config(), "chat", ChatConfig(watch_autowake=False))
 
     tools = ["shell", "ipython", "subagent"]
     init("mock/echo", interactive=True, tool_allowlist=tools, tool_format="tool")

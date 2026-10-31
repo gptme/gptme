@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -572,6 +574,18 @@ class TestExecuteHashlineEdit:
         assert "applied" in msgs[0].lower()
         assert f.read_bytes() == eol.join([b"alpha", b"BETA", b"gamma", b""])
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    def test_preserves_file_mode(self, tmp_path: Path):
+        f = tmp_path / "run.sh"
+        f.write_text("#!/bin/sh\necho a\n")
+        f.chmod(0o755)
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 2.=2:\n+echo b\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower()
+        assert f.read_text() == "#!/bin/sh\necho b\n"
+        assert stat.S_IMODE(f.stat().st_mode) == 0o755
+
     def test_tag_mismatch_rejected(self, tmp_path: Path):
         f = tmp_path / "f.txt"
         f.write_text("alpha\nbeta\n")
@@ -1016,6 +1030,82 @@ class TestResolveBlockEnd:
 # ---------------------------------------------------------------------------
 # PUT N*: block-aware replace
 # ---------------------------------------------------------------------------
+
+
+class TestContinuationHeaders:
+    @pytest.mark.parametrize(
+        "original",
+        [
+            "if a:\n    x = 1\nelif (\n    b\n):\n    x = 2\nelse:\n    x = 3\n",
+            "try:\n    risky()\nexcept (\n    ValueError,\n    TypeError,\n):\n    handle()\nfinally:\n    cleanup()\n",
+            "if a:\n    x = 1\nelif (  # unmatched ]\n    check(') # [')\n):\n    if nested:\n        act()\nelse:\n    other()\n",
+            'if a:\n    x = 1\nelif check("""\nleft aligned ) # text\n"""):\n    act()\nelse:\n    other()\n',
+            "try:\n    risky()\nexcept (\n    ValueError,\n):\n    handle()\nexcept (\n    TypeError,\n):\n    other()\nelse:\n    ok()\nfinally:\n    cleanup()\n",
+            "if a:\n    x = 1\nelif b:\n    x = 2\nelse:\n    x = 3\n",
+            "if (\n    a\n):\n    x = 1\nelse:\n    x = 2\n",
+        ],
+    )
+    @pytest.mark.parametrize("changed_live", [False, True])
+    def test_complete_continuation_replacement(
+        self, tmp_path: Path, original: str, changed_live: bool
+    ):
+        original += "after()\n"
+        compile(original, "before.py", "exec")
+        assert (
+            _resolve_block_end(original.splitlines(), 1)
+            == len(original.splitlines()) - 1
+        )
+        f = tmp_path / "continuation.py"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        if changed_live:
+            f.write_text(original + "external()\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+replacement()\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        expected = "replacement()\nafter()\n"
+        if changed_live:
+            expected += "external()\n"
+        assert f.read_text() == expected
+        compile(f.read_text(), str(f), "exec")
+
+    @pytest.mark.parametrize(
+        ("original", "error"),
+        [
+            ("if a:\n    x = 1\nelif (\n    b\nafter()\n", "bracket"),
+            ("try:\n    risky()\nexcept (\n    ValueError,\nafter()\n", "bracket"),
+            ('if a:\n    x = 1\nelif """\nunclosed\nafter()\n', "string"),
+        ],
+    )
+    @pytest.mark.parametrize("changed_live", [False, True])
+    def test_unterminated_continuation_rejected_before_confirmation(
+        self, tmp_path: Path, original: str, error: str, changed_live: bool
+    ):
+        from unittest.mock import patch
+
+        f = tmp_path / "unterminated.py"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        if changed_live:
+            f.write_text(original + "external()\n")
+        f.chmod(0o640)
+        before = f.read_bytes()
+        mode = f.stat().st_mode
+        block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+replacement()\n"
+        with (
+            patch("gptme.hooks.get_confirmation") as confirm,
+            patch("gptme.tools.hashline_edit.os.replace") as publish,
+            patch("gptme.tools.hashline_edit.subprocess.run") as merge,
+        ):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert f"unterminated {error}" in msgs[0], msgs
+        confirm.assert_not_called()
+        publish.assert_not_called()
+        merge.assert_not_called()
+        assert f.read_bytes() == before
+        assert f.stat().st_mode == mode
+        assert lookup_snapshot(str(f.resolve()), tag) == (True, original)
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["unterminated.py"]
 
 
 class TestBlockReplace:

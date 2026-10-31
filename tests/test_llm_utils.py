@@ -852,7 +852,7 @@ def test_reply_stream_quiet_mode_suppresses_terminal_output(monkeypatch):
 
 def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     """on_token receives only content up to the break_on_tooluse breakpoint."""
-    from gptme.llm import _reply_stream
+    from gptme.llm import _reply_stream, _StreamWithMetadata
     from gptme.message import Message
     from gptme.tools import init_tools
 
@@ -868,17 +868,11 @@ def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     def _fake_gen(chunks):
         yield from chunks
 
-    class _FakeStream:
-        def __init__(self, chunks):
-            self.gen = _fake_gen(chunks)
-            self.metadata = {"model": "test/model"}
-
-        def __iter__(self):
-            yield from self.gen
-
     monkeypatch.setattr(
         "gptme.llm._stream",
-        lambda *args, **kwargs: _FakeStream([tool_block, suffix]),
+        lambda *args, **kwargs: _StreamWithMetadata(
+            _fake_gen([tool_block, suffix]), "test/model"
+        ),
     )
 
     collected: list[str] = []
@@ -905,7 +899,7 @@ def test_reply_stream_on_token_break_on_tooluse_tool_format_without_newline(
     monkeypatch,
 ):
     """tool-format breakpoint must not wait for a trailing newline."""
-    from gptme.llm import _reply_stream
+    from gptme.llm import _reply_stream, _StreamWithMetadata
     from gptme.message import Message
     from gptme.tools import get_tool_format, init_tools, set_tool_format
 
@@ -917,17 +911,11 @@ def test_reply_stream_on_token_break_on_tooluse_tool_format_without_newline(
     def _fake_gen(chunks):
         yield from chunks
 
-    class _FakeStream:
-        def __init__(self, chunks):
-            self.gen = _fake_gen(chunks)
-            self.metadata = {"model": "test/model"}
-
-        def __iter__(self):
-            yield from self.gen
-
     monkeypatch.setattr(
         "gptme.llm._stream",
-        lambda *args, **kwargs: _FakeStream([tool_call + suffix]),
+        lambda *args, **kwargs: _StreamWithMetadata(
+            _fake_gen([tool_call + suffix]), "test/model"
+        ),
     )
 
     collected: list[str] = []
@@ -954,7 +942,7 @@ def test_reply_stream_on_token_break_on_tooluse_xml_format_without_newline(
     monkeypatch,
 ):
     """xml-format breakpoint must not wait for a trailing newline."""
-    from gptme.llm import _reply_stream
+    from gptme.llm import _reply_stream, _StreamWithMetadata
     from gptme.message import Message
     from gptme.tools import get_tool_format, init_tools, set_tool_format
 
@@ -966,17 +954,11 @@ def test_reply_stream_on_token_break_on_tooluse_xml_format_without_newline(
     def _fake_gen(chunks):
         yield from chunks
 
-    class _FakeStream:
-        def __init__(self, chunks):
-            self.gen = _fake_gen(chunks)
-            self.metadata = {"model": "test/model"}
-
-        def __iter__(self):
-            yield from self.gen
-
     monkeypatch.setattr(
         "gptme.llm._stream",
-        lambda *args, **kwargs: _FakeStream([tool_call + suffix]),
+        lambda *args, **kwargs: _StreamWithMetadata(
+            _fake_gen([tool_call + suffix]), "test/model"
+        ),
     )
 
     collected: list[str] = []

@@ -560,6 +560,12 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     config_file_path = path or config_path
     config_file, local_path = get_user_config_paths(config_file_path)
     main_config = _load_config_doc(path).unwrap()
+    # Validate operator-managed providers before merging: a user/local overlay
+    # must not repair or hide an invalid runtime default.
+    if runtime_doc is not None:
+        runtime_raw = runtime_doc.unwrap()
+        if "providers" in runtime_raw:
+            _parse_providers(runtime_raw["providers"], strict=True)
     writable_keys = set(main_config)
     config = (
         _merge_config_data(runtime_doc.unwrap(), main_config)
@@ -629,8 +635,6 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         runtime_raw = runtime_doc.unwrap()
         if "mcp" in runtime_raw:
             _parse_mcp_config(runtime_raw["mcp"], strict=True)
-        if "providers" in runtime_raw:
-            _parse_providers(runtime_raw["providers"], strict=True)
     mcp = _parse_mcp_config(config.pop("mcp", {}), strict=False)
     providers = _parse_providers(config.pop("providers", []), strict=False)
 
@@ -947,7 +951,9 @@ def save_provider_config(
         reload_config()
 
 
-def _merge_config_data(main_config: dict, local_config: dict) -> dict:
+def _merge_config_data(
+    main_config: dict, local_config: dict, *, _root: bool = True
+) -> dict:
     """
     Merge local configuration into main configuration.
 
@@ -1026,12 +1032,21 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
                 if mcp_key != "servers":
                     merged["mcp"][mcp_key] = mcp_value
 
-        elif key == "providers" and isinstance(value, list):
-            # Merge providers by name - local provider entries update matching
-            # main providers (e.g. adding api_key to an otherwise-identical entry),
-            # and new providers are appended.
-            if key not in merged:
+        elif _root and key == "providers":
+            # Only root providers use the provider schema; plugin settings
+            # named providers retain ordinary recursive override semantics.
+            # Skip malformed containers before merge-by-name, just as the
+            # tolerant user parser does. Keep partial entries for name-based
+            # overrides; they need not construct a ProviderConfig on their own.
+            if not isinstance(value, list):
+                _parse_providers(value, strict=False)
+                continue
+            if key in merged and not isinstance(merged[key], list):
+                _parse_providers(merged[key], strict=False)
                 merged[key] = []
+            elif key not in merged:
+                merged[key] = []
+            # Local entries update matching main providers; new ones append.
             main_providers = merged[key]
             main_by_name: dict = {}
             for p in main_providers:
@@ -1060,7 +1075,7 @@ def _merge_config_data(main_config: dict, local_config: dict) -> dict:
             isinstance(value, dict) and key in merged and isinstance(merged[key], dict)
         ):
             # Recursive merge for nested dictionaries
-            merged[key] = _merge_config_data(merged[key], value)
+            merged[key] = _merge_config_data(merged[key], value, _root=False)
         else:
             # Direct override for other keys
             merged[key] = value

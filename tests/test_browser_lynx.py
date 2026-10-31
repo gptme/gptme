@@ -6,6 +6,7 @@ import stat
 import sys
 import tempfile
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -139,6 +140,58 @@ def test_search_accepts_query_that_fits_final_url_limit(
     assert search(query, engine) == "search results"
     assert captured_url is not None
     assert len(captured_url) <= 2048
+
+
+@pytest.mark.parametrize("engine", ["google", "duckduckgo"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "C++",
+        "a&b",
+        "hash#fragment",
+        "a%20b",
+        "a=b",
+        "two words\tand\nlines",
+        "naïve café",
+        "ordinary phrase",
+    ],
+)
+def test_search_preserves_literal_query(monkeypatch, engine, query):
+    captured_url = None
+    captured_cookies = None
+
+    def mock_read_url(url, cookies=None):
+        nonlocal captured_url, captured_cookies
+        captured_url, captured_cookies = url, cookies
+        return "search results"
+
+    monkeypatch.setattr("gptme.tools._browser_lynx.read_url", mock_read_url)
+    assert search(query, engine) == "search results"
+    assert captured_url is not None
+    parts = urlsplit(captured_url)
+    params = parse_qs(parts.query)
+    assert parts.fragment == ""
+    assert params["q"] == [query]
+    if engine == "google":
+        assert parts.hostname == "www.google.com"
+        assert params == {"q": [query], "hl": ["en"], "gl": ["us"]}
+        assert captured_cookies is not None
+        assert set(captured_cookies) == {"SOCS", "CONSENT"}
+    else:
+        assert parts.hostname == "lite.duckduckgo.com"
+        assert params == {"q": [query]}
+        assert captured_cookies is None
+
+
+@pytest.mark.parametrize("engine", ["google", "duckduckgo"])
+def test_search_rejects_query_that_exceeds_limit_after_encoding(monkeypatch, engine):
+    def unexpected_read(*args, **kwargs):
+        pytest.fail("Oversized encoded URL must be rejected before transport")
+
+    monkeypatch.setattr("gptme.tools._browser_lynx.read_url", unexpected_read)
+    # Fits as raw text but expands to 3000 ASCII characters when encoded.
+    with pytest.raises(ValueError, match="2048"):
+        search("+" * 1000, engine)
 
 
 @pytest.mark.slow

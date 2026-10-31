@@ -407,8 +407,7 @@ def test_complete_input_commands():
 
 
 def test_complete_input_paths(tmp_path, monkeypatch):
-    """Tab completes the last word as a path; directories get a slash so
-    include_paths treats them as paths (a bare "journal" is prose)."""
+    """Tab completes paths and preserves the user's explicit @ prefix."""
     from gptme.tui.app import complete_input
 
     (tmp_path / "journal").mkdir()
@@ -425,7 +424,7 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     assert "/tmp/" in complete_input("/tm")
     assert complete_input("hello") == []
     assert complete_input("hello ") == []
-    # completed names must be ones include_paths attaches
+    # Bare completion remains prose; @ completion requests attachment.
     (tmp_path / "Makefile").write_text("x")
     (tmp_path / "my notes.txt").write_text("x")
     assert complete_input("see Mak") == ["see ./Makefile"]
@@ -469,14 +468,18 @@ async def test_tab_quoted_directory_attaches_and_completes_children(
         at = "@" if prefix.endswith("@") else ""
         base = prefix.removesuffix(at) if at else prefix
         assert inp.text == base + f"`{at}my dir/`"
-        assert "my dir/" in _find_potential_paths(inp.text)
+        assert (
+            "my dir/" in _find_potential_paths(inp.text, auto_include=False)
+        ) == bool(at)
         assert (
             len(inp.document.get_text_range((0, 0), inp.cursor_location))
             == len(inp.text) - 1
         )
         await pilot.press("c", "h", "tab")
         assert inp.text == base + f"`{at}my dir/child.md`"
-        assert "my dir/child.md" in _find_potential_paths(inp.text)
+        assert (
+            "my dir/child.md" in _find_potential_paths(inp.text, auto_include=False)
+        ) == bool(at)
         assert inp.cursor_location == inp.document.end
 
 
@@ -4249,3 +4252,36 @@ async def test_stream_marks_text_like_the_finished_message(tmp_path):
             await pilot.pause()
             assert app._stream_widget is not None
             assert app._stream_widget.has_class("has-text"), show_thinking
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivery", ["send", "steer"])
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_prompt_attachment_policy_at_delivery(
+    tmp_path, monkeypatch, delivery, explicit
+):
+    """Actual TUI send and queued steering share the explicit attachment policy."""
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_AUTO_INCLUDE_PATHS", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    source = tmp_path / "notes.txt"
+    source.write_text("attachment-delivery-marker")
+    text = f"See {'@' if explicit else ''}{source}"
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        if delivery == "send":
+            await app._submit(text)
+            result = app.manager.log[-1]
+        else:
+            app._enqueue_prompt(text)
+            await pilot.pause()
+            taken = app._take_steer_prompts()
+            assert len(taken) == 1
+            result = taken[0]
+        if explicit:
+            assert "attachment-delivery-marker" in result.content
+        else:
+            assert result.content == text
+        assert not result.files

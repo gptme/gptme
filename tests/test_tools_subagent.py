@@ -1161,10 +1161,10 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
 
     progress_file = tmp_path / "progress.jsonl"
     parent_logdir = tmp_path / "parent"
-    delivered: list[tuple[str, str, Path | None]] = []
+    delivered: list[tuple[str, str, Path | None, str | None]] = []
 
-    def fake_notify(agent_id, message, *, parent_logdir=None):
-        delivered.append((agent_id, message, parent_logdir))
+    def fake_notify(agent_id, message, *, parent_logdir=None, parent_branch=None):
+        delivered.append((agent_id, message, parent_logdir, parent_branch))
 
     # Write a progress entry to the file before polling starts
     entry = json.dumps({"agent_id": "poll-agent", "message": "Step 1 done"})
@@ -1177,6 +1177,7 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
     mock_sa.agent_id = "poll-agent"
     mock_sa.logdir = tmp_path
     mock_sa.parent_logdir = parent_logdir
+    mock_sa.parent_branch = "origin-branch"
 
     with patch("gptme.tools.subagent.execution.notify_progress", fake_notify):
         # Set stop immediately so the loop exits after the final drain
@@ -1184,7 +1185,55 @@ def test_poll_subprocess_progress_delivers_via_notify(tmp_path):
         _poll_subprocess_progress(mock_sa, stop_event)
 
     assert len(delivered) >= 1
-    assert delivered[0] == ("poll-agent", "Step 1 done", parent_logdir)
+    assert delivered[0] == ("poll-agent", "Step 1 done", parent_logdir, "origin-branch")
+
+
+def test_subprocess_progress_keeps_reused_run_branch(tmp_path, monkeypatch):
+    """A poller must use its captured run, not an ambiguous agent-ID lookup."""
+    import threading
+
+    from gptme.tools.subagent.execution import _poll_subprocess_progress
+    from gptme.tools.subagent.types import Subagent, _progress_queue
+
+    parent = tmp_path / "parent"
+    old_run = Subagent(
+        agent_id="reused-poller",
+        prompt="old",
+        thread=None,
+        logdir=tmp_path / "old",
+        model=None,
+        parent_logdir=parent,
+        parent_branch="old-branch",
+    )
+    new_run = Subagent(
+        agent_id="reused-poller",
+        prompt="new",
+        thread=None,
+        logdir=tmp_path / "new",
+        model=None,
+        parent_logdir=parent,
+        parent_branch="new-branch",
+    )
+    monkeypatch.setattr("gptme.tools.subagent.hooks._subagents", [old_run, new_run])
+    while not _progress_queue.empty():
+        _progress_queue.get_nowait()
+    try:
+        for run in (old_run, new_run):
+            run.logdir.mkdir()
+            (run.logdir / "progress.jsonl").write_text('{"message": "Step 1 done"}\n')
+            stop = threading.Event()
+            stop.set()
+            _poll_subprocess_progress(run, stop)
+            assert _progress_queue.get_nowait() == (
+                parent,
+                run.agent_id,
+                "Step 1 done",
+                run.parent_branch,
+            )
+        assert _progress_queue.empty()
+    finally:
+        while not _progress_queue.empty():
+            _progress_queue.get_nowait()
 
 
 def test_drain_progress_file_partial_write_retry(tmp_path):

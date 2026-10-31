@@ -16,6 +16,8 @@ datas = [
     (str(project_root / 'gptme/server/computer_view'), 'gptme/server/computer_view'),
     # Templates for the self-contained HTML conversation export
     (str(project_root / 'gptme/util/export_templates'), 'gptme/util/export_templates'),
+    # Structural HTML-to-Markdown cleanup used by the browser tool
+    (str(project_root / 'gptme/tools/_browser_markdown.lua'), 'gptme/tools'),
     # Include the logo if needed
     (str(project_root / 'media/logo.png'), 'media'),
 ]

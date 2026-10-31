@@ -565,6 +565,7 @@ async def _acp_step(
         if pre_msgs := trigger_hook(
             HookType.STEP_PRE,
             manager=manager,
+            notification_branch=manager.current_branch,
         ):
             for hook_msg in pre_msgs:
                 _append_and_notify(manager, session, hook_msg)
@@ -939,6 +940,7 @@ def step(
     if pre_msgs := trigger_hook(
         HookType.STEP_PRE,
         manager=manager,
+        notification_branch=manager.current_branch,
     ):
         for msg in pre_msgs:
             _append_and_notify(manager, session, msg)

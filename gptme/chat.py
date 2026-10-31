@@ -999,13 +999,18 @@ def _reply_with_overflow_recovery(
         or manager.logdir.resolve() != logdir.resolve()
     ):
         manager = None
-    return recover_reply(
-        manager,
-        msgs,
-        model_meta.full,
-        generate,
-        lambda messages: prepare_messages(messages, workspace, logdir=logdir),
-    )
+    from .llm.recovery import recovery_scope
+
+    # Overflow changes the request view, not its spending/recovery allowance.
+    # All physical sends and transient retries share this generation budget.
+    with recovery_scope():
+        return recover_reply(
+            manager,
+            msgs,
+            model_meta.full,
+            generate,
+            lambda messages: prepare_messages(messages, workspace, logdir=logdir),
+        )
 
 
 @trace_function(name="chat.step", attributes={"component": "chat"})

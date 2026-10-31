@@ -105,12 +105,14 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
         oriented = ImageOps.exif_transpose(img)
         dimensions = oriented.size
 
-        # Convert RGBA to RGB if needed (convert both branches to ensure Image type)
+        # JPEG cannot encode palettes or alpha. Resolve unsupported modes to RGB,
+        # dropping alpha (without compositing) as for existing RGBA inputs.
+        # Resolve palette transparency via RGBA, including byte-table alpha.
         out: Image.Image = (
-            oriented.convert("RGB")
-            if oriented.mode == "RGBA"
-            else oriented.convert(oriented.mode)
+            oriented.convert("RGBA") if oriented.mode == "P" else oriented
         )
+        if out.mode not in ("1", "L", "RGB", "RGBX", "CMYK", "YCbCr"):
+            out = out.convert("RGB")
 
         # First try just compressing as JPG without scaling
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
