@@ -276,6 +276,15 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       expect(result).toContain('](https://example.com/`) Here is `code`.');
     });
 
+    it('keeps reasoning opaque when it crosses the end of a link label', async () => {
+      const source = '[label <think>private reasoning](url) private tail</think> Public answer.';
+      const result = await consume(consumer, source, options);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+      expect(result.includes('private tail')).toBe(options.includeThinking);
+      expect(result).toContain('Public answer.');
+      if (options.includeThinking) expect(result).toBe(documentFor(source));
+    });
+
     it.each(['#', '###', '   ##'])(
       'does not pair a backtick in an ATX heading (%s) with body text',
       async (heading) => {

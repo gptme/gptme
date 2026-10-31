@@ -213,7 +213,17 @@ function filterAssistantContent(
   let i = 0;
   let paragraphEnd = 0;
   const quoteViews = new Map<string, QuoteView>();
+  const linkMetadata = new Map<number, number>();
+  let labelEnd = content.length;
   while (i < content.length) {
+    if (i > labelEnd) labelEnd = content.length;
+    const metadataEnd = linkMetadata.get(i);
+    if (metadataEnd !== undefined) {
+      out.push(content.slice(i, metadataEnd));
+      i = metadataEnd;
+      labelEnd = content.length;
+      continue;
+    }
     // Discover fences only after skipping opaque thinking/native payloads: a
     // fence inside retained JSON/reasoning must not capture later answer text.
     if ((i === 0 || content[i - 1] === '\n') && /^[ \t]*(`{3,}|~{3,})/.test(content.slice(i))) {
@@ -231,9 +241,8 @@ function filterAssistantContent(
       i += 2;
       continue;
     }
-    // Link destinations/titles are metadata, not inline-code source. Parse
-    // the visible label independently so its actual thinking is still filtered
-    // while literal code inside that label remains opaque.
+    // Link destinations/titles are metadata, not inline-code source. Keep
+    // scanning labels in the original source: reasoning can cross their end.
     if (content[i] === '[' || (content[i] === '!' && content[i + 1] === '[')) {
       if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
       const source = content.slice(i, paragraphEnd);
@@ -241,12 +250,10 @@ function filterAssistantContent(
       if (link) {
         const label = tokenizer.rules.inline.link.exec(source)![1];
         const prefix = content[i] === '!' ? '![' : '[';
-        out.push(
-          prefix,
-          filterAssistantContent(label, includeThinking, includeTools),
-          link.raw.slice(prefix.length + label.length)
-        );
-        i += link.raw.length;
+        labelEnd = i + prefix.length + label.length;
+        linkMetadata.set(labelEnd, i + link.raw.length);
+        out.push(prefix);
+        i += prefix.length;
         continue;
       }
     }
@@ -254,7 +261,7 @@ function filterAssistantContent(
       // Reuse the boundary for all spans in this paragraph rather than
       // searching the remaining message again for every short inline span.
       if (i >= paragraphEnd) paragraphEnd = inlineParagraphEnd(tokenizer, content, i, quoteViews);
-      const code = tokenizer.codespan(content.slice(i, paragraphEnd));
+      const code = tokenizer.codespan(content.slice(i, Math.min(paragraphEnd, labelEnd)));
       if (code) {
         out.push(code.raw);
         i += code.raw.length;
