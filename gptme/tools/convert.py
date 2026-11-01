@@ -574,7 +574,7 @@ class ImageConverter(Converter):
             cmd += [_arg(dest)]
             with ExitStack() as inputs:
                 directory = None
-                if "%" in str(src):
+                if "%" in str(src.absolute()):
                     # A safe basename avoids image2 sequence expansion without
                     # forcing a demuxer (which would discard APNG animation).
                     try:

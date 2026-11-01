@@ -52,6 +52,52 @@ def test_percent_source_is_literal(
     assert all(path.read_bytes() == content for path, content in before.items())
 
 
+@pytest.mark.parametrize("directory", ["ordinary", "scans%d", "scans%03d", "scans%"])
+@pytest.mark.parametrize("decoy", [False, True])
+@pytest.mark.parametrize("direct", [False, True])
+def test_relative_source_in_percent_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    directory: str,
+    decoy: bool,
+    direct: bool,
+) -> None:
+    """The absolute FFmpeg input includes cwd even when the caller's path does not."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg not installed")
+    working_directory = tmp_path / directory
+    working_directory.mkdir()
+    monkeypatch.chdir(working_directory)
+    source = Path("photo.png")
+    Image.new("RGB", (16, 16), "red").save(source)
+    if decoy:
+        for number in ("1", "001"):
+            sibling = tmp_path / f"scans{number}"
+            sibling.mkdir()
+            Image.new("RGB", (16, 16), "blue").save(sibling / source)
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*.png")}
+    destination = Path("output.png")
+    with patch(
+        "gptme.tools.convert.get_availability",
+        return_value=ToolAvailability(
+            ffmpeg=True, imagemagick=False, python_magic=False
+        ),
+    ):
+        plan = convert_file(source, destination, dry_run=True)
+        assert plan.success, plan.error
+        assert {path: path.read_bytes() for path in tmp_path.rglob("*.png")} == before
+        result = (ImageConverter().convert if direct else convert_file)(
+            source, destination
+        )
+    assert result.success, result.error
+    assert result.converter_used == "ffmpeg"
+    assert result.output_path == destination
+    with Image.open(destination) as image:
+        assert image.convert("RGB").getpixel((8, 8)) == (255, 0, 0)
+    assert all(path.read_bytes() == content for path, content in before.items())
+    assert set(tmp_path.rglob("*.png")) == {*before, working_directory / destination}
+
+
 @pytest.mark.parametrize("source_format", ["GIF", "PNG"])
 @pytest.mark.parametrize("direct", [False, True])
 def test_percent_named_animation_keeps_frames(
