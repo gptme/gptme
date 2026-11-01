@@ -670,6 +670,11 @@ preserve these pages. Single-page TIFF conversions can still use FFmpeg.</p>
 <p>Image and video sources passed to FFmpeg are local filesystem paths, not
 protocol URLs. A relative filename such as <code class="docutils literal notranslate"><span class="pre">file:photo.png</span></code> selects that
 literal file, not a different file named <code class="docutils literal notranslate"><span class="pre">photo.png</span></code>.</p>
+<p>Percent-bearing image source paths are literal too: <code class="docutils literal notranslate"><span class="pre">scan%03d.png</span></code> reads
+that file, not <code class="docutils literal notranslate"><span class="pre">scan001.png</span></code>. For FFmpeg, these inputs are copied into a
+private temporary directory under a safe basename, preserving normal content
+probing (including animated PNG and GIF). This uses additional temporary disk
+space equal to the source size; the copy is removed after conversion.</p>
 <p>File format conversion tool for gptme.</p>
 <p>Provides offline, multi-format file conversion with auto-detection and
 graceful degradation when specific converters are unavailable.</p>
