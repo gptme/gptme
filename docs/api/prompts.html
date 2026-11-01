@@ -941,7 +941,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efff3a893a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f503fb493a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -3038,29 +3038,27 @@ state or Python libraries.
 
 <span class="gu">### Examples</span>
 
-<span class="gu">#### Result of the last expression will be returned</span>
+<span class="gu">#### Return the last expression</span>
 
 <span class="k">&gt; </span><span class="ge">User: What is 2 + 2?</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```ipython</span>
 <span class="mi">2</span> <span class="o">+</span> <span class="mi">2</span>
 <span class="sb">```</span>
-<span class="gu">#### Write a function and call it</span>
+<span class="gu">#### Define and call a function</span>
 
-<span class="k">&gt; </span><span class="ge">User: compute fib 10</span>
-<span class="k">&gt; </span><span class="ge">Assistant: To compute the 10th Fibonacci number, we can run the following code:</span>
+<span class="k">&gt; </span><span class="ge">User: Square 10</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```ipython</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">fib</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
-    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">n</span>
-    <span class="k">return</span> <span class="n">fib</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">fib</span><span class="p">(</span><span class="n">n</span> <span class="o">-</span> <span class="mi">2</span><span class="p">)</span>
-<span class="n">fib</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">square</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">n</span> <span class="o">*</span> <span class="n">n</span>
+<span class="n">square</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
 <span class="sb">```</span>
 
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20287</p>
+<p>Tokens: 20245</p>
 </dd></dl>
 
 <dl class="py function">
