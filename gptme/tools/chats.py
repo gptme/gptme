@@ -440,45 +440,60 @@ def _format_message_with_context(
     """
     if not isinstance(content, str):
         return "[non-string content]"
+    import bisect
+
     query_lower = query.lower()
-
-    # Split content into lines for line-based context
-    lines = content.split("\n")
-    lines_lower = [line.lower() for line in lines]
-
-    # Find all lines containing the query
-    line_indices = []
-    for line_idx, line_lower in enumerate(lines_lower):
-        start = 0
-        while True:
-            idx = line_lower.find(query_lower, start)
-            if idx == -1:
-                break
-            line_indices.append((line_idx, idx, idx + len(query_lower)))
-            start = idx + len(query_lower)
-
-    if not line_indices:
+    if not query.strip():
         return content[:100] + "..." if len(content) > 100 else content
+    lowered = content.lower()
+    boundaries = [0]
+    if len(lowered) != len(content):
+        # Whole-string lower() preserves search semantics (including final sigma).
+        # Per-character lengths only map expanded offsets back to original text.
+        for character in content:
+            boundaries.append(boundaries[-1] + len(character.lower()))
 
-    # Gather the matches to render (up to max_matches)
-    visible = line_indices[:max_matches]
+    lines = content.split("\n")
+    line_starts = [0]
+    for line in lines[:-1]:
+        line_starts.append(line_starts[-1] + len(line) + 1)
 
-    # Merge overlapping context windows so nearby matches share a single block.
-    # Each window is [context_start, context_end) in line space.
     windows: list[tuple[int, int, list[tuple[int, int, int]]]] = []
-    for match_idx, start_pos, end_pos in visible:
-        cs = max(0, match_idx - context_lines)
-        ce = min(len(lines), match_idx + context_lines + 1)
-        if windows and cs <= windows[-1][1]:
-            # Overlaps with the previous window — extend it
-            prev_cs, _, prev_matches = windows[-1]
-            windows[-1] = (
-                prev_cs,
-                max(ce, windows[-1][1]),
-                prev_matches + [(match_idx, start_pos, end_pos)],
-            )
+    match_count = 0
+    start = 0
+    while True:
+        idx = lowered.find(query_lower, start)
+        if idx < 0:
+            break
+        start = idx + len(query_lower)
+        match_count += 1
+        if match_count > max_matches:
+            continue
+        if len(lowered) != len(content):
+            original_start = bisect.bisect_right(boundaries, idx) - 1
+            original_end = bisect.bisect_left(boundaries, start)
         else:
-            windows.append((cs, ce, [(match_idx, start_pos, end_pos)]))
+            original_start, original_end = idx, start
+        first = bisect.bisect_right(line_starts, original_start) - 1
+        last = bisect.bisect_right(line_starts, original_end - 1) - 1
+        segments = [
+            (
+                i,
+                max(0, original_start - line_starts[i]),
+                min(len(lines[i]), original_end - line_starts[i]),
+            )
+            for i in range(first, last + 1)
+        ]
+        cs = max(0, first - max(0, context_lines))
+        ce = min(len(lines), last + max(0, context_lines) + 1)
+        if windows and cs <= windows[-1][1]:
+            prev_cs, prev_ce, prev_matches = windows[-1]
+            windows[-1] = (prev_cs, max(ce, prev_ce), prev_matches + segments)
+        else:
+            windows.append((cs, ce, segments))
+
+    if not match_count:
+        return content[:100] + "..." if len(content) > 100 else content
 
     # Build a highlight map: line_idx -> list of (start, end) char positions
     def _highlight_line(line: str, highlights: list[tuple[int, int]]) -> str:
@@ -487,6 +502,10 @@ def _format_message_with_context(
         result_parts = []
         prev = 0
         for hs, he in sorted(highlights):
+            # Distinct lower-string hits can map to the same original character.
+            hs = max(prev, hs)
+            if he <= hs:
+                continue
             result_parts.append(line[prev:hs])
             match_text = line[hs:he]
             if sys.stdout.isatty():
@@ -517,8 +536,8 @@ def _format_message_with_context(
         formatted_matches.append(context_text)
 
     result = "\n".join(formatted_matches)
-    if len(line_indices) > max_matches:
-        result += f"\n(+{len(line_indices) - max_matches} more matches)"
+    if match_count > max_matches:
+        result += f"\n(+{match_count - max(0, max_matches)} more matches)"
 
     return result
 
