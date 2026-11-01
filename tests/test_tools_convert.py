@@ -1131,8 +1131,12 @@ def test_converters_reject_special_destination_before_backend(
 def test_document_conversion_preserves_regular_destinations(
     destination: str, avail_all: ToolAvailability, tmp_path: Path
 ) -> None:
+    docx = pytest.importorskip("docx")
     src = tmp_path / "source.docx"
-    src.write_bytes(b"SYNTHETIC_SOURCE")
+    document = docx.Document()
+    document.add_paragraph("CONVERTED_TEXT")
+    document.save(src)
+    original_source = src.read_bytes()
     target = tmp_path / "target.txt"
     dest = target
     if destination != "missing":
@@ -1145,12 +1149,7 @@ def test_document_conversion_preserves_regular_destinations(
             if os.name == "nt":
                 pytest.skip("Creating symlinks requires Windows privileges")
             raise
-    docx = MagicMock()
-    docx.Document.return_value.paragraphs = [_MockPara("CONVERTED_TEXT")]
-    with (
-        patch("gptme.tools.convert.get_availability", return_value=avail_all),
-        patch.dict(sys.modules, {"docx": docx}),
-    ):
+    with patch("gptme.tools.convert.get_availability", return_value=avail_all):
         plan = convert_file(src, dest, dry_run=True)
         assert plan.success
         assert not target.exists() or target.read_text() == "OLD_OUTPUT"
@@ -1159,7 +1158,7 @@ def test_document_conversion_preserves_regular_destinations(
     assert target.read_text() == "CONVERTED_TEXT"
     if destination == "regular-symlink":
         assert dest.is_symlink()
-    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
+    assert src.read_bytes() == original_source
 
 
 # ---------------------------------------------------------------------------
