@@ -666,11 +666,11 @@ uses offline provider faults and loopback SSE fixtures, not paid inference.</p>
 <tbody>
 <tr class="row-even"><td><p>CLI interactive: <code class="docutils literal notranslate"><span class="pre">chat._chat</span></code> → <code class="docutils literal notranslate"><span class="pre">chat.step</span></code> → <code class="docutils literal notranslate"><span class="pre">llm.reply</span></code></p></td>
 <td><p>Adapter retries only before output; tagged failures return control to the user and clear queued prompts.</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">reply()</span></code> retries an uncommitted generation below tools. Existing terminal-error handling still applies after exhaustion.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">reply()</span></code> retries an uncommitted generation below tools. Exhaustion parks remaining prompts on disk and returns control; they are not auto-drained under a fresh budget.</p></td>
 </tr>
 <tr class="row-odd"><td><p>CLI headless: same generation path</p></td>
 <td><p>Provider failure propagates to <code class="docutils literal notranslate"><span class="pre">cli.main</span></code>, records terminal error and exits nonzero.</p></td>
-<td><p>Same bounded generation recovery; exhaustion still exits, rather than starting a new process.</p></td>
+<td><p>Same bounded generation recovery; remaining prompts are parked on disk, then this process still exits nonzero.</p></td>
 </tr>
 <tr class="row-even"><td><p>TUI: <code class="docutils literal notranslate"><span class="pre">GptmeApp._generation_body</span></code> → <code class="docutils literal notranslate"><span class="pre">chat.step</span></code></p></td>
 <td><p>Failure ends the worker; app stays open and may dispatch the next queued turn.</p></td>
@@ -720,6 +720,13 @@ context-length policy, not transient transport classification.</p></li>
 HTTP status (408/429/5xx), or transient Responses error code. Authentication,
 permission, malformed requests, resource limits and tool/hook failures must
 not become blanket-retry cases. Respect <code class="docutils literal notranslate"><span class="pre">Retry-After</span></code> and strict request limits.</p></li>
+<li><p>Interactive CLI exhaustion parks remaining in-memory prompts on the durable
+queue and holds drain/consume until the user submits a normal message.
+Slash commands, Ctrl+C and declining tool execution during an explicit resume
+do not retry parked work. If the explicit resume turn calls <code class="docutils literal notranslate"><span class="pre">complete</span></code>,
+pending intent is drained before session completion,
+just as for chained prompts; the steering queue closes only after that work
+is exhausted. Headless exhaustion still exits nonzero without auto-resume.</p></li>
 <li><p>Failed output is an uncommitted preview, not persisted assistant content.
 Callback consumers bind <code class="docutils literal notranslate"><span class="pre">recovery_notifications()</span></code> and reset attempt-local
 display/buffers before replay. Plain terminal output cannot be retracted;
@@ -771,7 +778,8 @@ Resume timeout remains nonzero (124). A later unrelated run is not a substitute.
 <code class="docutils literal notranslate"><span class="pre">test_recovery_nested_budget</span></code>, <code class="docutils literal notranslate"><span class="pre">test_chat_transient_recovery</span></code> and
 <code class="docutils literal notranslate"><span class="pre">test_tui_recovery</span></code> cover terminal-less EOF, partial preview reset, truncated
 JSON/no execution, retained earlier tool results, queue retention, cancellation,
-bounded physical sends, permanent errors and accurate exhaustion.</p>
+bounded physical sends, permanent errors, accurate exhaustion and interactive
+CLI parking of remaining queued intent.</p>
 </section>
 </section>
 

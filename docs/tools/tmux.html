@@ -638,16 +638,14 @@
 Examples of such commands: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">dev</span></code>, <code class="docutils literal notranslate"><span class="pre">python3</span> <span class="pre">server.py</span></code>, <code class="docutils literal notranslate"><span class="pre">python3</span> <span class="pre">train.py</span></code>, etc.
 It allows for inspecting pane contents and sending input.</p>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can use the tmux tool to run long-lived and/or interactive applications in a tmux session.
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Run interactive/persistent apps (REPLs, TUIs, servers) needing keyboard input or
+repeated pane inspection. Prefer shell background jobs for noninteractive work.
+Use <span class="sb">`wait &lt;session_id&gt; [timeout] [stable_time]`</span> to await stable output.
 
-<span class="gu">### When to use tmux</span>
-
-Use tmux for interactive applications requiring ongoing keyboard input or output
-inspection: REPLs, TUIs, interactive installers, and persistent processes you
-need to revisit. Prefer tmux over the shell's <span class="sb">`bg`</span> command when the application
-requires send-keys interaction or repeated pane inspection. Use `wait
-&lt;session_id&gt; [timeout] [stable_time]` when you need output to stabilize before
-continuing.
+Top-level semicolons/newlines separate tmux commands. Shell sequences need a
+compound: <span class="sb">`new-session (cmd1; cmd2)`</span>. Heredocs/nested compounds stay intact;
+heredoc terminators occupy their own lines. <span class="sb">`send-keys`</span> is literal, not Bash.
+Invalid/unsupported boundaries reject the whole batch; use shell or a script.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
