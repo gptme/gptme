@@ -634,6 +634,15 @@ def _session_belongs_to_caller() -> bool:
     return _session_owner == _conversation_key()
 
 
+def _require_session_owner() -> None:
+    """Reject access to another conversation's live page or authentication."""
+    if not _session_belongs_to_caller():
+        raise RuntimeError(
+            "Browser session belongs to another conversation. Call open_page(url) "
+            "to start a new session."
+        )
+
+
 def _interactive_page_is_live() -> bool:
     """Return True if the interactive page handle can be navigated."""
     if _current_page is None:
@@ -698,6 +707,7 @@ def _page_snapshot() -> str:
 
 def _read_page_text(browser: Browser) -> str:
     """Read the text content of the current persistent page as Markdown."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     # The page may have navigated away from the allowlist since it was opened.
@@ -798,6 +808,7 @@ def close_page() -> str:
 
 def _do_save_browser_state(browser: Browser, path: str) -> str:
     """Save current browser session state (cookies + localStorage) to a JSON file."""
+    _require_session_owner()
     ctx: BrowserContext | None = _current_context
     if ctx is None and _browser is not None and _browser._session_context is not None:
         # CDP mode — the active context is the shared session context.
@@ -965,6 +976,7 @@ def open_page(url: str) -> str:
 
 def _click(browser: Browser, selector: str) -> str:
     """Click an element on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.locator(selector).click(timeout=10000)
@@ -1000,6 +1012,7 @@ def click_element(selector: str) -> str:
 
 def _fill(browser: Browser, selector: str, value: str) -> str:
     """Fill a form field on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.locator(selector).fill(value, timeout=10000)
@@ -1024,6 +1037,7 @@ def fill_element(selector: str, value: str) -> str:
 
 def _scroll(browser: Browser, direction: str, amount: int) -> str:
     """Scroll the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     if direction not in ("up", "down"):
@@ -1056,6 +1070,7 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
 
 def _press_key(browser: Browser, key: str) -> str:
     """Press a keyboard key or shortcut in the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.keyboard.press(key)
@@ -1097,6 +1112,7 @@ def press_key(key: str) -> str:
 
 def _select_option(browser: Browser, selector: str, value: str) -> str:
     """Select an option from a <select> element on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     locator = _current_page.locator(selector)
@@ -1137,6 +1153,7 @@ def select_option(selector: str, value: str) -> str:
 
 def _wait_for_element(browser: Browser, selector: str, timeout_ms: int) -> str:
     """Wait for an element to be visible on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     try:
@@ -1181,6 +1198,7 @@ def wait_for_element(selector: str, timeout_ms: int = 5000) -> str:
 
 def _hover(browser: Browser, selector: str) -> str:
     """Hover over an element on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.locator(selector).hover(timeout=10000)
@@ -1215,6 +1233,7 @@ def hover_element(selector: str) -> str:
 
 def _snapshot_current_page(_browser: Browser) -> str:
     """Return the current page snapshot from the browser thread."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     return _page_snapshot()
@@ -1252,6 +1271,7 @@ def snapshot_page() -> str:
 
 def _get_current_url(_browser: Browser) -> str:
     """Return the current page URL from the browser thread."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     return _current_page.url

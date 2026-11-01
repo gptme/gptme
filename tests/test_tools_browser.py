@@ -1699,3 +1699,44 @@ class TestSelectOption:
 
         # Old code would call twice (value= then label=); fix makes it call once.
         mock_locator.select_option.assert_called_once()
+
+
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
+@pytest.mark.parametrize(
+    ("operation", "args"),
+    [
+        ("_snapshot_current_page", ()),
+        ("_read_page_text", ()),
+        ("_click", ("button",)),
+        ("_fill", ("input", "value")),
+        ("_scroll", ("down", 100)),
+        ("_press_key", ("Enter",)),
+        ("_select_option", ("select", "value")),
+        ("_wait_for_element", ("button", 100)),
+        ("_hover", ("button",)),
+        ("_get_current_url", ()),
+        ("_do_save_browser_state", ("state.json",)),
+    ],
+)
+def test_interactive_operations_reject_another_session(operation, args, tmp_path):
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+
+    page = MagicMock()
+    context = MagicMock()
+    token = current_conversation_id.set("conv-b")
+    if operation == "_do_save_browser_state":
+        args = (str(tmp_path / "state.json"),)
+    try:
+        with (
+            patch.object(bp, "_current_page", page),
+            patch.object(bp, "_current_context", context),
+            patch.object(bp, "_session_owner", "conv-a"),
+            pytest.raises(RuntimeError, match="another conversation"),
+        ):
+            getattr(bp, operation)(MagicMock(), *args)
+    finally:
+        current_conversation_id.reset(token)
+    assert page.mock_calls == []
+    assert context.mock_calls == []
+    assert not (tmp_path / "state.json").exists()
