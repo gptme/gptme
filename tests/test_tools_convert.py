@@ -359,7 +359,7 @@ class TestPDFToImageConverter:
             commands.append(cmd)
             if cmd[0] == "convert":
                 assert cmd[-2] == f"{src}[0]"
-                dest.write_bytes(b"first page jpeg")
+                Path(cmd[-1]).write_bytes(b"first page jpeg")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
