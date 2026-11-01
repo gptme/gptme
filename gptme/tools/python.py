@@ -918,7 +918,7 @@ If you first write the code in a normal python codeblock, remember to also execu
 
 def examples(tool_format):
     return f"""
-#### Result of the last expression will be returned
+#### Return the last expression
 
 > User: What is 2 + 2?
 > Assistant:
@@ -926,25 +926,23 @@ def examples(tool_format):
 > System: Executed code block.
 {md_codeblock("result", "4")}
 
-#### Write a function and call it
+#### Define and call a function
 
-> User: compute fib 10
-> Assistant: To compute the 10th Fibonacci number, we can run the following code:
+> User: Square 10
+> Assistant:
 {
         ToolUse(
             "ipython",
             [],
             '''
-def fib(n):
-    if n <= 1:
-        return n
-    return fib(n - 1) + fib(n - 2)
-fib(10)
+def square(n):
+    return n * n
+square(10)
 '''.strip(),
         ).to_output(tool_format)
     }
 > System: Executed code block.
-{md_codeblock("result", "55")}
+{md_codeblock("result", "100")}
 """.strip()
 
 
