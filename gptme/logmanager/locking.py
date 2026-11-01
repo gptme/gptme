@@ -50,8 +50,9 @@ def conversation_lifecycle_lock(
 def unowned_conversation(logdir: Path) -> Iterator[None]:
     """Strictly acquire the real lifetime lock, never reuse a same-process owner.
 
-    The caller holds the lifecycle gate. Close before removal for Windows;
-    startup cannot acquire a replacement lifetime lock until the gate releases.
+    Advisory discovery may probe without a lifecycle gate. Deletion must hold
+    that gate through removal: close this descriptor first for Windows, while
+    the gate prevents startup from acquiring a replacement lifetime lock.
     """
     from .manager import LogManager
 
