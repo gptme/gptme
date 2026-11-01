@@ -1,0 +1,1159 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" data-theme="auto">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>File-backed tool and process output &#8212; gptme</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "auto";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "auto";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=90905a2f556bf617f1a9" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=4418a689" />
+    <link rel="stylesheet" type="text/css" href="../_static/asciinema-player_3.12.1.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=3a28e17f" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="../_static/scripts/fontawesome.js?digest=90905a2f556bf617f1a9"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9" />
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/asciinema-player_3.12.1.js"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=fab101a9"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'design/file-backed-output';</script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="canonical" href="https://gptme.org/docs/design/file-backed-output.html" />
+    <link rel="icon" href="../_static/logo.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Philosophy" href="../philosophy.html" />
+    <link rel="prev" title="Transcript Persistence" href="transcript-persistence.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+  
+    
+    <script src="../_static/searchtools.js"></script>
+    <script src="../_static/language_data.js"></script>
+    <script src="../searchindex.js"></script>
+  
+  </head>
+  <body data-default-mode="auto">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/logo.png" class="logo__image only-light" alt="gptme - Home"/>
+    <img src="../_static/logo.png" class="logo__image only-dark pst-js-only" alt="gptme - Home"/>
+  
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../getting-started.html">Getting Started</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../system-dependencies.html">Extras and System Dependencies</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../examples.html">Examples</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/choose-workflow.html">Choose a Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/minimal-context.html">Minimal Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/edit-files.html">Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/code-review.html">Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/debug-python.html">Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/refactor.html">Refactor Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/automate-task.html">Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/parallel-research.html">Parallel Research</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/computer-use.html">Computer Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/skills-workflows.html">Reusable Skills</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/custom-tool-plugin.html">Custom Tool Plugin</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../howto/tts-setup.html">Text-to-Speech</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../models.html">Models</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../providers.html">Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../providers-supported.html">Supported Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../providers-custom.html">Custom and Local Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../providers-integration.html">Provider Integration Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tool-formats.html">Tool Formats</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../tools.html">Tools</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tools/read.html">Read</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/save.html">Save</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/patch.html">Patch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/morph.html">Morph</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/hashline-edit.html">Hashline Edit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/patch-many.html">Patch many</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/convert.html">Convert</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/python.html">Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/shell.html">Shell</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/gh.html">GitHub (gh)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/precommit.html">Precommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/autocommit.html">Autocommit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/browser.html">Browser</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/rag.html">RAG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/chats.html">Chats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vision.html">Vision</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/screenshot.html">Screenshot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/computer.html">Computer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/choice.html">Choice</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/elicit.html">Elicit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/form.html">Form</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/tmux.html">Tmux</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/subagent.html">Subagent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/complete.html">Complete</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/restart.html">Restart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/vent.html">Vent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/request-tool-change.html">Request Tool Change</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/watch.html">Watch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/progress.html">Progress</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/clarify.html">Clarify</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/lessons.html">Lessons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/todo.html">Todo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tools/mcp.html">MCP</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../commands.html">Commands</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../automation.html">Automation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../security.html">Security</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Interfaces</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../cli.html">CLI</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme.html">gptme</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-server.html">gptme-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-tui.html">gptme-tui</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-util.html">Recovering chat message content</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/agents.html">Agent Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/gptme-mcp-server.html">gptme-mcp-server</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/setup.html">Setup and Diagnostics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/sessions.html">Sessions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../cli/evaluation.html">Evaluation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../tui.html">TUI</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../app.html">App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cloud.html">Cloud</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../acp.html">ACP</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../channels.html">Channels</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../bot.html">GitHub Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/email.html">Email</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/agent-messaging.html">Agent Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/chat.html">Chat Apps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../channels/voice.html">Voice</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../server.html">Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../webui.html">Web</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Context</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agents/workspace.html">Workspace</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/autonomous.html">Running autonomously</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../profiles.html">Profiles</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../lessons.html">Lessons</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../skills.html">Skills</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../skills-gallery.html">Gallery</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../memory.html">Memory</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Extending gptme</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../concepts.html">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plugins.html">Plugin System</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../custom_tool.html">Custom Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hooks.html">Hooks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../mcp.html">MCP</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../pr-lifecycle.html">PR Lifecycle</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../building.html">Building Executables</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/llm.html">LLMs and Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tools.html">Tools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/plugins.html">Plugins</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/commands.html">Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/profiles.html">Profiles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/memory.html">Memory</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/prompts.html">Prompts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/server.html">Server</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../context-compression.html">Context Compression</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../transport-recovery.html">Transport recovery boundaries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../evals.html">Evals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finetuning.html">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Design Documents</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="hook-based-confirmations.html">Hook-Based Tool Confirmations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="elicitation.html">Generalized Elicitation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ptc-tool-interface.html">Programmatic Tool Calling (PTC)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="transcript-persistence.html">Transcript Persistence</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">File-Backed Tool Output (proposed)</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../philosophy.html">Philosophy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../projects.html">Projects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../misc/acronyms.html">What does “gptme” stand for?</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.35.1.html">v0.35.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.35.0.html">v0.35.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.34.0.html">v0.34.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.33.0.html">v0.33.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.32.1.html">v0.32.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.32.0.html">v0.32.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.1.1.html">v0.1.1</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">External</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference external" href="https://github.com/gptme/gptme">GitHub</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://x.com/gptmeorg">X</a></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/gptme/gptme/edit/master/docs/design/file-backed-output.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/design/file-backed-output.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button pst-navbar-icon"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div>
+
+
+<button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+</button>
+<button class="sidebar-toggle secondary-toggle btn btn-sm pst-navbar-icon" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>File-backed tool and process output</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#decision">Decision</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-state-inventory">Current-state inventory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#evidence-existing-storage-versus-smaller-presentation">Evidence: existing storage versus smaller presentation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#proposed-contract">Proposed contract</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#representation-identity-and-inline-receipt">Representation, identity and inline receipt</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#capture-before-eviction">Capture before eviction</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-reads-and-immutable-completion">Live reads and immutable completion</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#namespace-permissions-and-access">Namespace, permissions and access</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#small-implementation-sequence-and-regression-gates">Small implementation sequence and regression gates</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternatives-deliberately-rejected">Alternatives deliberately rejected</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="file-backed-tool-and-process-output">
+<h1>File-backed tool and process output<a class="headerlink" href="#file-backed-tool-and-process-output" title="Link to this heading">#</a></h1>
+<p><strong>Status:</strong> proposed contract; no production capture changes in this PR.</p>
+<p><strong>Request:</strong> <a class="reference external" href="https://github.com/gptme/gptme/issues/4663">gptme/gptme#4663</a>.</p>
+<p><strong>Source inventory:</strong> <code class="docutils literal notranslate"><span class="pre">15f20e44c96acdd035da81213b9e9f5bb54ac98d</span></code> (2026-10-30).</p>
+<section id="decision">
+<h2>Decision<a class="headerlink" href="#decision" title="Link to this heading">#</a></h2>
+<p>Extend <code class="docutils literal notranslate"><span class="pre">util/output_storage.py</span></code> and <code class="docutils literal notranslate"><span class="pre">tools/shell_background.py</span></code>, keeping
+conversation-owned <code class="docutils literal notranslate"><span class="pre">tool-outputs/</span></code> as the storage namespace. Keep small results
+inline; return bounded useful previews and explicit retrieval references for
+large results. Capture completeness, process completion, and preview truncation
+are independent facts. A saved tail is not a complete log.</p>
+<p>Do <strong>not</strong> introduce another scratchpad tool, artifact database, index/retention
+daemon, semantic-summary service, or implicit prompt attachment. Do not change
+the attachment/restart batch to implement this design. A path in a receipt is
+untrusted output metadata, not permission to read or attach its contents.</p>
+<p>This complements <a class="reference internal" href="transcript-persistence.html"><span class="std std-doc">transcript persistence</span></a>: transcripts
+preserve received messages; process capture must preserve output <em>before</em> it is
+omitted from those messages. <a class="reference internal" href="ptc-tool-interface.html"><span class="std std-doc">PTC</span></a> defines invocation, not
+capture. TUI folding, call/result association, context compaction and generation
+recovery are separate layers, not alternative output stores.</p>
+</section>
+<section id="current-state-inventory">
+<h2>Current-state inventory<a class="headerlink" href="#current-state-inventory" title="Link to this heading">#</a></h2>
+<p>References below are source paths and function names at the inventory revision.
+A file may preserve a selected/decoded/redacted representation without preserving
+original process bytes. No generic guarantee applies across these rows.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Entry point</p></th>
+<th class="head"><p>Capture and presentation today</p></th>
+<th class="head"><p>Retention/retrieval limitation</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">util/output_storage.py:save_large_output</span></code></p></td>
+<td><p>Writes an already-materialized string; second-resolution timestamp + eight-character content hash</p></td>
+<td><p>Ordinary mkdir/write; no explicit private modes, exclusive creation, atomic publication, containment check or inherent redaction. Same content/type/second reuses a path.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/shell.py:ShellSession.run</span></code>, <code class="docutils literal notranslate"><span class="pre">_format_shell_output</span></code>, <code class="docutils literal notranslate"><span class="pre">_shorten_stdout</span></code></p></td>
+<td><p>Foreground collects decoded strings, normally under a 32 MiB combined raw-read cap; ANSI removal and configured credential redaction precede formatted spills. Line/token shortening and query-aware pruning save their input first when logdir exists</p></td>
+<td><p>Full <em>supplied text</em>, not original bytes: UTF-8 replacement, shell framing/blank trimming and sanitation already occurred. Strings/tokenization still use RAM; spill is not streaming. Missing logdir means no durable spill.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/shell.py:execute_shell_impl</span></code> promotion</p></td>
+<td><p>Existing foreground worker continues; job callback exposes active output. <code class="docutils literal notranslate"><span class="pre">complete_background_job</span></code> writes final text before storing a bounded tail</p></td>
+<td><p>Existing cap/termination path remains relevant; complete relative to returned text, not an unlimited process lifetime. No launch-time spool.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/shell_background.py:BackgroundJob._read_output</span></code>, <code class="docutils literal notranslate"><span class="pre">get_output</span></code>, <code class="docutils literal notranslate"><span class="pre">format_job_output</span></code></p></td>
+<td><p>Direct jobs incrementally decode into roughly 1 Mi-character tails per stream (constant counts characters, not bytes); display tails 8k stdout / 2k stderr. <code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">N</span> <span class="pre">--new</span></code> advances character cursors</p></td>
+<td><p>Prefixes can be evicted before first disk snapshot. Sanitized snapshots on display, not append-only spooling. Promoted final writes are protected against later snapshot replacement; direct snapshots are mutable.</p></td>
+</tr>
+<tr class="row-even"><td><p>Background termination</p></td>
+<td><p>Reader drains for about one second after direct-child exit, flushes decoder, then notifies; process-group cleanup handles descendants</p></td>
+<td><p>Reader-finished does not prove pipe EOF or unlimited descendant capture. Registry/cursors are in memory; jobs do not survive restart.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/python.py:TeeIO</span></code>, <code class="docutils literal notranslate"><span class="pre">_cap_output</span></code>; <code class="docutils literal notranslate"><span class="pre">python_kernel.py:KernelBackend.execute</span></code></p></td>
+<td><p>In-process/kernel stream capture keeps bounded heads (10 MiB per stream); ordinary result/error text materializes before capping. Returned Message paths differ</p></td>
+<td><p>No direct output_storage spill; omitted bytes are unrecoverable. Live tee can show more than transcript. Sandbox Docker communicate / Wasmtime file read can materialize output before clipping.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/gh.py:execute_gh</span></code>, <code class="docutils literal notranslate"><span class="pre">util/gh.py</span></code></p></td>
+<td><p>Subprocess capture buffers before native parsing. Native run view extracts/clips failure sections; PR thread bodies also clipped; passthrough has no general spill/cap</p></td>
+<td><p>No archival guarantee. Re-fetch requires credentials/network and may return changed state; successful passthrough stderr is not yielded.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/mcp_adapter.py:create_mcp_execute_function</span></code>, resource/prompt helpers</p></td>
+<td><p>Loaded tool conversion returns first TextContent, not all content items; resources join text, other content has placeholders</p></td>
+<td><p>No generic spill/cap. Transport limits are external. First text can enter debug logging. Advisory MCP roots are not sandboxing.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/browser.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_playwright.py</span></code>, <code class="docutils literal notranslate"><span class="pre">_browser_lynx.py</span></code></p></td>
+<td><p>HTML/Markdown/ARIA and subprocess results materialize; console logs accumulate; PDF download materializes, default first 10 pages is not a byte bound</p></td>
+<td><p>No direct text spill. Python-call path meets Python caps; native function conversion has no equivalent generic cap. Screenshots/auth-state files are separate resources.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/read.py:_read_one</span></code>, <code class="docutils literal notranslate"><span class="pre">_read_text_bounded</span></code>, <code class="docutils literal notranslate"><span class="pre">_read_line_range</span></code></p></td>
+<td><p>Whole-file text limited to 1 MiB; ranges have rendered-byte bounds/continuation. Conditional relevance pruning saves selected pre-prune text</p></td>
+<td><p>Saved selection is not necessarily the whole input. Original file may change later. <code class="docutils literal notranslate"><span class="pre">GPTME_READ_ROOT</span></code> confines resolved paths; default absolute-path access is broader.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools/tmux.py:_capture_pane</span></code>, <code class="docutils literal notranslate"><span class="pre">_truncate_output</span></code></p></td>
+<td><p>Captures scrollback into RAM, then 50 head / 150 tail lines; native inspect/wait can spill to user-cache-root tmux-output</p></td>
+<td><p>No byte cap; new/send paths do not supply spill logdir. Pane history may already have lost older output. Cache spill is not conversation-owned.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/autocompact/engine.py</span></code>, <code class="docutils literal notranslate"><span class="pre">create_tool_result_summary</span></code></p></td>
+<td><p>Saves received message text when logdir exists, then replaces with pointer; master-log references are another mechanism</p></td>
+<td><p>Cannot recover upstream omissions or prevent initial allocations. Without logdir it can remove text without a saved file.</p></td>
+</tr>
+<tr class="row-even"><td><p>CLI/TUI and shared <code class="docutils literal notranslate"><span class="pre">ToolUse.execute</span></code></p></td>
+<td><p>Tool/call results can be collected before persistence. CLI transcript stores canonical message; TUI folding is display-only; TUI stdout/stderr also append to tui.log</p></td>
+<td><p>No universal bounded capture or sanitation layer. A tool crash before step persistence can precede recording. TUI log is not output_storage.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Server</p></td>
+<td><p>Tool results collected and emitted as tool_output/message events; conversation transcript remains canonical</p></td>
+<td><p>Event-count bound is not a byte bound. Existing authenticated <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/v2/conversations/&lt;id&gt;/files/&lt;filepath&gt;</span></code> can serve logdir-relative tool-outputs, subject to resolved containment; workspace fallback also exists. Endpoint serves bytes, not newly redacted text.</p></td>
+</tr>
+<tr class="row-even"><td><p>ACP / gptme MCP server</p></td>
+<td><p>ACP forwards message text, not file-transfer handles; MCP server joins tool output</p></td>
+<td><p>No verified artifact transfer bridge or universal cap. ACP adapter does not enforce Message.hide as an access boundary.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools/recall.py:_lookup_master_result</span></code></p></td>
+<td><p>Stable current-master-log message positions, paged character retrieval</p></td>
+<td><p>Recovers what was recorded, not omitted process bytes or missing spill files. A recall result ID is not a filesystem resource ID.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Adjacent process paths are not covered by shell’s contract: <code class="docutils literal notranslate"><span class="pre">tools/watch.py</span></code>
+<code class="docutils literal notranslate"><span class="pre">_poll_until</span></code> uses communicate before emitting a 500-character condition preview;
+<code class="docutils literal notranslate"><span class="pre">_poll_run</span></code> keeps a 1,000-character tail; <code class="docutils literal notranslate"><span class="pre">_poll_stream</span></code> bounds event count but
+accumulates partial-line text separately. <code class="docutils literal notranslate"><span class="pre">tools/convert.py</span></code> also uses subprocess
+capture before reporting diagnostics. Neither offers a general output_storage
+spool. Inventory/adoption is separate from the direct-job pilot; do not duplicate
+the bounded watch-probe work in gptme/gptme#4639.</p>
+<p>Credential guardrails before execution are useful but are not universal output
+redaction. The generic writer is unsanitized. Shell job sanitation has explicit
+handling for partial assignments and evicted line prefixes; preserve that policy
+when moving persistence earlier. Do not advertise a general secret-scanning guarantee.</p>
+</section>
+<section id="evidence-existing-storage-versus-smaller-presentation">
+<h2>Evidence: existing storage versus smaller presentation<a class="headerlink" href="#evidence-existing-storage-versus-smaller-presentation" title="Link to this heading">#</a></h2>
+<p>Run from the repository with its Python environment:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>.venv/bin/python<span class="w"> </span>scripts/measure_output_capture.py
+</pre></div>
+</div>
+<p>The script uses synthetic fixtures, no provider or network calls, disables
+network-capable tokenizer loading and sets explicit default shell budgets
+(2k/8k stdout, 2k/2k stderr). It compares actual foreground formatting/storage
+with a <strong>presentation-only candidate</strong> using 8k/2k character head/tail budgets.
+The candidate is not a streaming implementation or validated user-experience win.
+All token figures below are character/4 approximations, not billed tokens.</p>
+<p>One local sample (temporary path lengths cause small byte-count differences):</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Fixture</p></th>
+<th class="head text-right"><p>Input bytes</p></th>
+<th class="head text-right"><p>Current inline bytes (~tokens)</p></th>
+<th class="head text-right"><p>Candidate inline bytes</p></th>
+<th class="head text-right"><p>Saved text bytes</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Compact success</p></td>
+<td class="text-right"><p>19</p></td>
+<td class="text-right"><p>77 (~20)</p></td>
+<td class="text-right"><p>163</p></td>
+<td class="text-right"><p>0</p></td>
+</tr>
+<tr class="row-odd"><td><p>Pytest-style 20k result lines</p></td>
+<td class="text-right"><p>900,022</p></td>
+<td class="text-right"><p>40,198 (~10,050)</p></td>
+<td class="text-right"><p>8,150</p></td>
+<td class="text-right"><p>900,022</p></td>
+</tr>
+<tr class="row-even"><td><p>API JSON, 10k objects</p></td>
+<td class="text-right"><p>408,891</p></td>
+<td class="text-right"><p>40,194 (~10,049)</p></td>
+<td class="text-right"><p>8,148</p></td>
+<td class="text-right"><p>408,891</p></td>
+</tr>
+<tr class="row-odd"><td><p>Compiler failure, exit 2</p></td>
+<td class="text-right"><p>358,928</p></td>
+<td class="text-right"><p>56,392 (~14,098)</p></td>
+<td class="text-right"><p>10,167</p></td>
+<td class="text-right"><p>358,928</p></td>
+</tr>
+<tr class="row-even"><td><p>CSV, 30k rows</p></td>
+<td class="text-right"><p>318,905</p></td>
+<td class="text-right"><p>40,208 (~10,052)</p></td>
+<td class="text-right"><p>8,155</p></td>
+<td class="text-right"><p>318,905</p></td>
+</tr>
+<tr class="row-odd"><td><p>Huge single line</p></td>
+<td class="text-right"><p>2,097,176</p></td>
+<td class="text-right"><p>40,212 (~10,053)</p></td>
+<td class="text-right"><p>8,157</p></td>
+<td class="text-right"><p>2,097,176</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Every nonempty stream was exact in its saved text or present inline; failure
+code and final error remained visible in both presentations. No redaction/binary
+fidelity conclusion follows from these ASCII fixtures. Smaller previews save
+about 80% of existing inline bytes on these large cases, but a universal receipt
+<em>increases</em> compact-success overhead: keep the existing cheap small-result path.</p>
+<p>Formatting/storage took approximately 0.3–60 ms with warm imports and
+tracemalloc enabled; measured formatter peak Python allocations were 3 KiB–3.8 MB,
+<strong>excluding prebuilt input strings</strong>, not whole-process RSS. A local reread scan
+found the compiler error in 0.5 ms; each spilled case used one simulated selective
+local retrieval operation (one file open per saved stream), zero for compact
+success; no external tool calls were measured. Completeness validation reads
+are outside retrieval timing; timed retrieval starts before reopening the files.
+Fixture checks also recovered a
+specific API object, CSV row, pytest summary and huge-line boundary markers.
+Reread/selection took 0.5–3.6 ms and currently materializes the text in the
+evidence script. These are single-sample
+mechanism observations, not latency benchmarks, model-success scores or measured
+end-to-end time-to-useful-result. External/tool-call latency remains unmeasured.</p>
+<p>A real subprocess emitted 2,340,024 ASCII characters through the direct background
+reader and exited 2. It retained about 1.05M characters, evicting about 1.29M
+(chunk-dependent); the saved snapshot lacked BEGIN-MARKER and explicitly reported
+loss. There was no path before the first snapshot. Reader capture took about
+32 ms / 1.07 MB peak traced Python allocations in this sample. In contrast,
+feeding that complete text to the promoted final writer retained BEGIN/END and
+a later live snapshot could not replace it. This proves the paths differ; it
+does not prove promoted raw-byte fidelity or crash durability.</p>
+</section>
+<section id="proposed-contract">
+<h2>Proposed contract<a class="headerlink" href="#proposed-contract" title="Link to this heading">#</a></h2>
+<section id="representation-identity-and-inline-receipt">
+<h3>Representation, identity and inline receipt<a class="headerlink" href="#representation-identity-and-inline-receipt" title="Link to this heading">#</a></h3>
+<p>Use existing conversation ownership and tool-call/job identity; add a unique
+capture identity only where no call identity exists. A content hash is an
+integrity check, not identity or authorization. Separate stdout/stderr resources
+preserve stream order individually; do not invent a total cross-stream order.</p>
+<p>Each large-result receipt retains: call/job/capture ID, bounded command label,
+process state, actual exit code or signal, cancellation/timeout reason, capture
+state/reason, representation, per-stream observed/retained byte counts, preview
+omissions, and conversation-relative reference plus resolved local path when
+usable. Line counts are optional for text, with trailing partial-line semantics
+specified. Unknown counts are unknown, never zero or an inferred total.</p>
+<p>Use independent states:</p>
+<ul class="simple">
+<li><p><strong>Process:</strong> running, exited, cancelled, timeout (observed code separate).</p></li>
+<li><p><strong>Capture:</strong> pending, complete, partial, failed, disabled, unavailable.</p></li>
+<li><p><strong>Representation:</strong> redacted UTF-8 text, replacement-decoded text, or explicit
+binary bytes. A complete redacted representation is not byte-identical raw output.</p></li>
+<li><p><strong>Preview:</strong> complete or head/tail omitted, with its own returned-byte budget.</p></li>
+</ul>
+<p>Keep nonzero exit/signal and capture errors outside clipped body text. Successful
+small results need no extra file by default; jobs expose a receipt/live resource
+from launch. Initial preview candidate: shared 8k/2k character ceilings with an
+additional combined UTF-8 byte ceiling (e.g. 16 KiB); head plus larger tail,
+prioritizing stderr on failure. The extra byte ceiling is not tested by the ASCII
+candidate. Budget selection stays configurable; do not silently replace existing
+user settings. Semantic summaries are optional derived views, never evidence.</p>
+</section>
+<section id="capture-before-eviction">
+<h3>Capture before eviction<a class="headerlink" href="#capture-before-eviction" title="Link to this heading">#</a></h3>
+<p>For process paths, spool <strong>sanitized representation from the first read</strong>, before
+bounded preview buffers evict anything. Reuse output_storage placement and job
+lifecycle; do not run a second pipe reader. Incremental decoder/redactor state
+must span chunk boundaries. Bound the pending line/token buffer: if sanitation
+cannot decide within a bounded window (huge line/partial assignment), omit it
+with an explicit redaction/representation-loss marker. Never spill uncertain raw
+bytes merely to claim losslessness. Original raw bytes need an explicit policy
+and are not a default second copy of secrets.</p>
+<p>Proposed first limits: retain the foreground combined 32 MiB output ceiling;
+apply a configurable 32 MiB combined retained-stream ceiling to direct jobs,
+plus a 128 MiB conversation allowance for new spools. These are conservative
+starting proposals, not measured optimal defaults. On quota/storage failure,
+stop persistence, retain bounded preview, and mark partial/failed with the known
+retained boundary; continue draining/discarding so the child cannot deadlock.
+Writer backpressure must also be bounded: a bounded writer queue may stop
+accepting persistence on saturation, mark capture partial, and let the sole
+pipe reader keep draining. No unbounded queue or synchronous slow-file write
+in that reader. The pilot does not promise recovery from an indefinitely
+blocked kernel filesystem write; isolate that writer and report the limitation.
+Do not silently kill a build because its log disk filled. Existing explicit
+process output/memory-kill policy remains separately reported. Concurrent jobs
+must reserve against the shared allowance, with restart reconciliation from
+conversation-local files; no database is necessary.</p>
+<p>No unbounded readline, StringIO, frame join or tokenizer pass on the whole spool.
+Binary/invalid UTF-8 gets bounded safe display and explicit encoding/transform
+metadata; raw binary retention is opt-in. Preserve original exit code even if
+preview/storage/summary fails. If a descendant holds pipes beyond the drain
+window, finalize as partial with drain-timeout, not EOF-complete.</p>
+</section>
+<section id="live-reads-and-immutable-completion">
+<h3>Live reads and immutable completion<a class="headerlink" href="#live-reads-and-immutable-completion" title="Link to this heading">#</a></h3>
+<p>Use separate <code class="docutils literal notranslate"><span class="pre">.live</span></code> stream files and immutable final names/receipt. A live
+resource advertises running state and committed readable length; its contents
+can grow and must not be cited as fixed evidence. After readers finish, flush
+and close, atomically publish final metadata <em>last</em>. Complete capture requires
+actual EOF and successful persistence; cancellation can have complete capture
+through EOF but is not successful execution. Crash leftovers remain partial
+and discoverable, never silently promoted to complete on restart.</p>
+<p>Keep byte offsets per capture/stream and explicit retained start/end, distinct
+from existing decoded-character cursors. Live cursors denote committed retained
+representation bytes, not raw pipe bytes. UTF-8 range rendering aligns/decodes
+safely. Committed readable bytes must already satisfy the selected sanitation
+policy: a later rewrite cannot retract a credential a reader already saw.
+Hold undecidable fragments privately within a bounded window, then omit them;
+no security-repair rewrites in the pilot. Non-security replacement invalidates
+the cursor generation explicitly rather than duplicating/skipping bytes.
+No rotation in the first
+slice: cap explicitly. A poll advances only that consumer’s cursor; one automatic
+completion receipt has an independent delivery marker so reading output does not
+consume notification ownership. Promotion must adopt the existing capture at a
+known boundary, never copy/replay chunks into a second spool.</p>
+</section>
+<section id="namespace-permissions-and-access">
+<h3>Namespace, permissions and access<a class="headerlink" href="#namespace-permissions-and-access" title="Link to this heading">#</a></h3>
+<p>Create directories privately (<code class="docutils literal notranslate"><span class="pre">0700</span></code>) and files privately (<code class="docutils literal notranslate"><span class="pre">0600</span></code>, appropriate
+Windows ACL equivalent), before writing content. Use exclusive unguessable
+creation and safe descriptor-relative traversal/containment where supported;
+reject symlink/non-directory parents and unsafe types. Atomically publish whole
+text snapshots. Do not chmod or overwrite arbitrary existing targets. Hashes and
+private modes alone do not make a symlink race safe. Command labels, paths and
+metadata also need sanitation; arbitrary secret argv has no perfect automatic
+redactor, so allow omission.</p>
+<p>Extend existing storage helpers instead of introducing a second authoritative
+manifest. A small per-capture final sidecar is sufficient for receipt recovery;
+existing context-savings telemetry remains derived. Do not deduplicate by a
+short hash: distinct calls keep distinct identity. Any later content dedup must
+preserve access scope, metadata, lifetime and accounting.</p>
+<p>Logs follow conversation lifetime, not ephemeral <code class="docutils literal notranslate"><span class="pre">/tmp</span></code> scratch. No automatic
+git commit or cloud upload of raw output. Export is explicit: include permitted
+resources and rewrite relative references, or mark them unavailable. Deletion
+of a conversation may remove its logs under existing policy; a child handoff
+must copy/share permitted resources before owner deletion if retention is needed.
+Quota exhaustion refuses new retention, <strong>not</strong> deletion of historical evidence.</p>
+<p>For local readers, ordinary bounded read/grep/tail/jq is enough. For server
+clients, resolve conversation-relative refs through the existing authenticated
+file route, verifying authorization/containment and transfer-size limits; do not
+assume it supplies range/paging semantics. ACP/sandbox/remote children without
+that route receive an explicit unavailable/needs-transfer state, not a fictitious
+working host path. Any new transport bridge must reuse session authorization.
+A parent/child receipt shares only permitted output, identity, exit/capture state
+and locator; never copies full transcripts or auto-attaches incidental paths.
+Re-read output stays untrusted data with original producer provenance and the
+same injection-screening/access policy; local storage does not confer authority.
+Security-sensitive subprocess paths that deliberately suppress output remain
+non-spooling unless explicitly opted in under their policy.</p>
+</section>
+</section>
+<section id="small-implementation-sequence-and-regression-gates">
+<h2>Small implementation sequence and regression gates<a class="headerlink" href="#small-implementation-sequence-and-regression-gates" title="Link to this heading">#</a></h2>
+<p>This PR delivers the inventory, reproducible evidence script and contract.
+Implementation defaults below await maintainer agreement; broad rollout is not
+implied by existing tests passing.</p>
+<ol class="arabic simple">
+<li><p><strong>Safe existing writer + honest receipt.</strong> Harden output_storage creation,
+containment/private permissions and atomic whole-text publication without
+changing tool schemas; retain backward-compatible path/text returns. Add
+representation/completeness metadata with explicit unknowns. Test same-second
+concurrent calls, symlink parents/destination, unsafe output_type, permissive
+umask, restrictive existing file, ENOSPC/short write and failure before publish.
+Existing writer-safety tests do not cover those cases. Review permission-
+preserving transcript/export writers for reusable primitives, not assumed safety.</p></li>
+<li><p><strong>Direct background spool pilot.</strong> Thread capture state through the existing
+reader/job registration and completion APIs; expose launch-time ref; spool
+sanitized chunks before tail eviction. Test BEGIN/END beyond 1 Mi-character
+buffer, both streams, &gt;32 MiB quota, huge line, split UTF-8/credential chunks,
+actual EOF versus drain timeout, disk failure, kill/cancel and independent
+consumer cursors. Count raw observed, raw accepted for transformation, raw
+pending and raw discarded/unprocessed separately: observed = accepted +
+pending + discarded. Count committed representation bytes independently;
+they can expand/contract under decoding/redaction. EOF/cancel/quota/write
+failure must settle pending bytes explicitly and report uncommitted transformed
+output without equating retained-file size to accepted raw bytes.</p></li>
+<li><p><strong>Foreground/promotion convergence.</strong> Reuse that capture, retaining existing
+shell framing/output cap and irreversible execution semantics. Test promotion
+at chunk boundary, finish racing poll/kill, no duplicate completion or chunks,
+exact nonzero exit code, stderr-only failure, no lost buffered decoder tail,
+and immutable final evidence despite later output/wait calls. Smaller previews
+are a separate policy change with fixture before/after evidence.</p></li>
+<li><p><strong>Entry-point adapters, only when verified.</strong> Python/kernel, gh/MCP/browser
+conversion, tmux/read and autocompact each declare what they captured before
+adopting the receipt. Do not label upstream truncation complete. Test missing
+files, restart recovery, explicit export/child sharing, authorized remote
+retrieval/denial and range caps. ACP and sandbox retrieval remain unavailable
+until a real bounded transfer is tested.</p></li>
+</ol>
+<p>Every pilot checks terminal failure visibility, private-mode/redaction controls,
+producer memory/disk limits and no implicit attachment. Add end-to-end selective
+retrieval tasks (find failing test/error, jq one API object, read CSV range),
+recording useful-answer correctness, extra tool calls, context bytes/tokens and
+time-to-useful-result separately from formatter time. Current offline evidence
+justifies safe storage and a direct-job pilot; it does <strong>not</strong> justify universal
+capture, a default-policy flip, or a claim of improved agent task success.</p>
+</section>
+<section id="alternatives-deliberately-rejected">
+<h2>Alternatives deliberately rejected<a class="headerlink" href="#alternatives-deliberately-rejected" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Only shrink previews:</strong> easy context savings, does not repair lost job prefixes.</p></li>
+<li><p><strong>Persist everything raw:</strong> captures secrets and increases disk/privacy exposure;
+preservation must be qualified by policy and representation.</p></li>
+<li><p><strong>Redirect every command manually:</strong> useful workaround, but ad hoc ownership and
+pipeline exit-status mistakes remain; <code class="docutils literal notranslate"><span class="pre">tee</span></code>/<code class="docutils literal notranslate"><span class="pre">tail</span></code> do not preserve failure by magic.</p></li>
+<li><p><strong>New shell_capture/read_capture tools:</strong> duplicate existing invocation/storage
+surfaces; no demonstrated need for another tool API.</p></li>
+<li><p><strong>Generic post-tool spill alone:</strong> helpful for presentation, too late for RAM,
+MCP content conversion loss, bounded Python capture or evicted background data.</p></li>
+<li><p><strong>A central database, remote store or cleanup daemon:</strong> unnecessary for the
+observed conversation-local gap and creates new lifecycle/security obligations.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="transcript-persistence.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Transcript Persistence</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../philosophy.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Philosophy</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item"><div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#decision">Decision</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-state-inventory">Current-state inventory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#evidence-existing-storage-versus-smaller-presentation">Evidence: existing storage versus smaller presentation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#proposed-contract">Proposed contract</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#representation-identity-and-inline-receipt">Representation, identity and inline receipt</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#capture-before-eviction">Capture before eviction</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-reads-and-immutable-completion">Live reads and immutable completion</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#namespace-permissions-and-access">Namespace, permissions and access</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#small-implementation-sequence-and-regression-gates">Small implementation sequence and regression gates</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#alternatives-deliberately-rejected">Alternatives deliberately rejected</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Erik Bjäreholt
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2026, Erik Bjäreholt.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=90905a2f556bf617f1a9"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=90905a2f556bf617f1a9"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
