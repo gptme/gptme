@@ -240,6 +240,18 @@ Install a skill from the default ``gptme-contrib`` registry with
 See the :doc:`skills-gallery` for a curated list of community skills and the
 same install command.
 
+You can also install from a local skill directory or its ``SKILL.md`` file.
+Use ``--name`` to override the installation name, and ``--force`` to replace an
+existing installation from a separate source. Local replacements are copied and
+validated before publication; ordinary copy, validation or publication failures
+preserve the previous skill and manifest. Sources overlapping the installation
+are refused, including reinstalling directly from the installed directory.
+
+Recovery is best-effort, not a guarantee against process crashes, power loss or
+concurrent installers. If rollback itself fails, the error identifies the
+retained recovery directory; preserve it until you have recovered the old skill.
+These replacement guarantees apply to local sources, not Git/registry installs.
+
 Invoking Skills as Commands
 ---------------------------
 
