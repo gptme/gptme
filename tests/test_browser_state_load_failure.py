@@ -172,6 +172,12 @@ def test_real_browser_preserves_draft_and_loads_valid_state(
 
             monkeypatch.setattr(bp, "_create_page", routed_page)
             prepared = thread._session_context
+            if cdp:
+                # A validated CDP context is reused directly, without passing
+                # through _create_page(); route at the context boundary too.
+                prepared.route(
+                    "**/*", lambda route: route.fulfill(body="<html>Restored</html>")
+                )
             bp._open_page(browser, "https://example.test/")
             restored_page = bp._current_page
             assert restored_page is not None
