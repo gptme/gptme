@@ -909,6 +909,16 @@ directories are being scanned. For the full list of subcommands, run
 </div>
 <p>See the <a class="reference internal" href="skills-gallery.html"><span class="doc">Skills Gallery</span></a> for a curated list of community skills and the
 same install command.</p>
+<p>You can also install from a local skill directory or its <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> file.
+Use <code class="docutils literal notranslate"><span class="pre">--name</span></code> to override the installation name, and <code class="docutils literal notranslate"><span class="pre">--force</span></code> to replace an
+existing installation from a separate source. Local replacements are copied and
+validated before publication; ordinary copy, validation or publication failures
+preserve the previous skill and manifest. Sources overlapping the installation
+are refused, including reinstalling directly from the installed directory.</p>
+<p>Recovery is best-effort, not a guarantee against process crashes, power loss or
+concurrent installers. If rollback itself fails, the error identifies the
+retained recovery directory; preserve it until you have recovered the old skill.
+These replacement guarantees apply to local sources, not Git/registry installs.</p>
 </section>
 <section id="invoking-skills-as-commands">
 <h2>Invoking Skills as Commands<a class="headerlink" href="#invoking-skills-as-commands" title="Link to this heading">#</a></h2>

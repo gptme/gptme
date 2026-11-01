@@ -640,7 +640,21 @@ and pass <code class="docutils literal notranslate"><span class="pre">dry_run</s
 output paths are literal filenames: <code class="docutils literal notranslate"><span class="pre">asset%03d.jpg</span></code> writes that exact name,
 not a numbered image sequence. It has no
 markdown-fence block type, so ask for it in natural language and let the model
-call it with structured arguments:</p>
+call it with structured arguments.</p>
+<p>Conversions stage their single output beside the destination and replace the
+requested file only after success. A failed conversion leaves an existing file
+unchanged and does not publish a partial new file. Existing regular-file symlinks
+are followed without replacing the link; the requested extension still selects
+the format. Existing permission bits are retained, but replacement creates a new
+inode (other hardlinks keep the old contents); ownership, ACLs and extended
+attributes are not preserved. The destination directory must be writable even
+when the old output file itself is writable. This is not crash durability or
+protection against concurrent pathname changes. A cleanup problem after
+successful publication is reported as a warning, not as failed conversion.
+Custom <code class="docutils literal notranslate"><span class="pre">Converter</span></code> subclasses can implement <code class="docutils literal notranslate"><span class="pre">_convert</span></code> to use this staging
+boundary. Existing subclasses that override <code class="docutils literal notranslate"><span class="pre">convert</span></code> remain supported and
+retain their own publication behavior; overriding <code class="docutils literal notranslate"><span class="pre">convert</span></code> bypasses staging.</p>
+<p>For example:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>gptme "convert report.pdf to report-page-1.png at high quality, dry run first"
 </pre></div>
 </div>
@@ -683,7 +697,17 @@ PNG/JPEG output selects the first frame of animated input.</p></li>
 <dl class="py class">
 <dt class="sig sig-object py">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.convert.</span></span><span class="sig-name descname"><span class="pre">Converter</span></span></dt>
-<dd></dd></dl>
+<dd><dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">convert</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">src</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dest</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quality</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'medium'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ConversionResult</span></span></span></dt>
+<dd><p>Publish a completed single output, never a backend’s partial writes.</p>
+<p>Resolve the destination separately from its staging filename: existing
+symlinks keep pointing to their target, while the requested extension
+still selects the output format. Replacement is on the same filesystem.
+This is not a durability or concurrent-path-mutation guarantee.</p>
+</dd></dl>
+
+</dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py">

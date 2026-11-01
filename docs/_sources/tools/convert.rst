@@ -10,7 +10,23 @@ and pass ``dry_run`` to see the converter plan without executing. Image-to-image
 output paths are literal filenames: ``asset%03d.jpg`` writes that exact name,
 not a numbered image sequence. It has no
 markdown-fence block type, so ask for it in natural language and let the model
-call it with structured arguments:
+call it with structured arguments.
+
+Conversions stage their single output beside the destination and replace the
+requested file only after success. A failed conversion leaves an existing file
+unchanged and does not publish a partial new file. Existing regular-file symlinks
+are followed without replacing the link; the requested extension still selects
+the format. Existing permission bits are retained, but replacement creates a new
+inode (other hardlinks keep the old contents); ownership, ACLs and extended
+attributes are not preserved. The destination directory must be writable even
+when the old output file itself is writable. This is not crash durability or
+protection against concurrent pathname changes. A cleanup problem after
+successful publication is reported as a warning, not as failed conversion.
+Custom ``Converter`` subclasses can implement ``_convert`` to use this staging
+boundary. Existing subclasses that override ``convert`` remain supported and
+retain their own publication behavior; overriding ``convert`` bypasses staging.
+
+For example:
 
 .. code-block:: text
 

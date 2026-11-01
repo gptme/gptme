@@ -6336,7 +6336,23 @@ and pass ``dry_run`` to see the converter plan without executing. Image-to-image
 output paths are literal filenames: ``asset%03d.jpg`` writes that exact name,
 not a numbered image sequence. It has no
 markdown-fence block type, so ask for it in natural language and let the model
-call it with structured arguments:
+call it with structured arguments.
+
+Conversions stage their single output beside the destination and replace the
+requested file only after success. A failed conversion leaves an existing file
+unchanged and does not publish a partial new file. Existing regular-file symlinks
+are followed without replacing the link; the requested extension still selects
+the format. Existing permission bits are retained, but replacement creates a new
+inode (other hardlinks keep the old contents); ownership, ACLs and extended
+attributes are not preserved. The destination directory must be writable even
+when the old output file itself is writable. This is not crash durability or
+protection against concurrent pathname changes. A cleanup problem after
+successful publication is reported as a warning, not as failed conversion.
+Custom ``Converter`` subclasses can implement ``_convert`` to use this staging
+boundary. Existing subclasses that override ``convert`` remain supported and
+retain their own publication behavior; overriding ``convert`` bypasses staging.
+
+For example:
 
 .. code-block:: text
 
@@ -11864,6 +11880,18 @@ Install a skill from the default ``gptme-contrib`` registry with
 
 See the :doc:`skills-gallery` for a curated list of community skills and the
 same install command.
+
+You can also install from a local skill directory or its ``SKILL.md`` file.
+Use ``--name`` to override the installation name, and ``--force`` to replace an
+existing installation from a separate source. Local replacements are copied and
+validated before publication; ordinary copy, validation or publication failures
+preserve the previous skill and manifest. Sources overlapping the installation
+are refused, including reinstalling directly from the installed directory.
+
+Recovery is best-effort, not a guarantee against process crashes, power loss or
+concurrent installers. If rollback itself fails, the error identifies the
+retained recovery directory; preserve it until you have recovered the old skill.
+These replacement guarantees apply to local sources, not Git/registry installs.
 
 Invoking Skills as Commands
 ---------------------------

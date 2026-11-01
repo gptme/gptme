@@ -748,6 +748,15 @@ CUT (with or without a register) has no content block.  Register-paste operation
 (``PUT ... <span class="ni">@r</span>``) also have no content block.  Line numbers reference the version
 shown by ``read``.
 
+Destructive ranges (PUT replacements and CUT deletions, including resolved block
+replacements) must not overlap; even a shared endpoint is rejected before
+confirmation or writing. Ordinary insertions may sit at either outer boundary:
+``PUT &lt;N:`` before a range starting at N, or ``PUT &gt;M:`` after a range ending at M.
+Insertions strictly inside a destructive range are rejected. Boundary insertion
+placement does not depend on operation order. Multiple same-kind insertions at
+one coordinate retain their existing bottom-up application order. Register PUTs
+retain the stricter destination checks described above.
+
 <span class="gu">### Example</span>
 
 <span class="sb">```</span>
