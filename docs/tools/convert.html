@@ -652,6 +652,9 @@ first-frame selection.</p>
 ImageMagick. If a TIFF has multiple pages and ImageMagick is unavailable, the
 conversion fails explicitly without writing the destination; FFmpeg alone cannot
 preserve these pages. Single-page TIFF conversions can still use FFmpeg.</p>
+<p>Image and video sources passed to FFmpeg are local filesystem paths, not
+protocol URLs. A relative filename such as <code class="docutils literal notranslate"><span class="pre">file:photo.png</span></code> selects that
+literal file, not a different file named <code class="docutils literal notranslate"><span class="pre">photo.png</span></code>.</p>
 <p>File format conversion tool for gptme.</p>
 <p>Provides offline, multi-format file conversion with auto-detection and
 graceful degradation when specific converters are unavailable.</p>

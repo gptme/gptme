@@ -26,6 +26,10 @@ ImageMagick. If a TIFF has multiple pages and ImageMagick is unavailable, the
 conversion fails explicitly without writing the destination; FFmpeg alone cannot
 preserve these pages. Single-page TIFF conversions can still use FFmpeg.
 
+Image and video sources passed to FFmpeg are local filesystem paths, not
+protocol URLs. A relative filename such as ``file:photo.png`` selects that
+literal file, not a different file named ``photo.png``.
+
 .. automodule:: gptme.tools.convert
     :members:
     :noindex:
