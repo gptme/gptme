@@ -847,12 +847,20 @@ configuration reference.</p>
 <dt class="sig sig-object py" id="gptme.config.ChatConfig.save">
 <span class="sig-name descname"><span class="pre">save</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.15)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.ChatConfig.save" title="Link to this definition">#</a></dt>
 <dd><p>Save the chat config to the log directory.</p>
+<p>Workspace validation/publication precedes the atomic config replacement;
+ordinary failure restores the previous workspace entry. Callers serialize
+saves (e.g. with <code class="docutils literal notranslate"><span class="pre">chat_config_lock</span></code>). This is not a two-path crash-atomic
+transaction or protection against concurrent external filesystem writers.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#OSError" title="(in Python v3.15)"><strong>OSError</strong></a> – If this config was decoded by a guessed codec and its
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#RuntimeError" title="(in Python v3.15)"><strong>RuntimeError</strong></a> – Workspace rollback failed; the error names the retained
+    recovery entry when one was displaced.</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#OSError" title="(in Python v3.15)"><strong>OSError</strong></a> – If this config was decoded by a guessed codec and its
     original bytes could not be backed up. The save is abandoned so
     the unrecoverable bytes stay on disk; only a config that already
-    went through the legacy fallback can reach this.</p>
+    went through the legacy fallback can reach this.</p></li>
+</ul>
 </dd>
 </dl>
 </dd></dl>
