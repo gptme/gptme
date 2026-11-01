@@ -1163,16 +1163,13 @@ tool = ToolSpec(
     name="convert",
     desc="Convert a file to another format using offline system tools",
     instructions=(
-        "Use this tool when a workflow needs a file in a different format: "
-        "render a PDF to images for visual inspection, extract text from a "
-        "document for summarization, make a video thumbnail, or reformat an "
-        "image. It runs fully offline, falling back gracefully when a specific "
-        "converter is unavailable.\n\n"
-        "Choose the destination format by the `output_path` extension (e.g. "
-        "`.png`, `.jpg`, `.txt`, `.md`). Set `quality` to low/medium/high "
-        "when the conversion supports it, and pass `dry_run` = true to see "
-        "the converter plan first. For a new conversion, dry-run before "
-        "executing to confirm the chain is available."
+        "Convert files offline: render PDFs as images, extract document text, "
+        "make video thumbnails, or reformat images. Falls back to available "
+        "converters.\n\n"
+        "The `output_path` extension selects the format (e.g. `.png`, `.jpg`, "
+        "`.txt`, `.md`). Use `quality` low/medium/high where supported. "
+        "For each new conversion, first pass `dry_run` = true to inspect "
+        "the plan and confirm an available conversion chain."
     ),
     execute=_execute_convert,
     parameters=[
