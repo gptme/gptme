@@ -19,9 +19,9 @@
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@fontsource/inter": "5.3.0",
     "github-slugger": "2.0.0",
-    "marked": "18.1.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "marked": "18.1.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "sanitize-html": "2.18.1"
   },
   "devDependencies": {
@@ -36,6 +36,6 @@
     "parse-srcset": "1.0.2",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
-    "vite": "8.3.4"
+    "vite": "8.3.5"
   }
 }
