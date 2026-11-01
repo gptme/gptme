@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useState } from 'react';
 import { stopSpeaking, type TtsProvider } from '../utils/tts';
 
 export interface Settings {
@@ -128,7 +128,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Initialize synchronously from localStorage to prevent a flash of the setup wizard
   const [settings, setSettings] = useState<Settings>(loadSettingsFromStorage);
 
-  const updateSettings = (updates: Partial<Settings>) => {
+  const updateSettings = useCallback((updates: Partial<Settings>) => {
     if (updates.ttsEnabled === false) {
       stopSpeaking();
     }
@@ -142,7 +142,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
       return newSettings;
     });
-  };
+  }, []);
 
   const resetSettings = () => {
     stopSpeaking();
