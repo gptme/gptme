@@ -816,11 +816,10 @@ can mutate a read-only root, so the TOCTOU race is not a concern there.</p>
 <p>A policy-managed root regenerates its selected view within the stored
 budget, committing entry and index together. New entries remain available
 to recall but are not selected automatically. Legacy roots upsert living
-pointers and remove retired pointers, preserving unrelated index prose.</p>
-<p>The root lock serialises this write against concurrent <code class="docutils literal notranslate"><span class="pre">supersede</span></code> calls.
-<code class="docutils literal notranslate"><span class="pre">supersede</span></code> replaces <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> via <code class="docutils literal notranslate"><span class="pre">os.replace</span></code>, which would drop
-a POSIX flock held on the old inode by a concurrent <code class="docutils literal notranslate"><span class="pre">update_index_line</span></code>.
-Acquiring <code class="docutils literal notranslate"><span class="pre">_locked_root</span></code> here prevents that interleaving.</p>
+pointers and remove retired pointers, preserving unrelated index prose
+and committing the curated index and the entry together as well.</p>
+<p>The root lock serialises this write against concurrent <code class="docutils literal notranslate"><span class="pre">supersede</span></code> and
+<code class="docutils literal notranslate"><span class="pre">update_index_line</span></code> calls. It stays valid across index inode replacement.</p>
 </dd></dl>
 
 <dl class="py method">

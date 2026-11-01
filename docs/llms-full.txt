@@ -6227,6 +6227,30 @@ Read
 Save
 ====
 
+Save stages a complete replacement beside the destination before publishing it.
+A failed write or close leaves the original intact. Existing permission bits and
+symlink targets are preserved; hard-linked destinations are refused rather than
+silently splitting aliases. Replacement requires a writable parent directory.
+On POSIX, staging requires a parent owned by the current user with no group or
+other write bits (including sticky shared directories); otherwise another user
+could substitute the staging name. This check applies to new files too. It does
+not protect against same-user concurrent writers or hostile ancestor changes.
+Replacement creates a new inode. Files with extended metadata (including POSIX
+ACLs), inherited default ACLs on an existing target's parent, or ownership that
+cannot be retained are refused rather than silently losing security metadata.
+On Windows, overwriting an existing file is refused before staging: Python's
+permission-bit APIs cannot preserve its security descriptor, and staging under
+the parent's inherited DACL could expose restricted contents. Creating a new
+file remains supported. Existing-file replacement is also refused on macOS:
+ACL security metadata is not reliably visible through ``listxattr()``, so an
+empty attribute listing cannot prove that replacing the inode is safe. Native
+ACL preservation is not implemented. New-file creation remains supported.
+On Linux, a filesystem reporting unsupported extended attributes is treated as
+having none; permission and I/O errors during inspection still fail closed.
+Platforms without an extended-attribute inspection API refuse existing-file
+replacement. This is not a power-loss durability or concurrent-writer guarantee.
+Append retains its separate in-place behavior.
+
 .. automodule:: gptme.tools.save
     :members:
     :noindex:
@@ -6236,6 +6260,23 @@ Save
 
 Patch
 =====
+
+Single-file patches use the same staged replacement as :doc:`save`: failed
+writes leave the original intact, permission bits and symlink targets are kept,
+and hard-linked destinations are refused. The parent directory must be writable.
+POSIX staging also requires that parent to be owned by the current user with no
+group or other write bits, including sticky shared directories, so another user
+cannot substitute the staging name. Same-user writers and hostile ancestor
+changes remain outside this guarantee.
+Replacement creates a new inode. As with save, extended metadata, inherited
+default ACLs and ownership that cannot be retained cause a safe refusal instead
+of silent metadata loss. On Windows, existing-file replacement is refused before
+staging because its security descriptor cannot be retained safely. macOS also
+refuses existing-file replacement because its ACLs cannot be reliably inspected
+through extended-attribute listings. Platforms without extended-attribute
+inspection fail closed too. Linux filesystems that report unsupported extended
+attributes remain supported; other metadata inspection errors still refuse the
+write. No power-loss durability or concurrent-writer guarantee is implied.
 
 .. automodule:: gptme.tools.patch
     :members:
@@ -12360,8 +12401,24 @@ policy; creating the policy does not intercept tools that edit files themselves.
 When editing policy by hand, pause concurrent memory writers for that root.
 
 Roots without a policy retain legacy behavior: ``save`` upserts one pointer
-line, and explicit index generation includes living entries with an optional
-one-shot truncating budget.
+line, preserving unrelated hand-curated index text, and explicit index generation
+includes living entries with an optional one-shot truncating budget. Legacy
+``save`` stages the entry and index before replacing either and rolls back an
+already-published entry if index publication fails. This handles ordinary write
+errors, not process crashes or uncooperative external writers. Existing file
+permission bits, POSIX ownership and Linux POSIX access ACLs are preserved;
+when an existing file has no access ACL, inherited staging ACLs are removed.
+Ownership or ACL preservation errors abort before publication. Other
+platform-specific ACLs are not covered by this
+guarantee. Atomic replacement is authorized by the
+parent directory: a read-only index file in a writable directory can still be
+replaced, just as in a managed root. Legacy ``save`` and direct pointer updates
+follow a symlinked ``MEMORY.md`` and atomically replace its target, leaving the
+link intact. The target's parent directory authorizes that replacement. Both
+legacy writers hold a stable ``.<target-name>.memory.lock`` sidecar beside the
+resolved index target from reading through publication and rollback, so roots
+sharing that target serialize their updates. Writers that do not use this
+sidecar remain uncoordinated.
 
 Supersession and audit
 ~~~~~~~~~~~~~~~~~~~~~~

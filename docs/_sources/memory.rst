@@ -204,8 +204,24 @@ policy; creating the policy does not intercept tools that edit files themselves.
 When editing policy by hand, pause concurrent memory writers for that root.
 
 Roots without a policy retain legacy behavior: ``save`` upserts one pointer
-line, and explicit index generation includes living entries with an optional
-one-shot truncating budget.
+line, preserving unrelated hand-curated index text, and explicit index generation
+includes living entries with an optional one-shot truncating budget. Legacy
+``save`` stages the entry and index before replacing either and rolls back an
+already-published entry if index publication fails. This handles ordinary write
+errors, not process crashes or uncooperative external writers. Existing file
+permission bits, POSIX ownership and Linux POSIX access ACLs are preserved;
+when an existing file has no access ACL, inherited staging ACLs are removed.
+Ownership or ACL preservation errors abort before publication. Other
+platform-specific ACLs are not covered by this
+guarantee. Atomic replacement is authorized by the
+parent directory: a read-only index file in a writable directory can still be
+replaced, just as in a managed root. Legacy ``save`` and direct pointer updates
+follow a symlinked ``MEMORY.md`` and atomically replace its target, leaving the
+link intact. The target's parent directory authorizes that replacement. Both
+legacy writers hold a stable ``.<target-name>.memory.lock`` sidecar beside the
+resolved index target from reading through publication and rollback, so roots
+sharing that target serialize their updates. Writers that do not use this
+sidecar remain uncoordinated.
 
 Supersession and audit
 ~~~~~~~~~~~~~~~~~~~~~~
