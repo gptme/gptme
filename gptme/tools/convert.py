@@ -20,8 +20,10 @@ import html
 import importlib.util
 import logging
 import mimetypes
+import re
 import shutil
 import stat
+import string
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
@@ -88,6 +90,7 @@ def _para_to_md(para: object) -> str:
             text = run.text
             if not text:
                 continue
+            text = re.sub(r"([" + re.escape(string.punctuation) + r"])", r"\\\1", text)
             if getattr(run, "bold", False):
                 text = f"**{text}**"
             elif getattr(run, "italic", False):
@@ -95,11 +98,22 @@ def _para_to_md(para: object) -> str:
             parts.append(text)
         inline = "".join(parts)
     else:
-        inline = getattr(para, "text", "")
+        inline = re.sub(
+            r"([" + re.escape(string.punctuation) + r"])",
+            r"\\\1",
+            getattr(para, "text", ""),
+        )
 
     if not inline.strip():
         return ""
 
+    # Protect every line, including lines after manual Word breaks, from code blocks.
+    inline = re.sub(
+        r"^[ \t]+",
+        lambda match: "".join(f"&#{ord(c)};" for c in match[0]),
+        inline,
+        flags=re.MULTILINE,
+    )
     if style_name.startswith("Heading 1"):
         return f"# {inline}"
     if style_name.startswith("Heading 2"):
@@ -107,7 +121,9 @@ def _para_to_md(para: object) -> str:
     if style_name.startswith("Heading 3"):
         return f"### {inline}"
     if "List" in style_name:
-        return f"- {inline}"
+        # Structural indentation keeps every continuation block in this item;
+        # the character references above preserve its literal Word whitespace.
+        return "- " + inline.replace("\n", "\n  ")
     return inline
 
 
@@ -694,15 +710,13 @@ class DocumentToTextConverter(Converter):
                 doc = docx.Document(str(src))
                 markdown = dest.suffix.lower() == ".md"
                 lines: list[str] = []
-                after_table = False
                 # Walk the body, not doc.paragraphs, which omits all tables.
                 for element in doc.element.body.iterchildren():
                     if element.tag == qn("w:p"):
                         para = Paragraph(element, doc)
-                        if after_table:
+                        if markdown and lines:
                             lines.append("")
                         lines.append(_para_to_md(para) if markdown else para.text)
-                        after_table = False
                     elif element.tag == qn("w:tbl"):
                         table = Table(element, doc)
                         rows: list[list[str]] = []
@@ -740,7 +754,6 @@ class DocumentToTextConverter(Converter):
                                 ]
                                 + [_markdown_table_row(row) for row in rows[1:]]
                             )
-                            after_table = True
                         else:
                             lines.extend("\t".join(row) for row in rows)
 

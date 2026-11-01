@@ -76,7 +76,7 @@ def test_docx_markdown_link_only_and_empty_runs(tmp_path: Path) -> None:
     result = convert_file(source, destination)
 
     assert result.success, result.error
-    assert destination.read_text() == "ONLY LINK\n\nSECOND LINK"
+    assert destination.read_text() == "ONLY LINK\n\n\n\nSECOND LINK"
 
 
 def test_docx_markdown_link_run_formatting_and_plain_control(tmp_path: Path) -> None:
@@ -103,7 +103,7 @@ def test_docx_markdown_link_run_formatting_and_plain_control(tmp_path: Path) -> 
     assert result.success, result.error
     assert (
         destination.read_text()
-        == "plain **bold** **linked bold** *linked italic* *italic*\nordinary paragraph"
+        == "plain **bold** **linked bold** *linked italic* *italic*\n\nordinary paragraph"
     )
 
 
