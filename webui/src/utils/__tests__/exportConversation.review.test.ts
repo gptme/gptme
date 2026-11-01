@@ -175,6 +175,59 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
         literal: '~~~text\n<think>literal reasoning</think>\n@shell: {"command":"literal"}\n~~~',
       },
       {
+        label: 'list-contained XML fence',
+        literal: '- ```xml\n  <think>literal reasoning</think>\n  ```',
+      },
+      {
+        label: 'ordered list-contained tool fence',
+        literal: '12. ```shell\n    <think>literal reasoning</think>\n    ```',
+      },
+      {
+        label: 'quoted list-contained tilde fence',
+        literal: '> - ~~~xml\n>   <think>literal reasoning</think>\n>   ~~~',
+      },
+      {
+        label: 'CRLF nested list fence',
+        literal: '- - ```xml\r\n    <think>literal reasoning</think>\r\n    ```',
+      },
+      {
+        label: 'list continuation tool fence',
+        literal: '- Example:\n\n  ```shell\n  <think>literal reasoning</think>\n  ```',
+      },
+      {
+        label: 'tab-padded list fence',
+        literal: '-\t```xml\n\t<think>literal reasoning</think>\n\t```',
+      },
+      {
+        label: 'list fence interrupted by dedent',
+        literal: '- ```xml\n  <think>literal reasoning</think>',
+      },
+      {
+        label: 'list fence with an internal blank line',
+        literal: '* ~~~xml\n\n  <think>literal reasoning</think>\n  ~~~',
+      },
+      {
+        label: 'list indented code block with internal blank lines',
+        literal:
+          '- Example:\n\n      <think>literal reasoning</think>\n\n      @shell: {"command":"literal"}',
+      },
+      {
+        label: 'quoted indented code block',
+        literal: '> Example:\n>\n>     <think>literal reasoning</think>',
+      },
+      {
+        label: 'indented code after thematic break',
+        literal: '***\n    <think>literal reasoning</think>',
+      },
+      {
+        label: 'space-indented code block',
+        literal: 'Example:\n\n    <think>literal reasoning</think>',
+      },
+      {
+        label: 'tab-indented code block',
+        literal: 'Example:\n\n\t<think>literal reasoning</think>',
+      },
+      {
         label: 'quoted XML fence',
         literal: '> ```xml\n> <think>literal reasoning</think>\n> ```',
       },
@@ -204,6 +257,33 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
         options.includeTools
       );
       expect(await consume(consumer, source, options)).toBe(documentFor(expected));
+    });
+
+    it('does not mistake indented paragraph continuation for literal code', async () => {
+      const source = 'Paragraph.\n    <think>private reasoning</think>Public answer.';
+      const expected =
+        'Paragraph.\n    ' +
+        (options.includeThinking ? '<think>private reasoning</think>' : '') +
+        'Public answer.';
+      expect(await consume(consumer, source, options)).toBe(documentFor(expected));
+    });
+
+    it('does not start an ordered list at two in an existing paragraph', async () => {
+      const source =
+        'Paragraph.\n2. ```xml\n   <think>private reasoning</think>\n   ```\nPublic answer.';
+      const result = await consume(consumer, source, options);
+      expect(result.includes('private reasoning')).toBe(options.includeThinking);
+    });
+
+    it('does not let an interrupted list fence capture a sibling item', async () => {
+      const literal = '- ```xml\n  <think>literal reasoning</think>\n';
+      const payload = '- <think>private reasoning</think>Public answer.';
+      const expected =
+        literal +
+        '- ' +
+        (options.includeThinking ? '<think>private reasoning</think>' : '') +
+        'Public answer.';
+      expect(await consume(consumer, literal + payload, options)).toBe(documentFor(expected));
     });
 
     it('still classifies an actual tool fence as a tool invocation', async () => {

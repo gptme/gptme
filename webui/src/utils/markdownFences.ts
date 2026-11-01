@@ -19,12 +19,15 @@ export interface MarkdownFence {
  * offsets are absolute, while line numbers are relative to startOffset.
  * quoteDepth strips that many enclosing quote markers for matching only;
  * a missing marker ends an interrupted fence before the outside line.
+ * Optional lineView supplies export-local container matching text (null exits
+ * the container), without changing source offsets or the renderer's defaults.
  */
 export function scanMarkdownFences(
   content: string,
   firstOnly = false,
   startOffset = 0,
-  quoteDepth = 0
+  quoteDepth = 0,
+  lineView?: (line: string, first: boolean) => string | null
 ): MarkdownFence[] {
   const blocks: MarkdownFence[] = [];
   const stack: MarkdownFence[] = [];
@@ -36,6 +39,14 @@ export function scanMarkdownFences(
     const lineEnd = newline === -1 ? content.length : newline;
     const nextOffset = newline === -1 ? content.length : newline + 1;
     let line = content.slice(offset, lineEnd);
+    if (lineView) {
+      const view = lineView(line, offset === startOffset);
+      if (view === null) {
+        for (const frame of stack) frame.end = offset;
+        break;
+      }
+      line = view;
+    }
     if (quoteDepth) {
       const prefix = line.match(quotePrefix)?.[0];
       // Fenced blocks cannot lazily continue outside their enclosing quote.

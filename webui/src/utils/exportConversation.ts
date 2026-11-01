@@ -1,6 +1,7 @@
 import { toast } from 'sonner';
 import { Lexer, Tokenizer } from 'marked';
 import { scanMarkdownFences } from './markdownFences';
+import { MarkdownContainers, indentedCodeEnd } from './markdownContainers';
 import type { Message } from '@/types/conversation';
 import { isTauriEnvironment } from '@/utils/tauri';
 
@@ -249,6 +250,8 @@ function filterAssistantContent(
   const quoteViews = new Map<string, QuoteView>();
   const linkMetadata = new Map<number, number>();
   const labelEnds: number[] = [];
+  const containers = new MarkdownContainers();
+  let inParagraph = false;
   while (i < content.length) {
     while (labelEnds.length && i > labelEnds[labelEnds.length - 1]) labelEnds.pop();
     const labelEnd = labelEnds[labelEnds.length - 1] ?? content.length;
@@ -262,17 +265,38 @@ function filterAssistantContent(
     // Discover fences only after skipping opaque thinking/native payloads: a
     // fence inside retained JSON/reasoning must not capture later answer text.
     if (i === 0 || content[i - 1] === '\n') {
-      const opener = content.slice(i).match(/^((?: {0,3}>[ \t]?)*)([ \t]*)(`{3,}|~{3,})/);
-      const quoteDepth = opener ? opener[1].split('>').length - 1 : 0;
-      const fence = opener && scanMarkdownFences(content, true, i, quoteDepth)[0];
+      const newline = content.indexOf('\n', i);
+      const line = content.slice(i, newline === -1 ? content.length : newline);
+      const view = containers.enter(line, inParagraph);
+      const continuation = containers.continuation();
+      if (view.changed) inParagraph = false;
+      const opener = /^[ \t]*(`{3,}|~{3,})/.test(view.text);
+      const fence =
+        opener &&
+        scanMarkdownFences(content, true, i, 0, (source, first) =>
+          first ? view.text : continuation(source)
+        )[0];
       if (fence) {
         const tag = fence.tag.split(/\s+/)[0].toLowerCase();
-        // Only top-level tool-tag fences are invocations; quoted fences are examples.
-        if (quoteDepth || includeTools || !isToolBlockTag(tag))
+        // Only top-level tool-tag fences are invocations; container fences are examples.
+        if (view.contained || includeTools || !isToolBlockTag(tag))
           out.push(content.slice(i, fence.end));
         i = fence.end;
+        inParagraph = false;
         continue;
       }
+      const codeEnd = !inParagraph && indentedCodeEnd(content, i, view.text, continuation);
+      if (codeEnd) {
+        out.push(content.slice(i, codeEnd));
+        i = codeEnd;
+        continue;
+      }
+      // Indented code cannot interrupt a paragraph. Blank lines and actual
+      // block headings end one; ordinary indented continuation does not.
+      inParagraph =
+        !/^[ \t\r]*$/.test(view.text) &&
+        !/^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:=+|-+)[ \t]*\r?$)/.test(view.text) &&
+        !tokenizer.rules.block.hr.test(view.text);
       // Reference definitions are block metadata, not inline-code source.
       const definitionEnd = referenceDefinitionEnd(tokenizer, content, i);
       if (definitionEnd !== null) {
