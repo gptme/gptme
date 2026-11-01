@@ -215,9 +215,20 @@ class ConversionResult:
 
 def _check_destination(dest: Path, converter_used: str = "") -> ConversionResult | None:
     """Reject existing destinations that cannot hold a regular output file."""
-    if dest.is_dir():
+    try:
+        mode = dest.stat().st_mode
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return ConversionResult(
+            success=False,
+            output_path=dest,
+            converter_used=converter_used,
+            error=f"Could not inspect destination {dest}: {exc}",
+        )
+    if stat.S_ISDIR(mode):
         reason = "an existing directory"
-    elif dest.exists() and not dest.is_file():
+    elif not stat.S_ISREG(mode):
         reason = "not a regular file"
     else:
         return None

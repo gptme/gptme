@@ -1166,6 +1166,36 @@ def test_document_conversion_preserves_regular_destinations(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_router_destination_inspection_error_returns_failure(
+    avail_ffmpeg_only: ToolAvailability, tmp_path: Path, dry_run: bool
+) -> None:
+    src = tmp_path / "source.png"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    dest = tmp_path / "restricted" / "out.png"
+    original_stat = Path.stat
+
+    def restricted_stat(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
+        if path == dest:
+            raise PermissionError("synthetic traversal denied")
+        return original_stat(path, *args, **kwargs)
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(Path, "stat", restricted_stat),
+        patch.object(ImageConverter, "convert") as backend,
+    ):
+        result = convert_file(src, dest, dry_run=dry_run)
+
+    assert not result.success
+    assert str(dest) in (result.error or "")
+    assert "synthetic traversal denied" in (result.error or "")
+    backend.assert_not_called()
+    assert not dest.parent.exists()
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
+
+
 def test_pdf_to_text_unwritable_dest_returns_failure(avail_all, tmp_path):
     """An OSError on write must become ConversionResult(success=False), not crash."""
     src = tmp_path / "in.pdf"
