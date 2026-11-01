@@ -415,7 +415,7 @@ def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
     modified = conv_stat.st_mtime
     first_timestamp = log[0].timestamp.timestamp() if log else modified
     # Try to get display name from ChatConfig, fallback to folder name
-    chat_config = ChatConfig.from_logdir(conv_fn.parent)
+    chat_config = ChatConfig.from_logdir(conv_fn.parent, create_workspace=False)
     display_name = chat_config.name or conv_id
 
     agent_path = chat_config.agent
