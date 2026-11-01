@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
@@ -1047,7 +1048,13 @@ def special_destination(
         pytest.skip("Disposable FIFOs and Unix sockets require POSIX")
     target = tmp_path / "special.png"
     if request.param == "socket":
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        # AF_UNIX has a much shorter path limit than the filesystem. Avoid both
+        # pytest's basetemp and a potentially long TMPDIR for the bound address.
+        with (
+            TemporaryDirectory(prefix="gptme-sock-", dir="/tmp") as directory,
+            socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock,
+        ):
+            target = Path(directory) / "special.png"
             sock.bind(str(target))
             yield target, target
     else:
