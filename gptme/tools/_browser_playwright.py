@@ -38,7 +38,7 @@ _last_logs: dict = {"logs": [], "errors": [], "url": None}
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
-# Conversation that owns the live interactive session. None is the CLI/test
+# Conversation that owns the live interactive or CDP session. None is the CLI/test
 # slot. Reuse is allowed only when this matches the caller.
 _session_owner: str | None = None
 logger = logging.getLogger(__name__)
@@ -84,13 +84,19 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
     headers are applied to the individual tab.
     Launched  → creates an isolated context with the given options.
     """
+    global _session_owner
     if _is_cdp_connection() and _browser is not None:
+        # One-shot reads share CDP authentication too. Check and stamp ownership
+        # here so read_url() -> open_page() preserves only the caller's session.
+        if not _session_belongs_to_caller():
+            _close_current_page()
         ctx = _browser._session_context
         if ctx is None:
             # Explicit resets discard authentication; rebuild lazily for all
             # entry points, including read_url() without an interactive page.
             ctx = browser.new_context(**get_context_options())
             _browser._session_context = ctx
+        _session_owner = _conversation_key()
         page = ctx.new_page()
         headers = context_kwargs.get("extra_http_headers")
         if headers:
@@ -745,8 +751,6 @@ def _open_page(browser: Browser, url: str) -> str:
 
     # First open, or after explicit close/reset/state replacement.
     _close_current_page()
-    if _is_cdp_connection() and _browser is not None:
-        _browser._session_context = browser.new_context(**get_context_options())
     managed = _create_page(
         browser,
         **get_context_options(),

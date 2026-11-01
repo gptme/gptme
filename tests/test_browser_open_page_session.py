@@ -243,6 +243,40 @@ def test_cdp_context_switch_drops_other_conversation_auth(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("interactive_next", [False, True])
+@pytest.mark.parametrize("new_owner", ["conv-a", "conv-b", None])
+def test_cdp_read_url_auth_is_owned_by_calling_conversation(
+    auth_server, interactive_next, new_owner
+):
+    """One-shot reads and interactive navigation share only the caller's auth."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+
+    thread = bp.get_browser()
+
+    def install_session_context(browser):
+        thread._session_context = browser.new_context()
+        thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+
+    thread.execute(install_session_context)
+    token = current_conversation_id.set("conv-a")
+    try:
+        assert "logged-in" in bp.read_url(f"{auth_server}/login")
+        current_conversation_id.set(new_owner)
+        navigate = bp.open_page if interactive_next else bp.read_url
+        account = navigate(f"{auth_server}/account")
+        if new_owner == "conv-a":
+            assert "cookie-ok" in account
+            assert "localstorage-ok" in account
+        else:
+            assert "cookie-missing" in account
+            assert "localstorage-missing" in account
+        assert bp._session_owner == new_owner
+    finally:
+        current_conversation_id.reset(token)
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize("interactive_first", [False, True])
 def test_cdp_close_resets_auth_and_keeps_read_url_session(
     auth_server, interactive_first
