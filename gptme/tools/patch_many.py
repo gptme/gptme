@@ -8,13 +8,16 @@ where the model would otherwise issue N separate patch calls, one per file.
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec, file_newline
+from .base import Parameter, ToolSpec
 from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 
 if TYPE_CHECKING:
@@ -187,6 +190,128 @@ def _execute_patch_many_confirmed(
     yield from execute_patch_many_impl(patches)
 
 
+def _stage_patch_content(path: Path, content: bytes, mode: int) -> Path:
+    """Prepare a same-directory replacement without touching its target."""
+    fd, name = tempfile.mkstemp(prefix=".patch-many-", dir=path.parent)
+    staged = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+        info = path.stat()
+        if hasattr(os, "chown"):
+            staged_info = staged.stat()
+            if (staged_info.st_uid, staged_info.st_gid) != (info.st_uid, info.st_gid):
+                os.chown(staged, info.st_uid, info.st_gid)
+        # Preserve access ACLs (and other xattrs) rather than granting the new
+        # inode's default audience access. Failure aborts staging before writes.
+        if hasattr(os, "listxattr"):
+            source_attrs = set(os.listxattr(path))
+            for name in set(os.listxattr(staged)) - source_attrs:
+                os.removexattr(staged, name)
+            for name in source_attrs:
+                os.setxattr(staged, name, os.getxattr(path, name))
+        # Widen permissions only after installing the source access ACL. Its
+        # group mode bits are an ACL mask, not necessarily group permissions.
+        staged.chmod(mode)
+    except BaseException as error:
+        try:
+            staged.unlink(missing_ok=True)
+        except BaseException as cleanup_error:
+            error.add_note(f"staging cleanup failed for `{staged}`: {cleanup_error}")
+        raise
+    return staged
+
+
+def _publish_patches(
+    order: list[Path],
+    contents: dict[Path, bytes],
+    originals: dict[Path, bytes],
+    modes: dict[Path, int],
+    cleanup_errors: list[str],
+) -> str | None:
+    """Stage every replacement and backup, then publish with best-effort rollback."""
+    staged: dict[Path, Path] = {}
+    backups: dict[Path, Path] = {}
+    retained: set[Path] = set()
+    attempted: list[Path] = []
+    result: str | None = None
+    pending_error: BaseException | None = None
+    try:
+        try:
+            for path in order:
+                backups[path] = _stage_patch_content(path, originals[path], modes[path])
+                staged[path] = _stage_patch_content(path, contents[path], modes[path])
+        except OSError as error:
+            result = f"Atomic patch failed: staging write error: {error}. No files were written."
+            if notes := getattr(error, "__notes__", []):
+                result += "\n" + "\n".join(notes)
+            return result
+
+        try:
+            for path in order:
+                # Include the failing target: a publication wrapper can mutate then
+                # raise. Restore from a fully prepared original, not another write.
+                attempted.append(path)
+                os.replace(staged[path], path)
+        except BaseException as error:
+            # Protect originals even if rollback itself is interrupted. Only a
+            # successful restoration makes its recovery copy safe to clean up.
+            retained.update(backups[target] for target in attempted)
+            failures: list[str] = []
+            for target in reversed(attempted):
+                try:
+                    os.replace(backups[target], target)
+                    retained.discard(backups[target])
+                except BaseException as restore_error:
+                    failures.append(
+                        f"`{target}`: {restore_error}; original retained at `{backups[target]}`"
+                    )
+            result = f"Atomic patch failed: write error on `{path}`: {error}. "
+            if failures:
+                result += (
+                    "Restoration incomplete; files may be modified:\n"
+                    + "\n".join(failures)
+                )
+            else:
+                result += (
+                    f"Rolled back {len(attempted)} file(s). Original contents restored."
+                )
+            if not isinstance(error, OSError):
+                error.add_note(result)
+                raise
+            return result
+    except BaseException as error:
+        pending_error = error
+        raise
+    finally:
+        cleanup_interrupt: BaseException | None = None
+        for temporary in [*staged.values(), *backups.values()]:
+            if temporary not in retained:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except BaseException as cleanup_error:
+                    cleanup_errors.append(f"`{temporary}`: {cleanup_error}")
+                    if (
+                        not isinstance(cleanup_error, OSError)
+                        and cleanup_interrupt is None
+                    ):
+                        cleanup_interrupt = cleanup_error
+        # Exceptional exits bypass the caller's normal cleanup report. Keep
+        # their diagnostics on the original exception, even if cleanup is
+        # itself interrupted, and finish attempting the remaining removals.
+        escaping_error = pending_error or cleanup_interrupt
+        if escaping_error is not None:
+            if pending_error is None and result:
+                escaping_error.add_note(result)
+            if cleanup_errors:
+                escaping_error.add_note(
+                    "Temporary-file cleanup incomplete:\n" + "\n".join(cleanup_errors)
+                )
+            if pending_error is None:
+                raise escaping_error
+    return None
+
+
 def execute_patch_many_impl(
     patches: Sequence[tuple[Path, str | Patch]],
 ) -> Generator[Message, None, None]:
@@ -200,12 +325,14 @@ def execute_patch_many_impl(
     # a second entry for one path would be applied to the original text and its
     # write would clobber the first (silent partial application).
     current: dict[Path, str] = {}
-    originals: dict[Path, str] = {}
+    originals: dict[Path, bytes] = {}
+    modes: dict[Path, int] = {}
     newlines: dict[Path, str] = {}
     order: list[Path] = []
     hunks = 0
 
     for path, patch_src in patches:
+        path = path.resolve()
         if path not in current:
             if not path.exists():
                 yield Message(
@@ -221,8 +348,28 @@ def execute_patch_many_impl(
                 return
 
             try:
-                original = path.read_text(encoding="utf-8")
-                newlines[path] = file_newline(path)
+                info = path.stat()
+                # Replacing one hardlinked name would detach it from its aliases;
+                # writing in place would clobber edits through another name.
+                if info.st_nlink > 1:
+                    yield Message(
+                        "system",
+                        f"Atomic patch aborted: hardlink alias target `{path}`. No files were written.",
+                    )
+                    return
+                original_bytes = path.read_bytes()
+                original = (
+                    original_bytes.decode("utf-8")
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                )
+                modes[path] = stat.S_IMODE(info.st_mode)
+                crlf = original_bytes.count(b"\r\n")
+                newlines[path] = (
+                    "\r\n"
+                    if crlf and crlf >= original_bytes.count(b"\n") - crlf
+                    else "\n"
+                )
             except (UnicodeDecodeError, PermissionError, OSError) as e:
                 yield Message(
                     "system",
@@ -230,7 +377,7 @@ def execute_patch_many_impl(
                 )
                 return
 
-            originals[path] = original
+            originals[path] = original_bytes
             current[path] = original
             order.append(path)
 
@@ -253,37 +400,37 @@ def execute_patch_many_impl(
 
         current[path] = new_content
 
-    def _write(path: Path, text: str) -> None:
-        # Content was read in universal-newline mode, so write it back with the
-        # file's own line ending (as patch does) instead of the platform default.
-        path.write_text(
-            text.replace("\r\n", "\n"), encoding="utf-8", newline=newlines[path]
-        )
-
-    written: list[Path] = []
+    # Replacement needs directory permission, not target write permission. Preserve
+    # the old in-place writer's access check without truncating or changing bytes.
+    # Check every target before staging or publishing any of them.
     for path in order:
         try:
-            _write(path, current[path])
-        except OSError as e:
-            # Roll back any already-written files to preserve atomicity
-            for rolled_back in written:
-                try:
-                    _write(rolled_back, originals[rolled_back])
-                except OSError:
-                    pass  # best-effort rollback
+            fd = os.open(path, os.O_WRONLY)
+            os.close(fd)
+        except OSError as access_error:
             yield Message(
                 "system",
-                f"Atomic patch failed: write error on `{path}`: {e}. "
-                f"Rolled back {len(written)} file(s). No files were modified.",
+                f"Atomic patch aborted: cannot write `{path}`: {access_error}. No files were written.",
             )
             return
-        written.append(path)
 
-    yield Message(
-        "system",
-        f"Applied {hunks} hunk(s) atomically to {len(written)} file(s):\n"
-        + "\n".join(f"  - {p}" for p in written),
+    # Content was read in universal-newline mode; preserve each file's style.
+    contents = {
+        path: current[path]
+        .replace("\r\n", "\n")
+        .replace("\n", newlines[path])
+        .encode("utf-8")
+        for path in order
+    }
+    cleanup_errors: list[str] = []
+    error = _publish_patches(order, contents, originals, modes, cleanup_errors)
+    result = error or (
+        f"Applied {hunks} hunk(s) atomically to {len(order)} file(s):\n"
+        + "\n".join(f"  - {p}" for p in order)
     )
+    if cleanup_errors:
+        result += "\nTemporary-file cleanup incomplete:\n" + "\n".join(cleanup_errors)
+    yield Message("system", result)
 
 
 def execute_patch_many(
