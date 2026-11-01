@@ -1285,6 +1285,9 @@ the restored cookies and localStorage.</p>
 <p>Use this instead of read_url() when you need to interact with the page
 (click buttons, fill forms, scroll). The page stays open for subsequent
 click_element(), fill_element(), and scroll_page() calls.</p>
+<p>Subsequent calls navigate the current interactive session, so cookies and
+localStorage from login survive. <code class="docutils literal notranslate"><span class="pre">close_page()</span></code> and
+<code class="docutils literal notranslate"><span class="pre">load_browser_state()</span></code> start a fresh context.</p>
 <p>The output includes a metadata header with the page title and current URL.</p>
 </dd></dl>
 
