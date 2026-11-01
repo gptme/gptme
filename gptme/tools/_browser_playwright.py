@@ -38,8 +38,12 @@ _last_logs: dict = {"logs": [], "errors": [], "url": None}
 # Persistent page state for interactive browsing (open_page/click/fill/scroll)
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
+# Conversation that owns the live interactive or CDP session. None is the CLI/test
+# slot. Reuse is allowed only when this matches the caller.
+_session_owner: str | None = None
 logger = logging.getLogger(__name__)
 _inline_data_image = re.compile(r"!\[[^\]]*\]\(data:image[^)]*\)")
+_OPEN_PAGE_HEADERS = {"Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"}
 
 
 def _is_cdp_connection() -> bool:
@@ -80,20 +84,24 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
     headers are applied to the individual tab.
     Launched  → creates an isolated context with the given options.
     """
+    global _session_owner
     if _is_cdp_connection() and _browser is not None:
+        # One-shot reads share CDP authentication too. Check and stamp ownership
+        # here so read_url() -> open_page() preserves only the caller's session.
+        if not _session_belongs_to_caller():
+            _close_current_page()
         ctx = _browser._session_context
-        if ctx is not None:
-            page = ctx.new_page()
-            headers = context_kwargs.get("extra_http_headers")
-            if headers:
-                page.set_extra_http_headers(headers)
-            return _ManagedPage(page=page, _owned_context=None)
-        # CDP without a session context shouldn't happen (it's recreated on
-        # every reconnect) — warn rather than silently opening a new window.
-        logger.warning(
-            "CDP connection has no session context; falling back to a new "
-            "browser context (may open a new window)"
-        )
+        if ctx is None:
+            # Explicit resets discard authentication; rebuild lazily for all
+            # entry points, including read_url() without an interactive page.
+            ctx = browser.new_context(**get_context_options())
+            _browser._session_context = ctx
+        _session_owner = _conversation_key()
+        page = ctx.new_page()
+        headers = context_kwargs.get("extra_http_headers")
+        if headers:
+            page.set_extra_http_headers(headers)
+        return _ManagedPage(page=page, _owned_context=None)
 
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
@@ -103,7 +111,7 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
 def _restart_browser() -> None:
     """Restart the browser by resetting the global instance"""
 
-    global _browser, _current_page, _current_context
+    global _browser, _current_page, _current_context, _session_owner
     start_time = time.time()
 
     # Clear persistent page globals — after a restart, old Page/BrowserContext objects
@@ -111,6 +119,7 @@ def _restart_browser() -> None:
     # than silently failing with a low-level Playwright "Target closed" error.
     _current_page = None
     _current_context = None
+    _session_owner = None
 
     if _browser is not None:
         try:
@@ -582,8 +591,13 @@ def aria_snapshot(url: str) -> str:
 
 
 def _close_current_page() -> None:
-    """Close the current persistent page and context if open."""
-    global _current_page, _current_context
+    """Close the current persistent page and owned context if open.
+
+    Explicit reset used by ``close_page()``, failed allowlist checks, and
+    ``load_browser_state()``. Ordinary ``open_page()`` navigation reuses the
+    live session instead of calling this.
+    """
+    global _current_page, _current_context, _session_owner
     if _current_page is not None:
         try:
             _current_page.close()
@@ -596,6 +610,87 @@ def _close_current_page() -> None:
         except Exception:
             pass
         _current_context = None
+    if _is_cdp_connection() and _browser is not None:
+        # Reset authentication together with ownership, including explicit close.
+        ctx = _browser._session_context
+        _browser._session_context = None
+        if ctx is not None:
+            try:
+                ctx.close()
+            except Exception:
+                pass
+    _session_owner = None
+
+
+def _conversation_key() -> str | None:
+    """Return the calling conversation id, or None for CLI/tests."""
+    from gptme.hooks import current_conversation_id
+
+    return current_conversation_id.get()
+
+
+def _session_belongs_to_caller() -> bool:
+    """True if the live interactive session may be reused by this caller."""
+    return _session_owner == _conversation_key()
+
+
+def _require_session_owner() -> None:
+    """Reject access to another conversation's live page or authentication."""
+    if not _session_belongs_to_caller():
+        raise RuntimeError(
+            "Browser session belongs to another conversation. Call open_page(url) "
+            "to start a new session."
+        )
+
+
+def _interactive_page_is_live() -> bool:
+    """Return True if the interactive page handle can be navigated."""
+    if _current_page is None:
+        return False
+    try:
+        return not _current_page.is_closed()
+    except Exception:
+        return False
+
+
+def _live_interactive_context() -> BrowserContext | None:
+    """Return the current interactive context that should survive navigation.
+
+    Launched browsers own ``_current_context``. CDP reuses the session context
+    without taking ownership (``_current_context`` stays None).
+    """
+    if _current_context is not None:
+        return _current_context
+    if _is_cdp_connection() and _browser is not None:
+        return _browser._session_context
+    return None
+
+
+def _drop_current_page_handle() -> None:
+    """Close the current page without discarding the session context."""
+    global _current_page
+    if _current_page is not None:
+        try:
+            _current_page.close()
+        except Exception:
+            pass
+        _current_page = None
+
+
+def _goto_and_snapshot(url: str) -> str:
+    """Navigate the current interactive page and return its ARIA snapshot."""
+    if _current_page is None:
+        raise RuntimeError("No page is currently open")
+    try:
+        _current_page.goto(url)
+        # A redirect may land outside the allowlist; reject the final URL.
+        _validate_page_url(_current_page.url)
+    except Exception as e:
+        _close_current_page()
+        if isinstance(e, ValueError):
+            raise
+        raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
+    return _page_snapshot()
 
 
 def _page_snapshot() -> str:
@@ -612,6 +707,7 @@ def _page_snapshot() -> str:
 
 def _read_page_text(browser: Browser) -> str:
     """Read the text content of the current persistent page as Markdown."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     # The page may have navigated away from the allowlist since it was opened.
@@ -634,39 +730,52 @@ def read_page_text() -> str:
 
 
 def _open_page(browser: Browser, url: str) -> str:
-    """Open a page for interactive browsing and return its ARIA snapshot."""
-    global _current_page, _current_context
+    """Open a page for interactive browsing and return its ARIA snapshot.
 
-    # Ordinary navigation stays in the live session, including authentication
-    # acquired since startup. Explicit close/load/restart still replace it.
-    if _current_page is None or _current_page.is_closed():
+    Ordinary navigation reuses the live interactive context so cookies and
+    localStorage from login survive a second ``open_page()``. Explicit
+    ``close_page()`` / ``load_browser_state()`` still reset or replace it by
+    clearing the page/context globals first.
+    """
+    global _current_page, _current_context, _session_owner
+
+    if not _session_belongs_to_caller():
         _close_current_page()
-        managed = _create_page(
-            browser,
-            **get_context_options(),
-            extra_http_headers={
-                "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
-            },
-        )
-        # Store page/context for interactive use; don't auto-close via ManagedPage
-        _current_page = managed.page
-        _current_context = managed._owned_context
 
-    try:
-        _current_page.goto(url)
-        # A redirect may land outside the allowlist; reject the final URL.
-        _validate_page_url(_current_page.url)
-    except Exception as e:
-        _close_current_page()
-        if isinstance(e, ValueError):
-            raise
-        raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
+    if _interactive_page_is_live():
+        return _goto_and_snapshot(url)
 
-    return _page_snapshot()
+    ctx = _live_interactive_context()
+    if ctx is not None and _session_belongs_to_caller():
+        # Page is gone; keep the session and open a new tab in it.
+        _drop_current_page_handle()
+        try:
+            page = ctx.new_page()
+            page.set_extra_http_headers(_OPEN_PAGE_HEADERS)
+        except Exception as e:
+            _close_current_page()
+            raise RuntimeError(f"Failed to navigate to {url}: {e}") from e
+        _current_page = page
+        _session_owner = _conversation_key()
+        return _goto_and_snapshot(url)
+
+    # First open, or after explicit close/reset/state replacement.
+    _close_current_page()
+    managed = _create_page(
+        browser,
+        **get_context_options(),
+        extra_http_headers=_OPEN_PAGE_HEADERS,
+    )
+    # Store page/context for interactive use; don't auto-close via ManagedPage
+    _current_page = managed.page
+    _current_context = managed._owned_context
+    _session_owner = _conversation_key()
+    return _goto_and_snapshot(url)
 
 
 def _do_close_page(browser: Browser) -> str:
     """Close the current page on the browser thread."""
+    _require_session_owner()
     _close_current_page()
     return "Page closed."
 
@@ -689,13 +798,18 @@ def _enforce_current_page_allowlist() -> None:
 
 def close_page() -> str:
     """Close the current interactive browsing page."""
-    if _current_page is None:
+    if _current_page is None and not (
+        _is_cdp_connection()
+        and _browser is not None
+        and _browser._session_context is not None
+    ):
         return "No page is currently open."
     return _execute_with_retry(_do_close_page)
 
 
 def _do_save_browser_state(browser: Browser, path: str) -> str:
     """Save current browser session state (cookies + localStorage) to a JSON file."""
+    _require_session_owner()
     ctx: BrowserContext | None = _current_context
     if ctx is None and _browser is not None and _browser._session_context is not None:
         # CDP mode — the active context is the shared session context.
@@ -756,6 +870,8 @@ def save_browser_state(path: str) -> str:
 
 def _do_load_browser_state(browser: Browser | None, path: str) -> str:
     """Load a previously saved browser session state for use in the next open_page()."""
+    global _session_owner
+
     resolved = Path(path).expanduser()
     if not resolved.exists():
         raise FileNotFoundError(
@@ -794,6 +910,7 @@ def _do_load_browser_state(browser: Browser | None, path: str) -> str:
         # CDP mode reuses a session context for future tabs; refresh it now so
         # the next open_page() does not keep using the pre-load cookies.
         _browser._session_context = replacement
+        _session_owner = _conversation_key()
         return (
             f"Browser state loaded from {resolved}; CDP session context refreshed. "
             "Call open_page(url) to start a session with the restored cookies and localStorage."
@@ -851,6 +968,10 @@ def open_page(url: str) -> str:
     Use this instead of read_url() when you need to interact with the page
     (click buttons, fill forms, scroll). The page stays open for subsequent
     click_element(), fill_element(), and scroll_page() calls.
+
+    Subsequent calls navigate the current interactive session, so cookies and
+    localStorage from login survive. ``close_page()`` and
+    ``load_browser_state()`` start a fresh context.
     """
     logger.info(f"Opening page for interaction: '{url}'")
     _validate_entry_url(url)
@@ -859,6 +980,7 @@ def open_page(url: str) -> str:
 
 def _click(browser: Browser, selector: str) -> str:
     """Click an element on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.locator(selector).click(timeout=10000)
@@ -894,6 +1016,7 @@ def click_element(selector: str) -> str:
 
 def _fill(browser: Browser, selector: str, value: str) -> str:
     """Fill a form field on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.locator(selector).fill(value, timeout=10000)
@@ -918,6 +1041,7 @@ def fill_element(selector: str, value: str) -> str:
 
 def _scroll(browser: Browser, direction: str, amount: int) -> str:
     """Scroll the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     if direction not in ("up", "down"):
@@ -950,6 +1074,7 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
 
 def _press_key(browser: Browser, key: str) -> str:
     """Press a keyboard key or shortcut in the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.keyboard.press(key)
@@ -991,6 +1116,7 @@ def press_key(key: str) -> str:
 
 def _select_option(browser: Browser, selector: str, value: str) -> str:
     """Select an option from a <select> element on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     locator = _current_page.locator(selector)
@@ -1031,6 +1157,7 @@ def select_option(selector: str, value: str) -> str:
 
 def _wait_for_element(browser: Browser, selector: str, timeout_ms: int) -> str:
     """Wait for an element to be visible on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     try:
@@ -1075,6 +1202,7 @@ def wait_for_element(selector: str, timeout_ms: int = 5000) -> str:
 
 def _hover(browser: Browser, selector: str) -> str:
     """Hover over an element on the current page."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     _current_page.locator(selector).hover(timeout=10000)
@@ -1109,6 +1237,7 @@ def hover_element(selector: str) -> str:
 
 def _snapshot_current_page(_browser: Browser) -> str:
     """Return the current page snapshot from the browser thread."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     return _page_snapshot()
@@ -1146,6 +1275,7 @@ def snapshot_page() -> str:
 
 def _get_current_url(_browser: Browser) -> str:
     """Return the current page URL from the browser thread."""
+    _require_session_owner()
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     return _current_page.url

@@ -15,6 +15,7 @@ def interactive(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
     monkeypatch.setattr(pw, "_browser", None)
     monkeypatch.setattr(pw, "_current_page", None)
     monkeypatch.setattr(pw, "_current_context", None)
+    monkeypatch.setattr(pw, "_session_owner", pw._conversation_key())
     monkeypatch.setattr(pw, "get_context_options", lambda: {})
     monkeypatch.setattr(pw, "_page_snapshot", lambda: "snapshot")
     browser = MagicMock()
@@ -44,20 +45,35 @@ def test_direct_navigation_reuses_live_page_and_context(
     ]
 
 
-@pytest.mark.parametrize("closed", [False, True])
-def test_explicit_or_external_close_starts_fresh(
-    interactive: tuple[MagicMock, MagicMock], closed: bool
+def test_explicit_close_starts_fresh(
+    interactive: tuple[MagicMock, MagicMock],
+) -> None:
+    browser, _ = interactive
+    pw._open_page(browser, "https://example.com/login")
+    context = browser.new_context.return_value
+    pw._do_close_page(browser)
+    pw._open_page(browser, "https://example.com/account")
+    assert browser.new_context.call_count == 2
+    context.close.assert_called_once()
+
+
+def test_external_tab_close_retains_live_context(
+    interactive: tuple[MagicMock, MagicMock],
 ) -> None:
     browser, page = interactive
     pw._open_page(browser, "https://example.com/login")
     context = browser.new_context.return_value
-    if closed:
-        page.is_closed.return_value = True
-    else:
-        pw._do_close_page(browser)
+    page.is_closed.return_value = True
+    replacement = MagicMock()
+    replacement.url = "https://example.com/account"
+    context.new_page.return_value = replacement
     pw._open_page(browser, "https://example.com/account")
-    assert browser.new_context.call_count == 2
-    context.close.assert_called_once()
+    browser.new_context.assert_called_once()
+    assert context.new_page.call_count == 2
+    assert pw._current_page is replacement
+    assert pw._current_context is context
+    assert isinstance(context, MagicMock)
+    context.close.assert_not_called()
 
 
 @pytest.mark.parametrize("disallowed", [False, True])
@@ -102,9 +118,14 @@ def test_shared_cdp_context_is_not_owned_by_page(
     assert pw._current_context is None
     context.new_page.assert_called_once()
     browser.new_context.assert_not_called()
+    context.close.assert_not_called()
     pw._do_close_page(browser)
     page.close.assert_called_once()
-    context.close.assert_not_called()
+    # Explicit reset discards the worker-owned CDP authentication too; only
+    # temporary _ManagedPage cleanup leaves that shared context alive.
+    context.close.assert_called_once()
+    assert pw._browser is not None
+    assert pw._browser._session_context is None
 
 
 def test_one_shot_page_does_not_share_interactive_context(

@@ -24,11 +24,12 @@ def _reset_storage_state_override():
     Prevents one test's state from leaking into the next — especially important
     when testing set_storage_state_override() / get_context_options() interactions.
     """
-    from gptme.tools._browser_thread import set_storage_state_override
+    from gptme.tools import _browser_thread as bt
 
-    set_storage_state_override(None)
-    yield
-    set_storage_state_override(None)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(bt, "_override_storage_state", None)
+        patch.setattr(bt, "_conversation_storage_states", {}, raising=False)
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +256,69 @@ def test_save_and_load_round_trip(tmp_path, monkeypatch):
     # The override should point at the same file we started with
     assert _bt._override_storage_state is not None
     assert _bt._override_storage_state.resolve() == state_file.resolve()
+
+
+@pytest.mark.parametrize("loader", ["conv-a", None])
+@pytest.mark.parametrize("caller", ["conv-a", "conv-b", None])
+def test_loaded_state_override_is_conversation_owned(
+    tmp_path, monkeypatch, loader, caller
+):
+    """An explicit load must not change another conversation's context options."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools._browser_thread import (
+        get_context_options,
+        set_storage_state_override,
+    )
+
+    monkeypatch.delenv("GPTME_BROWSER_STORAGE_STATE", raising=False)
+    monkeypatch.delenv("BROWSER_STORAGE_STATE", raising=False)
+    state_file = _make_state_file(tmp_path)
+    token = current_conversation_id.set(loader)
+    try:
+        set_storage_state_override(state_file)
+        current_conversation_id.set(caller)
+        expected = str(state_file) if caller == loader else None
+        assert get_context_options().get("storage_state") == expected
+    finally:
+        current_conversation_id.reset(token)
+
+
+@pytest.mark.parametrize("first_owner", ["conv-a", None])
+def test_loaded_overrides_survive_other_conversation_load_and_clear(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_owner: str | None
+) -> None:
+    """Loading/clearing B must preserve A (including the CLI owner's state)."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools._browser_playwright import _do_load_browser_state
+    from gptme.tools._browser_thread import (
+        get_context_options,
+        set_storage_state_override,
+    )
+
+    monkeypatch.delenv("GPTME_BROWSER_STORAGE_STATE", raising=False)
+    monkeypatch.delenv("BROWSER_STORAGE_STATE", raising=False)
+    monkeypatch.setattr("gptme.tools._browser_playwright._browser", None)
+    monkeypatch.setattr(
+        "gptme.tools._browser_playwright._close_current_page", lambda: None
+    )
+    state_a = _make_state_file(tmp_path)
+    state_b = tmp_path / "session-b.json"
+    state_b.write_text(state_a.read_text())
+    token = current_conversation_id.set(first_owner)
+    try:
+        _do_load_browser_state(None, str(state_a))
+        current_conversation_id.set("conv-b")
+        _do_load_browser_state(None, str(state_b))
+        assert get_context_options()["storage_state"] == str(state_b)
+
+        current_conversation_id.set(first_owner)
+        assert get_context_options()["storage_state"] == str(state_a)
+        set_storage_state_override(None)
+        assert "storage_state" not in get_context_options()
+
+        current_conversation_id.set("conv-b")
+        assert get_context_options()["storage_state"] == str(state_b)
+        set_storage_state_override(None)
+        assert "storage_state" not in get_context_options()
+    finally:
+        current_conversation_id.reset(token)

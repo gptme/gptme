@@ -39,10 +39,11 @@ DEFAULT_CONTEXT_OPTIONS: dict[str, Any] = {
     "permissions": ["geolocation"],
 }
 
-# In-session override set by load_browser_state().  Takes priority over the
-# GPTME_BROWSER_STORAGE_STATE env var so the agent can reload state without
-# restarting the process.
+# Overrides set by load_browser_state() take priority over the environment.
+# Keep the CLI/test owner (None) separate from named server conversations so
+# switching callers or clearing one override never discards another's state.
 _override_storage_state: Path | None = None
+_conversation_storage_states: dict[str, Path] = {}
 
 
 def set_storage_state_override(path: Path | None) -> None:
@@ -51,8 +52,16 @@ def set_storage_state_override(path: Path | None) -> None:
     Called by ``load_browser_state()`` so the next ``open_page()`` picks up the
     new authentication state without needing a process restart.
     """
+    from gptme.hooks import current_conversation_id
+
     global _override_storage_state
-    _override_storage_state = path
+    owner = current_conversation_id.get()
+    if owner is None:
+        _override_storage_state = path
+    elif path is None:
+        _conversation_storage_states.pop(owner, None)
+    else:
+        _conversation_storage_states[owner] = path
 
 
 def get_context_options() -> dict[str, Any]:
@@ -82,12 +91,19 @@ def get_context_options() -> dict[str, Any]:
     """
     options = dict(DEFAULT_CONTEXT_OPTIONS)
 
-    # In-session override takes precedence over the env var.
-    if _override_storage_state is not None:
-        options["storage_state"] = str(_override_storage_state)
-        logger.info(
-            "Using in-session storage state override: %s", _override_storage_state
-        )
+    from gptme.hooks import current_conversation_id
+
+    # Explicitly loaded credentials belong only to the loading conversation.
+    # Operator-configured environment state remains the process-wide default.
+    owner = current_conversation_id.get()
+    override = (
+        _override_storage_state
+        if owner is None
+        else _conversation_storage_states.get(owner)
+    )
+    if override is not None:
+        options["storage_state"] = str(override)
+        logger.info("Using in-session storage state override: %s", override)
         return options
 
     storage_path_raw = get_config().get_env("BROWSER_STORAGE_STATE")
@@ -284,12 +300,9 @@ class BrowserThread:
                 browser = _connect_or_launch_browser(
                     playwright, self.cdp_url, self.engine, self.executable_path
                 )
-                # For CDP, (re)create an isolated session context so parallel
-                # gptme instances don't share cookies/tabs. Recreated on every
-                # (re)connect so it never points at a dead browser.
-                if self.cdp_url:
-                    self._session_context = browser.new_context(**get_context_options())
-                    logger.info("Created isolated session context for CDP connection")
+                # _create_page lazily creates the isolated CDP context inside
+                # execute()'s caller scope. Launch/reconnect runs outside that
+                # ContextVar scope and must not load the CLI owner's credentials.
                 return None
             except Exception as e:
                 browser = None  # Ensure browser is None after failed launch

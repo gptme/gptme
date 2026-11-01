@@ -1053,6 +1053,10 @@ def open_page(url: str) -> str:
     (click buttons, fill forms, scroll). The page stays open for subsequent
     click_element(), fill_element(), and scroll_page() calls.
 
+    Subsequent calls navigate the current interactive session, so cookies and
+    localStorage from login survive. ``close_page()`` and
+    ``load_browser_state()`` start a fresh context.
+
     The output includes a metadata header with the page title and current URL.
     """
     assert browser
