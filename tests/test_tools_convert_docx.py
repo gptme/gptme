@@ -53,7 +53,9 @@ def test_docx_table_text_in_body_order(
     )
     if interleaved:
         separator = "\n\n" if extension == "md" else "\n"
-        expected = separator.join(["BEFORE_TABLE", expected, "AFTER_TABLE"])
+        before = r"BEFORE\_TABLE" if extension == "md" else "BEFORE_TABLE"
+        after = r"AFTER\_TABLE" if extension == "md" else "AFTER_TABLE"
+        expected = separator.join([before, expected, after])
     assert text == expected
 
 
@@ -105,7 +107,7 @@ def test_docx_paragraph_control(tmp_path: Path, extension: str) -> None:
     document.add_heading("Introduction", level=1)
     document.add_paragraph("Body text.")
     assert convert(document, tmp_path, extension) == (
-        "# Introduction\nBody text."
+        "# Introduction\n\nBody text\\."
         if extension == "md"
         else "Introduction\nBody text."
     )

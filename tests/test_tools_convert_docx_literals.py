@@ -162,3 +162,46 @@ def test_fallback_text_and_blank_paragraph() -> None:
     assert "".join(c.content for c in tokens[1].children or []) == para.text
     assert all(c.type == "text" for c in tokens[1].children or [])
     assert _para_to_md(SimpleNamespace(text="  ", runs=[], style=None)) == ""
+
+
+def test_literal_paragraphs_around_table_keep_rendered_blocks(tmp_path: Path) -> None:
+    document = Document()
+    document.add_paragraph("# before")
+    document.add_paragraph("[literal](target)")
+    table = document.add_table(rows=2, cols=1)
+    table.cell(0, 0).text = "HEADER"
+    table.cell(1, 0).text = "VALUE"
+    document.add_paragraph("*after*")
+    document.add_paragraph("last paragraph")
+    source = tmp_path / "mixed.docx"
+    document.save(str(source))
+    md = tmp_path / "mixed.md"
+    txt = tmp_path / "mixed.txt"
+    assert convert_file(source, md).success
+    assert convert_file(source, txt).success
+    tokens = MarkdownIt("commonmark").enable("table").parse(md.read_text())
+    assert [t.type for t in tokens if t.level == 0] == [
+        "paragraph_open",
+        "paragraph_close",
+        "paragraph_open",
+        "paragraph_close",
+        "table_open",
+        "table_close",
+        "paragraph_open",
+        "paragraph_close",
+        "paragraph_open",
+        "paragraph_close",
+    ]
+    children = [c for t in tokens for c in (t.children or [])]
+    assert all(c.type == "text" for c in children)
+    assert [c.content for c in children] == [
+        "# before",
+        "[literal](target)",
+        "HEADER",
+        "VALUE",
+        "*after*",
+        "last paragraph",
+    ]
+    assert txt.read_text() == (
+        "# before\n[literal](target)\nHEADER\nVALUE\n*after*\nlast paragraph"
+    )
