@@ -636,9 +636,12 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval">gptme-eval</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval-swebench">gptme-eval-swebench</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval-tbench">gptme-eval-tbench</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset">gptme-dataset</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-export">export</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-stats">stats</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dataset-history-eligibility">Dataset history eligibility</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset">gptme-dataset</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-export">export</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-stats">stats</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -976,12 +979,29 @@ gptme-eval-tbench –model anthropic/claude-haiku-4-5 –task hello-world –tas
 </dd></dl>
 
 </section>
+<section id="dataset-history-eligibility">
+<h2>Dataset history eligibility<a class="headerlink" href="#dataset-history-eligibility" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">dataset</span> <span class="pre">export</span></code> emits an entry commit plus the session-attributed
+solution commits. Export and <code class="docutils literal notranslate"><span class="pre">dataset</span> <span class="pre">stats</span></code> count only contiguous,
+single-parent solution chains with an available entry parent. Earlier foreign
+commits are part of the starting environment, not part of the solution.</p>
+<p>Root solutions, attributed merges, interleaved solutions (A/B/A), and nonlinear
+attributed histories are skipped with a warning naming the session and reason.
+Even apparently independent intervening work is rejected: the format does not
+model missing dependencies or a merge mainline. Shallow histories without a
+visible entry parent are also skipped. Fetch the necessary history or select a
+repository with a supported chain; foreign commits are never silently added.</p>
+<p>This checks structural Git replay, not task correctness, build success, or the
+availability of external dependencies. JSONL records and their schema are
+unchanged; diagnostics go to stderr rather than the exported JSONL stream.</p>
 <section id="gptme-dataset">
-<h2>gptme-dataset<a class="headerlink" href="#gptme-dataset" title="Link to this heading">#</a></h2>
+<h3>gptme-dataset<a class="headerlink" href="#gptme-dataset" title="Link to this heading">#</a></h3>
 <p>Build fine-tuning datasets from gptme session trajectories.</p>
 <p>Uses commit-message session-ID attribution to recover the git state
 before and after each session, producing TaskEnvironment JSONL records
-suitable for fine-tuning pipelines.</p>
+suitable for fine-tuning pipelines. Only contiguous single-parent solution
+histories with an entry parent are supported; unsupported histories are
+skipped with a warning.</p>
 <dl class="simple">
 <dt>References:</dt><dd><p>Terminal-Universe paper: <a class="reference external" href="https://arxiv.org/abs/2609.04148">https://arxiv.org/abs/2609.04148</a>
 Issue: gptme/gptme#3718</p>
@@ -992,11 +1012,15 @@ Issue: gptme/gptme#3718</p>
 </pre></div>
 </div>
 <section id="gptme-dataset-export">
-<h3>export<a class="headerlink" href="#gptme-dataset-export" title="Link to this heading">#</a></h3>
+<h4>export<a class="headerlink" href="#gptme-dataset-export" title="Link to this heading">#</a></h4>
 <p>Export TaskEnvironment records as JSONL.</p>
 <p>Each line of output is a JSON object describing one reproducible training
 environment derived from a gptme session.  The schema matches the
 <code class="docutils literal notranslate"><span class="pre">TaskEnvironment</span></code> dataclass in <code class="docutils literal notranslate"><span class="pre">gptme.dataset.trajectory_to_env</span></code>.</p>
+<p>Root solutions, merges and interleaved/nonlinear attributed histories are
+skipped with a warning. Foreign work before the entry is preserved as
+starting state, never added to the solution. This structural replay check
+does not establish task correctness or external dependency availability.</p>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gptme</span><span class="o">-</span><span class="n">util</span> <span class="n">dataset</span> <span class="n">export</span> <span class="o">--</span><span class="n">repo</span> <span class="o">/</span><span class="n">path</span><span class="o">/</span><span class="n">to</span><span class="o">/</span><span class="n">repo</span> <span class="o">-</span><span class="n">n</span> <span class="mi">200</span> <span class="o">-</span><span class="n">o</span> <span class="n">envs</span><span class="o">.</span><span class="n">jsonl</span>
 </pre></div>
@@ -1054,7 +1078,7 @@ environment derived from a gptme session.  The schema matches the
 
 </section>
 <section id="gptme-dataset-stats">
-<h3>stats<a class="headerlink" href="#gptme-dataset-stats" title="Link to this heading">#</a></h3>
+<h4>stats<a class="headerlink" href="#gptme-dataset-stats" title="Link to this heading">#</a></h4>
 <p>Print corpus statistics: how many sessions are convertible into environments.</p>
 <p class="rubric">Usage</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-dataset<span class="w"> </span>stats<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
@@ -1095,6 +1119,7 @@ environment derived from a gptme session.  The schema matches the
 <dd><p>Output as JSON.</p>
 </dd></dl>
 
+</section>
 </section>
 </section>
 </section>
@@ -1149,9 +1174,12 @@ environment derived from a gptme session.  The schema matches the
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval">gptme-eval</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval-swebench">gptme-eval-swebench</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-eval-tbench">gptme-eval-tbench</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset">gptme-dataset</a><ul class="pst-show_toc_level nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-export">export</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-stats">stats</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dataset-history-eligibility">Dataset history eligibility</a><ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset">gptme-dataset</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-export">export</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-dataset-stats">stats</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
