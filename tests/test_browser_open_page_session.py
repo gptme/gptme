@@ -302,3 +302,69 @@ def test_cdp_close_resets_auth_and_keeps_read_url_session(
     account = bp.read_url(f"{auth_server}/account")
     assert "cookie-ok" in account
     assert "localstorage-ok" in account
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("cdp", [False, True])
+@pytest.mark.parametrize("new_owner", ["conv-a", "conv-b", None])
+@pytest.mark.parametrize("interactive_next", [False, True])
+def test_explicitly_loaded_auth_stays_with_loader(
+    auth_server, tmp_path, cdp, new_owner, interactive_next
+):
+    """Restoring credentials does not authorize another conversation to use them."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+    from gptme.tools._browser_thread import set_storage_state_override
+
+    thread = bp.get_browser()
+    if cdp:
+        thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+    token = current_conversation_id.set("conv-a")
+    try:
+        bp.open_page(f"{auth_server}/login")
+        saved = tmp_path / "saved.json"
+        bp.save_browser_state(str(saved))
+        bp.close_page()
+        bp.load_browser_state(str(saved))
+        current_conversation_id.set(new_owner)
+        navigate = bp.open_page if interactive_next else bp.read_url
+        account = navigate(f"{auth_server}/account")
+        if new_owner == "conv-a":
+            assert "cookie-ok" in account
+            assert "localstorage-ok" in account
+        else:
+            assert "cookie-missing" in account
+            assert "localstorage-missing" in account
+    finally:
+        current_conversation_id.reset(token)
+        set_storage_state_override(None)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("caller", ["conv-a", "conv-b", None])
+def test_restored_cdp_state_export_before_navigation(auth_server, tmp_path, caller):
+    """A restored CDP context already belongs to its loader before open_page()."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+    from gptme.tools._browser_thread import set_storage_state_override
+
+    thread = bp.get_browser()
+    thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+    token = current_conversation_id.set("conv-a")
+    try:
+        bp.open_page(f"{auth_server}/login")
+        saved = tmp_path / "saved.json"
+        bp.save_browser_state(str(saved))
+        bp.load_browser_state(str(saved))
+        current_conversation_id.set(caller)
+        exported = tmp_path / "exported.json"
+        if caller == "conv-a":
+            bp.save_browser_state(str(exported))
+            assert exported.read_text() == saved.read_text()
+        else:
+            with pytest.raises(RuntimeError, match="another conversation"):
+                bp.save_browser_state(str(exported))
+            assert not exported.exists()
+    finally:
+        current_conversation_id.reset(token)
+        set_storage_state_override(None)

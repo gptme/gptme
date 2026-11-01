@@ -869,6 +869,8 @@ def save_browser_state(path: str) -> str:
 
 def _do_load_browser_state(browser: Browser | None, path: str) -> str:
     """Load a previously saved browser session state for use in the next open_page()."""
+    global _session_owner
+
     resolved = Path(path).expanduser()
     if not resolved.exists():
         raise FileNotFoundError(
@@ -907,6 +909,7 @@ def _do_load_browser_state(browser: Browser | None, path: str) -> str:
         # CDP mode reuses a session context for future tabs; refresh it now so
         # the next open_page() does not keep using the pre-load cookies.
         _browser._session_context = replacement
+        _session_owner = _conversation_key()
         return (
             f"Browser state loaded from {resolved}; CDP session context refreshed. "
             "Call open_page(url) to start a session with the restored cookies and localStorage."

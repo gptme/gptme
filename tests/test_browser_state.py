@@ -255,3 +255,28 @@ def test_save_and_load_round_trip(tmp_path, monkeypatch):
     # The override should point at the same file we started with
     assert _bt._override_storage_state is not None
     assert _bt._override_storage_state.resolve() == state_file.resolve()
+
+
+@pytest.mark.parametrize("loader", ["conv-a", None])
+@pytest.mark.parametrize("caller", ["conv-a", "conv-b", None])
+def test_loaded_state_override_is_conversation_owned(
+    tmp_path, monkeypatch, loader, caller
+):
+    """An explicit load must not change another conversation's context options."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools._browser_thread import (
+        get_context_options,
+        set_storage_state_override,
+    )
+
+    monkeypatch.delenv("GPTME_BROWSER_STORAGE_STATE", raising=False)
+    monkeypatch.delenv("BROWSER_STORAGE_STATE", raising=False)
+    state_file = _make_state_file(tmp_path)
+    token = current_conversation_id.set(loader)
+    try:
+        set_storage_state_override(state_file)
+        current_conversation_id.set(caller)
+        expected = str(state_file) if caller == loader else None
+        assert get_context_options().get("storage_state") == expected
+    finally:
+        current_conversation_id.reset(token)

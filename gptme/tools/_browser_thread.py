@@ -43,6 +43,7 @@ DEFAULT_CONTEXT_OPTIONS: dict[str, Any] = {
 # GPTME_BROWSER_STORAGE_STATE env var so the agent can reload state without
 # restarting the process.
 _override_storage_state: Path | None = None
+_override_storage_state_owner: str | None = None
 
 
 def set_storage_state_override(path: Path | None) -> None:
@@ -51,8 +52,11 @@ def set_storage_state_override(path: Path | None) -> None:
     Called by ``load_browser_state()`` so the next ``open_page()`` picks up the
     new authentication state without needing a process restart.
     """
-    global _override_storage_state
+    from gptme.hooks import current_conversation_id
+
+    global _override_storage_state, _override_storage_state_owner
     _override_storage_state = path
+    _override_storage_state_owner = current_conversation_id.get()
 
 
 def get_context_options() -> dict[str, Any]:
@@ -82,8 +86,14 @@ def get_context_options() -> dict[str, Any]:
     """
     options = dict(DEFAULT_CONTEXT_OPTIONS)
 
-    # In-session override takes precedence over the env var.
-    if _override_storage_state is not None:
+    from gptme.hooks import current_conversation_id
+
+    # Explicitly loaded credentials belong only to the loading conversation.
+    # Operator-configured environment state remains the process-wide default.
+    if (
+        _override_storage_state is not None
+        and _override_storage_state_owner == current_conversation_id.get()
+    ):
         options["storage_state"] = str(_override_storage_state)
         logger.info(
             "Using in-session storage state override: %s", _override_storage_state
