@@ -195,7 +195,14 @@ def test_metadata_reads_are_noncreating(
 def test_chats_clean_dry_run_does_not_create_workspace(
     logs_dir: Path, config_kind: str
 ) -> None:
+    from gptme.logmanager.locking import conversation_lifecycle_lock
+
     history = _make_history(logs_dir)
+    # Cleanup admission intentionally creates a stable gate outside the history.
+    # Prepare it through the real helper so the strict snapshot below isolates
+    # metadata/workspace mutations without bypassing cleanup ownership checks.
+    with conversation_lifecycle_lock(history):
+        pass
     expected_name = history.name
     if config_kind == "log":
         (history / "config.toml").write_text(
