@@ -775,6 +775,7 @@ def _open_page(browser: Browser, url: str) -> str:
 
 def _do_close_page(browser: Browser) -> str:
     """Close the current page on the browser thread."""
+    _require_session_owner()
     _close_current_page()
     return "Page closed."
 

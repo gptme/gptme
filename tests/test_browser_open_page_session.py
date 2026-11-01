@@ -336,8 +336,9 @@ def test_explicitly_loaded_auth_stays_with_loader(
             assert "cookie-missing" in account
             assert "localstorage-missing" in account
     finally:
-        current_conversation_id.reset(token)
+        current_conversation_id.set("conv-a")
         set_storage_state_override(None)
+        current_conversation_id.reset(token)
 
 
 @pytest.mark.integration
@@ -366,5 +367,67 @@ def test_restored_cdp_state_export_before_navigation(auth_server, tmp_path, call
                 bp.save_browser_state(str(exported))
             assert not exported.exists()
     finally:
-        current_conversation_id.reset(token)
+        current_conversation_id.set("conv-a")
         set_storage_state_override(None)
+        current_conversation_id.reset(token)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("interactive_first", [False, True])
+def test_foreign_close_preserves_owner_cdp_auth(auth_server, interactive_first):
+    """A foreign close cannot discard authentication, even after one-shot login."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+
+    thread = bp.get_browser()
+    thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+    token = current_conversation_id.set("conv-a")
+    try:
+        login = bp.open_page if interactive_first else bp.read_url
+        login(f"{auth_server}/login")
+        context = thread._session_context
+        current_conversation_id.set("conv-b")
+        with pytest.raises(RuntimeError, match="another conversation"):
+            bp.close_page()
+        assert thread._session_context is context
+        current_conversation_id.set("conv-a")
+        account = bp.open_page(f"{auth_server}/account")
+        assert "cookie-ok" in account
+        assert "localstorage-ok" in account
+    finally:
+        current_conversation_id.reset(token)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("cdp", [False, True])
+def test_interleaved_loads_restore_each_callers_state(auth_server, tmp_path, cdp):
+    """Another conversation loading state must not erase a pending restoration."""
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import _browser_playwright as bp
+    from gptme.tools._browser_thread import set_storage_state_override
+
+    thread = bp.get_browser()
+    if cdp:
+        thread.cdp_url = "http://isolated-cdp-fixture.invalid"
+    token = current_conversation_id.set("conv-a")
+    try:
+        bp.open_page(f"{auth_server}/login")
+        saved = tmp_path / "authenticated.json"
+        bp.save_browser_state(str(saved))
+        bp.load_browser_state(str(saved))
+        current_conversation_id.set("conv-b")
+        empty = tmp_path / "empty.json"
+        empty.write_text('{"cookies": [], "origins": []}')
+        bp.load_browser_state(str(empty))
+        account = bp.open_page(f"{auth_server}/account")
+        assert "cookie-missing" in account
+        assert "localstorage-missing" in account
+        current_conversation_id.set("conv-a")
+        account = bp.open_page(f"{auth_server}/account")
+        assert "cookie-ok" in account
+        assert "localstorage-ok" in account
+    finally:
+        for owner in ("conv-a", "conv-b"):
+            current_conversation_id.set(owner)
+            set_storage_state_override(None)
+        current_conversation_id.reset(token)

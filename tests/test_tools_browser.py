@@ -1716,6 +1716,7 @@ class TestSelectOption:
         ("_hover", ("button",)),
         ("_get_current_url", ()),
         ("_do_save_browser_state", ("state.json",)),
+        ("_do_close_page", ()),
     ],
 )
 def test_interactive_operations_reject_another_session(operation, args, tmp_path):
