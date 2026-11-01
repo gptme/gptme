@@ -663,7 +663,8 @@ by seeing the actual file contents.</p>
 
 Keep patches small. ORIGINAL must match the file exactly, including ellipsis
 comments (<span class="sb">`# ...`</span>): these are literal, not wildcards. Use separate
-ORIGINAL/UPDATED blocks to skip unchanged code.
+ORIGINAL/UPDATED blocks to skip unchanged code. ORIGINAL must have exactly one
+match, including overlapping occurrences; add surrounding context to disambiguate.
 
 <span class="gu">### When to use patch vs save</span>
 

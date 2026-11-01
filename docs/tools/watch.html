@@ -654,7 +654,7 @@ server session exists, else queued and drained at STEP_PRE.</p>
 Arming a source:
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch until &lt;cmd&gt; --every 30s`</span>: fire once when cmd exits 0 (e.g. <span class="sb">`gh pr checks`</span>)
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch run &lt;cmd&gt;`</span>: fire when the process exits, with rc + output tail
-<span class="k">-</span><span class="w"> </span><span class="sb">`watch stream &lt;cmd&gt;`</span>: each stdout line is an event (Monitor)
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch stream &lt;cmd&gt;`</span>: each stdout line is an event (Monitor); lines over 64 KiB of UTF-8 are visibly truncated within that limit, discarding the remainder until newline
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch timer 10m [desc]`</span>: fire once after a duration (ScheduleWakeup)
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch tmux &lt;session&gt; --pattern &lt;re&gt; --stable 5s`</span>: fire on pane match/stability
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch list`</span>

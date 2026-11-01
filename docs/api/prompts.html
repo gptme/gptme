@@ -941,7 +941,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1aef888e00&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f9aaa73cea0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2000,7 +2000,8 @@ If you delete a section, include surrounding context to show what is removed.
 
 Keep patches small. ORIGINAL must match the file exactly, including ellipsis
 comments (<span class="sb">`# ...`</span>): these are literal, not wildcards. Use separate
-ORIGINAL/UPDATED blocks to skip unchanged code.
+ORIGINAL/UPDATED blocks to skip unchanged code. ORIGINAL must have exactly one
+match, including overlapping occurrences; add surrounding context to disambiguate.
 
 <span class="gu">### When to use patch vs save</span>
 
@@ -3007,7 +3008,7 @@ The following Python functions are available:
 Arming a source:
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch until &lt;cmd&gt; --every 30s`</span>: fire once when cmd exits 0 (e.g. <span class="sb">`gh pr checks`</span>)
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch run &lt;cmd&gt;`</span>: fire when the process exits, with rc + output tail
-<span class="k">-</span><span class="w"> </span><span class="sb">`watch stream &lt;cmd&gt;`</span>: each stdout line is an event (Monitor)
+<span class="k">-</span><span class="w"> </span><span class="sb">`watch stream &lt;cmd&gt;`</span>: each stdout line is an event (Monitor); lines over 64 KiB of UTF-8 are visibly truncated within that limit, discarding the remainder until newline
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch timer 10m [desc]`</span>: fire once after a duration (ScheduleWakeup)
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch tmux &lt;session&gt; --pattern &lt;re&gt; --stable 5s`</span>: fire on pane match/stability
 <span class="k">-</span><span class="w"> </span><span class="sb">`watch list`</span>
@@ -3059,7 +3060,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20241</p>
+<p>Tokens: 20287</p>
 </dd></dl>
 
 <dl class="py function">
