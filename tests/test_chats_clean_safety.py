@@ -50,7 +50,8 @@ def test_pending_queue_is_preserved(histories: Path, steer: bool) -> None:
     assert get_prompt_queue_path(directory).read_bytes() == before
 
 
-def test_live_other_process_is_preserved(histories: Path) -> None:
+@pytest.mark.parametrize("delete", [False, True])
+def test_live_other_process_is_preserved(histories: Path, delete: bool) -> None:
     directory = make_history(histories)
     code = """
 import sys
@@ -74,7 +75,8 @@ with LogManager.load(Path(sys.argv[1]), lock=True):
         assert child.stdout is not None
         assert child.stdout.readline().strip() == "locked"
         before = (directory / "conversation.jsonl").read_bytes()
-        assert clean("--delete")["deleted"] == 0
+        result = clean(*(["--delete"] if delete else []))
+        assert result["found"] == 0 and result["deleted"] == 0
         assert (directory / "conversation.jsonl").read_bytes() == before
         assert child.poll() is None
     finally:
@@ -100,10 +102,16 @@ def test_abandoned_and_stale_lock_controls(
     if lock_contents is not None:
         contents = str(os.getpid()) if lock_contents == "current-pid" else lock_contents
         (directory / ".lock").write_text(contents)
-    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    before = {
+        p.relative_to(histories): p.read_bytes() if p.is_file() else None
+        for p in histories.rglob("*")
+    }
     dry = clean()
     assert dry["found"] == 1 and dry["deleted"] == 0
-    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+    assert {
+        p.relative_to(histories): p.read_bytes() if p.is_file() else None
+        for p in histories.rglob("*")
+    } == before
     actual = clean("--delete")
     assert actual["deleted"] == 1
     assert actual["freed_bytes"] == dry["total_bytes"]

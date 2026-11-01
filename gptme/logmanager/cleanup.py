@@ -3,6 +3,7 @@
 import json
 import logging
 import shutil
+from contextlib import nullcontext
 from pathlib import Path
 
 from ..prompt_queue import get_prompt_queue_path
@@ -53,12 +54,19 @@ def cleanup_conversation(
     Busy, unreadable or changed candidates are protected. The stable lifecycle
     gate serializes startup/publication with final validation and removal. The
     lifetime lock is probed strictly, including same-process owners, and closed
-    before rmtree so Windows can remove the lock file too.
+    before rmtree so Windows can remove the lock file too. Discovery is advisory
+    and does not create lifecycle gate files; deletion always revalidates under
+    the gate, even when a previous scan reported the candidate as abandoned.
     """
     logdir = Path(conv.path).parent
     deleting = False
     try:
-        with conversation_lifecycle_lock(logdir, blocking=False):
+        gate = (
+            conversation_lifecycle_lock(logdir, blocking=False)
+            if delete
+            else nullcontext()
+        )
+        with gate:
             if not logdir.is_dir():
                 return False
             with unowned_conversation(logdir):
