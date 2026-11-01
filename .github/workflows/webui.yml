@@ -103,7 +103,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Download dist artifact
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8
       with:
         name: webui-dist
         path: dist

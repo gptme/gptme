@@ -552,7 +552,7 @@ jobs:
         run: cd webui && npm install && npm run build
 
       - name: Download sidecar binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: sidecar-*
           merge-multiple: true
@@ -849,7 +849,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up JDK 21
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -953,13 +953,13 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up JDK 21
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Download Android artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: android-build
           path: android-dist
