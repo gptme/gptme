@@ -91,12 +91,15 @@ def test_prepare_uses_checked_sha_and_current_publisher() -> None:
     assert 'bash "$RUNNER_TEMP/publish_release.sh"' in prepare
 
 
-@pytest.mark.parametrize("scenario", ["unchanged", "advanced", "race", "denied"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["unchanged", "advanced", "race", "denied", "unmerged", "unmerged-ahead"],
+)
 def test_stable_publish_does_not_rewind_master(
     repo: Path, tmp_path: Path, scenario: str
 ) -> None:
     source = git(repo, "rev-parse", "HEAD")
-    if scenario in {"advanced", "race"}:
+    if scenario in {"advanced", "race", "unmerged"}:
         (repo / "unreleased").write_text("must not be released")
         git(repo, "add", "unreleased")
         git(repo, "commit", "-m", "unreleased change")
@@ -114,6 +117,12 @@ def test_stable_publish_does_not_rewind_master(
         )
         git(repo, "fetch", "origin", "master")
     git(repo, "checkout", "--detach", source)
+    if scenario in {"unmerged", "unmerged-ahead"}:
+        # Local make release-* can start on a feature branch, including one
+        # that could fast-forward master. Neither source is merged yet.
+        (repo / "feature").write_text("unmerged feature must not ship")
+        git(repo, "add", "feature")
+        git(repo, "commit", "-m", "unmerged feature")
     (repo / "pyproject.toml").write_text('[project]\nversion = "0.36.0"\n')
     git(repo, "add", "pyproject.toml")
     git(repo, "commit", "-m", "release bump")
@@ -162,10 +171,15 @@ def test_stable_publish_does_not_rewind_master(
         text=True,
         check=False,
     )
-    if scenario == "denied":
+    if scenario in {"denied", "unmerged", "unmerged-ahead"}:
         assert result.returncode != 0
         assert not git(repo, "ls-remote", "origin", "refs/tags/v0.36.0")
         assert not calls.exists()
+        assert (
+            git(repo, "ls-remote", "origin", "refs/heads/master").split()[0] == master
+        )
+        if scenario != "denied":
+            assert "release source is not on origin/master" in result.stderr
         return
     assert result.returncode == 0, result.stdout + result.stderr
     assert git(repo, "ls-remote", "origin", "refs/tags/v0.36.0").split()[0] == release

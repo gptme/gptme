@@ -80,11 +80,23 @@ if [ "$DRY_RUN" = "false" ]; then
         # key from the `release` environment (set up via actions/checkout
         # ssh-key); locally it's the maintainer's own credentials.
         git fetch origin master
+        # bump_version.sh creates one release commit on top of the source
+        # (make release may amend that commit with changelog files). Validate
+        # its parent here too: local callers do not pass the workflow's gate.
+        RELEASE_SOURCE=$(git rev-parse HEAD^)
+        if ! git merge-base --is-ancestor "$RELEASE_SOURCE" origin/master; then
+            echo "Error: release source is not on origin/master. Merge it before publishing." >&2
+            exit 1
+        fi
         if git merge-base --is-ancestor origin/master HEAD; then
             if ! git push origin HEAD:master; then
                 # A merge may win the race after fetch. Only that verified
                 # non-fast-forward case permits tag-only publication.
                 git fetch origin master
+                if ! git merge-base --is-ancestor "$RELEASE_SOURCE" origin/master; then
+                    echo "Error: release source is not on origin/master after push failure." >&2
+                    exit 1
+                fi
                 if git merge-base --is-ancestor origin/master HEAD; then
                     echo "Error: master push failed without master advancing." >&2
                     exit 1
