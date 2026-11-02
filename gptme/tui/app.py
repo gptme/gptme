@@ -128,6 +128,25 @@ def _queued_prompt_text(item: str | Message) -> str:
     return item.content if isinstance(item, Message) else item
 
 
+def _join_queued_prompts(items: Sequence[str | Message]) -> str:
+    """Join queued prompts into one draft, separated by a blank line."""
+    return "\n\n".join(_queued_prompt_text(item) for item in items)
+
+
+def _restore_input_text(existing: str, queued_text: str) -> str:
+    """Keep a live input draft and append restored queued prompts.
+
+    Whitespace-only drafts are treated as empty so they don't add a gap.
+    Nonempty drafts keep leading indentation and internal newlines; trailing
+    newlines are collapsed into the blank-line separator.
+    """
+    if not queued_text:
+        return existing
+    if not existing.strip():
+        return queued_text
+    return existing.rstrip("\n") + "\n\n" + queued_text
+
+
 SUMMARY_MAXLEN = 80
 
 
@@ -3391,8 +3410,7 @@ class GptmeApp(App):
             # the rest of the queue, instead of starting a new turn
             self._confirmed_urls.pop(id(msg))
             chat_input = self.query_one("#input", ChatInput)
-            existing = chat_input.text.strip()
-            chat_input._set_text(f"{existing}\n{text}" if existing else text)
+            chat_input._set_text(_restore_input_text(chat_input.text, text))
         else:  # the turn ended while the dialog was open
             self.call_later(self._submit, msg)
 
@@ -4313,7 +4331,7 @@ class GptmeApp(App):
             return
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
-            text = "\n".join(_queued_prompt_text(item) for item in self.prompt_queue)
+            queued_text = _join_queued_prompts(self.prompt_queue)
             for item in self.prompt_queue:
                 if isinstance(item, Message) and item.metadata:
                     record_skill_phase(
@@ -4321,13 +4339,14 @@ class GptmeApp(App):
                         item.metadata.get("skill_invocation_id"),
                         "abandoned",
                     )
+            chat_input = self.query_one("#input", ChatInput)
+            chat_input._set_text(_restore_input_text(chat_input.text, queued_text))
             self.prompt_queue.clear()
             self._confirmed_urls.clear()
             self._drop_delivered_widget()
             for w in self._queued_widgets:
                 w.remove()
             self._queued_widgets.clear()
-            self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
             # everything you queued goes in one turn, not one per turn
             if steer := self._take_steer_prompts():

@@ -32,8 +32,10 @@ from gptme.tui.app import (
     _append_pt_history,
     _find_open_tool_fence_pos,
     _has_tool_calls,
+    _join_queued_prompts,
     _load_pt_history,
     _markdown_tool_renderable,
+    _restore_input_text,
     _split_all_tool_calls,
     _split_markdown_tool_calls,
     _split_streaming_markdown_tool_calls,
@@ -60,6 +62,26 @@ def test_summarize():
     assert _summarize("```stdout\nfoo\n```").startswith("stdout")
     long = "x" * 200
     assert len(_summarize(long)) < 100
+
+
+def test_join_queued_prompts_uses_blank_line_boundaries():
+    assert _join_queued_prompts(["first", "second\nwith\nlines", "third"]) == (
+        "first\n\nsecond\nwith\nlines\n\nthird"
+    )
+    assert _join_queued_prompts([Message("user", "alpha"), "beta"]) == "alpha\n\nbeta"
+
+
+def test_restore_input_text_keeps_existing_draft():
+    queued = "first\n\nsecond"
+    assert _restore_input_text("draft in progress", queued) == (
+        "draft in progress\n\nfirst\n\nsecond"
+    )
+    assert _restore_input_text("   \n", queued) == queued
+    assert _restore_input_text("draft", "") == "draft"
+    assert _restore_input_text("", queued) == queued
+    assert _restore_input_text("  indented\n  draft\n\n", queued) == (
+        "  indented\n  draft\n\nfirst\n\nsecond"
+    )
 
 
 @pytest.mark.asyncio
@@ -2294,25 +2316,80 @@ async def test_inline_resize_handler_reset_on_unmount(tmp_path):
     assert signal.getsignal(signal.SIGWINCH) is signal.SIG_DFL
 
 
-@pytest.mark.asyncio
-async def test_inline_queued_prompts_visible(tmp_path):
-    manager = make_manager(tmp_path, [Message("user", "hello")])
-    app = GptmeApp(manager, workspace=tmp_path, inline=True)
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.generating = True
-        inp = app.query_one("#input", ChatInput)
-        inp.text = "queued prompt"
+_QUEUED_RESTORE_PROMPTS = (
+    "first prompt",
+    "second\nwith\nlines",
+    "third prompt",
+)
+_QUEUED_RESTORE_DRAFT = "draft in progress"
+_QUEUED_RESTORE_TEXT = (
+    f"{_QUEUED_RESTORE_DRAFT}\n\nfirst prompt\n\nsecond\nwith\nlines\n\nthird prompt"
+)
+
+
+async def _queue_restore_prompts(app, pilot) -> ChatInput:
+    """Queue three prompts (one multiline) while a turn is running."""
+    app.generating = True
+    inp = app.query_one("#input", ChatInput)
+    for prompt in _QUEUED_RESTORE_PROMPTS:
+        inp.text = prompt
         await pilot.press("enter")
         await pilot.pause()
+    assert app.prompt_queue == list(_QUEUED_RESTORE_PROMPTS)
+    return inp
+
+
+@pytest.mark.asyncio
+async def test_inline_queued_prompts_visible(tmp_path, monkeypatch):
+    manager = make_manager(tmp_path, [Message("user", "hello")])
+    app = GptmeApp(manager, workspace=tmp_path, inline=True)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = await _queue_restore_prompts(app, pilot)
         queued = app.query_one("#queued", Static)
-        assert "queued prompt" in str(queued.render())
+        rendered = str(queued.render())
+        assert "first prompt" in rendered
+        assert "second" in rendered
+        assert "third prompt" in rendered
         # interrupting hands the text back and clears the queued view
+        inp.text = _QUEUED_RESTORE_DRAFT
         app._interrupt_event.set()
         await app._generation_done()
         await pilot.pause()
-        assert "queued prompt" not in str(queued.render())
-        assert inp.text == "queued prompt"
+        assert not queued.display
+        assert "queued:" not in str(queued.render())
+        assert inp.text == _QUEUED_RESTORE_TEXT
+        assert app.prompt_queue == []
+        assert app.generating is False
+        assert started == []
+        assert [m.content for m in manager.log if m.role == "user"] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_fullscreen_queued_prompts_restored_after_interrupt(
+    tmp_path, monkeypatch
+):
+    manager = make_manager(tmp_path, [Message("user", "hello")])
+    app = GptmeApp(manager, workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = await _queue_restore_prompts(app, pilot)
+        queued = [w for w in app.query(UserMessage) if "queued" in w.classes]
+        assert [w.content for w in queued] == list(_QUEUED_RESTORE_PROMPTS)
+        inp.text = _QUEUED_RESTORE_DRAFT
+        app._interrupt_event.set()
+        await app._generation_done()
+        await pilot.pause()
+        assert [w for w in app.query(UserMessage) if "queued" in w.classes] == []
+        assert inp.text == _QUEUED_RESTORE_TEXT
+        assert app.prompt_queue == []
+        assert app.generating is False
+        assert started == []
+        assert [m.content for m in manager.log if m.role == "user"] == ["hello"]
 
 
 @pytest.mark.asyncio
@@ -3820,10 +3897,12 @@ async def test_url_dialog_answered_after_interrupt_returns_text(tmp_path, monkey
     async with app.run_test() as pilot:
         await pilot.pause()
         app._interrupt_event.set()  # interrupted while the dialog was open
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "draft in progress"
         app._enqueue_confirmed("see https://example.com", [])
         await pilot.pause()
         assert started == []
-        assert app.query_one("#input", ChatInput).text == "see https://example.com"
+        assert inp.text == "draft in progress\n\nsee https://example.com"
         assert app._confirmed_urls == {}
 
 
