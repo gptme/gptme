@@ -1403,6 +1403,8 @@ def _extract_thinking_content(
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
+    pending_call_ids: set[str] = set()
+    pending_notices: list[dict] = []
     for message in message_dicts:
         # Format tool result as expected by the model
         if message["role"] == "user" and "call_id" in message:
@@ -1415,8 +1417,11 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 }
             ]
             yield modified_message
+            pending_call_ids.discard(message["call_id"])
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
+            yield from pending_notices
+            pending_notices = []
             modified_message = dict(message)
             original_content = message["content"]
 
@@ -1476,9 +1481,18 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             if final_content:
                 modified_message["content"] = final_content
 
+            pending_call_ids = {tool.call_id for tool in tool_uses if tool.call_id}
             yield modified_message
+        elif pending_call_ids:
+            # Hooks and partial tool output can precede the paired results.
+            # Anthropic requires every tool_result before any text in that turn.
+            pending_notices.append(message)
         else:
+            yield from pending_notices
+            pending_notices = []
             yield message
+
+    yield from pending_notices
 
 
 # File extensions allowed for image uploads
