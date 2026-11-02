@@ -73,10 +73,16 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           WORKFLOW_SHA: ${{ github.sha }}
         run: |
+          # Resolve explicit branches from the remote, not checkout's potentially
+          # stale local branch. Blank input still pins the triggering commit.
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          if [ -z "$SOURCE_REF" ]; then
+            SOURCE_SHA=$(git rev-parse --verify --end-of-options "${WORKFLOW_SHA}^{commit}")
+          else
+            SOURCE_SHA=$(git rev-parse --verify --end-of-options "refs/remotes/origin/${SOURCE_REF#refs/heads/}^{commit}" ||
+              git rev-parse --verify --end-of-options "${SOURCE_REF}^{commit}")
+          fi
           # Resolve once; prepare must not follow a moving branch after CI passes.
-          SOURCE_SHA=$(git rev-parse --verify --end-of-options "${SOURCE_REF:-$WORKFLOW_SHA}^{commit}" ||
-            git rev-parse --verify --end-of-options "refs/remotes/origin/${SOURCE_REF}^{commit}")
-          git fetch origin master
           if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/master; then
             echo "::error::Release source must be a commit on master (use the master SHA behind a dev tag)."
             exit 1

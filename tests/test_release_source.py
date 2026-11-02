@@ -81,6 +81,41 @@ def test_resolve_release_source(repo: Path, tmp_path: Path, source: str) -> None
         assert git(repo, "rev-parse", "HEAD") == expected
 
 
+@pytest.mark.parametrize("source", ["master", "refs/heads/master", "", "sha"])
+def test_resolve_source_with_stale_local_branch(
+    repo: Path, tmp_path: Path, source: str
+) -> None:
+    dispatched = git(repo, "rev-parse", "HEAD")
+    git(repo, "switch", "-c", "remote-writer")
+    (repo / "new").write_text("master advanced after dispatch")
+    git(repo, "add", "new")
+    git(repo, "commit", "-m", "new master")
+    latest = git(repo, "rev-parse", "HEAD")
+    git(repo, "push", "origin", "HEAD:master")
+    git(repo, "switch", "master")
+    # Both local master and the cached remote-tracking ref are stale, as can
+    # happen between workflow dispatch and source resolution.
+    git(repo, "update-ref", "refs/remotes/origin/master", dispatched)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", source_snippet()],
+        cwd=repo,
+        env={
+            **os.environ,
+            "SOURCE_REF": dispatched if source == "sha" else source,
+            "WORKFLOW_SHA": dispatched,
+            "GITHUB_OUTPUT": str(output),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = latest if source in {"master", "refs/heads/master"} else dispatched
+    assert f"source_sha={expected}" in output.read_text()
+    assert git(repo, "rev-parse", "HEAD") == expected
+
+
 def test_prepare_uses_checked_sha_and_current_publisher() -> None:
     workflow = WORKFLOW.read_text()
     prepare = workflow.split("  prepare:\n", 1)[1].split("  publish:\n", 1)[0]
