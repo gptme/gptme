@@ -40,7 +40,10 @@ def get_default_model_summary() -> ModelMeta | None:
     default_model = get_default_model()
     if not default_model:
         return None
-    return get_model(get_summary_model_for(default_model.full))
+    summary = get_summary_model_for(default_model.full)
+    if summary == default_model.full:
+        return default_model
+    return get_model(summary)
 
 
 def get_summary_model_for(model: str) -> str:

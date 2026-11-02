@@ -162,3 +162,76 @@ def test_active_gemini_examples_do_not_reference_deprecated_models() -> None:
         text = (docs / name).read_text()
         for model in retired:
             assert model not in text, f"{name} recommends deprecated {model}"
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "subscription"])
+@pytest.mark.parametrize("status", [404, 401, 429, 500])
+def test_other_provider_error_policy(monkeypatch, provider: str, status: int) -> None:
+    import anthropic
+    import requests
+
+    _configure(monkeypatch, "gemini/unavailable")
+    if provider == "anthropic":
+        error = anthropic.APIStatusError(
+            "failed",
+            response=httpx.Response(
+                status, request=httpx.Request("POST", "https://example.com")
+            ),
+            body=None,
+        )
+        if status == 404:
+            error = anthropic.NotFoundError(
+                "missing", response=error.response, body=None
+            )
+    else:
+        response = requests.Response()
+        response.status_code = status
+        error = requests.HTTPError("failed", response=response)
+    calls = []
+
+    def complete(messages, model, tools):
+        calls.append(model)
+        if len(calls) == 1:
+            raise error
+        return "Recovered title", None
+
+    monkeypatch.setattr("gptme.llm._chat_complete", complete)
+    if status == 404:
+        assert complete_summary([], "gemini/main") == "Recovered title"
+        assert len(calls) == 2
+    else:
+        with pytest.raises(type(error)):
+            complete_summary([], "gemini/main")
+        assert len(calls) == 1
+
+
+def test_anthropic_summary_initializes_client(monkeypatch) -> None:
+    from gptme.llm import llm_anthropic
+
+    class Initialized(Exception):
+        pass
+
+    def initialize(config) -> None:
+        raise Initialized
+
+    monkeypatch.setattr(llm_anthropic, "_anthropic", None)
+    monkeypatch.setattr(llm_anthropic, "init", initialize)
+    _configure(monkeypatch, "anthropic/claude-haiku-4-5")
+    # Execute the real dispatch and adapter path, stopping at initialization
+    # rather than sending a network request or relying on existing credentials.
+    with pytest.raises(Initialized):
+        complete_summary([], "gemini/main")
+
+
+def test_same_model_summary_preserves_active_metadata(monkeypatch) -> None:
+    from gptme.llm.models import ModelMeta, get_default_model_summary
+    from gptme.llm.models.resolution import _default_model_var
+
+    meta = ModelMeta(provider="local", model="custom", context=8192)
+    token = _default_model_var.set(meta)
+    try:
+        for override in (None, meta.full):
+            _configure(monkeypatch, override)
+            assert get_default_model_summary() is meta
+    finally:
+        _default_model_var.reset(token)

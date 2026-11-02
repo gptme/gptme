@@ -14,7 +14,9 @@ def complete_summary(messages: list[Message], main_model: str) -> str:
     limits, and network failures retain their original error and retry policy.
     No process-global negative cache: availability can differ by credentials.
     """
+    from anthropic import NotFoundError as AnthropicNotFoundError
     from openai import NotFoundError
+    from requests import HTTPError
 
     from ..llm import _chat_complete
     from ..llm.models.resolution import get_model, get_summary_model_for
@@ -23,7 +25,11 @@ def complete_summary(messages: list[Message], main_model: str) -> str:
     summary_model = get_summary_model_for(main_model)
     try:
         response, _ = _chat_complete(messages, summary_model, None)
-    except NotFoundError:
+    except (NotFoundError, AnthropicNotFoundError, HTTPError) as error:
+        if isinstance(error, HTTPError) and (
+            error.response is None or error.response.status_code != 404
+        ):
+            raise
         if summary_model == main_model:
             logger.warning(
                 "Summary model %s is unavailable. Set [models].summary to an "

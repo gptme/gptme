@@ -961,6 +961,10 @@ def chat(
             "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
         )
 
+    if not via_gptme and _anthropic is None:
+        from ..config import get_config
+
+        init(get_config())
     client = _get_gptme_client() if via_gptme else _anthropic
     if not client:
         raise RuntimeError("LLM not initialized")
