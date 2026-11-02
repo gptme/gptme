@@ -168,21 +168,22 @@ def test_active_gemini_examples_do_not_reference_deprecated_models() -> None:
 @pytest.mark.parametrize("status", [404, 401, 429, 500])
 def test_other_provider_error_policy(monkeypatch, provider: str, status: int) -> None:
     import anthropic
+    import httpx2
     import requests
 
     _configure(monkeypatch, "gemini/unavailable")
+    error: Exception
     if provider == "anthropic":
-        error = anthropic.APIStatusError(
+        error_class = (
+            anthropic.NotFoundError if status == 404 else anthropic.APIStatusError
+        )
+        error = error_class(
             "failed",
-            response=httpx.Response(
-                status, request=httpx.Request("POST", "https://example.com")
+            response=httpx2.Response(
+                status, request=httpx2.Request("POST", "https://example.com")
             ),
             body=None,
         )
-        if status == 404:
-            error = anthropic.NotFoundError(
-                "missing", response=error.response, body=None
-            )
     else:
         response = requests.Response()
         response.status_code = status
