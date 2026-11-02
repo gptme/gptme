@@ -942,7 +942,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb58958d8a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f5faa8a18a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1643,7 +1643,7 @@ Native paths help avoid hallucination:
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh issue view &lt;ref&gt;`</span> gets issue body and comments in one result
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh pr view &lt;ref&gt;`</span> gets PR body, comments, review threads, CI, and mergeability in one result
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh pr status &lt;ref&gt; [commit_sha]`</span> returns structured CI state with run IDs
-<span class="k">-</span><span class="w"> </span><span class="sb">`gh pr checks &lt;ref&gt; [commit_sha]`</span> waits for checks to settle
+<span class="k">-</span><span class="w"> </span><span class="sb">`gh pr checks &lt;ref&gt; [commit_sha]`</span> waits until a check fails, all checks complete, or the 60s foreground wait budget is reached
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh pr merge &lt;ref&gt; ...`</span> adds squash-by-default and optional head-commit protection
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh run view &lt;run-id&gt;`</span> extracts failed-job logs
 
@@ -3068,7 +3068,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20332</p>
+<p>Tokens: 20347</p>
 </dd></dl>
 
 <dl class="py function">

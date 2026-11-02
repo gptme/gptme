@@ -662,7 +662,11 @@ actionable, or adds merge safety guards that are easy to miss in ad-hoc CLI use.
 </dl>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">status</span></code>  — structured check-run summary with actionable run IDs</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">checks</span></code>  — polls CI until completion with live progress updates</p></li>
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">checks</span></code>  — polls CI until a failure, completion, or the foreground</dt><dd><p>wait budget, with live progress updates</p>
+</dd>
+</dl>
+</li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">merge</span></code>   — squash default, <code class="docutils literal notranslate"><span class="pre">--match-head-commit</span></code> guard, auto-merge</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">run</span> <span class="pre">view</span></code>   — extracts and structures failed log sections from CI runs</p></li>
 </ul>
