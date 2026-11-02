@@ -1002,6 +1002,20 @@ explicit per-context overrides can also enable capture, see <a class="reference 
 <section id="release">
 <h2>Release<a class="headerlink" href="#release" title="Link to this heading">#</a></h2>
 <p>To make a release, simply run <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">release</span></code> and follow the instructions.</p>
+<p>Alternatively, dispatch the <strong>Release</strong> workflow with <code class="docutils literal notranslate"><span class="pre">release_type=minor</span></code>
+(or <code class="docutils literal notranslate"><span class="pre">patch</span></code>/<code class="docutils literal notranslate"><span class="pre">dev</span></code>). Its optional <code class="docutils literal notranslate"><span class="pre">source_ref</span></code> selects an exact commit,
+branch or tag reachable from master; blank uses the workflow’s triggering commit.
+Use a known passing master SHA to release while newer merges are still testing.
+The workflow resolves the ref once, checks CI on that SHA, and prepares the
+release from the same SHA. Failed, pending or unavailable CI still blocks it.
+Dev tags have detached version-bump commits: use their parent master SHA rather
+than the dev tag itself.</p>
+<p>If master has advanced beyond the selected source, the stable version/changelog
+commit is published by tag only; master is neither rewound nor rebased into the
+release. With an unchanged master, the usual fast-forward version bump remains.
+The selected source supplies build/bump/changelog tooling, so it must contain
+any required release fixes. This input does not automatically search for a green
+commit or bypass CI, and a successful dispatch is not proof of publication.</p>
 <section id="android-release-signing">
 <h3>Android release signing<a class="headerlink" href="#android-release-signing" title="Link to this heading">#</a></h3>
 <p>Android releases are signed with a long-lived upload key in the
