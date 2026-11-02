@@ -15,6 +15,7 @@ import pytest
 from gptme.tools.gh import (
     _extract_url,
     _format_check_results,
+    _get_checks_timeout,
     _get_pr_check_runs,
     _handle_pr_merge,
     _handle_pr_status,
@@ -319,6 +320,26 @@ class TestFormatCheckResults:
         assert "🔄 1 in progress" in result
 
 
+# --- _get_checks_timeout ---
+
+
+class TestGetChecksTimeout:
+    def test_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GPTME_GH_CHECKS_TIMEOUT", raising=False)
+        assert _get_checks_timeout() == 60.0
+
+    def test_zero_returns_immediately(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GPTME_GH_CHECKS_TIMEOUT", "0")
+        assert _get_checks_timeout() == 0.0
+
+    @pytest.mark.parametrize("raw", ["nope", "-1", "nan", "inf", ""])
+    def test_invalid_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        monkeypatch.setenv("GPTME_GH_CHECKS_TIMEOUT", raw)
+        assert _get_checks_timeout() == 60.0
+
+
 # --- _wait_for_checks ---
 
 
@@ -573,6 +594,86 @@ class TestWaitForChecks:
         messages = list(_wait_for_checks("owner", "repo", url))
 
         assert any("Error fetching checks" in m.content for m in messages)
+        gh_time.sleep.assert_not_called()
+
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_failed_and_pending_returns_early(self, mock_run, gh_time):
+        """A known failure returns immediately even if other checks are pending."""
+        runs = [
+            _make_check_run(
+                "typecheck",
+                "completed",
+                "failure",
+                run_id=1,
+                html_url="https://github.com/o/r/actions/runs/111/jobs/1",
+            ),
+            _make_check_run("test", "in_progress", None, run_id=2),
+        ]
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        result = messages[-1].content
+        assert "Checks failed" in result
+        assert "1 still running" in result
+        assert "typecheck (failure)" in result
+        assert "run 111" in result
+        assert "gh run view 111 --log-failed" in result
+        assert "Still running: test" in result
+        gh_time.sleep.assert_not_called()
+
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_pending_beyond_wait_budget(self, mock_run, gh_time, monkeypatch):
+        """All-pending checks return a snapshot once the wait budget elapses."""
+        monkeypatch.setenv("GPTME_GH_CHECKS_TIMEOUT", "0")
+        runs = [
+            _make_check_run("lint", "in_progress", None, run_id=1),
+            _make_check_run("test", "queued", None, run_id=2),
+        ]
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        result = messages[-1].content
+        joined = "\n".join(m.content for m in messages)
+        assert "Stopped waiting after 0s" in result
+        assert "2 checks still running" in result
+        assert "in progress" in result
+        assert "Still running:" in result
+        assert "lint" in result
+        assert "test" in result
+        assert "All checks passed" not in joined
+        assert "Checks failed" not in joined
+        gh_time.sleep.assert_not_called()
+
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_exhausted_budget_skips_extra_fetch(
+        self, mock_run, gh_time, monkeypatch: pytest.MonkeyPatch
+    ):
+        """After sleeping the remaining budget, do not start another API poll."""
+        monkeypatch.setenv("GPTME_GH_CHECKS_TIMEOUT", "5")
+        runs = [_make_check_run("lint", "in_progress", None, run_id=1)]
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
+        # start_time, remaining check, post-sleep deadline check
+        gh_time.time = MagicMock(side_effect=[0.0, 0.0, 5.0])
+
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        result = messages[-1].content
+        assert "Stopped waiting after 5s" in result
+        assert "still running" in result
+        gh_time.sleep.assert_called_once_with(5)
+        assert mock_run.call_count == 1
+
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_all_success_completion(self, mock_run, gh_time):
+        """All-success completion still returns a passing result."""
+        runs = [
+            _make_check_run("build", "completed", "success", run_id=1),
+            _make_check_run("test", "completed", "success", run_id=2),
+        ]
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        assert any("All checks passed" in m.content for m in messages)
         gh_time.sleep.assert_not_called()
 
 
