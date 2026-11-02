@@ -798,9 +798,20 @@ wins over <code class="docutils literal notranslate"><span class="pre">[env].MOD
 <p><strong>Setting a permanent default model:</strong></p>
 <p>The recommended approach is to use <code class="docutils literal notranslate"><span class="pre">[models].default</span></code> in your config:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[models]</span>
-<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"anthropic/claude-sonnet-4-6"</span>
+<span class="n">default</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"anthropic"</span><span class="w">  </span><span class="c1"># resolves the current provider recommendation</span>
+<span class="c1"># summary = "provider/model"  # optional fully qualified override</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">summary</span></code> selects the model for conversation titles and shared summary-model
+consumers (such as tool-output pruning). Without it, gptme uses the main
+provider’s summary recommendation, or the main model if none is defined.
+A provider-only value for <code class="docutils literal notranslate"><span class="pre">default</span></code> follows recommendations when gptme is
+updated; an explicit model ID pins your choice. <code class="docutils literal notranslate"><span class="pre">summary</span></code> requires a full
+<code class="docutils literal notranslate"><span class="pre">provider/model</span></code> ID.</p>
+<p>If the title model returns HTTP 404, naming retries once with the main model
+and logs which model failed and how to set <code class="docutils literal notranslate"><span class="pre">[models].summary</span></code>. Authentication,
+rate-limit, and network errors do not trigger this fallback. A failed title does
+not mean the main chat model failed.</p>
 <p>Alternatively, set <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> once in the <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section — but do <strong>not</strong> add it twice, since TOML does not allow duplicate keys within the same table.</p>
 <p><strong>Auto-detection when no model is set:</strong></p>
 <p>If no model is configured, gptme will scan your API keys and pick the first available provider in this order:</p>
@@ -852,7 +863,7 @@ in your config to change the permanent default:</p>
 gptme<span class="w"> </span><span class="s2">"explain this"</span><span class="w"> </span>-m<span class="w"> </span>groq/llama-3.3-70b-versatile
 
 <span class="c1"># Use OpenRouter's model picker syntax</span>
-gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter/google/gemini-2.5-flash
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>openrouter<span class="w">  </span><span class="c1"># resolves the current provider recommendation</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model-name&gt;</span></code> prefix determines which API key is used —
