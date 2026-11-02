@@ -17,6 +17,10 @@ from . import console
 logger = logging.getLogger(__name__)
 
 
+class ContextLimitError(ValueError):
+    """No usable conversational input fits within the model context budget."""
+
+
 def message_contains_tool_use(msg: Message) -> bool:
     """Return True when an assistant message contains a runnable tool call.
 
@@ -470,7 +474,7 @@ def limit_log(log: list[Message]) -> list[Message]:
                 )
                 return [m for m in log if id(m) in kept_ids]
             # Never substitute an older request for a newer one that cannot fit.
-            raise ValueError(
+            raise ContextLimitError(
                 "Context limiting removed all conversational input and no user "
                 "request fits alongside the system instructions. Shorten the "
                 "request or system prompt, or select a larger-context model."

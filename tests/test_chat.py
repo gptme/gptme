@@ -1198,7 +1198,8 @@ def test_decline_not_masked_by_later_tool_result(with_reminder):
     assert _should_prompt_for_input(Log(messages)) is False
 
 
-def test_interactive_survives_provider_error(tmp_path):
+@pytest.mark.parametrize("context_limit", [False, True])
+def test_interactive_survives_provider_error(tmp_path, context_limit):
     """A 429 returns control to the user, not a crash or retry loop.
 
     Must not patch ``_should_prompt_for_input``: the previous version of this
@@ -1232,6 +1233,10 @@ def test_interactive_survives_provider_error(tmp_path):
         process_calls += 1
         if process_calls > 3:
             raise RuntimeError("provider-error recovery re-entered the LLM call")
+        if context_limit:
+            from gptme.util.reduce import ContextLimitError
+
+            raise ContextLimitError("Shorten the request or select a larger model")
         raise _rate_limit_error()
 
     with (
