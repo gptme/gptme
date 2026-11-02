@@ -214,7 +214,7 @@ inference. Current catalog: https://openrouter.ai/models?max_price=0
 
     # Get a free API key at https://aistudio.google.com/apikey (no credit card)
     export GEMINI_API_KEY="your-key"
-    gptme "hello" -m gemini/gemini-2.5-flash
+    gptme "hello" -m gemini  # uses the current recommended Gemini model
 
 **Groq** (fast inference, free tier)
 

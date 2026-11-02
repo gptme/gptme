@@ -14,6 +14,20 @@ subscriptions, local servers — see :doc:`providers`.
 Recommended models
 ------------------
 
+Use a provider-only selector (for example, ``gptme -m gemini``) to follow the
+central recommendations shipped with your installed gptme version. Pin a full
+model ID when reproducibility matters. The following table is generated from
+that same registry, not maintained separately:
+
+.. command-output:: gptme-util models recommended --format rst
+
+Provider catalogs and account access change independently of gptme releases.
+Recommendations are deliberately curated, not selected by sorting the live
+catalog by date. Maintainers update ``gptme/llm/models/recommended.py`` and model
+metadata together after checking provider documentation; tests reject missing
+or deprecated recommendations. There is no guaranteed evergreen provider alias.
+See :ref:`how-model-selection-works` for the explicit summary override.
+
 For API-key use we recommend **Claude Sonnet 5.5** (``anthropic/claude-sonnet-5-5``, or ``openrouter/anthropic/claude-sonnet-5.5``) as the everyday model, and **Claude Opus 5.5** (``anthropic/claude-opus-5-5``, or ``openrouter/anthropic/claude-opus-5.5``) for the hardest tasks. Both IDs work today; gptme currently inherits context-length and pricing metadata from the closest 4.x catalog entry until 5.5-specific entries land. Both offer:
 
 - Strong agentic capabilities

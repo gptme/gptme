@@ -25,6 +25,7 @@ import multiprocessing_logging
 from tabulate import tabulate
 
 from ..config import get_config
+from ..llm.models import get_model
 from ..message import len_tokens
 from ..tools import ToolFormat
 from ..util.git_cmd import GIT_CMD
@@ -661,7 +662,8 @@ def main(
             ]
         )
     if config.get_env("GEMINI_API_KEY"):
-        default_models.extend(["gemini/gemini-2.5-flash"])
+        # Resolve centrally, but persist the concrete version in eval results.
+        default_models.append(get_model("gemini").full)
 
     # Process model specifications into typed ModelConfig objects
     model_configs: list[ModelConfig] = []

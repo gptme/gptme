@@ -1265,3 +1265,32 @@ def test_apply_adversarial_framing_varies_by_test_name():
     idx2 = int(hashlib.md5(b"add-logging").hexdigest(), 16) % n
     if idx1 != idx2:
         assert framed1 != framed2
+
+
+def test_gemini_default_records_concrete_recommendation(monkeypatch) -> None:
+    """Provider-only defaults must not erase the evaluated model's identity."""
+    from gptme.llm.models import get_model
+
+    captured = []
+
+    def fake_run_evals(evals, models, *args, **kwargs):
+        captured.extend(models)
+        return {}
+
+    monkeypatch.setattr(
+        _eval_main_module,
+        "get_config",
+        lambda: SimpleNamespace(
+            get_env=lambda key: "test-key" if key == "GEMINI_API_KEY" else None
+        ),
+    )
+    with (
+        patch.object(_eval_main_module, "run_evals", side_effect=fake_run_evals),
+        patch.object(_eval_main_module, "print_model_results", return_value=None),
+        patch.object(_eval_main_module, "print_model_results_table", return_value=None),
+        patch.object(_eval_main_module, "write_results", return_value=None),
+    ):
+        result = CliRunner().invoke(main, ["hello"])
+    assert result.exit_code == 0, result.output
+    assert captured
+    assert all(model.model == get_model("gemini").full for model in captured)

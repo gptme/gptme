@@ -158,7 +158,20 @@ The recommended approach is to use ``[models].default`` in your config:
 .. code-block:: toml
 
     [models]
-    default = "anthropic/claude-sonnet-4-6"
+    default = "anthropic"  # resolves the current provider recommendation
+    # summary = "provider/model"  # optional fully qualified override
+
+``summary`` selects the model for conversation titles and shared summary-model
+consumers (such as tool-output pruning). Without it, gptme uses the main
+provider's summary recommendation, or the main model if none is defined.
+A provider-only value for ``default`` follows recommendations when gptme is
+updated; an explicit model ID pins your choice. ``summary`` requires a full
+``provider/model`` ID.
+
+If the title model returns HTTP 404, naming retries once with the main model
+and logs which model failed and how to set ``[models].summary``. Authentication,
+rate-limit, and network errors do not trigger this fallback. A failed title does
+not mean the main chat model failed.
 
 Alternatively, set ``MODEL`` once in the ``[env]`` section — but do **not** add it twice, since TOML does not allow duplicate keys within the same table.
 
@@ -206,7 +219,7 @@ in your config to change the permanent default:
     gptme "explain this" -m groq/llama-3.3-70b-versatile
 
     # Use OpenRouter's model picker syntax
-    gptme "hello" -m openrouter/google/gemini-2.5-flash
+    gptme "hello" -m openrouter  # resolves the current provider recommendation
 
 The ``<provider>/<model-name>`` prefix determines which API key is used —
 ``anthropic/...`` uses ``ANTHROPIC_API_KEY``, ``groq/...`` uses ``GROQ_API_KEY``, etc.
