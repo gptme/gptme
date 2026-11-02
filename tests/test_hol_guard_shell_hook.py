@@ -206,6 +206,27 @@ class TestHolGuardShellHook:
         assert result is not None
         assert result.action == ConfirmAction.SKIP
 
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_invalid_cli_encoding_skips(self, monkeypatch, stream):
+        real_run = subprocess.run
+        payload = json.dumps(_benign_payload()).encode("utf-8")
+        script = (
+            f"import sys; sys.stdout.buffer.write({payload!r}); "
+            f"sys.{stream}.buffer.write(b'\\xff')"
+        )
+        monkeypatch.setattr(hol_guard.shutil, "which", lambda name: sys.executable)
+
+        def run_cli(argv, **kwargs):
+            return real_run([sys.executable, "-c", script], encoding="utf-8", **kwargs)
+
+        monkeypatch.setattr(hol_guard.subprocess, "run", run_cli)
+        result = hol_guard_shell_hook(
+            ToolUse(tool="shell", args=[], content="echo hello")
+        )
+        assert result is not None
+        assert result.action == ConfirmAction.SKIP
+        assert "invalid output" in (result.message or "").lower()
+
     def test_non_zero_exit_skips(self, monkeypatch, which_ok):
         tool_use = ToolUse(tool="shell", args=[], content="echo hello")
         result, _ = _run_hook(

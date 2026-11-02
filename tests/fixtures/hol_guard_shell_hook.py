@@ -94,6 +94,8 @@ def hol_guard_shell_hook(
         return _skip("HOL Guard: command inspection timed out.")
     except OSError:
         return _skip("HOL Guard: command inspection was unavailable.")
+    except UnicodeDecodeError:
+        return _skip("HOL Guard: command inspection returned invalid output.")
 
     if completed.returncode != 0:
         return _skip("HOL Guard: command inspection failed.")
