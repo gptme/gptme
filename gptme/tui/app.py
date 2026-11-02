@@ -137,11 +137,14 @@ def _restore_input_text(existing: str, queued_text: str) -> str:
     """Keep a live input draft and append restored queued prompts.
 
     Whitespace-only drafts are treated as empty so they don't add a gap.
+    Nonempty drafts keep leading indentation and internal newlines; trailing
+    newlines are collapsed into the blank-line separator.
     """
-    existing = existing.strip()
-    if existing and queued_text:
-        return f"{existing}\n\n{queued_text}"
-    return existing or queued_text
+    if not queued_text:
+        return existing
+    if not existing.strip():
+        return queued_text
+    return existing.rstrip("\n") + "\n\n" + queued_text
 
 
 SUMMARY_MAXLEN = 80

@@ -79,6 +79,9 @@ def test_restore_input_text_keeps_existing_draft():
     assert _restore_input_text("   \n", queued) == queued
     assert _restore_input_text("draft", "") == "draft"
     assert _restore_input_text("", queued) == queued
+    assert _restore_input_text("  indented\n  draft\n\n", queued) == (
+        "  indented\n  draft\n\nfirst\n\nsecond"
+    )
 
 
 @pytest.mark.asyncio
