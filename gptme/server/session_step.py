@@ -990,6 +990,7 @@ def step(
                 error_event: ErrorEvent = {"type": "error", "error": error_message}
                 SessionManager.add_event(conversation_id, error_event)
                 session.finish_skill_turn("failed")
+                session.checkpoint_needs_continuation = False
                 session.generating = False
                 session.generating_since = None
                 # Emit while still holding step_lock — see step() finally

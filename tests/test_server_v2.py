@@ -6059,8 +6059,9 @@ def test_v2_chat_config_preserves_mcp_argv_and_null_tool_format(client: FlaskCli
 
 
 @pytest.mark.timeout(15)
+@pytest.mark.parametrize("checkpoint_pending", [False, True])
 def test_v2_preparation_context_error_releases_session(
-    v2_conv, client: FlaskClient
+    v2_conv, client: FlaskClient, checkpoint_pending: bool
 ) -> None:
     """A preparation failure must be visible and must release the busy state."""
     from gptme.server.session_models import SessionManager
@@ -6073,6 +6074,9 @@ def test_v2_preparation_context_error_releases_session(
         json={"role": "user", "content": "Oversized request"},
     )
     assert response.status_code == 200
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+    session.checkpoint_needs_continuation = checkpoint_pending
     error = "Shorten the request or select a larger-context model"
     with unittest.mock.patch(
         "gptme.server.session_step.prepare_messages",
@@ -6092,3 +6096,4 @@ def test_v2_preparation_context_error_releases_session(
     assert session.last_error == error
     assert not session.generating
     assert session.generating_since is None
+    assert not session.checkpoint_needs_continuation
