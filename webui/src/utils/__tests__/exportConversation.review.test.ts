@@ -228,6 +228,18 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
         literal: 'Example:\n\n\t<think>literal reasoning</think>',
       },
       {
+        label: 'indented code immediately after reference definition',
+        literal: '[id]: /url\n    <think>literal reasoning</think>',
+      },
+      {
+        label: 'tab code immediately after titled reference definition',
+        literal: '[id]: /url "Title"\n\t<think>literal reasoning</think>',
+      },
+      {
+        label: 'CRLF code immediately after multiline reference definition',
+        literal: '[id]: /url\r\n  "Title"\r\n    <think>literal reasoning</think>',
+      },
+      {
         label: 'quoted XML fence',
         literal: '> ```xml\n> <think>literal reasoning</think>\n> ```',
       },
@@ -470,6 +482,30 @@ describe.each(consumers)('%s line-start inline code export (PR 4671 P1)', (consu
       expect(result).toContain('Public answer.');
       if (options.includeThinking) expect(result).toBe(documentFor(source));
     });
+
+    it.each([
+      { heading: '- #', body: '  ' },
+      { heading: '12. ###', body: '    ' },
+      { heading: '- - ##', body: '    ' },
+      { heading: '> - #', body: '>   ' },
+      { heading: '- > #', body: '  > ' },
+      { heading: '-\t#', body: '\t' },
+      { heading: '- Item\n\n  #', body: '  ' },
+    ])(
+      'bounds container heading $heading before the following paragraph',
+      async ({ heading, body }) => {
+        for (const newline of ['\n', '\r\n']) {
+          const prefix = heading.replace(/\n/g, newline) + ' Heading with unmatched `';
+          const source = `${prefix}${newline}${body}${thinking}${newline}${body}Here is \`code\`.`;
+          const result = await consume(consumer, source, options);
+          expect(result).toContain(prefix);
+          expect(result).toContain('Here is `code`.');
+          expect(result.includes('private reasoning')).toBe(options.includeThinking);
+          if (options.includeThinking) expect(result).toBe(documentFor(source));
+          jest.clearAllMocks();
+        }
+      }
+    );
 
     it.each(['#', '###', '   ##'])(
       'does not pair a backtick in an ATX heading (%s) with body text',

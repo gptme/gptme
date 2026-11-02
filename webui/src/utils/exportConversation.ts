@@ -291,6 +291,11 @@ function filterAssistantContent(
         i = codeEnd;
         continue;
       }
+      // Classify headings using the container-stripped line. An unmatched
+      // heading backtick cannot pair with a later paragraph in the same item.
+      if (/^ {0,3}#{1,6}(?:[ \t]|$)/.test(view.text)) {
+        paragraphEnd = newline === -1 ? content.length : newline;
+      }
       // Indented code cannot interrupt a paragraph. Blank lines and actual
       // block headings end one; ordinary indented continuation does not.
       inParagraph =
@@ -302,6 +307,7 @@ function filterAssistantContent(
       if (definitionEnd !== null) {
         out.push(content.slice(i, definitionEnd));
         i = definitionEnd;
+        inParagraph = false;
         continue;
       }
     }
