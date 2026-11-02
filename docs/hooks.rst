@@ -213,7 +213,13 @@ execution is auto-confirmed (autonomous mode).
    A guardrail must out-rank **every** built-in confirmation hook, or it can be
    pre-empted before it ever runs. The built-ins register at:
 
+   - ``guardrails`` — priority **200**
+   - ``anomaly_watchdog.confirm`` — priority **150**
+   - ``watch.sleep_poll_guard`` — priority **150** (watch tool)
    - ``server_confirm`` — priority **100**
+   - ``tui_confirm`` — priority **100** (TUI)
+   - ``shell.allowlist`` — priority **10** (auto-confirms allowlisted commands)
+   - ``watch.allowlist`` — priority **10**
    - ``cli_confirm`` — priority **0**
    - ``auto_confirm`` — priority **0**
 
@@ -222,8 +228,9 @@ execution is auto-confirmed (autonomous mode).
    guardrail named ``guardrail.secrets`` registered at priority ``100`` therefore
    loses to ``server_confirm`` (``"s" > "g"``), which returns a non-``None``
    result and prevents the guardrail from running at all. Pick a priority
-   strictly greater than 100 (the example uses ``1000``) rather than relying on
-   the name tie-break.
+   strictly greater than the highest built-in you need to out-rank. The highest
+   default is ``guardrails`` at 200; the secrets example uses ``1000`` and the
+   opt-in HOL Guard example uses ``250``. Do not rely on the name tie-break.
 
 .. note::
 

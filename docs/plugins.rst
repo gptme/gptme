@@ -438,6 +438,47 @@ that lower-priority hooks — including the normal user confirmation prompt — 
 run. Returning ``confirm()`` from a high-priority hook bypasses those prompts
 entirely. The hook is **blocking** — gptme waits for the result before proceeding.
 
+Example: Opt-in HOL Guard Shell Classification
+----------------------------------------------
+
+Users who already run `HOL Guard <https://github.com/hashgraph-online/hol-guard>`_
+can classify shell command text before gptme continues through its configured
+confirmation hooks. This is an **opt-in documentation example**, not a gptme
+built-in: copy it into a plugin only if you already use Guard. It does not
+auto-approve commands, change gptme's core, or protect non-shell tools.
+
+The example invokes the official CLI as an argv list (no shell)::
+
+    hol-guard command test <command> --json
+
+``command test`` reports ``policy_evaluation: "not_run"``. That is command
+classification, not final policy enforcement, approval creation, receipts, or
+protection of other tools. The CLI can attempt daemon startup as a side effect
+of inspection.
+
+Behavior:
+
+- Non-shell tools are left unchanged (the hook returns ``None`` immediately).
+- For the ``shell`` tool, the hook returns ``None`` only for an explicitly
+  benign classification whose ``minimum_action`` is ``"allow"``, so remaining
+  confirmation hooks still run.
+- Any other classification, timeout, missing executable, or invalid output
+  returns ``ConfirmationResult.skip()`` and the shell action does not run.
+
+Register above every built-in ``TOOL_CONFIRM`` hook that can return a non-None
+result (see :ref:`confirmation-hooks-and-deny-decisions`). The example uses
+priority ``250``, which out-ranks ``guardrails`` (200),
+``anomaly_watchdog.confirm`` (150), ``watch.sleep_poll_guard`` (150),
+``server_confirm`` / ``tui_confirm`` (100), ``shell.allowlist`` /
+``watch.allowlist`` (10), and ``cli_confirm`` / ``auto_confirm`` (0). Verify
+those priorities against the built-ins in your gptme version rather than
+assuming the hook runs first.
+
+The tested copy of this example is ``tests/fixtures/hol_guard_shell_hook.py``.
+
+.. literalinclude:: ../tests/fixtures/hol_guard_shell_hook.py
+   :language: python
+
 Example: Weather Plugin
 -----------------------
 
