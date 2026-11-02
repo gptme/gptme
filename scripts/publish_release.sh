@@ -79,7 +79,24 @@ if [ "$DRY_RUN" = "false" ]; then
         # Requires branch ruleset bypass rights: in CI this is the deploy
         # key from the `release` environment (set up via actions/checkout
         # ssh-key); locally it's the maintainer's own credentials.
-        git push origin HEAD:master
+        git fetch origin master
+        if git merge-base --is-ancestor origin/master HEAD; then
+            if ! git push origin HEAD:master; then
+                # A merge may win the race after fetch. Only that verified
+                # non-fast-forward case permits tag-only publication.
+                git fetch origin master
+                if git merge-base --is-ancestor origin/master HEAD; then
+                    echo "Error: master push failed without master advancing." >&2
+                    exit 1
+                fi
+                echo "  Master advanced during push; publishing by tag only."
+            fi
+        else
+            # A pinned, CI-verified source can be older than current master.
+            # Publish its release commit by tag, just like dev builds. Never
+            # rebase onto unverified code or force master back to the source.
+            echo "  Master has advanced; publishing the selected source by tag only."
+        fi
     else
         # Pre-releases: skip the branch push entirely.
         # The tag push (below) will carry the version-bump commit to GitHub
@@ -90,7 +107,7 @@ if [ "$DRY_RUN" = "false" ]; then
     git push origin "${TAG}"
 else
     if [ "$PRERELEASE" = "false" ]; then
-        echo "  [dry-run] git push origin HEAD:master"
+        echo "  [dry-run] Fast-forward master if unchanged; otherwise publish selected source by tag only."
     else
         echo "  [dry-run] Skipping branch push for pre-release"
     fi
