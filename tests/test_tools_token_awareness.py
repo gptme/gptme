@@ -114,10 +114,11 @@ def test_add_token_usage_warning_hook(load_token_awareness_tool, tmp_path):
     # Note: hide property may be disabled for debugging/testing purposes
 
     # Check that the usage information is present
-    assert "Token usage:" in usage_msg.content
-    assert "remaining" in usage_msg.content
+    assert "Retained log estimate:" in usage_msg.content
+    assert "not provider input" in usage_msg.content
+    assert "remaining provider context is unknown" in usage_msg.content
 
-    # Check format: Token usage: X/Y; Z remaining
+    # Check format: retained log estimate X/Y plus the request-context caveat.
     content = usage_msg.content
     assert "/" in content
     assert ";" in content
@@ -156,9 +157,9 @@ def test_token_calculation_accuracy(load_token_awareness_tool, tmp_path):
     assert usage_msg is not None
 
     # Extract the token count from the message
-    # Format: Token usage: X/Y; Z remaining
+    # Format: Retained log estimate: X/Y tokens (log/window, not provider input).
     content = usage_msg.content
-    used_tokens = int(content.split("Token usage: ")[1].split("/")[0])
+    used_tokens = int(content.split("Retained log estimate: ")[1].split("/")[0])
 
     # The used tokens should match our calculation
     assert used_tokens == expected_tokens
@@ -239,7 +240,7 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
     usage2 = next(m for m in results2 if "<system_warning>" in m.content).content
 
     # Extract token counts
-    tokens1 = int(usage1.split("Token usage: ")[1].split("/")[0])
-    tokens2 = int(usage2.split("Token usage: ")[1].split("/")[0])
+    tokens1 = int(usage1.split("Retained log estimate: ")[1].split("/")[0])
+    tokens2 = int(usage2.split("Retained log estimate: ")[1].split("/")[0])
 
     assert tokens2 > tokens1  # Should have more tokens after adding messages

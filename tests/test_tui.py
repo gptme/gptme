@@ -4335,3 +4335,30 @@ async def test_prompt_attachment_policy_at_delivery(
         else:
             assert result.content == text
         assert not result.files
+
+
+@pytest.mark.asyncio
+async def test_status_distinguishes_retained_log_from_provider_input(tmp_path):
+    from gptme.llm.models import ModelMeta
+
+    model = ModelMeta(provider="openai", model="gpt-4", context=10000)
+    messages = [
+        Message(
+            "assistant",
+            "Working",
+            metadata={
+                "input_log_model": model.full,
+                "usage": {"input_tokens": 1000},
+            },
+        ),
+        Message("system", "CI output line\n" * 10000, hide=True),
+    ]
+    app = GptmeApp(make_manager(tmp_path, messages), workspace=tmp_path)
+    app._statusline_cmd = None
+    async with app.run_test(size=(160, 30)) as pilot:
+        app._model = model
+        app._update_status()
+        await pilot.pause()
+        text = str(app.query_one("#status", Static).render())
+        assert "last input 1k/10k (10%)" in text
+        assert "log ~" in text
