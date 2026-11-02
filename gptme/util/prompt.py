@@ -608,7 +608,9 @@ def _snapshot_and_exit(app: object) -> None:
     global _pending_wake, _saved_draft
     if not getattr(app, "is_running", False):
         return
-    buf = getattr(app, "current_buffer", None)
+    # History search can own focus; restore into the same main buffer we save.
+    session = _prompt_session
+    buf = session.default_buffer if session is not None else None
     with _idle_lock:
         if not _idle_armed:
             return

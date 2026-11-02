@@ -70,7 +70,9 @@ _naming_threads_lock = threading.Lock()
 
 # After Ctrl-C, deliver idle notifications without auto-continuing until the
 # user submits a real prompt. Matches TUI interrupt suppression.
-_idle_autowake_blocked = False
+_idle_autowake_blocked: ContextVar[bool] = ContextVar(
+    "idle_autowake_blocked", default=False
+)
 
 
 class IdleNotificationWake:
@@ -273,6 +275,7 @@ def chat(
     # restore it on exit instead of unconditionally resetting to "text".
     _prev_output_format = get_output_format()
     skill_lifecycle = ExitStack()
+    idle_block_token = _idle_autowake_blocked.set(False)
     try:
         # Reset here (inside try) so the finally clause always restores
         # _prev_tokens if any setup code above raises before reaching this point.
@@ -403,6 +406,7 @@ def chat(
         # their totals are already isolated; folding inner into parent here
         # would not see the parent total across threads.
         _session_tokens.set(_prev_tokens)
+        _idle_autowake_blocked.reset(idle_block_token)
 
 
 def _run_chat_loop(
@@ -417,7 +421,6 @@ def _run_chat_loop(
     output_schema=None,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
-    global _idle_autowake_blocked
 
     # After an exhausted interactive provider failure, skip drain/consume until
     # the user submits a normal (non-command) message. Slash commands must not
@@ -510,7 +513,7 @@ def _run_chat_loop(
                         output_schema,
                     )
                     if interrupted:
-                        _idle_autowake_blocked = True
+                        _idle_autowake_blocked.set(True)
                     if interrupted and parked_waiting:
                         hold_queued_prompts = True
                         continue
@@ -543,7 +546,7 @@ def _run_chat_loop(
                         continue
 
                     # A real (non-command) prompt re-enables idle autowake.
-                    _idle_autowake_blocked = False
+                    _idle_autowake_blocked.set(False)
 
                     # Trigger turn.pre hooks once per submitted user prompt,
                     # after the prompt is appended and command handling has
@@ -623,7 +626,7 @@ def _run_chat_loop(
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
-            _idle_autowake_blocked = True
+            _idle_autowake_blocked.set(True)
             if parked_waiting:
                 hold_queued_prompts = True
             continue
@@ -730,7 +733,6 @@ def _process_message_conversation(
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
-    global _idle_autowake_blocked
     interrupted = False
     max_steps: int | None = None
     max_steps_str = os.environ.get("GPTME_MAX_STEPS")
@@ -790,7 +792,7 @@ def _process_message_conversation(
                 console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             interrupted = True
-            _idle_autowake_blocked = True
+            _idle_autowake_blocked.set(True)
             break
         finally:
             clear_interruptible()
@@ -815,6 +817,7 @@ def _process_message_conversation(
             if not is_output_json() and not is_output_quiet():
                 console.log("Execution declined, returning to prompt.")
             interrupted = True
+            _idle_autowake_blocked.set(True)
             break
 
         pending_continuation = _has_pending_tooluse(manager.log)
@@ -1067,7 +1070,7 @@ def _deliver_idle_notifications(manager: LogManager, *, autowake: bool = True) -
         bool(terminal)
         and autowake
         and _idle_autowake_enabled()
-        and not _idle_autowake_blocked
+        and not _idle_autowake_blocked.get()
     )
 
 
@@ -1102,7 +1105,6 @@ def _get_user_input(
     manager: LogManager | None = None,
 ) -> Message | IdleNotificationWake | None:
     """Get user input, returning None if user wants to exit."""
-    global _idle_autowake_blocked
     clear_interruptible()  # Don't interrupt during user input
 
     # Check if we should prompt for input or generate response directly
@@ -1369,7 +1371,6 @@ def step(
 
 
 def prompt_user(value=None) -> str | object:  # pragma: no cover
-    global _idle_autowake_blocked
     from .util.prompt import NOTIFICATION_WAKE, add_history
 
     print_bell()
@@ -1388,7 +1389,7 @@ def prompt_user(value=None) -> str | object:  # pragma: no cover
                 if isinstance(response, str) and response:
                     add_history(response)
             except KeyboardInterrupt:
-                _idle_autowake_blocked = True
+                _idle_autowake_blocked.set(True)
                 print("\nInterrupted. Press Ctrl-D to exit.")
             except EOFError:
                 raise  # Let _get_user_input handle the normal exit flow

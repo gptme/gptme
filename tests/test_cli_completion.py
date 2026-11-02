@@ -31,14 +31,14 @@ def isolated(tmp_path, monkeypatch):
     clear_hooks()
     clear_tools()
     init_tools(["subagent", "watch"], include_mcp=False)
-    chat._idle_autowake_blocked = False
+    idle_token = chat._idle_autowake_blocked.set(False)
     prompt.reset_idle_prompt_state()
     monkeypatch.setattr(prompt, "_prompt_session", None)
     monkeypatch.setattr(chat, "print_bell", lambda: None)
     monkeypatch.setattr(chat, "flush_stdin", lambda: None)
     with patch("gptme.tools.subagent.hooks._notify_server", return_value=False):
         yield
-    chat._idle_autowake_blocked = False
+    chat._idle_autowake_blocked.reset(idle_token)
     prompt.reset_idle_prompt_state()
     clear_hooks()
     clear_tools()
@@ -679,4 +679,164 @@ def test_real_prompt_wake_preserves_completion_until_cancel(
         finally:
             _exit_app(session, "cleanup")
             for worker in threads:
+                worker.join(2)
+
+
+@pytest.mark.parametrize("queued", [False, True])
+def test_declined_tool_blocks_later_idle_generation(tmp_path, monkeypatch, queued):
+    from gptme.constants import DECLINED_CONTENT
+
+    manager = manager_at(tmp_path)
+    calls: list[int] = []
+    errors: list[BaseException] = []
+    controller = InputController()
+
+    def decline(*_args, **_kwargs):
+        calls.append(1)
+        yield Message("system", DECLINED_CONTENT)
+
+    monkeypatch.setattr(prompt, "get_input", controller.get_input)
+    monkeypatch.setattr(chat, "step", decline)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *_args: False)
+
+    def run() -> None:
+        try:
+            chat._run_chat_loop(
+                manager,
+                [Message("user", "run tool")] if queued else [],
+                False,
+                interactive=True,
+                logdir=manager.logdir,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=contextvars.copy_context().run, args=(run,))
+    worker.start()
+    try:
+        seq = controller.wait_for_input()
+        if not queued:
+            controller.submit("run tool")
+            seq = controller.wait_for_input(after_seq=seq)
+        assert calls == [1]
+        notify_completion(
+            "child", "success", "after decline", parent_logdir=manager.logdir
+        )
+        controller.wait_for_input(after_seq=seq)
+        assert sum("after decline" in msg.content for msg in manager.log) == 1
+        assert calls == [1], "declining execution must block notification generation"
+    finally:
+        controller.release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert not errors
+
+
+def test_chat_invocation_isolates_and_restores_idle_cancellation(tmp_path, monkeypatch):
+    from gptme.constants import DECLINED_CONTENT
+
+    outer = manager_at(tmp_path, "outer")
+    inner = manager_at(tmp_path, "inner")
+    monkeypatch.setattr(
+        chat, "step", lambda *_a, **_kw: iter([Message("system", DECLINED_CONTENT)])
+    )
+    assert chat._process_message_conversation(outer, False, "markdown", None)
+    notify_completion("outer-child", "success", "done", parent_logdir=outer.logdir)
+    assert not chat._deliver_idle_notifications(outer)
+
+    class StopSetup(Exception):
+        pass
+
+    def check_fresh_invocation(*_args):
+        notify_completion("inner-child", "success", "done", parent_logdir=inner.logdir)
+        assert chat._deliver_idle_notifications(inner), "new chat inherits cancellation"
+        raise StopSetup
+
+    monkeypatch.setattr(chat, "init", check_fresh_invocation)
+    with pytest.raises(StopSetup):
+        chat.chat(
+            [Message("user", "new prompt")],
+            [],
+            inner.logdir,
+            tmp_path,
+            "local/test",
+            tool_format="markdown",
+        )
+    notify_completion("outer-next", "success", "done", parent_logdir=outer.logdir)
+    assert not chat._deliver_idle_notifications(outer), (
+        "nested chat cleared outer pause"
+    )
+
+
+def test_history_search_wake_preserves_main_draft(tmp_path, monkeypatch):
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+    from prompt_toolkit.search import SearchDirection, start_search
+
+    monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
+    results: list[object] = []
+    errors: list[BaseException] = []
+    workers: list[threading.Thread] = []
+    with create_pipe_input() as pipe:
+        session: PromptSession[object] = PromptSession(
+            input=pipe, output=DummyOutput(), history=InMemoryHistory(), multiline=True
+        )
+        monkeypatch.setattr(prompt, "_prompt_session", session)
+
+        def run() -> None:
+            prompt.arm_idle_prompt()
+            try:
+                results.append(prompt.get_input("User"))
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                prompt.disarm_idle_prompt()
+
+        def start() -> threading.Thread:
+            worker = threading.Thread(target=run)
+            workers.append(worker)
+            worker.start()
+            _wait_app_running(session)
+            return worker
+
+        try:
+            first = start()
+            searching = threading.Event()
+
+            def enter_search() -> None:
+                session.default_buffer.text = "unfinished main draft"
+                session.default_buffer.cursor_position = 7
+                start_search(direction=SearchDirection.BACKWARD)
+                session.app.current_buffer.text = "history query"
+                searching.set()
+
+            assert session.app.loop is not None
+            session.app.loop.call_soon_threadsafe(enter_search)
+            assert searching.wait(3)
+            assert session.app.current_buffer is not session.default_buffer
+            prompt.request_idle_wake()
+            first.join(5)
+            assert not first.is_alive()
+            assert not errors
+            assert results == [prompt.NOTIFICATION_WAKE]
+            draft = prompt.get_saved_draft()
+            assert draft is not None
+            assert draft.text == "unfinished main draft"
+            assert draft.cursor == 7
+            second = start()
+            restored = threading.Event()
+            assert session.app.loop is not None
+            session.app.loop.call_soon_threadsafe(restored.set)
+            assert restored.wait(3)
+            assert session.default_buffer.text == "unfinished main draft"
+            assert session.default_buffer.cursor_position == 7
+            _exit_app(session, "submitted")
+            second.join(5)
+            assert not second.is_alive()
+            assert not errors
+        finally:
+            _exit_app(session, "cleanup")
+            for worker in workers:
                 worker.join(2)
