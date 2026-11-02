@@ -50,6 +50,8 @@ def get_summary_model_for(model: str) -> str:
     if override := get_config().user.models.summary:
         return override
     current = get_model(model)
+    if current.provider == "unknown":
+        return model
     summary = get_summary_model(current.provider)
     return f"{current.provider}/{summary}" if summary else model
 
