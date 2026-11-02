@@ -640,16 +640,15 @@ def prompt_alert(prompt: str) -> str:
         The user's response, lowercased and stripped
     """
     session = get_prompt_session()
-    return (
-        session.prompt(
+    while True:
+        response = session.prompt(
             [
                 (STYLE_ALERT, " " + prompt + " "),
                 ("", " "),
             ]
         )
-        .lower()
-        .strip()
-    )
+        if isinstance(response, str):
+            return response.lower().strip()
 
 
 def get_prompt_session() -> PromptSession:

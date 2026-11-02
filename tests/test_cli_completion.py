@@ -69,10 +69,14 @@ class InputController:
         self.pause_wake = threading.Event()
         self.input_seq = 0
         self._reply: list[str | None] = [None]
+        self._interrupt = False
         self._lock = threading.Lock()
 
     def submit(self, text: str) -> None:
         self._reply[0] = text
+
+    def interrupt(self) -> None:
+        self._interrupt = True
 
     def wait_for_input(self, after_seq: int = 0, timeout: float = 5) -> int:
         deadline = time.time() + timeout
@@ -93,6 +97,9 @@ class InputController:
         while time.time() < deadline:
             if self.release.is_set():
                 raise EOFError
+            if self._interrupt:
+                self._interrupt = False
+                raise KeyboardInterrupt
             if self._reply[0] is not None:
                 text = self._reply[0]
                 self._reply[0] = None
@@ -315,8 +322,15 @@ def test_interrupt_defers_autowake_until_user_turn(tmp_path, monkeypatch):
             raise KeyboardInterrupt
         yield Message("assistant", "resumed")
 
+    def fake_cmd(msg, manager):
+        if "help-cmd" not in msg.content:
+            return False
+        manager.undo(1, quiet=True)
+        return True
+
     monkeypatch.setattr(prompt, "get_input", controller.get_input)
     monkeypatch.setattr(chat, "step", fake_step)
+    monkeypatch.setattr(chat, "execute_cmd", fake_cmd)
     thread = threading.Thread(
         target=contextvars.copy_context().run, args=(run_loop, manager, errors)
     )
@@ -332,6 +346,13 @@ def test_interrupt_defers_autowake_until_user_turn(tmp_path, monkeypatch):
         seq = controller.wait_for_input(after_seq=seq)
         assert len(calls) == 1
         assert sum("interrupted" in m.content for m in manager.log) == 1
+        controller.submit("help-cmd")
+        seq = controller.wait_for_input(after_seq=seq)
+        notify_completion(
+            "after-help", "success", "still paused", parent_logdir=manager.logdir
+        )
+        seq = controller.wait_for_input(after_seq=seq)
+        assert len(calls) == 1
         controller.submit("resume")
         seq = controller.wait_for_input(after_seq=seq)
         wait_until(lambda: len(calls) == 2, message="user resume generation")
@@ -340,6 +361,108 @@ def test_interrupt_defers_autowake_until_user_turn(tmp_path, monkeypatch):
         )
         controller.wait_for_input(after_seq=seq)
         wait_until(lambda: len(calls) == 3, message="post-resume autowake")
+    finally:
+        controller.release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert not errors
+
+
+def test_idle_ctrl_c_blocks_autowake(tmp_path, monkeypatch):
+    manager = manager_at(tmp_path)
+    processed: list[int] = []
+    errors: list[BaseException] = []
+    controller = InputController()
+
+    def fake_process(*_a, **_kw):
+        processed.append(1)
+        manager.append(Message("assistant", "done"))
+        return False
+
+    monkeypatch.setattr(prompt, "get_input", controller.get_input)
+    monkeypatch.setattr(chat, "_process_message_conversation", fake_process)
+    thread = threading.Thread(
+        target=contextvars.copy_context().run, args=(run_loop, manager, errors)
+    )
+    thread.start()
+    try:
+        seq = controller.wait_for_input()
+        controller.interrupt()
+        seq = controller.wait_for_input(after_seq=seq)
+        notify_completion("child", "success", "paused", parent_logdir=manager.logdir)
+        controller.wait_for_input(after_seq=seq)
+        assert not processed
+        assert sum("paused" in msg.content for msg in manager.log) == 1
+    finally:
+        controller.release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert not errors
+
+
+def test_force_prompt_delivers_without_autowake(tmp_path, monkeypatch):
+    manager = manager_at(tmp_path)
+    errors: list[BaseException] = []
+    controller = InputController()
+    result: list[object] = []
+    monkeypatch.setattr(prompt, "get_input", controller.get_input)
+
+    def run() -> None:
+        try:
+            result.append(
+                chat._get_user_input(
+                    manager.log,
+                    None,
+                    force_prompt=True,
+                    manager=manager,
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=contextvars.copy_context().run, args=(run,))
+    thread.start()
+    try:
+        seq = controller.wait_for_input()
+        notify_completion("child", "success", "held", parent_logdir=manager.logdir)
+        controller.wait_for_input(after_seq=seq)
+        assert result == []
+        assert sum("held" in msg.content for msg in manager.log) == 1
+    finally:
+        controller.release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert not errors
+    assert result == [None]
+
+
+def test_include_paths_runs_unarmed(tmp_path, monkeypatch):
+    manager = manager_at(tmp_path)
+    controller = InputController()
+    seen: dict[str, bool] = {}
+    errors: list[BaseException] = []
+
+    def fake_include(msg, workspace=None, **_kw):
+        with prompt._idle_lock:
+            seen["armed"] = prompt._idle_armed
+        return msg
+
+    monkeypatch.setattr(prompt, "get_input", controller.get_input)
+    monkeypatch.setattr(chat, "include_paths", fake_include)
+
+    def run() -> None:
+        try:
+            chat._get_user_input(manager.log, None, manager=manager)
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=contextvars.copy_context().run, args=(run,))
+    thread.start()
+    try:
+        controller.wait_for_input()
+        controller.submit("hello /tmp")
+        wait_until(lambda: "armed" in seen, message="include_paths")
+        assert seen["armed"] is False
     finally:
         controller.release.set()
         thread.join(5)

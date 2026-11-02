@@ -498,6 +498,10 @@ def _run_chat_loop(
                         manager.log, manager.workspace, manager=manager
                     )
                 if isinstance(user_input, IdleNotificationWake):
+                    if not consume_queue:
+                        # Held after a provider failure: show notices, wait
+                        # for a real prompt. Autowake is not permission to retry.
+                        continue
                     interrupted = _process_message_conversation(
                         manager,
                         stream,
@@ -532,13 +536,14 @@ def _run_chat_loop(
                     msg = user_input
                     manager.append(msg)
 
-                    # Reset interrupt flag since user provided new input
-
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager):
                         if parked_waiting:
                             hold_queued_prompts = True
                         continue
+
+                    # A real (non-command) prompt re-enables idle autowake.
+                    _idle_autowake_blocked = False
 
                     # Trigger turn.pre hooks once per submitted user prompt,
                     # after the prompt is appended and command handling has
@@ -1029,7 +1034,7 @@ def _idle_autowake_enabled() -> bool:
     return config.chat is None or config.chat.watch_autowake is not False
 
 
-def _deliver_idle_notifications(manager: LogManager) -> bool:
+def _deliver_idle_notifications(manager: LogManager, *, autowake: bool = True) -> bool:
     """Drain parent-scoped events at idle. Return True to auto-continue."""
     from .tools.subagent.hooks import (
         _completion_message,
@@ -1058,7 +1063,12 @@ def _deliver_idle_notifications(manager: LogManager) -> bool:
         meta = dict(msg.metadata or {})
         meta["idle_notification"] = True
         manager.append(msg.replace(metadata=cast(MessageMetadata, meta)))
-    return bool(terminal) and _idle_autowake_enabled() and not _idle_autowake_blocked
+    return (
+        bool(terminal)
+        and autowake
+        and _idle_autowake_enabled()
+        and not _idle_autowake_blocked
+    )
 
 
 def _finalize_user_inquiry(inquiry: str, workspace: Path | None) -> Message | None:
@@ -1129,23 +1139,25 @@ def _get_user_input(
     # prompt() cannot be lost. Confirmation prompts never arm this path.
     arm_idle_prompt()
     unsub = subscribe(manager.logdir, request_idle_wake)
+    submitted: str | object | None = None
     try:
         while True:
-            if _deliver_idle_notifications(manager):
+            if _deliver_idle_notifications(manager, autowake=not force_prompt):
                 return IdleNotificationWake()
             try:
-                inquiry = prompt_user()
+                submitted = prompt_user()
             except (EOFError, KeyboardInterrupt):
                 return None
-            if inquiry is NOTIFICATION_WAKE:
+            if submitted is NOTIFICATION_WAKE:
                 continue
-            if not isinstance(inquiry, str):
-                continue
-            _idle_autowake_blocked = False
-            return _finalize_user_inquiry(inquiry, workspace)
+            if isinstance(submitted, str):
+                break
     finally:
         unsub()
         disarm_idle_prompt()
+    # URL/tool confirmation shares PromptSession; it must run unarmed.
+    assert isinstance(submitted, str)
+    return _finalize_user_inquiry(submitted, workspace)
 
 
 def _reply_with_overflow_recovery(
@@ -1357,6 +1369,7 @@ def step(
 
 
 def prompt_user(value=None) -> str | object:  # pragma: no cover
+    global _idle_autowake_blocked
     from .util.prompt import NOTIFICATION_WAKE, add_history
 
     print_bell()
@@ -1375,6 +1388,7 @@ def prompt_user(value=None) -> str | object:  # pragma: no cover
                 if isinstance(response, str) and response:
                     add_history(response)
             except KeyboardInterrupt:
+                _idle_autowake_blocked = True
                 print("\nInterrupted. Press Ctrl-D to exit.")
             except EOFError:
                 raise  # Let _get_user_input handle the normal exit flow
