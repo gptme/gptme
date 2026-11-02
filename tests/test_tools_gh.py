@@ -646,6 +646,25 @@ class TestWaitForChecks:
 
     @patch_gh_sleep
     @patch("gptme.tools.gh.subprocess.run")
+    def test_exhausted_budget_skips_extra_fetch(
+        self, mock_run, gh_time, monkeypatch: pytest.MonkeyPatch
+    ):
+        """After sleeping the remaining budget, do not start another API poll."""
+        monkeypatch.setenv("GPTME_GH_CHECKS_TIMEOUT", "5")
+        runs = [_make_check_run("lint", "in_progress", None, run_id=1)]
+        mock_run.return_value = _mock_subprocess_run(json.dumps({"check_runs": runs}))
+        # start_time, remaining check, post-sleep deadline check
+        gh_time.time = MagicMock(side_effect=[0.0, 0.0, 5.0])
+
+        messages = list(_wait_for_checks("o", "r", "", commit_sha="abc1234"))
+        result = messages[-1].content
+        assert "Stopped waiting after 5s" in result
+        assert "still running" in result
+        gh_time.sleep.assert_called_once_with(5)
+        assert mock_run.call_count == 1
+
+    @patch_gh_sleep
+    @patch("gptme.tools.gh.subprocess.run")
     def test_all_success_completion(self, mock_run, gh_time):
         """All-success completion still returns a passing result."""
         runs = [

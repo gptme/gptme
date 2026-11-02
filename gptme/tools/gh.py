@@ -202,6 +202,23 @@ def _format_still_running(names: list[str]) -> str:
     return f"\nStill running: {shown}\n"
 
 
+def _pending_timeout_message(
+    max_wait: float,
+    in_progress: int,
+    status_parts: list[str],
+    in_progress_runs: list[str],
+) -> Message:
+    """Foreground-budget snapshot so the caller can stop waiting."""
+    timeout_msg = (
+        f"\n⏱️ Stopped waiting after {max_wait:g}s with "
+        f"{in_progress} checks still running.\n"
+    )
+    if status_parts:
+        timeout_msg += f"{', '.join(status_parts)}\n"
+    timeout_msg += _format_still_running(in_progress_runs)
+    return Message("system", timeout_msg)
+
+
 def _wait_for_checks(
     owner: str, repo: str, url: str, commit_sha: str | None = None
 ) -> Generator[Message, None, None]:
@@ -359,18 +376,26 @@ def _wait_for_checks(
 
         remaining = max_wait - (time.time() - start_time)
         if remaining <= 0:
-            timeout_msg = (
-                f"\n⏱️ Stopped waiting after {max_wait:g}s with "
-                f"{current_status['in_progress']} checks still running.\n"
+            yield _pending_timeout_message(
+                max_wait,
+                current_status["in_progress"],
+                status_parts,
+                in_progress_runs,
             )
-            if status_parts:
-                timeout_msg += f"{', '.join(status_parts)}\n"
-            timeout_msg += _format_still_running(in_progress_runs)
-            yield Message("system", timeout_msg)
             return
 
         # Wait before next poll, without overshooting the foreground budget
         time.sleep(min(poll_interval, remaining))
+        # Do not start another API poll after the budget is gone; a check-run
+        # listing can take up to 30s per page.
+        if time.time() - start_time >= max_wait:
+            yield _pending_timeout_message(
+                max_wait,
+                current_status["in_progress"],
+                status_parts,
+                in_progress_runs,
+            )
+            return
 
 
 def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> str:
