@@ -1,6 +1,6 @@
 """Anthropic native system messages must respect turn and tool-result placement."""
 
-from typing import Literal
+from typing import Any, Literal
 
 import httpx2
 import pytest
@@ -20,6 +20,7 @@ class _RequestBlock(TypedDict):
     tool_use_id: NotRequired[str]
     text: NotRequired[str]
     content: NotRequired[list["_RequestBlock"]]
+    cache_control: NotRequired[dict[str, str]]
 
 
 class _RequestMessage(TypedDict):
@@ -320,3 +321,57 @@ def test_non_native_tools_do_not_reorder_system_notices() -> None:
     )
     assert "shellcheck warning" in str(sent[2])
     assert str(sent[2]).index("shellcheck warning") < str(sent[2]).index("hi")
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-8"])
+@pytest.mark.parametrize("ephemeral_notice", [False, True])
+def test_reordered_tool_notices_preserve_ephemeral_cache_boundary(
+    model: str, ephemeral_notice: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stable cache prefix must end before the first emitted expiring message."""
+    init_tools(["shell"])
+    shell = get_tool("shell")
+    assert shell is not None
+    messages = [
+        Message("system", "Bootstrap"),
+        Message("user", "Run commands"),
+        Message(
+            "assistant",
+            '@shell(a): {"command": "pwd"}\n@shell(b): {"command": "ls"}',
+        ),
+        Message(
+            "system", "batch notice", ephemeral_ttl=2 if ephemeral_notice else None
+        ),
+        Message(
+            "system",
+            "result A",
+            call_id="a",
+            ephemeral_ttl=None if ephemeral_notice else 2,
+        ),
+        Message("system", "result B", call_id="b"),
+        Message("assistant", "Finished"),
+        Message("user", "Continue"),
+    ]
+    boundaries: list[int | None] = []
+    apply_cache_control = llm_anthropic.apply_cache_control
+
+    def capture_boundary(
+        messages: list[dict[str, Any]],
+        system_messages: list[dict[str, Any]] | None,
+        ephemeral_boundary_idx: int | None = None,
+    ) -> tuple[list[dict], list[dict] | None]:
+        boundaries.append(ephemeral_boundary_idx)
+        return apply_cache_control(messages, system_messages, ephemeral_boundary_idx)
+
+    monkeypatch.setattr(llm_anthropic, "apply_cache_control", capture_boundary)
+    prepared, _, _ = llm_anthropic._prepare_messages_for_api(messages, [shell], model)
+    sent = TypeAdapter(list[_RequestMessage]).validate_python(prepared)
+    expected_boundary = 3 if ephemeral_notice else 1
+    assert boundaries == [expected_boundary]
+    assert sent[expected_boundary]["content"][-1]["cache_control"] == {
+        "type": "ephemeral"
+    }
+    assert sent[2]["content"][0]["tool_use_id"] == "a"
+    assert sent[3]["content"][0]["tool_use_id"] == "b"
+    assert "batch notice" in str(sent[4])
+    assert all(set(message) == {"role", "content"} for message in prepared)

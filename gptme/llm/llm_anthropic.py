@@ -1741,16 +1741,13 @@ def _prepare_messages_for_api(
     # Transform system messages
     messages, system_messages = _transform_system_messages(messages, model=model)
 
-    # Find the stable boundary before the first ephemeral message.
-    # This index (into messages_dicts_new after conversion) is passed to
-    # apply_cache_control so a cache breakpoint is placed just before the
-    # ephemeral block, keeping the stable prefix cached as messages expire.
-    first_ephemeral_in_messages = next(
-        (i for i, m in enumerate(messages) if m.ephemeral_ttl is not None), None
+    # Carry ephemeral identity through tool-result/notice reordering. An input
+    # position no longer identifies the same message after _handle_tools().
+    # This private marker is discarded when constructing the API payload below.
+    messages_dicts = (
+        _process_file({**data, "_ephemeral": message.ephemeral_ttl is not None})
+        for message, data in zip(messages, msgs2dicts(messages))
     )
-
-    # Handle files and convert to dicts
-    messages_dicts = (_process_file(f) for f in msgs2dicts(messages))
 
     # Prepare tools
     tools_dict = [_spec2tool(tool) for tool in tools] if tools else None
@@ -1781,9 +1778,8 @@ def _prepare_messages_for_api(
 
     # Apply cache control to optimize performance
     messages_dicts_new: list[anthropic.types.MessageParam] = []
-    # Track the output index of the stable boundary before the ephemeral block.
-    # msg_input_idx counts messages from the generator (before filtering).
-    _msg_input_idx = 0
+    # Track the stable prefix in emitted order, including filtered messages.
+    _seen_ephemeral = False
     _ephemeral_boundary_output_idx: int | None = None
     for msg in messages_dicts:
         content_parts: list[
@@ -1828,12 +1824,10 @@ def _prepare_messages_for_api(
         # Record the boundary before potentially skipping this message.
         # The boundary is the last output index before the first ephemeral input,
         # so it must be captured regardless of whether this message has content.
-        if (
-            first_ephemeral_in_messages is not None
-            and _msg_input_idx == first_ephemeral_in_messages
-            and len(messages_dicts_new) > 0
-        ):
-            _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
+        if msg.get("_ephemeral") and not _seen_ephemeral:
+            _seen_ephemeral = True
+            if messages_dicts_new:
+                _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
 
         # Only add message if it has content (prevents Anthropic API error)
         if content_parts:
@@ -1842,7 +1836,6 @@ def _prepare_messages_for_api(
             logger.warning(
                 f"Skipping message with role '{msg['role']}' - all content was filtered out"
             )
-        _msg_input_idx += 1
 
     # Apply cache control for Anthropic prompt caching
     # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
