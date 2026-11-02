@@ -454,4 +454,26 @@ def limit_log(log: list[Message]) -> list[Message]:
     # both directions (and is idempotent with pass 1 for call_id messages).
     result = _drop_orphaned_tool_pairs(log, result)
 
+    # An oversized trailing tool result can stop tail selection before any
+    # conversational message fits. Orphan cleanup then leaves only system
+    # instructions, which become an empty input on the Responses API. Recover
+    # a real user request, never a synthetic prompt or an incomplete tool call.
+    if not any(m.role != "system" for m in result):
+        for msg in reversed(log_tail):
+            if msg.role != "user":
+                continue
+            if len_tokens([*result, msg], model.model) <= model.context:
+                kept_ids = {id(m) for m in result} | {id(msg)}
+                logger.warning(
+                    "Context limiting dropped the conversation tail; preserving "
+                    "the latest user request without the oversized tool output"
+                )
+                return [m for m in log if id(m) in kept_ids]
+            # Never substitute an older request for a newer one that cannot fit.
+            raise ValueError(
+                "Context limiting removed all conversational input and no user "
+                "request fits alongside the system instructions. Shorten the "
+                "request or system prompt, or select a larger-context model."
+            )
+
     return result

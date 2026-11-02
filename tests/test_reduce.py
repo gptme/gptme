@@ -641,13 +641,20 @@ def test_limit_log_pinned_system_not_orphaned():
 
     original_model = _default_model_var.get()
     try:
-        # Budget: context=4 tokens.
-        # Messages: system(1) + assistant-anchor(2) + pinned-result(1) + user(1)
-        # always = system(1) + pinned-result(1) = 2; tail_budget=2; newest is user(1).
-        # assistant-anchor(2) > remaining(1) so it's dropped.
+        # Budget fits system + pinned-result + newest user, excluding the anchor.
         # Old _is_orphaned: pinned-result walks back to absent assistant → orphaned → dropped.
         # New _is_orphaned: pinned-result is in extra_pinned_ids → exempt → kept.
-        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=4)
+        # Count message framing too: the test needs enough room for the
+        # protected messages plus the user, but not the assistant anchor.
+        context = len_tokens(
+            [
+                Message("system", "system"),
+                Message("system", "pinned result"),
+                Message("user", "newest"),
+            ],
+            "gpt-4",
+        )
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=context)
         set_default_model(tiny_model)
 
         anchor_msg = Message("assistant", "anchor msg")  # 2 tok — non-pinned anchor
@@ -700,3 +707,63 @@ def test_drop_orphaned_tool_pairs_preserves_pinned_tool_result():
     assert "fn result" in result_contents, (
         "Pinned tool result must survive _drop_orphaned_tool_pairs even when anchor is absent"
     )
+
+
+@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("warning", [False, True])
+def test_limit_log_oversized_output_preserves_user(native: bool, warning: bool) -> None:
+    """Oversized results must not leave Responses with instructions only."""
+    from gptme.llm.models.resolution import _default_model_var
+    from gptme.llm.openai_responses import _messages_to_responses_input
+
+    token = _default_model_var.set(
+        ModelMeta(provider="openai-subscription", model="gpt-4", context=200)
+    )
+    try:
+        user = Message("user", "Check CI.")
+        output = Message(
+            "system", "CI log line\n" * 1000, call_id="call_ci" if native else None
+        )
+        call = (
+            '@shell(call_ci): {"command":"echo logs"}'
+            if native
+            else "```shell\necho logs\n```"
+        )
+        messages = [
+            Message("system", "You are helpful."),
+            user,
+            Message("assistant", call),
+            output,
+        ]
+        if warning:
+            messages.append(Message("system", "[UNTRUSTED: tool output warning]"))
+        original = [m.to_dict() for m in messages]
+
+        result = limit_log(messages)
+
+        assert result == [messages[0], user]
+        assert len_tokens(result, "gpt-4") <= 200
+        _, items = _messages_to_responses_input(result)
+        assert items and items[0]["role"] == "user"
+        assert [m.to_dict() for m in messages] == original
+    finally:
+        _default_model_var.reset(token)
+
+
+def test_limit_log_no_user_request_fits() -> None:
+    from gptme.llm.models.resolution import _default_model_var
+
+    token = _default_model_var.set(
+        ModelMeta(provider="openai-subscription", model="gpt-4", context=20)
+    )
+    try:
+        messages = [
+            Message("system", "You are helpful."),
+            Message("user", "An older request that fits."),
+            Message("user", "large request " * 100),
+            Message("system", "large output " * 1000),
+        ]
+        with pytest.raises(ValueError, match="no user request fits"):
+            limit_log(messages)
+    finally:
+        _default_model_var.reset(token)
