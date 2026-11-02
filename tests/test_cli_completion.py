@@ -33,6 +33,7 @@ def isolated(tmp_path, monkeypatch):
     init_tools(["subagent", "watch"], include_mcp=False)
     chat._idle_autowake_blocked = False
     prompt.reset_idle_prompt_state()
+    monkeypatch.setattr(prompt, "_prompt_session", None)
     monkeypatch.setattr(chat, "print_bell", lambda: None)
     monkeypatch.setattr(chat, "flush_stdin", lambda: None)
     with patch("gptme.tools.subagent.hooks._notify_server", return_value=False):
@@ -379,7 +380,10 @@ def test_idle_ctrl_c_blocks_autowake(tmp_path, monkeypatch):
         manager.append(Message("assistant", "done"))
         return False
 
-    monkeypatch.setattr(prompt, "get_input", controller.get_input)
+    # Exercise the real get_input exception handling, not a replacement that
+    # bypasses its conversion of prompt_toolkit's KeyboardInterrupt.
+    session = prompt.get_prompt_session()
+    monkeypatch.setattr(session, "prompt", lambda *_a, **_kw: controller.get_input(""))
     monkeypatch.setattr(chat, "_process_message_conversation", fake_process)
     thread = threading.Thread(
         target=contextvars.copy_context().run, args=(run_loop, manager, errors)
@@ -571,6 +575,107 @@ def test_prompt_toolkit_wake_restores_draft_and_cursor(tmp_path, monkeypatch):
             assert not second.is_alive()
             assert restored["text"] == "unfinished draft"
             assert restored["cursor"] == 4
+        finally:
+            _exit_app(session, "cleanup")
+            for worker in threads:
+                worker.join(2)
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_real_prompt_wake_preserves_completion_until_cancel(
+    tmp_path, monkeypatch, cancel
+):
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "my notes").mkdir()
+    monkeypatch.setattr(prompt, "get_pt_history_file", lambda: tmp_path / "history")
+    monkeypatch.setattr(prompt, "_prompt_session", None)
+    results: list[object] = []
+    errors: list[BaseException] = []
+    threads: list[threading.Thread] = []
+
+    with (
+        create_pipe_input() as pipe,
+        create_app_session(input=pipe, output=DummyOutput()),
+    ):
+        session = prompt.get_prompt_session()
+        completer = session.completer
+        assert isinstance(completer, prompt.GptmeCompleter)
+
+        def run_prompt() -> None:
+            prompt.arm_idle_prompt()
+            try:
+                results.append(prompt.get_input("User"))
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                prompt.disarm_idle_prompt()
+
+        def start() -> threading.Thread:
+            worker = threading.Thread(target=run_prompt)
+            threads.append(worker)
+            worker.start()
+            _wait_app_running(session)
+            return worker
+
+        def on_loop(fn) -> None:
+            done = threading.Event()
+
+            def apply() -> None:
+                try:
+                    fn()
+                except BaseException as exc:
+                    errors.append(exc)
+                finally:
+                    done.set()
+
+            assert session.app.loop is not None
+            session.app.loop.call_soon_threadsafe(apply)
+            assert done.wait(3)
+            assert not errors
+
+        try:
+            first = start()
+
+            def complete_directory() -> None:
+                document = Document("@my", cursor_position=3)
+                options = list(completer.get_completions(document, CompleteEvent()))
+                completion = next(c for c in options if "my notes" in c.text)
+                session.default_buffer.text = completion.text
+
+            on_loop(complete_directory)
+            prompt.request_idle_wake()
+            first.join(5)
+            assert not first.is_alive()
+            assert results == [prompt.NOTIFICATION_WAKE]
+            second = start()
+            on_loop(lambda: None)  # Wait until pre_run restored the draft.
+            if cancel:
+                on_loop(lambda: setattr(session.default_buffer, "text", "replacement"))
+                pipe.send_text("\x03")
+                second.join(5)
+                assert not second.is_alive()
+                assert len(errors) == 1 and isinstance(errors[0], KeyboardInterrupt)
+                errors.clear()
+                assert prompt.get_saved_draft() is None
+                third = start()
+                on_loop(lambda: None)
+                assert session.default_buffer.text == ""
+                pipe.send_text("fresh\r")
+                third.join(5)
+                assert not third.is_alive()
+                assert results[-1] == "fresh"
+            else:
+                pipe.send_text("\r")
+                second.join(5)
+                assert not second.is_alive()
+                assert results[-1] == "`@my notes/`"
+            assert not errors
         finally:
             _exit_app(session, "cleanup")
             for worker in threads:

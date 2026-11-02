@@ -525,6 +525,7 @@ class IdleDraft:
     text: str
     cursor: int
     selection: object | None = None
+    completed_directory: bool = False
 
 
 _saved_draft: IdleDraft | None = None
@@ -617,6 +618,12 @@ def _snapshot_and_exit(app: object) -> None:
                 text=getattr(buf, "text", "") or "",
                 cursor=int(getattr(buf, "cursor_position", 0) or 0),
                 selection=_copy_selection(getattr(buf, "selection_state", None)),
+                completed_directory=(
+                    _prompt_session is not None
+                    and isinstance(_prompt_session.completer, GptmeCompleter)
+                    and buf.text
+                    in _prompt_session.completer._open_directory_completions
+                ),
             )
     exit_fn = getattr(app, "exit", None)
     if exit_fn is not None:
@@ -852,6 +859,12 @@ def get_input(prompt: str) -> str | NotificationWake:
             current = _saved_draft
             should_wake = _pending_wake
         if current is not None:
+            # Application reset clears authorization for independent prompts.
+            # This read resumes the exact draft instead, including its Tab state.
+            if current.completed_directory and isinstance(
+                session.completer, GptmeCompleter
+            ):
+                session.completer._open_directory_completions.add(current.text)
             buf.cursor_position = min(current.cursor, len(buf.text))
             if current.selection is not None:
                 buf.selection_state = current.selection  # type: ignore[assignment]
@@ -883,11 +896,12 @@ def get_input(prompt: str) -> str | NotificationWake:
             _saved_draft = None
             _pending_wake = False
         return result
-    except (EOFError, KeyboardInterrupt) as e:
-        # Re-raise EOFError to handle Ctrl+D properly
-        if isinstance(e, EOFError):
-            raise
-        return ""
+    except (EOFError, KeyboardInterrupt):
+        # Cancellation discards the draft. Propagate Ctrl-C to prompt_user so
+        # it can pause automatic continuation, rather than treating it as Enter.
+        with _idle_lock:
+            _saved_draft = None
+        raise
 
 
 def add_history(line: str) -> None:
