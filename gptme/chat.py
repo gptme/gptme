@@ -281,6 +281,10 @@ def chat(
         # _prev_tokens if any setup code above raises before reaching this point.
         _reset_token_accumulator()
         set_output_format(output_format)
+        if interactive:
+            from .util.prompt import idle_prompt_scope
+
+            skill_lifecycle.enter_context(idle_prompt_scope())
 
         # init
         # Mode detection for confirmation hooks is now handled inside init_hooks()
@@ -448,6 +452,7 @@ def _run_chat_loop(
                     continue
 
                 if msg.role == "user":
+                    _idle_autowake_blocked.set(False)
                     if turn_pre_msgs := trigger_hook(
                         HookType.TURN_PRE,
                         manager=manager,
@@ -1005,10 +1010,10 @@ def _should_prompt_for_input(log: Log) -> bool:
     #   as "needs input" would break crash recovery on an unanswered user turn)
     # - No user messages exist in the entire log
     last_msg_is_resume_prompt = bool(
-        last_msg
-        and last_msg.pinned
-        and last_msg.metadata
-        and "resume_key" in last_msg.metadata
+        effective_last
+        and effective_last.pinned
+        and effective_last.metadata
+        and "resume_key" in effective_last.metadata
     )
     if last_msg_is_resume_prompt:
         # The resume-only prompt carries no turn semantics: decide from the

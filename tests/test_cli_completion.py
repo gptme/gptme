@@ -840,3 +840,62 @@ def test_history_search_wake_preserves_main_draft(tmp_path, monkeypatch):
             _exit_app(session, "cleanup")
             for worker in workers:
                 worker.join(2)
+
+
+@pytest.mark.parametrize("completed", [False, True])
+def test_idle_notice_keeps_resume_profile_transparent(tmp_path, completed):
+    from gptme.logmanager import Log
+
+    messages = [Message("user", "hello")]
+    if completed:
+        messages.append(Message("assistant", "done"))
+    messages.extend(
+        [
+            Message(
+                "system",
+                "profile",
+                pinned=True,
+                metadata={"resume_key": "agent_profile"},
+            ),
+            Message("system", "child done", metadata={"idle_notification": True}),
+        ]
+    )
+    assert chat._should_prompt_for_input(Log(messages)) is completed
+
+
+def test_queued_user_resume_reenables_idle_wake(tmp_path, monkeypatch):
+    manager = manager_at(tmp_path)
+    chat._idle_autowake_blocked.set(True)
+    decisions: list[bool] = []
+
+    def process(*_args):
+        notify_completion("child", "success", "done", parent_logdir=manager.logdir)
+        decisions.append(chat._deliver_idle_notifications(manager))
+        manager.append(Message("assistant", "done"))
+        return False
+
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    monkeypatch.setattr(chat, "execute_cmd", lambda *_args: False)
+    chat._run_chat_loop(manager, [Message("user", "resume")], False, interactive=False)
+    assert decisions == [True]
+
+
+def test_chat_invocation_scopes_saved_idle_draft(tmp_path, monkeypatch):
+    outer = prompt.IdleDraft("outer text", 3, completed_directory=True)
+    prompt._saved_draft = outer
+    manager = manager_at(tmp_path)
+
+    class StopSetup(Exception):
+        pass
+
+    def check_draft(*_args):
+        assert prompt.get_saved_draft() is None, "new chat inherited unsent text"
+        prompt._saved_draft = prompt.IdleDraft("inner text", 2)
+        raise StopSetup
+
+    monkeypatch.setattr(chat, "init", check_draft)
+    with pytest.raises(StopSetup):
+        chat.chat(
+            [], [], manager.logdir, tmp_path, "local/test", tool_format="markdown"
+        )
+    assert prompt.get_saved_draft() is outer

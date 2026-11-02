@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -553,6 +554,20 @@ def reset_idle_prompt_state() -> None:
         _idle_armed = False
         _pending_wake = False
         _saved_draft = None
+
+
+@contextmanager
+def idle_prompt_scope() -> Iterator[None]:
+    """Keep unsent input and wake state local to one (possibly nested) chat."""
+    global _idle_armed, _pending_wake, _saved_draft
+    with _idle_lock:
+        previous = (_idle_armed, _pending_wake, _saved_draft)
+        _idle_armed, _pending_wake, _saved_draft = False, False, None
+    try:
+        yield
+    finally:
+        with _idle_lock:
+            _idle_armed, _pending_wake, _saved_draft = previous
 
 
 def get_saved_draft() -> IdleDraft | None:
