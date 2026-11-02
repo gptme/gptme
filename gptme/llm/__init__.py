@@ -1430,7 +1430,7 @@ def get_model_from_api_key(api_key: str) -> tuple[str, Provider, str] | None:
         return api_key, "openrouter", "OPENROUTER_API_KEY"
     if api_key.startswith("sk-"):
         return api_key, "openai", "OPENAI_API_KEY"
-    if api_key.startswith("AIza"):
+    if api_key.startswith(("AIza", "AQ.")):
         return api_key, "gemini", "GEMINI_API_KEY"
 
     return None
