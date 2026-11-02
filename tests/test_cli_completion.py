@@ -899,3 +899,42 @@ def test_chat_invocation_scopes_saved_idle_draft(tmp_path, monkeypatch):
             [], [], manager.logdir, tmp_path, "local/test", tool_format="markdown"
         )
     assert prompt.get_saved_draft() is outer
+
+
+def test_idle_notice_preserves_pinned_input_boundary():
+    from gptme.logmanager import Log
+
+    assert chat._should_prompt_for_input(
+        Log(
+            [
+                Message("user", "hello"),
+                Message("system", "pinned context", pinned=True),
+                Message("system", "progress", metadata={"idle_notification": True}),
+            ]
+        )
+    )
+
+
+def test_burst_callbacks_exit_prompt_only_once(monkeypatch):
+    from types import SimpleNamespace
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    with create_pipe_input() as pipe:
+        session: PromptSession[object] = PromptSession(input=pipe, output=DummyOutput())
+        monkeypatch.setattr(prompt, "_prompt_session", session)
+        calls: list[object] = []
+        app = SimpleNamespace(is_running=True, is_done=False)
+
+        def exit_once(*, result):
+            assert not app.is_done, "prompt already exited"
+            calls.append(result)
+            app.is_done = True
+
+        app.exit = exit_once
+        prompt.arm_idle_prompt()
+        prompt._snapshot_and_exit(app)
+        prompt._snapshot_and_exit(app)
+        assert calls == [prompt.NOTIFICATION_WAKE]

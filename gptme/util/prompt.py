@@ -621,7 +621,7 @@ def _copy_selection(selection: object | None) -> object | None:
 def _snapshot_and_exit(app: object) -> None:
     """Capture buffer state on the prompt_toolkit thread, then exit with WAKE."""
     global _pending_wake, _saved_draft
-    if not getattr(app, "is_running", False):
+    if not getattr(app, "is_running", False) or getattr(app, "is_done", False):
         return
     # History search can own focus; restore into the same main buffer we save.
     session = _prompt_session

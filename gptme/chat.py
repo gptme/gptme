@@ -970,8 +970,6 @@ def _should_prompt_for_input(log: Log) -> bool:
     Returns True if we should prompt for input, False if we should generate response.
     This preserves the original logic for handling edge cases like crash recovery.
     """
-    last_msg = log[-1] if log else None
-
     # Budget reminders and idle child/watch notices are transparent to the
     # last-message decision. Other system messages may be markdown tool
     # results without a call_id, including results from older saved logs.
@@ -1031,7 +1029,11 @@ def _should_prompt_for_input(log: Log) -> bool:
         not effective_last
         or effective_last.role == "assistant"
         or has_recent_return_to_prompt
-        or (last_msg is not None and last_msg.pinned and not last_msg_is_resume_prompt)
+        or (
+            effective_last is not None
+            and effective_last.pinned
+            and not last_msg_is_resume_prompt
+        )
         or not any(role == "user" for role in [m.role for m in log])
     )
 
