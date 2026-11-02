@@ -942,7 +942,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f702d6cd580&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f28bd0c9580&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1476,9 +1476,9 @@ The following Python functions are available:
 
 <span class="gs">**Description:**</span> Convert a file to another format using offline system tools
 
-<span class="gs">**Instructions:**</span> Use this tool when a workflow needs a file in a different format: render a PDF to images for visual inspection, extract text from a document for summarization, make a video thumbnail, or reformat an image. It runs fully offline, falling back gracefully when a specific converter is unavailable.
+<span class="gs">**Instructions:**</span> Convert files offline: render PDFs as images, extract document text, make video thumbnails, or reformat images. Falls back to available converters.
 
-Choose the destination format by the <span class="sb">`output_path`</span> extension (e.g. <span class="sb">`.png`</span>, <span class="sb">`.jpg`</span>, <span class="sb">`.txt`</span>, <span class="sb">`.md`</span>). Set <span class="sb">`quality`</span> to low/medium/high when the conversion supports it, and pass <span class="sb">`dry_run`</span> = true to see the converter plan first. For a new conversion, dry-run before executing to confirm the chain is available.
+The <span class="sb">`output_path`</span> extension selects the format (e.g. <span class="sb">`.png`</span>, <span class="sb">`.jpg`</span>, <span class="sb">`.txt`</span>, <span class="sb">`.md`</span>). Use <span class="sb">`quality`</span> low/medium/high where supported. For each new conversion, first pass <span class="sb">`dry_run`</span> = true to inspect the plan and confirm an available conversion chain.
 
 <span class="gu">## elicit</span>
 
@@ -3068,7 +3068,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20374</p>
+<p>Tokens: 20332</p>
 </dd></dl>
 
 <dl class="py function">
