@@ -231,6 +231,7 @@ class ModelsConfig:
     # Default chat model (fully-qualified id). Formal alternative to the MODEL
     # env var; takes precedence over MODEL but below an explicit per-chat model.
     default: str | None = None
+    summary: str | None = None
 
     # User-curated favorite models (fully-qualified ids, e.g.
     # "anthropic/claude-opus-4-8"). Surfaced prominently in model pickers.

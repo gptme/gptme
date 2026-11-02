@@ -313,6 +313,18 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # https://ai.google.dev/gemini-api/docs/models
     # https://ai.google.dev/gemini-api/docs/pricing
     "gemini": {
+        # Stable Flash recommendation; docs/pricing verified 2026-11-02.
+        "gemini-3.8-flash": {
+            "context": 1_048_576,
+            "max_output": 65_536,
+            # Promotional standard rates through 2026-12-31; then $1.50/$7.50.
+            "price_input": 0.75,
+            "price_output": 3.75,
+            "price_cache_read": 0.075,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
         "gemini-3.1-pro-preview": {
             "context": 1_000_000,
             "max_output": 64_000,
@@ -403,7 +415,9 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "whole",
             "deprecated": True,
         },
+        # Unavailable to new users (HTTP 404); retain explicit configurations.
         "gemini-2.5-flash": {
+            "deprecated": True,
             "context": 1_048_576,
             "max_output": 65_536,
             "price_input": 0.3,

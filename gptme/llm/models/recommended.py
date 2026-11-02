@@ -33,7 +33,7 @@ RECOMMENDED_MODELS: dict[str, str] = {
     # flash became the default once those hosts appeared (recheck done
     # 2026-09-17). See docs/providers-supported.rst "Choosing a subprovider".
     "openrouter": "deepseek/deepseek-v4.1-flash",
-    "gemini": "gemini-3.1-pro-preview",
+    "gemini": "gemini-3.8-flash",
     "xai": "grok-4.6",
     "grok-subscription": "grok-4.6",
     # Billing verified 2026-10-26: production messages v141 charges $2/$10 per
@@ -50,7 +50,7 @@ SUMMARY_MODELS: dict[str, str] = {
     "anthropic": "claude-haiku-4-5",
     "openai": "gpt-5-mini",
     "openrouter": "deepseek/deepseek-v4.1-flash",
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-3.8-flash",
     "deepseek": "deepseek-v4-flash",
     "xai": "grok-4-1-fast",
 }

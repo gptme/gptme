@@ -40,14 +40,18 @@ def get_default_model_summary() -> ModelMeta | None:
     default_model = get_default_model()
     if not default_model:
         return None
-    provider = default_model.provider
-    assert provider != "unknown"
-    summary_model_name = get_summary_model(provider)
-    if summary_model_name is None:
-        # No summary model defined for this provider (e.g., local)
-        # Return the default model instead
-        return default_model
-    return get_model(f"{provider}/{summary_model_name}")
+    return get_model(get_summary_model_for(default_model.full))
+
+
+def get_summary_model_for(model: str) -> str:
+    """Resolve the explicit summary override, provider recommendation, or main model."""
+    from ...config import get_config
+
+    if override := get_config().user.models.summary:
+        return override
+    current = get_model(model)
+    summary = get_summary_model(current.provider)
+    return f"{current.provider}/{summary}" if summary else model
 
 
 def set_default_model(model: str | ModelMeta) -> None:

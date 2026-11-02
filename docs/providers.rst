@@ -47,7 +47,7 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m deepseek/deepseek-v4-flash
     gptme "hello" -m xai/grok-4
     gptme "hello" -m grok-subscription/grok-4.6  # uses your SuperGrok subscription
-    gptme "hello" -m gemini/gemini-2.5-flash
+    gptme "hello" -m gemini  # uses the current recommended Gemini model
     gptme "hello" -m groq/llama-3.3-70b-versatile
     gptme "hello" -m gptme/claude-sonnet-4-6  # use the gptme managed service as router
     gptme "hello" -m local/llama3.2:1b  # uses a local OpenAI-compatible server (e.g. ollama)

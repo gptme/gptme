@@ -267,7 +267,7 @@ def test_get_model_openrouter_subprovider_suffix_not_in_static():
     [
         ("openai", "gpt-5.6-sol"),
         ("anthropic", "claude-sonnet-5-5"),
-        ("gemini", "gemini-3.1-pro-preview"),
+        ("gemini", "gemini-3.8-flash"),
         ("openrouter", "deepseek/deepseek-v4.1-flash"),
         ("xai", "grok-4.6"),
         ("deepseek", "deepseek-v4-flash"),
@@ -837,8 +837,8 @@ def test_gemini_flash_lite_hidden_from_setup_but_still_resolvable() -> None:
 
     setup_names = {m.model for m in _apply_model_filters(static_gemini)}
     assert "gemini-2.5-flash-lite" not in setup_names
-    # Only the retired model is affected; its active siblings stay in setup
-    assert "gemini-2.5-flash" in setup_names
+    assert "gemini-2.5-flash" not in setup_names
+    assert "gemini-3.8-flash" in setup_names
 
     all_names = {
         m.model for m in _apply_model_filters(static_gemini, include_deprecated=True)

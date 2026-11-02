@@ -691,6 +691,17 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
         logger.warning("[models].default should be a string")
         default_model = None
 
+    summary_model = models_data.pop("summary", None)
+    if summary_model is not None and (
+        not isinstance(summary_model, str)
+        or "/" not in summary_model
+        or not all(summary_model.split("/", 1))
+    ):
+        logger.warning(
+            "[models].summary should be a fully qualified provider/model string"
+        )
+        summary_model = None
+
     overrides: dict[str, ModelConfig] = {}
     for model_id, model_data in models_data.items():
         if not isinstance(model_data, dict):
@@ -719,6 +730,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
 
     models_config = ModelsConfig(
         default=default_model,
+        summary=summary_model,
         favorites=[str(m) for m in favorites_data if isinstance(m, str)],
         overrides=overrides,
     )

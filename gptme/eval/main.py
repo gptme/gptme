@@ -661,7 +661,7 @@ def main(
             ]
         )
     if config.get_env("GEMINI_API_KEY"):
-        default_models.extend(["gemini/gemini-2.5-flash"])
+        default_models.append("gemini")  # Resolve the central recommendation.
 
     # Process model specifications into typed ModelConfig objects
     model_configs: list[ModelConfig] = []
