@@ -598,6 +598,18 @@ describe('stripThinkingBlocks', () => {
     expect(result).toBe('');
     expect(result).not.toContain('interrupted reasoning');
   });
+
+  it('keeps literal <think> tags inside a fenced example', () => {
+    const result = stripThinkingBlocks('Example:\n```xml\n<think>KEEP_LITERAL</think>\n```\nAfter');
+    expect(result).toContain('KEEP_LITERAL');
+    expect(result).toContain('```xml');
+    expect(result).toContain('After');
+  });
+
+  it('keeps literal <think> tags inside inline code', () => {
+    const result = stripThinkingBlocks('Use `<think>KEEP_LITERAL</think>` here.');
+    expect(result).toBe('Use `<think>KEEP_LITERAL</think>` here.');
+  });
 });
 
 describe('formatConversationAsMarkdown - tool invocation stripping', () => {
@@ -707,6 +719,139 @@ describe('getExportableMessages - includeTools option', () => {
     const result = getExportableMessages(messagesWithTools, { includeTools: false });
     expect(result.some((m) => m.role === 'tool')).toBe(false);
     expect(result).toHaveLength(2);
+  });
+});
+
+describe('formatConversationAsMarkdown - example-preserving filters', () => {
+  it('keeps a literal <think> example inside an xml fence when thinking is disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Example:\n\n```xml\n<think>KEEP_LITERAL</think>\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeThinking: false });
+    expect(result).toContain('KEEP_LITERAL');
+    expect(result).toContain('```xml');
+    expect(result).toContain('Done.');
+  });
+
+  it('keeps a literal <think> example in inline code when thinking is disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'The tag is `<think>KEEP_LITERAL</think>` in the prompt.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeThinking: false });
+    expect(result).toContain('KEEP_LITERAL');
+    expect(result).toContain('`<think>KEEP_LITERAL</think>`');
+  });
+
+  it('keeps a literal @save example inside a text fence when tools are disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Example:\n\n```text\n@save: {"content":"KEEP_LITERAL"}\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('KEEP_LITERAL');
+    expect(result).toContain('@save:');
+    expect(result).toContain('Done.');
+  });
+
+  it('strips actual memory tool fences when tools are disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Searching.\n\n```memory\nKEEP_SHOULD_GO query\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('KEEP_SHOULD_GO');
+    expect(result).not.toContain('```memory');
+    expect(result).toContain('Searching.');
+    expect(result).toContain('Done.');
+  });
+
+  it('strips interrupted/unclosed save fences when tools are disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: 'Writing.\n\n```save secret.txt\nKEEP_SHOULD_GO\nstill open',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('KEEP_SHOULD_GO');
+    expect(result).not.toContain('secret.txt');
+    expect(result).toContain('Writing.');
+  });
+
+  it('strips watch and request_tool_change fences when tools are disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content:
+          'Working.\n\n```watch\nKEEP_WATCH\n```\n\n```request_tool_change\nKEEP_CHANGE\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).not.toContain('KEEP_WATCH');
+    expect(result).not.toContain('KEEP_CHANGE');
+    expect(result).toContain('Working.');
+    expect(result).toContain('Done.');
+  });
+
+  it('keeps a nested save example inside a markdown fence when tools are disabled', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content:
+          'Docs:\n\n```markdown\nUse this:\n```save example.txt\nKEEP_LITERAL\n```\n```\n\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, { includeTools: false });
+    expect(result).toContain('KEEP_LITERAL');
+    expect(result).toContain('```save example.txt');
+    expect(result).toContain('Done.');
+  });
+
+  it('does not filter user or system messages when thinking and tools are disabled', () => {
+    const messages: Message[] = [
+      { role: 'system', content: '<think>KEEP_SYSTEM</think>\n```save x\nKEEP_SYSTEM_SAVE\n```' },
+      { role: 'user', content: '<think>KEEP_USER</think>\n@save: {"content":"KEEP_USER_SAVE"}' },
+      { role: 'assistant', content: '<think>DROP_ASSISTANT</think>\nVisible.' },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, {
+      includeSystem: true,
+      includeThinking: false,
+      includeTools: false,
+    });
+    expect(result).toContain('KEEP_SYSTEM');
+    expect(result).toContain('KEEP_SYSTEM_SAVE');
+    expect(result).toContain('KEEP_USER');
+    expect(result).toContain('KEEP_USER_SAVE');
+    expect(result).not.toContain('DROP_ASSISTANT');
+    expect(result).toContain('Visible.');
+  });
+
+  it('retains thinking and tool syntax in full mode', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content:
+          '<think>KEEP_THINK</think>\n```save secret.txt\nKEEP_SAVE\n```\n@save: {"content":"KEEP_AT"}\nDone.',
+      },
+    ];
+    const result = formatConversationAsMarkdown('Chat', messages, {
+      includeThinking: true,
+      includeTools: true,
+    });
+    expect(result).toContain('KEEP_THINK');
+    expect(result).toContain('KEEP_SAVE');
+    expect(result).toContain('KEEP_AT');
+    expect(result).toContain('Done.');
   });
 });
 

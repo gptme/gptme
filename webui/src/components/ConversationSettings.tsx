@@ -518,6 +518,11 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({
                     <span className="text-sm">Include tool calls &amp; results</span>
                     <Switch checked={includeTools} onCheckedChange={setIncludeTools} />
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Filters drop real assistant thinking and tool syntax. Fenced or inline-code
+                    examples are kept. A top-level think tag or tool fence is treated as real. This
+                    is not secret redaction.
+                  </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
