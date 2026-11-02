@@ -1,8 +1,10 @@
 """Retained logs must never be displayed as actual provider input."""
 
+from typing import cast
+
 import pytest
 
-from gptme.message import Message, len_tokens
+from gptme.message import Message, MessageMetadata, len_tokens
 from gptme.util.context_measurement import (
     format_context_status,
     last_provider_input_tokens,
@@ -40,10 +42,14 @@ def test_invalid_provider_usage_is_unknown(count: object) -> None:
         Message(
             "assistant",
             "Hello",
-            metadata={
-                "input_log_model": "openai/gpt-4",
-                "usage": {"input_tokens": count},  # type: ignore[typeddict-item]
-            },
+            # Deliberately malformed persisted data exercises runtime validation.
+            metadata=cast(
+                MessageMetadata,
+                {
+                    "input_log_model": "openai/gpt-4",
+                    "usage": {"input_tokens": count},
+                },
+            ),
         )
     ]
     assert last_provider_input_tokens(log, "openai/gpt-4") is None
