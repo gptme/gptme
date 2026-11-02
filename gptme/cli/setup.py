@@ -717,7 +717,7 @@ def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
         console.print("[red]Invalid API key format. Please try again.[/red]")
         console.print(
             "[dim]Supported formats: OpenAI (sk-...), Anthropic (sk-ant-...), "
-            "OpenRouter (sk-or-...), Gemini (AIza...)[/dim]"
+            "OpenRouter (sk-or-...), Gemini (AIza... or AQ....)[/dim]"
         )
         return _prompt_api_key()
 
