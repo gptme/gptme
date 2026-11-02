@@ -7,6 +7,7 @@ from collections.abc import Callable, Generator, Iterable
 from contextlib import ExitStack
 from contextvars import ContextVar
 from pathlib import Path
+from typing import cast
 
 from .commands import execute_cmd
 from .config import ChatConfig, get_config, require_workspace_exists
@@ -31,6 +32,7 @@ from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import (
     Message,
+    MessageMetadata,
     MessageTimings,
     get_output_format,
     is_output_json,
@@ -65,6 +67,14 @@ logger = logging.getLogger(__name__)
 # logdir -> in-flight auto-naming thread (see the naming block in step loop)
 _naming_threads: dict[Path, threading.Thread] = {}
 _naming_threads_lock = threading.Lock()
+
+# After Ctrl-C, deliver idle notifications without auto-continuing until the
+# user submits a real prompt. Matches TUI interrupt suppression.
+_idle_autowake_blocked = False
+
+
+class IdleNotificationWake:
+    """Idle prompt released to deliver child/watch events; not user input."""
 
 
 def _start_auto_naming_thread(
@@ -407,6 +417,7 @@ def _run_chat_loop(
     output_schema=None,
 ):
     """Main chat loop - extracted to allow clean exception handling."""
+    global _idle_autowake_blocked
 
     # After an exhausted interactive provider failure, skip drain/consume until
     # the user submits a normal (non-command) message. Slash commands must not
@@ -477,11 +488,32 @@ def _run_chat_loop(
                     # Commands can mask the failure marker in the log, but
                     # they are not permission to restart provider generation.
                     user_input = _get_user_input(
-                        manager.log, manager.workspace, force_prompt=True
+                        manager.log,
+                        manager.workspace,
+                        force_prompt=True,
+                        manager=manager,
                     )
                 else:
-                    user_input = _get_user_input(manager.log, manager.workspace)
-                if user_input is None:
+                    user_input = _get_user_input(
+                        manager.log, manager.workspace, manager=manager
+                    )
+                if isinstance(user_input, IdleNotificationWake):
+                    interrupted = _process_message_conversation(
+                        manager,
+                        stream,
+                        tool_format,
+                        model,
+                        output_schema,
+                    )
+                    if interrupted:
+                        _idle_autowake_blocked = True
+                    if interrupted and parked_waiting:
+                        hold_queued_prompts = True
+                        continue
+                    if parked_waiting:
+                        _drain_external_prompt_queue(manager, prompt_queue)
+                    parked_waiting = False
+                elif user_input is None:
                     # Either user wants to exit OR we should generate response directly
                     if not consume_queue or _should_prompt_for_input(manager.log):
                         # User wants to exit
@@ -586,6 +618,7 @@ def _run_chat_loop(
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
+            _idle_autowake_blocked = True
             if parked_waiting:
                 hold_queued_prompts = True
             continue
@@ -692,6 +725,7 @@ def _process_message_conversation(
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
+    global _idle_autowake_blocked
     interrupted = False
     max_steps: int | None = None
     max_steps_str = os.environ.get("GPTME_MAX_STEPS")
@@ -751,6 +785,7 @@ def _process_message_conversation(
                 console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             interrupted = True
+            _idle_autowake_blocked = True
             break
         finally:
             clear_interruptible()
@@ -907,6 +942,14 @@ def _run_post_tool_compaction(manager: LogManager) -> bool:
     return manager.current_view != view_before
 
 
+def _transparent_system_notice(msg: Message) -> bool:
+    """True for system notices that must not look like crash recovery."""
+    if msg.role != "system" or msg.call_id:
+        return False
+    meta = msg.metadata or {}
+    return "compaction_reminder_view" in meta or meta.get("idle_notification") is True
+
+
 def _should_prompt_for_input(log: Log) -> bool:
     """
     Determine if we should ask for user input or generate response directly.
@@ -916,19 +959,12 @@ def _should_prompt_for_input(log: Log) -> bool:
     """
     last_msg = log[-1] if log else None
 
-    # Only the budget reminder is transparent to the last-message decision.
-    # Other system messages may be markdown tool results without a call_id,
-    # including results from older saved logs. Preserve their continuation.
+    # Budget reminders and idle child/watch notices are transparent to the
+    # last-message decision. Other system messages may be markdown tool
+    # results without a call_id, including results from older saved logs.
+    # Preserve their continuation.
     effective_last = next(
-        (
-            msg
-            for msg in reversed(log)
-            if not (
-                msg.role == "system"
-                and not msg.call_id
-                and "compaction_reminder_view" in (msg.metadata or {})
-            )
-        ),
+        (msg for msg in reversed(log) if not _transparent_system_notice(msg)),
         None,
     )
 
@@ -987,10 +1023,76 @@ def _should_prompt_for_input(log: Log) -> bool:
     )
 
 
+def _idle_autowake_enabled() -> bool:
+    """True when idle child/watch events may start generation without a prompt."""
+    config = get_config()
+    return config.chat is None or config.chat.watch_autowake is not False
+
+
+def _deliver_idle_notifications(manager: LogManager) -> bool:
+    """Drain parent-scoped events at idle. Return True to auto-continue."""
+    from .tools.subagent.hooks import (
+        _completion_message,
+        progress_message,
+        take_queued_completions,
+        take_queued_progress,
+    )
+    from .tools.watch import take_queued_watch_events
+
+    branch = manager.current_branch
+    messages = [
+        progress_message(agent, text)
+        for agent, text in take_queued_progress(manager.logdir, branch=branch)
+    ]
+    terminal = [
+        _completion_message(agent, status, text)
+        for agent, status, text, _ in take_queued_completions(
+            manager.logdir, branch=branch
+        )
+    ]
+    terminal.extend(
+        Message("system", f"Watch {watch_id} fired: {text}")
+        for watch_id, text in take_queued_watch_events(manager.logdir, branch=branch)
+    )
+    for msg in messages + terminal:
+        meta = dict(msg.metadata or {})
+        meta["idle_notification"] = True
+        manager.append(msg.replace(metadata=cast(MessageMetadata, meta)))
+    return bool(terminal) and _idle_autowake_enabled() and not _idle_autowake_blocked
+
+
+def _finalize_user_inquiry(inquiry: str, workspace: Path | None) -> Message | None:
+    """Build a user message from submitted prompt text, or None on interrupt."""
+    truncation_suffix = "\n\n[Message truncated due to length]"
+    if len(inquiry) > MAX_MESSAGE_LENGTH:
+        logger.warning(
+            f"Message truncated from {len(inquiry)} to {MAX_MESSAGE_LENGTH} chars"
+        )
+        inquiry = (
+            inquiry[: MAX_MESSAGE_LENGTH - len(truncation_suffix)] + truncation_suffix
+        )
+    msg = Message("user", inquiry, quiet=True)
+    # prompt_user() clears interruptible on return. Path inclusion can walk
+    # the filesystem, so Ctrl-C must cancel it instead of printing the
+    # Ctrl-D hint.
+    set_interruptible()
+    try:
+        return include_paths(msg, workspace)
+    except (EOFError, KeyboardInterrupt):
+        return None
+    finally:
+        clear_interruptible()
+
+
 def _get_user_input(
-    log: Log, workspace: Path | None, *, force_prompt: bool = False
-) -> Message | None:
+    log: Log,
+    workspace: Path | None,
+    *,
+    force_prompt: bool = False,
+    manager: LogManager | None = None,
+) -> Message | IdleNotificationWake | None:
     """Get user input, returning None if user wants to exit."""
+    global _idle_autowake_blocked
     clear_interruptible()  # Don't interrupt during user input
 
     # Check if we should prompt for input or generate response directly
@@ -1006,31 +1108,44 @@ def _get_user_input(
             diff = log[-1].timestamp - last_user_msg.timestamp
             console.log(f"Worked for {diff.total_seconds():.2f} seconds")
 
-    try:
-        inquiry = prompt_user()
-        # Validate message length to prevent unbounded memory usage
-        truncation_suffix = "\n\n[Message truncated due to length]"
-        if len(inquiry) > MAX_MESSAGE_LENGTH:
-            logger.warning(
-                f"Message truncated from {len(inquiry)} to {MAX_MESSAGE_LENGTH} chars"
-            )
-            # Account for suffix length to stay within MAX_MESSAGE_LENGTH
-            inquiry = (
-                inquiry[: MAX_MESSAGE_LENGTH - len(truncation_suffix)]
-                + truncation_suffix
-            )
-        msg = Message("user", inquiry, quiet=True)
-        # prompt_user() clears interruptible on return. Path inclusion can walk
-        # the filesystem, so Ctrl-C must cancel it instead of printing the
-        # Ctrl-D hint.
-        set_interruptible()
+    if manager is None:
         try:
-            msg = include_paths(msg, workspace)
-        finally:
-            clear_interruptible()
-        return msg
-    except (EOFError, KeyboardInterrupt):
-        return None
+            inquiry = prompt_user()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if not isinstance(inquiry, str):
+            return IdleNotificationWake()
+        return _finalize_user_inquiry(inquiry, workspace)
+
+    from .util.notification_ready import subscribe
+    from .util.prompt import (
+        NOTIFICATION_WAKE,
+        arm_idle_prompt,
+        disarm_idle_prompt,
+        request_idle_wake,
+    )
+
+    # Register before the final queue check so an event between drain and
+    # prompt() cannot be lost. Confirmation prompts never arm this path.
+    arm_idle_prompt()
+    unsub = subscribe(manager.logdir, request_idle_wake)
+    try:
+        while True:
+            if _deliver_idle_notifications(manager):
+                return IdleNotificationWake()
+            try:
+                inquiry = prompt_user()
+            except (EOFError, KeyboardInterrupt):
+                return None
+            if inquiry is NOTIFICATION_WAKE:
+                continue
+            if not isinstance(inquiry, str):
+                continue
+            _idle_autowake_blocked = False
+            return _finalize_user_inquiry(inquiry, workspace)
+    finally:
+        unsub()
+        disarm_idle_prompt()
 
 
 def _reply_with_overflow_recovery(
@@ -1241,12 +1356,12 @@ def step(
         clear_interruptible()
 
 
-def prompt_user(value=None) -> str:  # pragma: no cover
-    from .util.prompt import add_history
+def prompt_user(value=None) -> str | object:  # pragma: no cover
+    from .util.prompt import NOTIFICATION_WAKE, add_history
 
     print_bell()
     flush_stdin()
-    response = ""
+    response: str | object = ""
     # Get user name from config for the prompt display
     user_name = get_config().user.user.name
     styled_prompt = prompt_user_styled(user_name)
@@ -1255,7 +1370,9 @@ def prompt_user(value=None) -> str:  # pragma: no cover
             try:
                 set_interruptible()
                 response = prompt_input(styled_prompt, value)
-                if response:
+                if response is NOTIFICATION_WAKE:
+                    break
+                if isinstance(response, str) and response:
                     add_history(response)
             except KeyboardInterrupt:
                 print("\nInterrupted. Press Ctrl-D to exit.")
@@ -1265,7 +1382,7 @@ def prompt_user(value=None) -> str:  # pragma: no cover
     return response
 
 
-def prompt_input(prompt: str, value=None) -> str:  # pragma: no cover
+def prompt_input(prompt: str, value=None) -> str | object:  # pragma: no cover
     """Get input using prompt_toolkit with fish-style suggestions."""
     prompt = prompt.strip() + ": "
     if value:

@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -26,7 +27,17 @@ from .history import LockedFileHistory
 from .rich_text import rich_to_str
 
 # Make cache management functions available at module level
-__all__ = ["clear_path_cache", "check_cwd", "is_valid_path", "PathLexer"]
+__all__ = [
+    "NOTIFICATION_WAKE",
+    "PathLexer",
+    "arm_idle_prompt",
+    "check_cwd",
+    "clear_path_cache",
+    "disarm_idle_prompt",
+    "is_valid_path",
+    "request_idle_wake",
+    "reset_idle_prompt_state",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -492,6 +503,126 @@ Only 10 lines.""",
 
 _prompt_session: PromptSession | None = None
 
+# Idle-prompt wake: a distinct internal result, not Enter/EOF/Ctrl-C.
+# Callbacks only set a pending flag and ask the prompt_toolkit loop to
+# snapshot+exit; they never drain inboxes or start generation.
+_idle_lock = threading.Lock()
+_idle_armed = False
+_pending_wake = False
+
+
+class NotificationWake:
+    """Sentinel: the idle prompt exited to deliver a child/watch event."""
+
+
+NOTIFICATION_WAKE = NotificationWake()
+
+
+@dataclass
+class IdleDraft:
+    """Unsent main-prompt buffer restored after a notification wake."""
+
+    text: str
+    cursor: int
+    selection: object | None = None
+
+
+_saved_draft: IdleDraft | None = None
+
+
+def arm_idle_prompt() -> None:
+    """Allow a readiness callback to wake the main chat prompt."""
+    global _idle_armed, _pending_wake
+    with _idle_lock:
+        _idle_armed = True
+        _pending_wake = False
+
+
+def disarm_idle_prompt() -> None:
+    """Ignore further wake requests; keep any unsent draft for the next prompt."""
+    global _idle_armed
+    with _idle_lock:
+        _idle_armed = False
+
+
+def reset_idle_prompt_state() -> None:
+    """Test helper: drop arming, pending wakes, and the saved draft."""
+    global _idle_armed, _pending_wake, _saved_draft
+    with _idle_lock:
+        _idle_armed = False
+        _pending_wake = False
+        _saved_draft = None
+
+
+def get_saved_draft() -> IdleDraft | None:
+    """Return the unsent draft captured by the last idle wake, if any."""
+    with _idle_lock:
+        return _saved_draft
+
+
+def request_idle_wake() -> None:
+    """Thread-safe readiness callback: snapshot and exit the armed main prompt.
+
+    Confirmation prompts share the PromptSession but never arm this path, so a
+    child completion cannot steal y/n/edit input.
+    """
+    global _pending_wake
+    with _idle_lock:
+        if not _idle_armed:
+            return
+        _pending_wake = True
+    session = _prompt_session
+    if session is None:
+        return
+    app = session.app
+    loop = getattr(app, "loop", None)
+    if loop is None or not getattr(app, "is_running", False):
+        return
+
+    def _on_loop() -> None:
+        _snapshot_and_exit(app)
+
+    try:
+        loop.call_soon_threadsafe(_on_loop)
+    except Exception:
+        logger.debug("Could not wake idle prompt", exc_info=True)
+
+
+def _copy_selection(selection: object | None) -> object | None:
+    if selection is None:
+        return None
+    try:
+        from prompt_toolkit.selection import SelectionState
+
+        return SelectionState(
+            getattr(selection, "original_cursor_position", 0),
+            selection.type,  # type: ignore[attr-defined]
+        )
+    except Exception:
+        return selection
+
+
+def _snapshot_and_exit(app: object) -> None:
+    """Capture buffer state on the prompt_toolkit thread, then exit with WAKE."""
+    global _pending_wake, _saved_draft
+    if not getattr(app, "is_running", False):
+        return
+    buf = getattr(app, "current_buffer", None)
+    with _idle_lock:
+        if not _idle_armed:
+            return
+        _pending_wake = False
+        if buf is not None:
+            _saved_draft = IdleDraft(
+                text=getattr(buf, "text", "") or "",
+                cursor=int(getattr(buf, "cursor_position", 0) or 0),
+                selection=_copy_selection(getattr(buf, "selection_state", None)),
+            )
+    exit_fn = getattr(app, "exit", None)
+    if exit_fn is not None:
+        exit_fn(result=NOTIFICATION_WAKE)
+
+
 # Alert style for confirmation prompts (yellow text on red background)
 STYLE_ALERT = "bold fg:ansiyellow bg:ansired"
 
@@ -705,12 +836,29 @@ def get_prompt_session() -> PromptSession:
     return _prompt_session
 
 
-def get_input(prompt: str) -> str:
+def get_input(prompt: str) -> str | NotificationWake:
     """Get input from user with completion support."""
+    global _saved_draft, _pending_wake
     # Check working directory and clear cache if needed
     check_cwd()
 
     session = get_prompt_session()
+    with _idle_lock:
+        draft = _saved_draft
+    default = draft.text if draft is not None else ""
+
+    def pre_run() -> None:
+        buf = session.default_buffer
+        with _idle_lock:
+            current = _saved_draft
+            should_wake = _pending_wake
+        if current is not None:
+            buf.cursor_position = min(current.cursor, len(buf.text))
+            if current.selection is not None:
+                buf.selection_state = current.selection  # type: ignore[assignment]
+        if should_wake:
+            _snapshot_and_exit(session.app)
+
     try:
         with patch_stdout(raw=True):
             result = session.prompt(
@@ -726,7 +874,15 @@ def get_input(prompt: str) -> str:
                 include_default_pygments_style=False,
                 enable_suspend=True,
                 enable_open_in_editor=True,
+                pre_run=pre_run,
+                default=default,
             )
+        if result is NOTIFICATION_WAKE:
+            return NOTIFICATION_WAKE
+        # A real submission consumes the unsent draft.
+        with _idle_lock:
+            _saved_draft = None
+            _pending_wake = False
         return result
     except (EOFError, KeyboardInterrupt) as e:
         # Re-raise EOFError to handle Ctrl+D properly

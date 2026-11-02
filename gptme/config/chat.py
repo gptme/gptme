@@ -123,8 +123,9 @@ class ChatConfig:
     stream: bool = True
     interactive: bool = True
     no_confirm: bool | None = None
-    # Whether model-armed asynchronous work may wake an idle server conversation.
-    # None means omitted/default-on so PATCH can re-enable a stored false.
+    # Whether child/watch terminal events may resume an idle CLI, TUI, or
+    # server conversation. None means omitted/default-on so PATCH can
+    # re-enable a stored false. False is notification-only at idle.
     watch_autowake: bool | None = None
     # Max tokens for the model's response. None = provider/model default.
     max_tokens: int | None = None

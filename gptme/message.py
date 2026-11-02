@@ -266,6 +266,9 @@ class MessageMetadata(TypedDict, total=False):
     result_stubs: bool
     # Written by the CLI when GPTME_MAX_STEPS ends a turn; never inferred from text.
     max_steps_stop: bool
+    # Idle child/watch notice. Transparent to crash-recovery so a progress or
+    # notification-only completion does not start an unrequested model turn.
+    idle_notification: bool
     # Effective reasoning effort level applied to the request (e.g. "high"),
     # set only when ``GPTME_THINKING_EFFORT`` (or a model ``:level`` suffix)
     # actually shaped the request. Absent means the provider default applied.
