@@ -665,6 +665,7 @@
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-guardrail-plugin">Example: Guardrail Plugin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-opt-in-hol-guard-shell-classification">Example: Opt-in HOL Guard Shell Classification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-registry">Plugin Registry</a></li>
@@ -1100,6 +1101,172 @@ that lower-priority hooks — including the normal user confirmation prompt — 
 run. Returning <code class="docutils literal notranslate"><span class="pre">confirm()</span></code> from a high-priority hook bypasses those prompts
 entirely. The hook is <strong>blocking</strong> — gptme waits for the result before proceeding.</p>
 </section>
+<section id="example-opt-in-hol-guard-shell-classification">
+<h2>Example: Opt-in HOL Guard Shell Classification<a class="headerlink" href="#example-opt-in-hol-guard-shell-classification" title="Link to this heading">#</a></h2>
+<p>Users who already run <a class="reference external" href="https://github.com/hashgraph-online/hol-guard">HOL Guard</a>
+can classify shell command text before gptme continues through its configured
+confirmation hooks. This is an <strong>opt-in documentation example</strong>, not a gptme
+built-in: copy it into a plugin only if you already use Guard. It does not
+auto-approve commands, change gptme’s core, or protect non-shell tools.</p>
+<p>The example invokes the official CLI as an argv list (no shell):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">hol</span><span class="o">-</span><span class="n">guard</span> <span class="n">command</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">command</span><span class="o">&gt;</span> <span class="o">--</span><span class="n">json</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">command</span> <span class="pre">test</span></code> reports <code class="docutils literal notranslate"><span class="pre">policy_evaluation:</span> <span class="pre">&quot;not_run&quot;</span></code>. That is command
+classification, not final policy enforcement, approval creation, receipts, or
+protection of other tools. The CLI can attempt daemon startup as a side effect
+of inspection.</p>
+<p>Behavior:</p>
+<ul class="simple">
+<li><p>Non-shell tools are left unchanged (the hook returns <code class="docutils literal notranslate"><span class="pre">None</span></code> immediately).</p></li>
+<li><p>For the <code class="docutils literal notranslate"><span class="pre">shell</span></code> tool, the hook returns <code class="docutils literal notranslate"><span class="pre">None</span></code> only for an explicitly
+benign classification whose <code class="docutils literal notranslate"><span class="pre">minimum_action</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;allow&quot;</span></code>, so remaining
+confirmation hooks still run.</p></li>
+<li><p>Any other classification, timeout, missing executable, or invalid output
+returns <code class="docutils literal notranslate"><span class="pre">ConfirmationResult.skip()</span></code> and the shell action does not run.</p></li>
+</ul>
+<p>Register above every built-in <code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code> hook that can return a non-None
+result (see <a class="reference internal" href="hooks.html#confirmation-hooks-and-deny-decisions"><span class="std std-ref">Confirmation Hooks and Deny Decisions</span></a>). The example uses
+priority <code class="docutils literal notranslate"><span class="pre">250</span></code>, which out-ranks <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> (200),
+<code class="docutils literal notranslate"><span class="pre">anomaly_watchdog.confirm</span></code> (150), <code class="docutils literal notranslate"><span class="pre">watch.sleep_poll_guard</span></code> (150),
+<code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> / <code class="docutils literal notranslate"><span class="pre">tui_confirm</span></code> (100), <code class="docutils literal notranslate"><span class="pre">shell.allowlist</span></code> /
+<code class="docutils literal notranslate"><span class="pre">watch.allowlist</span></code> (10), and <code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code> / <code class="docutils literal notranslate"><span class="pre">auto_confirm</span></code> (0). Verify
+those priorities against the built-ins in your gptme version rather than
+assuming the hook runs first.</p>
+<p>The tested copy of this example is <code class="docutils literal notranslate"><span class="pre">tests/fixtures/hol_guard_shell_hook.py</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="sd">"""Opt-in HOL Guard shell-classification hook for gptme ``TOOL_CONFIRM``.</span>
+
+<span class="sd">Copy this module into a plugin (for example ``hol_guard/hooks/shell_classify.py``)</span>
+<span class="sd">and call ``register()``. gptme does not bundle or enable HOL Guard.</span>
+
+<span class="sd">This hook classifies shell command text with the official CLI::</span>
+
+<span class="sd">    hol-guard command test &lt;command&gt; --json</span>
+
+<span class="sd">It does not auto-approve commands. An explicitly benign classification with</span>
+<span class="sd">``minimum_action == "allow"`` returns ``None`` so remaining confirmation hooks</span>
+<span class="sd">still run. Every other classification, timeout, missing executable, or invalid</span>
+<span class="sd">output skips the shell action.</span>
+
+<span class="sd">This CLI reports ``policy_evaluation: "not_run"``: it is command classification,</span>
+<span class="sd">not final policy enforcement, approval creation, receipts, or protection of</span>
+<span class="sd">other tools. The CLI can attempt daemon startup as a side effect of inspection.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gptme.hooks.confirm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfirmationResult</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">gptme.tools.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolUse</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="n">HOOK_NAME</span> <span class="o">=</span> <span class="s2">"hol_guard.shell_classify"</span>
+<span class="c1"># Out-rank every built-in TOOL_CONFIRM hook. Current built-ins:</span>
+<span class="c1">#   guardrails                 200</span>
+<span class="c1">#   anomaly_watchdog.confirm   150</span>
+<span class="c1">#   watch.sleep_poll_guard     150</span>
+<span class="c1">#   server_confirm / tui_confirm 100</span>
+<span class="c1">#   shell.allowlist / watch.allowlist 10  (these auto-confirm)</span>
+<span class="c1">#   cli_confirm / auto_confirm 0</span>
+<span class="c1"># Returning None for a benign classification still lets those hooks run.</span>
+<span class="n">HOOK_PRIORITY</span> <span class="o">=</span> <span class="mi">250</span>
+<span class="n">HOL_GUARD_EXECUTABLE</span> <span class="o">=</span> <span class="s2">"hol-guard"</span>
+<span class="n">TIMEOUT_SECONDS</span> <span class="o">=</span> <span class="mf">10.0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_shell_command</span><span class="p">(</span><span class="n">tool_use</span><span class="p">:</span> <span class="n">ToolUse</span><span class="p">,</span> <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Return the command text gptme would confirm for this shell call."""</span>
+    <span class="k">if</span> <span class="n">preview</span> <span class="ow">and</span> <span class="n">preview</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">preview</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="n">content</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="s2">"preview_content"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">content</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">content</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_skip</span><span class="p">(</span><span class="n">reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfirmationResult</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"HOL Guard skipped shell command: </span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">reason</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">skip</span><span class="p">(</span><span class="n">reason</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">hol_guard_shell_hook</span><span class="p">(</span>
+    <span class="n">tool_use</span><span class="p">:</span> <span class="n">ToolUse</span><span class="p">,</span>
+    <span class="n">preview</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">workspace</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfirmationResult</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Classify shell commands; leave every other tool unchanged."""</span>
+    <span class="k">if</span> <span class="n">tool_use</span><span class="o">.</span><span class="n">tool</span> <span class="o">!=</span> <span class="s2">"shell"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="n">command</span> <span class="o">=</span> <span class="n">_shell_command</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">command</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: shell command text is missing or invalid."</span><span class="p">)</span>
+
+    <span class="n">executable</span> <span class="o">=</span> <span class="n">shutil</span><span class="o">.</span><span class="n">which</span><span class="p">(</span><span class="n">HOL_GUARD_EXECUTABLE</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">executable</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: hol-guard executable was not found."</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">completed</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">executable</span><span class="p">,</span> <span class="s2">"command"</span><span class="p">,</span> <span class="s2">"test"</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="s2">"--json"</span><span class="p">],</span>
+            <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">TIMEOUT_SECONDS</span><span class="p">,</span>
+            <span class="n">check</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">shell</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">TimeoutExpired</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command inspection timed out."</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command inspection was unavailable."</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">UnicodeDecodeError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command inspection returned invalid output."</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">completed</span><span class="o">.</span><span class="n">returncode</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command inspection failed."</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">completed</span><span class="o">.</span><span class="n">stdout</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command inspection returned invalid JSON."</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command inspection returned invalid output."</span><span class="p">)</span>
+
+    <span class="n">classification</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"classification"</span><span class="p">)</span>
+    <span class="n">explicitly_benign</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">classification</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="n">classification</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"explicitly_benign"</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">True</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">explicitly_benign</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"minimum_action"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"allow"</span><span class="p">:</span>
+        <span class="c1"># Fall through so cli/server/allowlist confirmation hooks still run.</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">return</span> <span class="n">_skip</span><span class="p">(</span><span class="s2">"HOL Guard: command requires review before execution."</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Register the opt-in HOL Guard shell-classification hook."""</span>
+    <span class="n">register_hook</span><span class="p">(</span>
+        <span class="n">HOOK_NAME</span><span class="p">,</span>
+        <span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_CONFIRM</span><span class="p">,</span>
+        <span class="n">hol_guard_shell_hook</span><span class="p">,</span>
+        <span class="n">priority</span><span class="o">=</span><span class="n">HOOK_PRIORITY</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
 <section id="example-weather-plugin">
 <h2>Example: Weather Plugin<a class="headerlink" href="#example-weather-plugin" title="Link to this heading">#</a></h2>
 <p>A complete example of a weather information plugin:</p>
@@ -1454,6 +1621,7 @@ gptme
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-guardrail-plugin">Example: Guardrail Plugin</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-opt-in-hol-guard-shell-classification">Example: Opt-in HOL Guard Shell Classification</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin-registry">Plugin Registry</a></li>

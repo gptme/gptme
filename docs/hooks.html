@@ -890,7 +890,13 @@ execution is auto-confirmed (autonomous mode).</p>
 <p>A guardrail must out-rank <strong>every</strong> built-in confirmation hook, or it can be
 pre-empted before it ever runs. The built-ins register at:</p>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">guardrails</span></code> — priority <strong>200</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">anomaly_watchdog.confirm</span></code> — priority <strong>150</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">watch.sleep_poll_guard</span></code> — priority <strong>150</strong> (watch tool)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> — priority <strong>100</strong></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tui_confirm</span></code> — priority <strong>100</strong> (TUI)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">shell.allowlist</span></code> — priority <strong>10</strong> (auto-confirms allowlisted commands)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">watch.allowlist</span></code> — priority <strong>10</strong></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">cli_confirm</span></code> — priority <strong>0</strong></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">auto_confirm</span></code> — priority <strong>0</strong></p></li>
 </ul>
@@ -899,8 +905,9 @@ by name in <em>reverse</em> alphabetical order — not by registration order. A
 guardrail named <code class="docutils literal notranslate"><span class="pre">guardrail.secrets</span></code> registered at priority <code class="docutils literal notranslate"><span class="pre">100</span></code> therefore
 loses to <code class="docutils literal notranslate"><span class="pre">server_confirm</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;s&quot;</span> <span class="pre">&gt;</span> <span class="pre">&quot;g&quot;</span></code>), which returns a non-<code class="docutils literal notranslate"><span class="pre">None</span></code>
 result and prevents the guardrail from running at all. Pick a priority
-strictly greater than 100 (the example uses <code class="docutils literal notranslate"><span class="pre">1000</span></code>) rather than relying on
-the name tie-break.</p>
+strictly greater than the highest built-in you need to out-rank. The highest
+default is <code class="docutils literal notranslate"><span class="pre">guardrails</span></code> at 200; the secrets example uses <code class="docutils literal notranslate"><span class="pre">1000</span></code> and the
+opt-in HOL Guard example uses <code class="docutils literal notranslate"><span class="pre">250</span></code>. Do not rely on the name tie-break.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
