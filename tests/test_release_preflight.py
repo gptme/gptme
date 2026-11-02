@@ -36,6 +36,7 @@ def test_release_ci_gate(
         "#!/usr/bin/env python3\n"
         "import json, os, sys\n"
         "scenario = os.environ['SCENARIO']\n"
+        "assert os.environ['EXPECTED_SHA'] in sys.argv[2], sys.argv\n"
         "suites = 'actions/runs?' in sys.argv[2]\n"
         "if scenario == ('suites_error' if suites else 'checks_error'):\n"
         "    print('gh: API rate limit exceeded', file=sys.stderr)\n"
@@ -70,6 +71,9 @@ def test_release_ci_gate(
         **os.environ,
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "SCENARIO": scenario,
+        "EXPECTED_SHA": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=WORKFLOW.parents[2], text=True
+        ).strip(),
         "GITHUB_OUTPUT": str(output),
     }
     result = subprocess.run(

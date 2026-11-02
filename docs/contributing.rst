@@ -352,6 +352,22 @@ Release
 
 To make a release, simply run ``make release`` and follow the instructions.
 
+Alternatively, dispatch the **Release** workflow with ``release_type=minor``
+(or ``patch``/``dev``). Its optional ``source_ref`` selects an exact commit,
+branch or tag reachable from master; blank uses the workflow's triggering commit.
+Use a known passing master SHA to release while newer merges are still testing.
+The workflow resolves the ref once, checks CI on that SHA, and prepares the
+release from the same SHA. Failed, pending or unavailable CI still blocks it.
+Dev tags have detached version-bump commits: use their parent master SHA rather
+than the dev tag itself.
+
+If master has advanced beyond the selected source, the stable version/changelog
+commit is published by tag only; master is neither rewound nor rebased into the
+release. With an unchanged master, the usual fast-forward version bump remains.
+The selected source supplies build/bump/changelog tooling, so it must contain
+any required release fixes. This input does not automatically search for a green
+commit or bypass CI, and a successful dispatch is not proof of publication.
+
 Android release signing
 ~~~~~~~~~~~~~~~~~~~~~~~
 
