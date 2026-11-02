@@ -1349,7 +1349,7 @@ def test_command_context(args: list[str], runner: CliRunner):
     result = runner.invoke(cli.main, args)
     assert "/context" in result.output
     assert "Token Usage by Role:" in result.output
-    assert "Total Context:" in result.output
+    assert "Retained log estimate:" in result.output
     assert result.exit_code == 0
 
 

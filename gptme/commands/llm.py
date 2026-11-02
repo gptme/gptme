@@ -287,10 +287,11 @@ def cmd_tools(ctx: CommandContext):
 
 @command("context")
 def cmd_context(ctx: CommandContext) -> None:
-    """Show context token usage breakdown."""
+    """Show retained-log token breakdown and last provider-reported input."""
     from ..llm.models import get_default_model  # fmt: skip
     from ..tools import ToolUse  # fmt: skip
     from ..util import console  # fmt: skip
+    from ..util.context_measurement import last_provider_input_tokens  # fmt: skip
     from ..util.context_savings import summarize_context_savings  # fmt: skip
     from ..util.tokens import len_tokens  # fmt: skip
 
@@ -312,7 +313,8 @@ def cmd_context(ctx: CommandContext) -> None:
     by_role: dict[str, int] = defaultdict(int)
     by_type: dict[str, int] = defaultdict(int)
 
-    # Analyze each message (including hidden, since they're sent to the model)
+    # Count retained log text. Hidden/pruned messages may still be on disk
+    # even though prepare_messages drops them before the next request.
     for msg in ctx.manager.log.messages:
         content_tokens = len_tokens(msg.content, tokenizer_model)
 
@@ -345,7 +347,10 @@ def cmd_context(ctx: CommandContext) -> None:
         pct = (tokens / total_tokens * 100) if total_tokens > 0 else 0
         console.log(f"  {type_name:10s}: {tokens:6,} ({pct:5.1f}%)")
 
-    console.log(f"\n[bold]Total Context:[/bold] {total_tokens:,} tokens")
+    console.log(f"\n[bold]Retained log estimate:[/bold] {total_tokens:,} tokens")
+    console.log(
+        "[dim](log size, not provider input; request preparation may prune this log)[/dim]"
+    )
 
     savings = summarize_context_savings(ctx.manager.logdir)
     if savings.entries:
@@ -368,31 +373,32 @@ def cmd_context(ctx: CommandContext) -> None:
             f"[dim]  largest single save: {savings.max_saved_tokens:,} tokens[/dim]"
         )
 
-    # Show context window utilization if model info is available
+    # Historical last request input, not a prediction of the next prepared request.
     if current_model and current_model.context > 0:
         context_limit = current_model.context
-        remaining = max(0, context_limit - total_tokens)
-        utilization = (total_tokens / context_limit * 100) if context_limit > 0 else 0
-
-        # Color-code utilization: green < 50%, yellow 50-80%, red > 80%
-        if utilization > 80:
-            color = "red"
-        elif utilization > 50:
-            color = "yellow"
-        else:
-            color = "green"
-
-        console.log(
-            f"[bold]Context Window:[/bold] [{color}]{utilization:.0f}%[/{color}] "
-            f"used ({total_tokens:,} / {context_limit:,}), "
-            f"{remaining:,} remaining"
+        last_input = last_provider_input_tokens(
+            ctx.manager.log.messages, current_model.full
         )
-        if current_model.max_output:
-            effective_remaining = max(0, remaining - current_model.max_output)
+        if last_input is None:
             console.log(
-                f"[dim]  max output: {current_model.max_output:,} tokens, "
-                f"effective input capacity: {effective_remaining:,}[/dim]"
+                f"[bold]Last provider input:[/bold] unknown (window {context_limit:,})"
             )
+        else:
+            # Do not clamp overflow: a large historical request should still
+            # show e.g. 185%, not a hidden 100%.
+            utilization = 100 * last_input / context_limit
+            if utilization > 80:
+                color = "red"
+            elif utilization > 50:
+                color = "yellow"
+            else:
+                color = "green"
+            console.log(
+                f"[bold]Last provider input:[/bold] [{color}]{utilization:.0f}%[/{color}] "
+                f"({last_input:,} / {context_limit:,})"
+            )
+        if current_model.max_output:
+            console.log(f"[dim]  max output: {current_model.max_output:,} tokens[/dim]")
 
     if is_approximate:
         console.log(f"[dim](approximate, using {tokenizer_model} tokenizer)[/dim]")

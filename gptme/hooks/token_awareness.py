@@ -7,8 +7,8 @@ Implements context/token budget awareness similar to Claude 4.5's built-in featu
 but works across all LLM providers and tool formats.
 
 Adds:
-- <budget:token_budget>XXX</budget:token_budget> at session start
-- <system_warning>Token usage: X/Y; Z remaining</system_warning> after message processing
+- token budget tag at session start
+- retained-log estimate warning after tool execution (not provider input)
 """
 
 import logging

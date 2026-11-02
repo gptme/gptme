@@ -123,6 +123,95 @@ def test_cmd_context_reports_context_savings(tmp_path: Path):
     assert "Context Savings" in output
     assert "900" in output
     assert "shell" in output
+    assert "Retained log estimate:" in output
+    assert "not provider input" in output
+    assert "Total Context:" not in output
+    assert "Context Window:" not in output
+
+
+def _context_output(tmp_path: Path, messages: list[Message], model: MagicMock) -> str:
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.log.messages = messages
+    manager.logdir = tmp_path
+    ctx = CommandContext(args=[], full_args="", manager=manager)
+    with (
+        patch("gptme.llm.models.get_default_model", return_value=model),
+        patch("gptme.util.console.log") as mock_log,
+    ):
+        cmd_context(ctx)
+    return "\n".join(str(call.args[0]) for call in mock_log.call_args_list)
+
+
+def _provider_model(context: int = 10_000, max_output: int | None = 2_000) -> MagicMock:
+    model = MagicMock()
+    model.provider = "openai"
+    model.model = "gpt-4"
+    model.full = "openai-subscription/gpt-4"
+    model.context = context
+    model.max_output = max_output
+    return model
+
+
+def test_cmd_context_oversized_log_with_small_request_usage(tmp_path: Path) -> None:
+    messages = [
+        Message(
+            "assistant",
+            "Working",
+            metadata={
+                "input_log_model": "openai-subscription/gpt-4",
+                "usage": {
+                    "input_tokens": 100,
+                    "cache_read_tokens": 700,
+                    "cache_creation_tokens": 200,
+                },
+            },
+        ),
+        Message("system", "CI output line\n" * 10000),
+    ]
+    output = _context_output(tmp_path, messages, _provider_model())
+    assert "Retained log estimate:" in output
+    assert "not provider input" in output
+    assert "Last provider input:" in output
+    assert "(1,000 / 10,000)" in output
+    assert "10%" in output
+    assert "Total Context:" not in output
+    assert "Context Window:" not in output
+    assert "remaining" not in output
+
+
+def test_cmd_context_unknown_usage_does_not_present_log_as_request(
+    tmp_path: Path,
+) -> None:
+    messages = [Message("system", "CI output line\n" * 10000)]
+    output = _context_output(tmp_path, messages, _provider_model())
+    assert "Retained log estimate:" in output
+    assert "Last provider input:" in output
+    assert "unknown" in output
+    assert "Context Window:" not in output
+    assert "remaining" not in output
+    # Role/type shares still use percents; the unknown request line must not.
+    last_input_line = next(
+        line for line in output.splitlines() if "Last provider input:" in line
+    )
+    assert "%" not in last_input_line
+
+
+def test_cmd_context_provider_percentage_is_not_clamped(tmp_path: Path) -> None:
+    messages = [
+        Message(
+            "assistant",
+            "Working",
+            metadata={
+                "input_log_model": "openai-subscription/gpt-4",
+                "usage": {"input_tokens": 1850},
+            },
+        )
+    ]
+    output = _context_output(tmp_path, messages, _provider_model(context=1000))
+    assert "185%" in output
+    assert "(1,850 / 1,000)" in output
+    assert "remaining" not in output
 
 
 @pytest.mark.parametrize("command", ["model", "tools"])
