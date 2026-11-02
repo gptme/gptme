@@ -301,7 +301,34 @@ class TestHolGuardShellHook:
         assert not sentinel.exists()
         assert any(m.role == "system" for m in msgs)
 
-    def test_benign_falls_through_to_later_hooks(self, monkeypatch, which_ok):
+    @pytest.fixture(params=[False, True])
+    def existing_confirmation_hook(self, request):
+        name = "hol_guard.test.existing"
+
+        def existing_hook(
+            tool_use: ToolUse,
+            preview: str | None = None,
+            workspace: Path | None = None,
+        ) -> ConfirmationResult | None:
+            return None
+
+        register_hook(
+            name,
+            HookType.TOOL_CONFIRM,
+            existing_hook,
+            priority=42,
+            enabled=request.param,
+        )
+        saved = list(get_hooks(HookType.TOOL_CONFIRM))
+        try:
+            yield
+            assert get_hooks(HookType.TOOL_CONFIRM) == saved
+        finally:
+            unregister_hook(name, HookType.TOOL_CONFIRM)
+
+    def test_benign_falls_through_to_later_hooks(
+        self, monkeypatch, which_ok, existing_confirmation_hook
+    ):
         """Returning None must not swallow later TOOL_CONFIRM hooks."""
         from gptme.hooks.confirm import get_confirmation
 
@@ -334,7 +361,12 @@ class TestHolGuardShellHook:
             unregister_hook(HOOK_NAME, HookType.TOOL_CONFIRM)
             for hook in saved:
                 register_hook(
-                    hook.name, hook.hook_type, hook.func, priority=hook.priority
+                    hook.name,
+                    hook.hook_type,
+                    hook.func,
+                    priority=hook.priority,
+                    enabled=hook.enabled,
+                    async_mode=hook.async_mode,
                 )
 
 
