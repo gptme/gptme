@@ -97,6 +97,7 @@ from ..tools.restart import (
 )
 from ..util.content import is_message_command
 from ..util.context import extract_urls, include_paths
+from ..util.context_measurement import format_context_status, last_provider_input_tokens
 from ..util.cost_display import inline_cost_text
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
@@ -3213,12 +3214,18 @@ class GptmeApp(App):
         parts = []
         model = self._model
         tokens: int | None = None
+        request_tokens: int | None = None
         if model:
             parts.append(model.full)
             try:
                 tokens = len_tokens(self.manager.log.messages, model.model)
-                pct = 100 * tokens / model.context if model.context else 0
-                parts.append(f"{tokens // 1000}k/{model.context // 1000}k ({pct:.0f}%)")
+
+                request_tokens = last_provider_input_tokens(
+                    self.manager.log.messages, model.full
+                )
+                parts.append(
+                    format_context_status(tokens, model.context, request_tokens)
+                )
             except Exception:  # token counting must never break the UI
                 pass
         cost = sum(e.cost for e in self._session_costs.snapshot_entries())
@@ -3236,7 +3243,7 @@ class GptmeApp(App):
                     workspace=self.workspace,
                     model=model.full if model else None,
                     context_size=model.context if model else None,
-                    tokens=tokens,
+                    tokens=request_tokens,
                     cost=cost,
                     duration_ms=int((time.monotonic() - self._started) * 1000),
                     state=self.state,

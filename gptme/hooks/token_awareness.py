@@ -196,7 +196,10 @@ def add_token_usage_warning(
             warning_reason = "no workspace tracking"
 
         if should_warn:
-            remaining = budget - used
+            # This counts retained text, not the filtered/pruned provider input.
+            # In particular a huge tool result can exceed the window on disk
+            # while request preparation drops it. Never report negative
+            # "remaining context" from this estimate.
 
             # Update last warning tracker
             if log_id:
@@ -210,12 +213,14 @@ def add_token_usage_warning(
             # Using hide=True so it doesn't show in terminal but is sent to the model
             yield Message(
                 "system",
-                f"<system_warning>Token usage: {used}/{budget}; {remaining} remaining</system_warning>",
+                f"<system_warning>Retained log estimate: {used}/{budget} tokens "
+                "(log/window, not provider input). Request preparation may prune "
+                "this log; remaining provider context is unknown.</system_warning>",
                 hide=True,
             )
 
             logger.debug(
-                f"Token usage warning ({warning_reason}): {used}/{budget}; {remaining} remaining"
+                f"Retained log warning ({warning_reason}): {used}/{budget} tokens"
             )
 
     except Exception as e:

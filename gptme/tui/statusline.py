@@ -88,6 +88,7 @@ def build_payload(
             "context_window_size": context_size,
             "used_percentage": 100 * tokens / context_size,
             "current_usage": {"input_tokens": tokens},
+            "measurement": "last_provider_input",
         }
     return payload
 
