@@ -527,8 +527,9 @@ def test_extract_pretooluse_text_transcript() -> None:
 
 @pytest.mark.parametrize("event", ["UserPromptSubmit", "PreToolUse"])
 @pytest.mark.parametrize("action", ["uninstall", "force-install"])
+@pytest.mark.parametrize("standalone", [False, True])
 def test_hook_lifecycle_preserves_mixed_entry(
-    runner: CliRunner, workspace: Path, event: str, action: str
+    runner: CliRunner, workspace: Path, event: str, action: str, standalone: bool
 ) -> None:
     """Owning one command does not imply ownership of its enclosing entry."""
     settings_path = workspace / ".claude" / "settings.json"
@@ -546,7 +547,7 @@ def test_hook_lifecycle_preserves_mixed_entry(
         "permissions": {"deny": ["Bash(rm:*)"]},
         "env": {"FIXTURE": "å β 🧪"},
         "hooks": {
-            event: [sibling, mixed, {"hooks": [own]}],
+            event: [sibling, mixed] + ([{"hooks": [own]}] if standalone else []),
             "Stop": [sibling],
         },
     }
@@ -568,7 +569,10 @@ def test_hook_lifecycle_preserves_mixed_entry(
         assert not _is_hook_installed(settings["hooks"], event)
     else:
         assert len(entries) == 3
-        assert entries[-1]["hooks"] == [own]
+        replacement: dict[str, object] = {"hooks": [own]}
+        if event == "PreToolUse":
+            replacement["matcher"] = cmd_hooks._PRETOOLUSE_MATCHER
+        assert entries[-1] == replacement
     # A repeat must not further change settings or duplicate the new registration.
     result = runner.invoke(main, args)
     assert result.exit_code == 0, result.output
