@@ -523,3 +523,53 @@ def test_extract_pretooluse_text_transcript() -> None:
     }
     text = _extract_pretooluse_text(hook_input)
     assert "merge conflict" in text.lower()
+
+
+@pytest.mark.parametrize("event", ["UserPromptSubmit", "PreToolUse"])
+@pytest.mark.parametrize("action", ["uninstall", "force-install"])
+def test_hook_lifecycle_preserves_mixed_entry(
+    runner: CliRunner, workspace: Path, event: str, action: str
+) -> None:
+    """Owning one command does not imply ownership of its enclosing entry."""
+    settings_path = workspace / ".claude" / "settings.json"
+    settings_path.parent.mkdir()
+    own = {"type": "command", "command": "gptme-util hooks run", "timeout": 10}
+    before = {"type": "command", "command": "printf before-å", "timeout": 7}
+    after = {"type": "prompt", "prompt": "Independent policy β"}
+    sibling = {"hooks": [{"type": "command", "command": "printf sibling"}]}
+    mixed = {
+        "matcher": "Read",
+        "fixture_metadata": "preserve me",
+        "hooks": [before, own, after, own],
+    }
+    initial = {
+        "permissions": {"deny": ["Bash(rm:*)"]},
+        "env": {"FIXTURE": "å β 🧪"},
+        "hooks": {
+            event: [sibling, mixed, {"hooks": [own]}],
+            "Stop": [sibling],
+        },
+    }
+    settings_path.write_text(json.dumps(initial))
+    args = ["hooks", "uninstall", "--workspace", str(workspace)]
+    if action == "force-install":
+        args = ["hooks", "install", "--force", "--workspace", str(workspace)]
+    result = runner.invoke(main, args)
+    assert result.exit_code == 0, result.output
+    settings = json.loads(settings_path.read_text())
+    expected = {**mixed, "hooks": [before, after]}
+    assert settings["hooks"][event][:2] == [sibling, expected]
+    assert settings["hooks"]["Stop"] == [sibling]
+    assert settings["permissions"] == initial["permissions"]
+    assert settings["env"] == initial["env"]
+    entries = settings["hooks"][event]
+    if action == "uninstall":
+        assert entries == [sibling, expected]
+        assert not _is_hook_installed(settings["hooks"], event)
+    else:
+        assert len(entries) == 3
+        assert entries[-1]["hooks"] == [own]
+    # A repeat must not further change settings or duplicate the new registration.
+    result = runner.invoke(main, args)
+    assert result.exit_code == 0, result.output
+    assert json.loads(settings_path.read_text()) == settings
