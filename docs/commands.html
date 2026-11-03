@@ -855,12 +855,9 @@ After saving and closing, the edited conversation is loaded.</p>
 </section>
 <section id="context">
 <h4>/context<a class="headerlink" href="#context" title="Link to this heading">#</a></h4>
-<p>Show detailed context token usage breakdown.</p>
-<p>Displays token counts by:</p>
-<ul class="simple">
-<li><p>Role (system, user, assistant)</p></li>
-<li><p>Content type (messages, tool uses, thinking blocks)</p></li>
-</ul>
+<p>Show a retained-log token breakdown, plus last provider-reported input when available.</p>
+<p>The role/type counts are the on-disk log, not the next provider request.
+Request preparation may prune that log. Last provider input is historical.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/context
 </pre></div>
 </div>

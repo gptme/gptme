@@ -7521,12 +7521,10 @@ Displays:
 /context
 ^^^^^^^^
 
-Show detailed context token usage breakdown.
+Show a retained-log token breakdown, plus last provider-reported input when available.
 
-Displays token counts by:
-
-- Role (system, user, assistant)
-- Content type (messages, tool uses, thinking blocks)
+The role/type counts are the on-disk log, not the next provider request.
+Request preparation may prune that log. Last provider input is historical.
 
 .. code-block:: text
 
