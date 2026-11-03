@@ -1,6 +1,6 @@
 """Anthropic native system messages must respect turn and tool-result placement."""
 
-from typing import Literal
+from typing import Any, Literal
 
 import httpx2
 import pytest
@@ -20,6 +20,7 @@ class _RequestBlock(TypedDict):
     tool_use_id: NotRequired[str]
     text: NotRequired[str]
     content: NotRequired[list["_RequestBlock"]]
+    cache_control: NotRequired[dict[str, str]]
 
 
 class _RequestMessage(TypedDict):
@@ -209,3 +210,168 @@ def test_stream_tool_results_use_user_turn(
             assert sent[3]["content"][0]["text"] == "Continue carefully"
     else:
         assert "<system>README.md</system>" in sent[2]["content"][0]["text"]
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-8"])
+@pytest.mark.parametrize("notice_before_first_result", [False, True])
+def test_notices_inside_tool_batch_follow_all_results(
+    model: str, notice_before_first_result: bool
+) -> None:
+    """cwd hooks and interrupted/warning output cannot split a result batch."""
+    init_tools(["shell"])
+    shell = get_tool("shell")
+    assert shell is not None
+    assistant = Message(
+        "assistant",
+        '@shell(toolu_1): {"command": "cd /tmp"}\n'
+        '@shell(toolu_2): {"command": "echo hi"}',
+    )
+    first = Message("system", "first result", call_id="toolu_1")
+    notice = Message("system", "cwd or interrupted output", hide=True)
+    turn = [notice, first] if notice_before_first_result else [first, notice]
+    messages = [
+        Message("system", "Bootstrap"),
+        Message("user", "Run commands"),
+        assistant,
+        *turn,
+        Message("system", "second result", call_id="toolu_2"),
+        Message("user", "Continue"),
+    ]
+    original = [(m.role, m.content, m.call_id) for m in messages]
+
+    prepared, _, _ = llm_anthropic._prepare_messages_for_api(messages, [shell], model)
+    sent = TypeAdapter(list[_RequestMessage]).validate_python(prepared)
+
+    assert [block["type"] for block in sent[1]["content"]] == ["tool_use", "tool_use"]
+    assert sent[2]["content"][0]["type"] == "tool_result"
+    assert sent[2]["content"][0]["tool_use_id"] == "toolu_1"
+    assert sent[3]["content"][0]["type"] == "tool_result"
+    assert sent[3]["content"][0]["tool_use_id"] == "toolu_2"
+    assert "cwd or interrupted output" in str(sent[4:])
+    assert "Continue" in str(sent[4:])
+    assert [(m.role, m.content, m.call_id) for m in messages] == original
+
+
+@pytest.mark.parametrize(
+    "notice", ["Command interrupted: partial output", "shellcheck warning"]
+)
+def test_notice_before_single_tool_result_follows_result(notice: str) -> None:
+    init_tools(["shell"])
+    shell = get_tool("shell")
+    assert shell is not None
+    messages = [
+        Message("system", "Bootstrap"),
+        Message("user", "Run command"),
+        Message("assistant", '@shell(toolu_1): {"command": "echo hi"}'),
+        Message("system", notice),
+        Message("system", "Interrupted by user", call_id="toolu_1"),
+    ]
+    prepared, _, _ = llm_anthropic._prepare_messages_for_api(
+        messages, [shell], "claude-sonnet-4-6"
+    )
+    sent = TypeAdapter(list[_RequestMessage]).validate_python(prepared)
+    assert sent[2]["content"][0]["type"] == "tool_result"
+    assert sent[2]["content"][0]["tool_use_id"] == "toolu_1"
+    assert notice in str(sent[3:])
+
+
+def test_buffered_notices_stay_with_their_tool_batch() -> None:
+    """Buffering must neither lose a tail notice nor move it past another batch."""
+    messages = [
+        {"role": "user", "content": "Before tools"},
+        {"role": "assistant", "content": '@shell(a): {"command": "pwd"}'},
+        {"role": "user", "content": "notice A"},
+        {"role": "user", "content": "result A", "call_id": "a"},
+        {"role": "assistant", "content": '@shell(b): {"command": "pwd"}'},
+        {"role": "user", "content": "notice B"},
+        {"role": "user", "content": "result B", "call_id": "b"},
+    ]
+    sent = list(llm_anthropic._handle_tools(messages))
+    assert sent[0] == messages[0]
+    assert sent[2]["content"][0]["tool_use_id"] == "a"
+    assert sent[3] == messages[2]
+    assert sent[4]["content"][0]["id"] == "b"
+    assert sent[5]["content"][0]["tool_use_id"] == "b"
+    assert sent[6] == messages[5]
+    assert messages[3]["call_id"] == "a"
+
+
+def test_incomplete_batch_does_not_drop_notice() -> None:
+    messages = [
+        {"role": "assistant", "content": '@shell(a): {"command": "pwd"}'},
+        {"role": "user", "content": "notice without result"},
+        {"role": "assistant", "content": "Interrupted"},
+        {"role": "user", "content": "Continue"},
+    ]
+    sent = list(llm_anthropic._handle_tools(messages))
+    assert sent[1] == messages[1]
+    assert sent[-1] == messages[-1]
+
+
+def test_non_native_tools_do_not_reorder_system_notices() -> None:
+    messages = [
+        Message("system", "Bootstrap"),
+        Message("user", "Run command"),
+        Message("assistant", "```shell\necho hi\n```"),
+        Message("system", "shellcheck warning"),
+        Message("system", "hi"),
+    ]
+    sent, _, _ = llm_anthropic._prepare_messages_for_api(
+        messages, None, "claude-sonnet-4-6"
+    )
+    assert "shellcheck warning" in str(sent[2])
+    assert str(sent[2]).index("shellcheck warning") < str(sent[2]).index("hi")
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-8"])
+@pytest.mark.parametrize("ephemeral_notice", [False, True])
+def test_reordered_tool_notices_preserve_ephemeral_cache_boundary(
+    model: str, ephemeral_notice: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stable cache prefix must end before the first emitted expiring message."""
+    init_tools(["shell"])
+    shell = get_tool("shell")
+    assert shell is not None
+    messages = [
+        Message("system", "Bootstrap"),
+        Message("user", "Run commands"),
+        Message(
+            "assistant",
+            '@shell(a): {"command": "pwd"}\n@shell(b): {"command": "ls"}',
+        ),
+        Message(
+            "system", "batch notice", ephemeral_ttl=2 if ephemeral_notice else None
+        ),
+        Message(
+            "system",
+            "result A",
+            call_id="a",
+            ephemeral_ttl=None if ephemeral_notice else 2,
+        ),
+        Message("system", "result B", call_id="b"),
+        Message("assistant", "Finished"),
+        Message("user", "Continue"),
+    ]
+    boundaries: list[int | None] = []
+    apply_cache_control = llm_anthropic.apply_cache_control
+
+    def capture_boundary(
+        messages: list[dict[str, Any]],
+        system_messages: list[dict[str, Any]] | None,
+        ephemeral_boundary_idx: int | None = None,
+    ) -> tuple[list[dict], list[dict] | None]:
+        boundaries.append(ephemeral_boundary_idx)
+        return apply_cache_control(messages, system_messages, ephemeral_boundary_idx)
+
+    monkeypatch.setattr(llm_anthropic, "apply_cache_control", capture_boundary)
+    prepared, _, _ = llm_anthropic._prepare_messages_for_api(messages, [shell], model)
+    sent = TypeAdapter(list[_RequestMessage]).validate_python(prepared)
+    expected_boundary = 3 if ephemeral_notice else 1
+    assert boundaries == [expected_boundary]
+    assert sent[expected_boundary]["content"][-1]["cache_control"] == {
+        "type": "ephemeral"
+    }
+    assert sent[2]["content"][0]["tool_use_id"] == "a"
+    assert sent[3]["content"][0]["tool_use_id"] == "b"
+    assert "batch notice" in str(sent[4])
+    assert all(set(message) == {"role", "content"} for message in prepared)
