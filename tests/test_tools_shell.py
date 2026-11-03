@@ -722,10 +722,13 @@ def test_shorten_stdout_special_tokens_are_plain_text(monkeypatch, real_tokenize
     assert shortened.startswith("training sample 0")
     assert shortened.endswith("training sample 2999 <|endoftext|>")
     assert "<|endoftext|>" in shortened
-    # The kept slices are tokenizer decodes: a character-based fallback would
-    # neither match these boundaries nor keep special tokens whole.
-    assert shortened.startswith(real_tokenizer.decode(tokens[:2000]))
-    assert shortened.endswith(real_tokenizer.decode(tokens[-8000:]))
+    # The kept slices are tokenizer decodes, not character slices: anchoring on
+    # the truncation notice pins the exact token boundary, so these fail too if
+    # truncation ever falls back to the character-based estimate.
+    assert shortened.startswith(
+        real_tokenizer.decode(tokens[:2000]) + "\n... (output truncated"
+    )
+    assert shortened.endswith(") ...\n" + real_tokenizer.decode(tokens[-8000:]))
 
 
 def test_shorten_stdout_special_tokens_when_tokenizer_initially_unavailable(
@@ -761,8 +764,10 @@ def test_shorten_stdout_special_tokens_when_tokenizer_initially_unavailable(
     assert len(lookups) == 2  # initial lookup, then the pre-truncation re-check
     assert "output truncated" in shortened
     assert "<|endoftext|>" in shortened
-    assert shortened.startswith(real_tokenizer.decode(tokens[:2000]))
-    assert shortened.endswith(real_tokenizer.decode(tokens[-8000:]))
+    assert shortened.startswith(
+        real_tokenizer.decode(tokens[:2000]) + "\n... (output truncated"
+    )
+    assert shortened.endswith(") ...\n" + real_tokenizer.decode(tokens[-8000:]))
 
 
 def test_get_path_fn_uses_current_logdir(tmp_path):
