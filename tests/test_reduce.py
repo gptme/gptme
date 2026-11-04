@@ -761,9 +761,46 @@ def test_limit_log_no_user_request_fits() -> None:
             Message("system", "You are helpful."),
             Message("user", "An older request that fits."),
             Message("user", "large request " * 100),
+            Message(
+                "user", "Summarize.", metadata={"compaction_checkpoint_view": "full"}
+            ),
             Message("system", "large output " * 1000),
         ]
         with pytest.raises(ValueError, match="no user request fits"):
             limit_log(messages)
+    finally:
+        _default_model_var.reset(token)
+
+
+@pytest.mark.parametrize(
+    "checkpoint_content",
+    ["Summarize the conversation.", "checkpoint " * 1000],
+    ids=["fitting-checkpoint", "oversized-checkpoint"],
+)
+@pytest.mark.parametrize("checkpoint_view", ["full", ""])
+def test_limit_log_recovery_skips_internal_checkpoint(
+    checkpoint_content: str, checkpoint_view: str
+) -> None:
+    from gptme.llm.models.resolution import _default_model_var
+
+    token = _default_model_var.set(
+        ModelMeta(provider="openai-subscription", model="gpt-4", context=200)
+    )
+    try:
+        user = Message("user", "Check CI.")
+        checkpoint = Message(
+            "user",
+            checkpoint_content,
+            metadata={"compaction_checkpoint_view": checkpoint_view},
+        )
+        messages = [
+            Message("system", "You are helpful."),
+            user,
+            checkpoint,
+            Message("system", "large output " * 1000),
+        ]
+        original = [m.to_dict() for m in messages]
+        assert limit_log(messages) == [messages[0], user]
+        assert [m.to_dict() for m in messages] == original
     finally:
         _default_model_var.reset(token)

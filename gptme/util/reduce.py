@@ -464,7 +464,9 @@ def limit_log(log: list[Message]) -> list[Message]:
     # a real user request, never a synthetic prompt or an incomplete tool call.
     if not any(m.role != "system" for m in result):
         for msg in reversed(log_tail):
-            if msg.role != "user":
+            if msg.role != "user" or "compaction_checkpoint_view" in (
+                msg.metadata or {}
+            ):
                 continue
             if len_tokens([*result, msg], model.model) <= model.context:
                 kept_ids = {id(m) for m in result} | {id(msg)}
