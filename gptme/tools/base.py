@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import re
+import shlex
 import types
 import xml.etree.ElementTree as _ElementTree
 from collections.abc import Callable, Collection, Generator, Sequence
@@ -1505,6 +1506,10 @@ class ToolUse:
         wrapper_tag = "tool-use"
         # Use quoteattr for args attribute to handle quotes and special chars safely
         args = " ".join(self.args)
+        if self.tool == "memory" and len(self.args) == 3 and self.args[1] == "--scope":
+            # Memory's scoped XML attribute is parsed as shell arguments; quote
+            # names without changing legacy tools' single-attribute semantics.
+            args = shlex.join(self.args)
         args_str = "" if not args else f" args={quoteattr(args)}"
         # Use xml_escape for content to handle <, >, & characters
         escaped_content = xml_escape(self.content) if self.content else ""
@@ -1528,6 +1533,8 @@ class ToolUse:
             # match positional args with kwargs
             if tool := get_tool(self.tool):
                 args = list(self.args) if self.args else []
+                if self.tool == "memory" and len(args) == 3 and args[1] == "--scope":
+                    return {"name": args[0], "content": self.content, "scope": args[2]}
                 # Only append content as a positional parameter if the next
                 # parameter slot is *required*. This prevents display-only
                 # content from leaking into optional parameters (e.g. read's

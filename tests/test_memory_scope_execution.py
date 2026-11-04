@@ -174,3 +174,39 @@ def test_legacy_xml_name_round_trip(tmp_path, monkeypatch, name):
     ):
         messages = list(call.execute())
     assert (tmp_path / f"{slugify(name)}.md").is_file(), [m.content for m in messages]
+
+
+@pytest.mark.parametrize("name", ["fact", "My Cool Fact", "Erik's preference"])
+@pytest.mark.parametrize("tool_format", ["xml", "tool"])
+def test_scoped_memory_serialization_preserves_operation(
+    tmp_path, monkeypatch, name, tool_format
+):
+    from gptme.memory import slugify
+
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    original = ToolUse("memory", [name, "--scope", "explicit"], "Summary.\nDetail.")
+    serialized = original.to_output(tool_format)
+    if tool_format == "tool":
+        import json
+
+        params = json.loads(serialized.split(": ", 1)[1])
+        assert params == {
+            "name": name,
+            "content": "Summary.\nDetail.",
+            "scope": "explicit",
+        }
+        call = ToolUse("memory", None, None, kwargs=params)
+    else:
+        call = list(
+            ToolUse.iter_from_content(serialized, tool_format_override=tool_format)
+        )[0]
+    with patch(
+        "gptme.hooks.get_confirmation", return_value=ConfirmationResult.confirm()
+    ):
+        messages = list(call.execute())
+    target = tmp_path / f"{slugify(name)}.md"
+    assert target.is_file(), [m.content for m in messages]
+    entry = parse_entry(target)
+    assert entry.description == "Summary."
+    assert entry.body == "Detail."
+    assert "scope: explicit" in messages[-1].content
