@@ -157,6 +157,49 @@ Inspect and write memory
 ``index`` prints by default. Pass ``--write`` only when you want to replace the
 selected root's ``MEMORY.md`` with a generated index.
 
+Choosing scope in the memory tool
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The conversational ``memory`` tool uses the same root selector as the CLI.
+Choose ``scope="user"`` for preferences or feedback that should follow you
+across projects; choose ``project`` for local facts or ``cc`` for the current
+workspace's Claude Code memory directory. The native tool accepts ``name``,
+``content``, and optional ``scope``. In Markdown format:
+
+.. code-block:: text
+
+   ```memory review-in-parallel --scope user
+   Check review feedback concurrently with CI rather than blocking on CI alone.
+   This preference applies across projects.
+   ```
+
+Available scopes are ``project``, ``cc``, ``agent``, ``user``, and ``explicit``.
+``project`` requires an existing workspace ``memory/`` directory; ``agent``
+requires an existing configured agent memory directory. ``user`` writes under
+``<gptme config directory>/memory/``. When ``GPTME_MEMORY_DIRS`` is set, it
+replaces all other roots: only ``explicit`` is available. An unavailable or
+invalid scope fails without falling back or creating another root.
+
+Without a scope, the tool follows the CLI default: first explicit root, else
+existing project ``memory/``, else the workspace's CC root. This is not a
+user-wide default, and no text classifier chooses a scope for you. Confirmation
+and success show the actual selected scope and destination; the selected root
+is retained throughout confirmation and saving. The shared writer updates the
+index under its existing policy and budget.
+
+Temporary Git worktrees retain their own project/CC identity under the existing
+workspace resolver. A project fact stays local to that worktree unless you
+explicitly configure a shared root; use ``user`` for cross-project feedback or
+a configured ``agent`` root for agent-wide knowledge. This tool does not remap
+a worktree to the primary checkout, migrate memories, or delete old entries.
+
+Saving is not the same as startup delivery: gptme loads the layered indexes
+within its shared prompt budget, not every full entry. Claude Code's native
+auto-load covers its project CC index, not an arbitrary user root; configure
+the recall hook below to search the other layers. Codex requires explicit
+recall instructions or an exported index in ``AGENTS.md`` as described below.
+A policy-managed entry may remain recall-only until selected for the index.
+
 Persistent index selection and budget
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

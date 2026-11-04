@@ -196,9 +196,9 @@ class TestExecuteMemory:
         monkeypatch.setattr(mem_module, "get_workspace", lambda: workspace)
 
         messages = list(execute_memory("Test content.", ["test-mem"], None))
-        assert len(messages) == 1
-        assert "test-mem" in messages[0].content
-        assert "saved" in messages[0].content.lower()
+        assert len(messages) == 2
+        assert "test-mem" in messages[-1].content
+        assert "saved" in messages[-1].content.lower()
 
     def test_error_on_no_args(self):
         messages = list(execute_memory("content", [], None))
