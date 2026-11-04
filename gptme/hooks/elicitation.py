@@ -57,6 +57,8 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Protocol, cast
 
+from ..util.program_status import program_status
+
 logger = logging.getLogger(__name__)
 
 ElicitationType = Literal[
@@ -166,6 +168,7 @@ class ElicitationHook(Protocol):
 # ============================================================================
 
 
+@program_status("blocked", "question")
 def cli_elicit(request: ElicitationRequest) -> ElicitationResponse:
     """Handle elicitation via CLI terminal input.
 

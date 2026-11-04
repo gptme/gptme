@@ -59,6 +59,7 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
+from .util.program_status import program_status
 from .util.reduce import ContextLimitError
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
@@ -278,6 +279,7 @@ def chat(
     skill_lifecycle = ExitStack()
     idle_block_token = _idle_autowake_blocked.set(False)
     try:
+        skill_lifecycle.enter_context(program_status("idle"))
         # Reset here (inside try) so the finally clause always restores
         # _prev_tokens if any setup code above raises before reaching this point.
         _reset_token_accumulator()
@@ -801,6 +803,7 @@ def _drain_external_prompt_queue(
     logger.info("Loaded %d queued prompt(s) for %s", len(drained), manager.logdir.name)
 
 
+@program_status("working", after="done")
 def _process_message_conversation(
     manager: LogManager,
     stream: bool,
