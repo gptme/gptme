@@ -272,7 +272,11 @@ def handle_cmd(
 
     cmd = cmd.lstrip("/")
     logger.debug(f"Executing command: {cmd}")
-    name, *args = [s for s in re.split(r"[\n\s]", cmd) if s]
+    # Slash-only input (e.g. "/") classifies as a command via
+    # is_message_command but carries no command name. Fall back to an empty
+    # name so it lands in the unknown-command path below instead of crashing
+    # on empty-list unpacking.
+    name, *args = [s for s in re.split(r"[\n\s]", cmd) if s] or [""]
     full_args = cmd.split(" ", 1)[1] if " " in cmd else ""
 
     # Check if command is registered

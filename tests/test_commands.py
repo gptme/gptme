@@ -433,6 +433,33 @@ class TestHandleCmd:
             assert len(results) == 1
             assert results[0].content == "tool output"
 
+    @pytest.mark.parametrize("content", ["/", "/ ", "/\t"])
+    def test_slash_only_message_is_unknown_command(
+        self, clean_registry, mock_manager, content: str
+    ):
+        """Slash-only input has no command name; it must be consumed as an
+        unknown command instead of crashing on argument unpacking."""
+        with patch("gptme.tools.ToolUse") as MockToolUse:
+            mock_tooluse = MagicMock()
+            mock_tooluse.is_runnable = False
+            MockToolUse.return_value = mock_tooluse
+
+            list(handle_cmd(content, mock_manager))
+
+            # When not runnable, undo and print error (same as unknown commands)
+            mock_manager.undo.assert_called_once_with(1, quiet=True)
+
+    def test_execute_cmd_slash_only_message_returns_true(
+        self, clean_registry, mock_manager
+    ):
+        """execute_cmd must consume slash-only input without raising."""
+        with patch("gptme.tools.ToolUse") as MockToolUse:
+            mock_tooluse = MagicMock()
+            mock_tooluse.is_runnable = False
+            MockToolUse.return_value = mock_tooluse
+
+            assert execute_cmd(Message("user", "/"), mock_manager) is True
+
     def test_newline_in_command_splits_args(self, clean_registry, mock_manager):
         """Arguments separated by newlines should be split correctly."""
         captured = {}
