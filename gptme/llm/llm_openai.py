@@ -2973,12 +2973,15 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
     require_scoped_provider(str(provider))
     if scoped_inference_enabled():
         read_scoped_openrouter_key()
-        return _get_available_models(provider)
+        return _get_available_models_cached(provider, scoped=True)
     return _get_available_models_cached(provider)
 
 
-@lru_cache(maxsize=1)
-def _get_available_models_cached(provider: Provider) -> list[ModelMeta]:
+@lru_cache(maxsize=2)
+def _get_available_models_cached(
+    provider: Provider, *, scoped: bool = False
+) -> list[ModelMeta]:
+    # Separate scoped and legacy results without retaining credentials as cache keys.
     return _get_available_models(provider)
 
 
@@ -2990,9 +2993,11 @@ def _get_available_models(provider: Provider) -> list[ModelMeta]:
     from ..credentials import scoped_inference_enabled
 
     config = get_config()
+    scoped = scoped_inference_enabled()
 
-    # Check for custom provider first (e.g., "ollama" with custom base_url)
-    if is_custom_provider(provider):
+    # Scoped inference and its catalog always use the canonical OpenRouter endpoint.
+    # Otherwise check for custom providers first (e.g., "ollama" with custom base_url).
+    if not scoped and is_custom_provider(provider):
         custom = next((p for p in config.user.providers if p.name == provider), None)
         if custom:
             return _get_openai_compatible_models(config, provider, custom.base_url)
@@ -3016,7 +3021,6 @@ def _get_available_models(provider: Provider) -> list[ModelMeta]:
         raise ValueError(f"Provider {provider} does not support listing models")
 
     # Scoped mode never sends its key to a configured proxy.
-    scoped = scoped_inference_enabled()
     proxy_key = None if scoped else config.get_env("LLM_PROXY_API_KEY")
     proxy_url = None if scoped else config.get_env("LLM_PROXY_URL")
 

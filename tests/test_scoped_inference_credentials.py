@@ -264,3 +264,72 @@ def test_scoped_reinit_cannot_replace_delivered_credential(monkeypatch, tmp_path
         match="Scoped inference does not support runtime credential switching",
     ):
         llm_openai.reinit("openrouter", "synthetic-account-override")
+
+
+def test_scoped_catalog_is_cached_but_credential_is_revalidated(monkeypatch, tmp_path):
+    path = credential_file(tmp_path)
+    monkeypatch.setenv("GPTME_OPENROUTER_API_KEY_FILE", str(path))
+    llm_openai._get_available_models_cached.cache_clear()
+    with (
+        patch.object(llm_openai, "get_config", return_value=Config(user=UserConfig())),
+        patch.object(llm_openai.requests, "get") as request,
+    ):
+        request.return_value.json.return_value = {"data": []}
+        assert llm_openai.get_available_models("openrouter") == []
+        assert llm_openai.get_available_models("openrouter") == []
+        assert request.call_count == 1
+        path.unlink()
+        with pytest.raises(
+            ValueError, match="Scoped OpenRouter credential unavailable"
+        ):
+            llm_openai.get_available_models("openrouter")
+        assert request.call_count == 1
+    llm_openai._get_available_models_cached.cache_clear()
+
+
+def test_scoped_catalog_ignores_custom_openrouter_endpoint(monkeypatch, tmp_path):
+    from gptme.config.models import ProviderConfig
+
+    monkeypatch.setenv("GPTME_OPENROUTER_API_KEY_FILE", str(credential_file(tmp_path)))
+    config = Config(
+        user=UserConfig(
+            providers=[
+                ProviderConfig(
+                    name="openrouter", base_url="https://unintended.invalid/v1"
+                )
+            ]
+        )
+    )
+    llm_openai._get_available_models_cached.cache_clear()
+    with (
+        patch("gptme.config.get_config", return_value=config),
+        patch.object(llm_openai, "get_config", return_value=config),
+        patch.object(llm_openai.requests, "get") as request,
+    ):
+        request.return_value.json.return_value = {"data": []}
+        assert llm_openai.get_available_models("openrouter") == []
+        assert request.call_args.args[0] == "https://openrouter.ai/api/v1/models"
+        assert request.call_args.kwargs["headers"] == {
+            "Authorization": "Bearer synthetic-inference-only"
+        }
+    llm_openai._get_available_models_cached.cache_clear()
+
+
+def test_scoped_catalog_does_not_reuse_legacy_catalog(monkeypatch, tmp_path):
+    config = Config(user=UserConfig(env={"OPENROUTER_API_KEY": "synthetic-legacy"}))
+    llm_openai._get_available_models_cached.cache_clear()
+    with (
+        patch.object(llm_openai, "get_config", return_value=config),
+        patch.object(llm_openai.requests, "get") as request,
+    ):
+        request.return_value.json.return_value = {"data": []}
+        assert llm_openai.get_available_models("openrouter") == []
+        monkeypatch.setenv(
+            "GPTME_OPENROUTER_API_KEY_FILE", str(credential_file(tmp_path))
+        )
+        assert llm_openai.get_available_models("openrouter") == []
+        assert request.call_count == 2
+        assert request.call_args.kwargs["headers"] == {
+            "Authorization": "Bearer synthetic-inference-only"
+        }
+    llm_openai._get_available_models_cached.cache_clear()
