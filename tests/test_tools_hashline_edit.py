@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -407,6 +409,22 @@ class TestRegisterOperations:
         with pytest.raises(ValueError, match="overlap its CUT lines 2-3"):
             _apply_operations(content, ops)
 
+    def test_undefined_register_put_raises(self):
+        """The error for an undefined register names the register in both places."""
+        content = "a\nb\nc\n"
+        ops = [
+            HashlineOp(
+                kind="insert_after", start=2, end=2, register_name="missing", text=None
+            ),
+        ]
+        with pytest.raises(
+            ValueError, match="Register @missing is not defined"
+        ) as excinfo:
+            _apply_operations(content, ops)
+        message = str(excinfo.value)
+        assert "add a 'CUT N.=M @missing' operation" in message
+        assert "{reg}" not in message
+
     def test_duplicate_register_capture_raises(self):
         """Each register has one unambiguous source range."""
         content = "a\nb\nc\nd\ne\n"
@@ -552,6 +570,122 @@ class TestRegisterOperations:
 # ---------------------------------------------------------------------------
 
 
+class TestMutationAdmission:
+    @pytest.mark.parametrize("reverse", [False, True])
+    @pytest.mark.parametrize("kind", ["replace", "delete"])
+    @pytest.mark.parametrize("insert_kind", ["insert_before", "insert_after"])
+    @pytest.mark.parametrize("line", [1, 2, 3, 4, 5])
+    @pytest.mark.parametrize("replacement", ["X", "X\nY\nZ\nW"])
+    def test_insertion_boundaries_use_original_coordinates(
+        self,
+        reverse: bool,
+        kind: OperationKind,
+        insert_kind: OperationKind,
+        line: int,
+        replacement: str,
+    ):
+        content = "a\nb\nc\nd\ne\n"
+        mutation = HashlineOp(kind=kind, start=2, end=4, text=replacement)
+        insertion = HashlineOp(kind=insert_kind, start=line, end=line, text="INSERT")
+        ops = [mutation, insertion]
+        if reverse:
+            ops.reverse()
+        gap = line - 1 if insert_kind == "insert_before" else line
+        if 1 < gap < 4:
+            with pytest.raises(ValueError, match="overlap"):
+                _apply_operations(content, ops)
+        else:
+            before = ["a"]
+            after = ["e"]
+            if gap <= 1:
+                before.insert(gap, "INSERT")
+            else:
+                after.insert(gap - 4, "INSERT")
+            new_lines = replacement.splitlines() if kind == "replace" else []
+            assert (
+                _apply_operations(content, ops)
+                == "\n".join(before + new_lines + after) + "\n"
+            )
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_shared_insertion_gap_preserves_existing_order(self, reverse: bool):
+        ops = [
+            HashlineOp(kind="insert_before", start=2, end=2, text="BEFORE"),
+            HashlineOp(kind="insert_after", start=1, end=1, text="AFTER"),
+        ]
+        if reverse:
+            ops.reverse()
+        assert _apply_operations("a\nb\n", ops) == "a\nAFTER\nBEFORE\nb\n"
+
+    @pytest.mark.parametrize("changed_live", [False, True])
+    @pytest.mark.parametrize("reverse", [False, True])
+    @pytest.mark.parametrize(
+        "operations",
+        [
+            ("PUT 1.=3:\n+abc = 123", "PUT 2.=4:\n+bcd = 234"),
+            ("CUT 1.=3", "PUT 2.=4:\n+bcd = 234"),
+            ("CUT 1.=3", "CUT 2.=4"),
+            ("PUT 2.=4:\n+replacement", "PUT 2.=4:\n+other"),
+            ("PUT 1.=5:\n+replacement", "CUT 2.=3"),
+            ("CUT 1.=3", "PUT 3.=4:\n+shared_endpoint"),
+            ("PUT 1*:\n+replacement", "PUT 2.=2:\n+inside_block"),
+            ("PUT 1*:\n+replacement", "PUT 2*:\n+inside_block"),
+            ("PUT 1.=3:\n+replacement", "PUT <2:\n+inside_range"),
+            ("CUT 1.=3", "PUT >2:\n+inside_range"),
+            ("CUT 1.=3 @r", "PUT 2.=4:\n+overlapping_capture"),
+        ],
+    )
+    def test_overlapping_mutations_rejected_before_confirmation(
+        self,
+        tmp_path: Path,
+        operations: tuple[str, str],
+        reverse: bool,
+        changed_live: bool,
+    ):
+        from unittest.mock import patch
+
+        f = tmp_path / "overlap.py"
+        original = "if a:\n    x = 1\n    y = 2\nz = 3\nafter()\n"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        if changed_live:
+            f.write_text(original + "external()\n")
+        f.chmod(0o640)
+        before = f.read_bytes()
+        mode = f.stat().st_mode
+        ordered = operations[::-1] if reverse else operations
+        block = f"[{f.resolve()}#{tag}]\n" + "\n".join(ordered) + "\n"
+        with (
+            patch("gptme.hooks.get_confirmation") as confirm,
+            patch("gptme.tools.hashline_edit.os.replace") as publish,
+            patch("gptme.tools.hashline_edit.subprocess.run") as merge,
+        ):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "overlap" in msgs[0].lower(), msgs
+        confirm.assert_not_called()
+        publish.assert_not_called()
+        merge.assert_not_called()
+        assert f.read_bytes() == before
+        assert f.stat().st_mode == mode
+        assert lookup_snapshot(str(f.resolve()), tag) == (True, original)
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["overlap.py"]
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_independent_mutations_and_boundary_insertions(
+        self, tmp_path: Path, reverse: bool
+    ):
+        f = tmp_path / "independent.txt"
+        f.write_text("a\nb\nc\nd\ne\n")
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        ops = ["PUT 1.=2:\n+AB", "PUT <3:\n+BETWEEN", "PUT 3.=4:\n+CD"]
+        if reverse:
+            ops.reverse()
+        block = f"[{f.resolve()}#{tag}]\n" + "\n".join(ops) + "\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        assert f.read_text() == "AB\nBETWEEN\nCD\ne\n"
+
+
 class TestExecuteHashlineEdit:
     def test_basic_replace(self, tmp_path: Path):
         f = tmp_path / "f.txt"
@@ -571,6 +705,18 @@ class TestExecuteHashlineEdit:
         msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
         assert "applied" in msgs[0].lower()
         assert f.read_bytes() == eol.join([b"alpha", b"BETA", b"gamma", b""])
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    def test_preserves_file_mode(self, tmp_path: Path):
+        f = tmp_path / "run.sh"
+        f.write_text("#!/bin/sh\necho a\n")
+        f.chmod(0o755)
+        tag = store_snapshot(str(f.resolve()), f.read_text())
+        block = f"[{f.resolve()}#{tag}]\nPUT 2.=2:\n+echo b\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower()
+        assert f.read_text() == "#!/bin/sh\necho b\n"
+        assert stat.S_IMODE(f.stat().st_mode) == 0o755
 
     def test_tag_mismatch_rejected(self, tmp_path: Path):
         f = tmp_path / "f.txt"
@@ -1016,6 +1162,82 @@ class TestResolveBlockEnd:
 # ---------------------------------------------------------------------------
 # PUT N*: block-aware replace
 # ---------------------------------------------------------------------------
+
+
+class TestContinuationHeaders:
+    @pytest.mark.parametrize(
+        "original",
+        [
+            "if a:\n    x = 1\nelif (\n    b\n):\n    x = 2\nelse:\n    x = 3\n",
+            "try:\n    risky()\nexcept (\n    ValueError,\n    TypeError,\n):\n    handle()\nfinally:\n    cleanup()\n",
+            "if a:\n    x = 1\nelif (  # unmatched ]\n    check(') # [')\n):\n    if nested:\n        act()\nelse:\n    other()\n",
+            'if a:\n    x = 1\nelif check("""\nleft aligned ) # text\n"""):\n    act()\nelse:\n    other()\n',
+            "try:\n    risky()\nexcept (\n    ValueError,\n):\n    handle()\nexcept (\n    TypeError,\n):\n    other()\nelse:\n    ok()\nfinally:\n    cleanup()\n",
+            "if a:\n    x = 1\nelif b:\n    x = 2\nelse:\n    x = 3\n",
+            "if (\n    a\n):\n    x = 1\nelse:\n    x = 2\n",
+        ],
+    )
+    @pytest.mark.parametrize("changed_live", [False, True])
+    def test_complete_continuation_replacement(
+        self, tmp_path: Path, original: str, changed_live: bool
+    ):
+        original += "after()\n"
+        compile(original, "before.py", "exec")
+        assert (
+            _resolve_block_end(original.splitlines(), 1)
+            == len(original.splitlines()) - 1
+        )
+        f = tmp_path / "continuation.py"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        if changed_live:
+            f.write_text(original + "external()\n")
+        block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+replacement()\n"
+        msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert "applied" in msgs[0].lower(), msgs
+        expected = "replacement()\nafter()\n"
+        if changed_live:
+            expected += "external()\n"
+        assert f.read_text() == expected
+        compile(f.read_text(), str(f), "exec")
+
+    @pytest.mark.parametrize(
+        ("original", "error"),
+        [
+            ("if a:\n    x = 1\nelif (\n    b\nafter()\n", "bracket"),
+            ("try:\n    risky()\nexcept (\n    ValueError,\nafter()\n", "bracket"),
+            ('if a:\n    x = 1\nelif """\nunclosed\nafter()\n', "string"),
+        ],
+    )
+    @pytest.mark.parametrize("changed_live", [False, True])
+    def test_unterminated_continuation_rejected_before_confirmation(
+        self, tmp_path: Path, original: str, error: str, changed_live: bool
+    ):
+        from unittest.mock import patch
+
+        f = tmp_path / "unterminated.py"
+        f.write_text(original)
+        tag = store_snapshot(str(f.resolve()), original)
+        if changed_live:
+            f.write_text(original + "external()\n")
+        f.chmod(0o640)
+        before = f.read_bytes()
+        mode = f.stat().st_mode
+        block = f"[{f.resolve()}#{tag}]\nPUT 1*:\n+replacement()\n"
+        with (
+            patch("gptme.hooks.get_confirmation") as confirm,
+            patch("gptme.tools.hashline_edit.os.replace") as publish,
+            patch("gptme.tools.hashline_edit.subprocess.run") as merge,
+        ):
+            msgs = _msgs(execute_hashline_edit(block, [str(f)], None))
+        assert f"unterminated {error}" in msgs[0], msgs
+        confirm.assert_not_called()
+        publish.assert_not_called()
+        merge.assert_not_called()
+        assert f.read_bytes() == before
+        assert f.stat().st_mode == mode
+        assert lookup_snapshot(str(f.resolve()), tag) == (True, original)
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["unterminated.py"]
 
 
 class TestBlockReplace:

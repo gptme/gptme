@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import socket
+import stat
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -18,6 +26,7 @@ else:
 from gptme.tools.base import ToolSpec
 from gptme.tools.convert import (
     ConversionResult,
+    Converter,
     DocumentToTextConverter,
     ImageConverter,
     PDFToImageConverter,
@@ -169,7 +178,7 @@ def test_para_to_md_heading2():
 
 
 def test_para_to_md_heading3():
-    assert _para_to_md(_MockPara("Sub-sub", "Heading 3")) == "### Sub-sub"
+    assert _para_to_md(_MockPara("Sub-sub", "Heading 3")) == r"### Sub\-sub"
 
 
 def test_para_to_md_list():
@@ -271,6 +280,49 @@ class TestPDFToImageConverter:
         assert result.success
         assert result.converter_used == "pdftoppm"
 
+    @pytest.mark.parametrize(
+        ("quality", "dpi"), [("low", 72), ("medium", 150), ("high", 300)]
+    )
+    @pytest.mark.parametrize("extension", ["png", "jpg", "jpeg"])
+    def test_bounds_poppler_to_first_page(
+        self,
+        avail_all: ToolAvailability,
+        tmp_path: Path,
+        quality: str,
+        dpi: int,
+        extension: str,
+    ) -> None:
+        src = tmp_path / "input [12] pages.pdf"
+        original = b"%PDF-1.4"
+        src.write_bytes(original)
+        dest = tmp_path / f"output [first].{extension}"
+
+        def fake_run(cmd, **kwargs):
+            assert cmd[0] == "pdftoppm"  # No metadata renderer/tool is required.
+            assert "-f" in cmd and "-l" in cmd
+            assert cmd[cmd.index("-f") + 1] == "1"
+            assert cmd[cmd.index("-l") + 1] == "1"
+            assert cmd[cmd.index("-r") + 1] == str(dpi)
+            assert cmd[1] == ("-png" if extension == "png" else "-jpeg")
+            assert cmd[-2] == str(src)
+            prefix = Path(cmd[-1])
+            output_ext = "png" if extension == "png" else "jpg"
+            Path(f"{prefix}-01.{output_ext}").write_bytes(b"first page")
+            return MagicMock(returncode=0, stderr=b"")
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("subprocess.run", side_effect=fake_run) as run,
+        ):
+            result = self.conv.convert(src, dest, quality=quality)
+        assert result.success
+        assert result.output_path == dest
+        assert dest.read_bytes() == b"first page"
+        assert src.read_bytes() == original
+        assert result.lossy == (extension != "png")
+        assert result.warnings == ["PDF-to-image conversion saves only the first page"]
+        run.assert_called_once()
+
     def test_falls_back_to_imagemagick_on_pdftoppm_failure(self, avail_all, tmp_path):
         src = tmp_path / "doc.pdf"
         src.write_bytes(b"%PDF-1.4")
@@ -283,8 +335,8 @@ class TestPDFToImageConverter:
             call_count["n"] += 1
             if "pdftoppm" in cmd:
                 return MagicMock(returncode=1, stderr=b"pdftoppm error")
-            # imagemagick
-            dest.write_bytes(b"\x89PNG")
+            # Write to the actual backend output argument (now a staging path).
+            Path(cmd[-1]).write_bytes(b"\x89PNG")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
@@ -295,6 +347,44 @@ class TestPDFToImageConverter:
         assert result.success
         assert result.converter_used == "imagemagick"
         assert call_count["n"] == 2
+        assert result.warnings == [
+            "pdftoppm failed; falling back to ImageMagick",
+            "PDF-to-image conversion saves only the first page",
+        ]
+
+    @pytest.mark.parametrize("poppler", [False, True])
+    def test_missing_poppler_output_falls_back(
+        self, avail_all: ToolAvailability, tmp_path: Path, poppler: bool
+    ) -> None:
+        """A successful exit without an image must not publish a false success."""
+        src = tmp_path / "doc.pdf"
+        src.write_bytes(b"%PDF-1.4")
+        dest = tmp_path / "out.jpeg"
+        avail_all.pdftoppm = poppler
+        commands: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            commands.append(cmd)
+            if cmd[0] == "convert":
+                assert cmd[-2] == f"{src}[0]"
+                Path(cmd[-1]).write_bytes(b"first page jpeg")
+            return MagicMock(returncode=0, stderr=b"")
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("subprocess.run", side_effect=fake_run),
+        ):
+            result = self.conv.convert(src, dest)
+        assert result.success
+        assert result.converter_used == "imagemagick"
+        assert result.lossy
+        assert dest.read_bytes() == b"first page jpeg"
+        assert [cmd[0] for cmd in commands] == (
+            ["pdftoppm", "convert"] if poppler else ["convert"]
+        )
+        assert (
+            result.warnings[-1] == "PDF-to-image conversion saves only the first page"
+        )
 
     def test_rejects_existing_directory_as_dest(self, avail_all, tmp_path):
         """shutil.move silently moves the file INTO a directory; guard must catch this."""
@@ -375,7 +465,7 @@ class TestImageConverter:
         dest = tmp_path / "out.webp"
 
         def fake_run(cmd, **kwargs):
-            dest.write_bytes(b"RIFF")
+            Path(cmd[-1]).write_bytes(b"RIFF")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
@@ -395,7 +485,7 @@ class TestImageConverter:
         dest = tmp_path / "out.png"
 
         def fake_run(cmd, **kwargs):
-            dest.write_bytes(b"\x89PNG")
+            Path(cmd[-1]).write_bytes(b"\x89PNG")
             return MagicMock(returncode=0, stderr=b"")
 
         with (
@@ -480,18 +570,13 @@ class TestDocumentToTextConverter:
     def test_md_dest_produces_markdown_headings(self, avail_all, tmp_path):
         """When dest is .md, python-docx paragraphs with Heading styles must
         produce ``#``/``##`` lines, not bare text."""
+        docx = pytest.importorskip("docx")
         src = tmp_path / "doc.docx"
-        src.write_bytes(b"PK")
         dest = tmp_path / "out.md"
-
-        mock_para_h1 = _MockPara("Introduction", "Heading 1")
-        mock_para_body = _MockPara("Body text.", "Normal")
-
-        mock_doc = MagicMock()
-        mock_doc.paragraphs = [mock_para_h1, mock_para_body]
-
-        mock_docx_module = MagicMock()
-        mock_docx_module.Document.return_value = mock_doc
+        document = docx.Document()
+        document.add_heading("Introduction", level=1)
+        document.add_paragraph("Body text.")
+        document.save(src)
 
         avail_docx_only = ToolAvailability(
             ffmpeg=False,
@@ -503,16 +588,15 @@ class TestDocumentToTextConverter:
             python_magic=False,
         )
 
-        with (
-            patch("gptme.tools.convert.get_availability", return_value=avail_docx_only),
-            patch.dict(sys.modules, {"docx": mock_docx_module}),
+        with patch(
+            "gptme.tools.convert.get_availability", return_value=avail_docx_only
         ):
             result = self.conv.convert(src, dest)
 
         assert result.success, result.error
         content = dest.read_text()
         assert content.startswith("# Introduction"), repr(content)
-        assert "Body text." in content
+        assert r"Body text\." in content
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +675,7 @@ def test_convert_file_dry_run(avail_all, tmp_path):
         patch("gptme.tools.convert._detect_mime", return_value="application/pdf"),
     ):
         result = convert_file(src, dest, dry_run=True)
+    assert src.read_bytes() == b"%PDF-1.4"
     assert result.success
     assert result.metadata.get("dry_run") is True
     assert not dest.exists()  # dry_run should NOT create the file
@@ -678,18 +763,85 @@ def test_conversion_result_summary_dry_run():
     assert "Converted via" not in summary
 
 
-def test_convert_file_same_path_rejected(avail_all, tmp_path):
-    """convert_file must reject src == dest to prevent data corruption."""
+def _png_bytes(payload: bytes = b"payload") -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + payload
+
+
+def _alias_destination(tmp_path: Path, src: Path, alias: str) -> Path:
+    if alias == "same-path":
+        return src
+    dest = tmp_path / "alias.jpg"
+    if alias == "hardlink":
+        try:
+            dest.hardlink_to(src)
+        except OSError as exc:
+            pytest.skip(f"hard links unsupported: {exc}")
+        return dest
+    try:
+        dest.symlink_to(src)
+    except OSError as exc:
+        pytest.skip(f"symlinks unsupported: {exc}")
+    return dest
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("alias", ["same-path", "hardlink", "symlink"])
+def test_convert_file_rejects_identity_aliases(avail_all, tmp_path, dry_run, alias):
+    """Same path, symlink, and hardlink destinations must not launch a converter."""
     src = tmp_path / "photo.png"
-    src.write_bytes(b"\x89PNG")
+    original = _png_bytes()
+    src.write_bytes(original)
+    dest = _alias_destination(tmp_path, src, alias)
     with (
         patch("gptme.tools.convert.get_availability", return_value=avail_all),
         patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert") as mock_convert,
     ):
-        result = convert_file(src, src)
+        result = convert_file(src, dest, dry_run=dry_run)
     assert not result.success
+    assert result.converter_used == "none"
     assert result.error is not None
     assert "different" in result.error.lower()
+    assert src.read_bytes() == original
+    assert dest.read_bytes() == original
+    mock_convert.assert_not_called()
+
+
+def test_convert_file_missing_destination_is_not_an_alias(avail_all, tmp_path):
+    """A destination that does not exist yet is a new output, not an identity alias."""
+    src = tmp_path / "photo.png"
+    src.write_bytes(_png_bytes())
+    dest = tmp_path / "out.jpg"
+    planned = ConversionResult(success=True, output_path=dest, converter_used="ffmpeg")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert", return_value=planned) as mock_convert,
+    ):
+        dry = convert_file(src, dest, dry_run=True)
+        assert dry.success
+        assert dry.metadata.get("dry_run") is True
+        mock_convert.assert_not_called()
+        result = convert_file(src, dest)
+    assert result.success
+    mock_convert.assert_called_once()
+
+
+def test_convert_file_distinct_existing_destination_is_converted(avail_all, tmp_path):
+    """Overwriting a different existing file is allowed; only inode aliases are rejected."""
+    src = tmp_path / "photo.png"
+    dest = tmp_path / "out.jpg"
+    src.write_bytes(_png_bytes())
+    dest.write_bytes(b"old-jpeg")
+    planned = ConversionResult(success=True, output_path=dest, converter_used="ffmpeg")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert", return_value=planned) as mock_convert,
+    ):
+        result = convert_file(src, dest)
+    assert result.success
+    mock_convert.assert_called_once()
 
 
 def test_pdftoppm_failure_cleans_partial_artifacts(avail_all, tmp_path):
@@ -779,7 +931,7 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        dest.write_bytes(b"RIFF")
+        Path(cmd[-1]).write_bytes(b"RIFF")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
@@ -793,7 +945,8 @@ def test_ffmpeg_webp_uses_quality_not_qv(avail_ffmpeg_only, tmp_path):
     assert "-q:v" not in captured_cmd
     # _arg() already handles dash-prefixed paths via "./" prefix; "--" is not needed.
     assert "--" not in captured_cmd
-    assert captured_cmd[-1] == str(dest)
+    assert Path(captured_cmd[-1]).name == dest.name
+    assert result.output_path == dest
 
 
 # ---------------------------------------------------------------------------
@@ -823,6 +976,7 @@ def test_pdftotext_protects_dash_leading_source(avail_all, tmp_path, monkeypatch
 
     def fake_run(cmd, **kwargs):
         captured.extend(cmd)
+        Path(cmd[-1]).write_bytes(b"text")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
@@ -886,9 +1040,167 @@ def test_directory_destination_rejected(converter, avail_ffmpeg_only, tmp_path):
     run.assert_not_called()
 
 
+@pytest.fixture(params=["fifo", "fifo-symlink", "socket"])
+def special_destination(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> Iterator[tuple[Path, Path]]:
+    if os.name != "posix":
+        pytest.skip("Disposable FIFOs and Unix sockets require POSIX")
+    target = tmp_path / "special.png"
+    if request.param == "socket":
+        # AF_UNIX has a much shorter path limit than the filesystem. Avoid both
+        # pytest's basetemp and a potentially long TMPDIR for the bound address.
+        with (
+            TemporaryDirectory(prefix="gptme-sock-", dir="/tmp") as directory,
+            socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock,
+        ):
+            target = Path(directory) / "special.png"
+            sock.bind(str(target))
+            yield target, target
+    else:
+        os.mkfifo(target)
+        if request.param == "fifo-symlink":
+            link = tmp_path / "link.png"
+            link.symlink_to(target)
+            yield link, target
+        else:
+            yield target, target
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_router_rejects_special_destination_before_converter(
+    special_destination: tuple[Path, Path],
+    avail_ffmpeg_only: ToolAvailability,
+    tmp_path: Path,
+    dry_run: bool,
+) -> None:
+    dest, target = special_destination
+    mode = target.stat().st_mode
+    src = tmp_path / "source.png"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(ImageConverter, "convert") as backend,
+    ):
+        result = convert_file(src, dest, dry_run=dry_run)
+    assert not result.success
+    assert "regular file" in (result.error or "")
+    assert str(dest) in (result.error or "")
+    backend.assert_not_called()
+    assert target.stat().st_mode == mode
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
+
+
+@pytest.mark.parametrize(
+    "converter",
+    [
+        PDFToImageConverter,
+        PDFToTextConverter,
+        DocumentToTextConverter,
+        VideoThumbnailConverter,
+        ImageConverter,
+    ],
+)
+def test_converters_reject_special_destination_before_backend(
+    converter: type[Converter],
+    special_destination: tuple[Path, Path],
+    avail_all: ToolAvailability,
+    tmp_path: Path,
+) -> None:
+    dest, target = special_destination
+    mode = target.stat().st_mode
+    src = tmp_path / "source.docx"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    docx = MagicMock()
+    pypdf = MagicMock()
+    # These guards keep even the unsafe original code from opening a FIFO or
+    # starting a real backend when running the negative control.
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_all),
+        patch.dict(sys.modules, {"docx": docx, "pypdf": pypdf}),
+        patch("subprocess.run") as run,
+        patch.object(Path, "write_text") as write,
+    ):
+        result = converter().convert(src, dest)
+    assert not result.success
+    assert "regular file" in (result.error or "")
+    run.assert_not_called()
+    write.assert_not_called()
+    docx.Document.assert_not_called()
+    pypdf.PdfReader.assert_not_called()
+    assert target.stat().st_mode == mode
+    assert not stat.S_ISREG(mode)
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
+
+
+@pytest.mark.parametrize("destination", ["missing", "regular", "regular-symlink"])
+def test_document_conversion_preserves_regular_destinations(
+    destination: str, avail_all: ToolAvailability, tmp_path: Path
+) -> None:
+    docx = pytest.importorskip("docx")
+    src = tmp_path / "source.docx"
+    document = docx.Document()
+    document.add_paragraph("CONVERTED_TEXT")
+    document.save(src)
+    original_source = src.read_bytes()
+    target = tmp_path / "target.txt"
+    dest = target
+    if destination != "missing":
+        target.write_text("OLD_OUTPUT")
+    if destination == "regular-symlink":
+        dest = tmp_path / "link.txt"
+        try:
+            dest.symlink_to(target)
+        except OSError:
+            if os.name == "nt":
+                pytest.skip("Creating symlinks requires Windows privileges")
+            raise
+    with patch("gptme.tools.convert.get_availability", return_value=avail_all):
+        plan = convert_file(src, dest, dry_run=True)
+        assert plan.success
+        assert not target.exists() or target.read_text() == "OLD_OUTPUT"
+        result = convert_file(src, dest)
+    assert result.success, result.error
+    assert target.read_text() == "CONVERTED_TEXT"
+    if destination == "regular-symlink":
+        assert dest.is_symlink()
+    assert src.read_bytes() == original_source
+
+
 # ---------------------------------------------------------------------------
 # Unwritable destinations return a result, never a traceback
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_router_destination_inspection_error_returns_failure(
+    avail_ffmpeg_only: ToolAvailability, tmp_path: Path, dry_run: bool
+) -> None:
+    src = tmp_path / "source.png"
+    src.write_bytes(b"SYNTHETIC_SOURCE")
+    dest = tmp_path / "restricted" / "out.png"
+    original_stat = Path.stat
+
+    def restricted_stat(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
+        if path == dest:
+            raise PermissionError("synthetic traversal denied")
+        return original_stat(path, *args, **kwargs)
+
+    with (
+        patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
+        patch("gptme.tools.convert._detect_mime", return_value="image/png"),
+        patch.object(Path, "stat", restricted_stat),
+        patch.object(ImageConverter, "convert") as backend,
+    ):
+        result = convert_file(src, dest, dry_run=dry_run)
+
+    assert not result.success
+    assert str(dest) in (result.error or "")
+    assert "synthetic traversal denied" in (result.error or "")
+    backend.assert_not_called()
+    assert not dest.parent.exists()
+    assert src.read_bytes() == b"SYNTHETIC_SOURCE"
 
 
 def test_pdf_to_text_unwritable_dest_returns_failure(avail_all, tmp_path):
@@ -1007,17 +1319,19 @@ def test_ffmpeg_image_command_has_no_double_dash(avail_ffmpeg_only, tmp_path):
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        dest.write_bytes(b"\xff\xd8\xff")
+        Path(cmd[-1]).write_bytes(b"\xff\xd8\xff")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
         patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
         patch("subprocess.run", side_effect=fake_run),
     ):
-        ImageConverter().convert(src, dest)
+        result = ImageConverter().convert(src, dest)
 
+    assert result.success
+    assert result.output_path == dest
     assert "--" not in captured_cmd
-    assert captured_cmd[-1] == str(dest)
+    assert Path(captured_cmd[-1]).name == dest.name
 
 
 def test_ffmpeg_thumbnail_command_has_no_double_dash(avail_ffmpeg_only, tmp_path):
@@ -1030,17 +1344,19 @@ def test_ffmpeg_thumbnail_command_has_no_double_dash(avail_ffmpeg_only, tmp_path
 
     def fake_run(cmd, **kwargs):
         captured_cmd.extend(cmd)
-        dest.write_bytes(b"\xff\xd8\xff")
+        Path(cmd[-1]).write_bytes(b"\xff\xd8\xff")
         return MagicMock(returncode=0, stderr=b"")
 
     with (
         patch("gptme.tools.convert.get_availability", return_value=avail_ffmpeg_only),
         patch("subprocess.run", side_effect=fake_run),
     ):
-        VideoThumbnailConverter().convert(src, dest)
+        result = VideoThumbnailConverter().convert(src, dest)
 
+    assert result.success
+    assert result.output_path == dest
     assert "--" not in captured_cmd
-    assert captured_cmd[-1] == str(dest)
+    assert Path(captured_cmd[-1]).name == dest.name
 
 
 def test_doc_to_text_specific_error_when_only_python_docx_installed(tmp_path):
@@ -1296,8 +1612,93 @@ def test_imagemagick_pdf_output_argv(tmp_path, avail_imagemagick_only):
         ),
         patch("gptme.tools.convert.subprocess.run") as run,
     ):
-        run.return_value = subprocess.CompletedProcess([], 0, stderr=b"")
+
+        def fake_run(command, **kwargs):
+            Path(command[-1]).write_bytes(b"png")
+            return subprocess.CompletedProcess(command, 0, stderr=b"")
+
+        run.side_effect = fake_run
         result = PDFToImageConverter().convert(src, dest)
     assert result.success
+    assert result.output_path == dest
     command = run.call_args.args[0]
-    assert command == ["convert", "-density", "150", f"{_im_src(src)}[0]", _arg(dest)]
+    assert command[:-1] == ["convert", "-density", "150", f"{_im_src(src)}[0]"]
+    assert Path(command[-1]).name == dest.name
+
+
+@pytest.mark.parametrize("backend", ["ffmpeg", "imagemagick", "both"])
+@pytest.mark.parametrize("extension", ["png", "jpg", "jpeg"])
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("animated", [False, True])
+def test_real_single_frame_image_output(
+    tmp_path, monkeypatch, avail_none, backend, extension, existing, animated
+):
+    """Single-frame formats write the first frame at exactly the requested path."""
+    image_module = pytest.importorskip("PIL.Image")
+    for executable in (
+        ["ffmpeg", "convert"]
+        if backend == "both"
+        else ["convert" if backend == "imagemagick" else "ffmpeg"]
+    ):
+        if not shutil.which(executable):
+            pytest.skip(f"{executable} not installed")
+    avail_none.ffmpeg = backend in ("ffmpeg", "both")
+    avail_none.imagemagick = backend in ("imagemagick", "both")
+    monkeypatch.setattr("gptme.tools.convert.get_availability", lambda: avail_none)
+    monkeypatch.chdir(tmp_path)
+    # Exercise literal brackets and option-shaped paths as well as frame selection.
+    src = Path("-input[0].gif" if animated else "-input[0].png")
+    first_frame = image_module.new("RGB", (16, 16), "red")
+    if animated:
+        first_frame.save(
+            src,
+            save_all=True,
+            append_images=[image_module.new("RGB", (16, 16), "blue")],
+            duration=100,
+            loop=0,
+        )
+    else:
+        first_frame.save(src)
+    # Retain master's literal-output contract alongside first-frame selection.
+    dest = Path(f"-requested%03d[0].{extension}")
+    if existing:
+        image_module.new("RGB", (16, 16), "green").save(dest)
+    before = set(tmp_path.iterdir())
+
+    result = convert_file(src, dest)
+
+    assert result.success, result.error
+    assert result.output_path == dest
+    # The dual-backend path must succeed directly, not rely on FFmpeg leftovers.
+    assert result.converter_used == ("ffmpeg" if backend == "both" else backend)
+    assert dest.is_file(), "successful conversion must create the requested output"
+    assert set(tmp_path.iterdir()) == before | {tmp_path / dest}
+    with image_module.open(dest) as output:
+        assert output.size == (16, 16)
+        assert getattr(output, "n_frames", 1) == 1
+        red, green, blue = output.convert("RGB").getpixel((0, 0))
+        assert red > 240 and green < 15 and blue < 15
+
+
+@pytest.mark.skipif(not shutil.which("convert"), reason="ImageMagick not installed")
+def test_real_imagemagick_gif_retains_animation(tmp_path, avail_imagemagick_only):
+    """First-frame selection must not flatten an animation-capable target."""
+    image_module = pytest.importorskip("PIL.Image")
+    src, dest = tmp_path / "input.gif", tmp_path / "output.gif"
+    image_module.new("RGB", (16, 16), "red").save(
+        src,
+        save_all=True,
+        append_images=[image_module.new("RGB", (16, 16), "blue")],
+        duration=100,
+        loop=0,
+    )
+    with patch(
+        "gptme.tools.convert.get_availability", return_value=avail_imagemagick_only
+    ):
+        result = convert_file(src, dest)
+    assert result.success, result.error
+    with image_module.open(dest) as output:
+        assert output.n_frames == 2
+        assert output.convert("RGB").getpixel((0, 0)) == (255, 0, 0)
+        output.seek(1)
+        assert output.convert("RGB").getpixel((0, 0)) == (0, 0, 255)

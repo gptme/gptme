@@ -12,6 +12,7 @@ from ..hooks import confirm
 from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
+from ..util.file_write import write_text_preserving_original
 from .base import (
     Parameter,
     ToolSpec,
@@ -216,8 +217,8 @@ def execute_save_impl(
     if baseline is not None:
         baseline.validate(path_display)
 
-    # Ensure content ends with newline
-    if not content.endswith("\n"):
+    # Preserve an explicitly empty file; nonempty text keeps its final newline.
+    if content and not content.endswith("\n"):
         content += "\n"
 
     # Check if file exists and store original content for comparison
@@ -252,8 +253,15 @@ def execute_save_impl(
     newline = file_newline(path) if original_content else ""
     if original_content:
         content = content.replace("\r\n", "\n")
-    with open(path, "w", encoding="utf-8", newline=newline) as f:
-        f.write(content)
+    # Validate UTF-8 before staging the replacement.
+    try:
+        content.encode("utf-8")
+    except UnicodeEncodeError as e:
+        raise ValueError(
+            f"Cannot save to {path_display}: content is not encodable as UTF-8 "
+            f"at character {e.start}."
+        ) from None
+    write_text_preserving_original(path, content, newline=newline)
 
     # Trigger post-save hooks (file.save.post)
     if post_save_msgs := trigger_hook(
@@ -302,7 +310,9 @@ def execute_save_impl(
 def execute_append_impl(
     content: str, path: Path | None
 ) -> Generator[Message, None, None]:
-    """Actual append implementation."""
+    """Append with save hooks: PRE receives the request, POST the written chunk."""
+    from ..hooks import HookType, trigger_hook
+
     assert path
     path_display = path
     path = path.expanduser().resolve()
@@ -325,6 +335,9 @@ def execute_append_impl(
         yield Message("system", f"Cannot append to {path_display}: not a regular file")
         return
 
+    # Remember initial existence before confirmations or hooks can create the file.
+    created = not path.exists()
+
     # Check if folder exists first
     if not path.parent.exists():
         if not confirm(f"Folder {path_display.parent} doesn't exist, create it?"):
@@ -334,8 +347,7 @@ def execute_append_impl(
             return
         path.parent.mkdir(parents=True)
 
-    # Then check if file exists
-    if not path.exists():
+    if created:
         if not confirm(f"File {path_display} doesn't exist, create it?"):
             yield Message(
                 "system",
@@ -348,7 +360,21 @@ def execute_append_impl(
                 "system", f"Cannot append to {path_display}: not a regular file"
             )
             return
-        path.touch(exist_ok=True)
+
+    # Like save, PRE receives the requested content before newline normalization.
+    yield from trigger_hook(
+        HookType.FILE_SAVE_PRE,
+        log=None,
+        workspace=None,
+        path=path,
+        content=content,
+    )
+
+    # Hooks may have replaced the destination; reject it before reading as well
+    # as before opening for append.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot append to {path_display}: not a regular file")
+        return
 
     # Ensure content ends with newline
     if not content.endswith("\n"):
@@ -362,8 +388,24 @@ def execute_append_impl(
     if before and not before.endswith("\n"):
         content = "\n" + content
 
+    # Hooks may have replaced the destination; do not open a FIFO or device.
+    if _is_non_regular(path):
+        yield Message("system", f"Cannot append to {path_display}: not a regular file")
+        return
+
     with open(path, "a", encoding="utf-8", newline=newline) as f:
         f.write(content)
+
+    # POST receives only the appended chunk, including any inserted separator,
+    # before the text stream translates newlines (not the whole resulting file).
+    yield from trigger_hook(
+        HookType.FILE_SAVE_POST,
+        log=None,
+        workspace=None,
+        path=path,
+        content=content,
+        created=created,
+    )
     yield Message("system", f"Appended to {path_with_tilde(path_display)}")
 
 
@@ -376,10 +418,12 @@ def _validate_and_execute(
     """Common validation and execution logic for save and append operations."""
     # Get content from kwargs if available (tool format), otherwise use code (markdown format)
     content = kwargs.get("content") if kwargs else None
-    if not content:
+    if content is None:
         content = code
 
-    if not content:
+    # Empty saves deliberately create/truncate zero-byte files. Empty appends
+    # remain rejected rather than unexpectedly adding a newline.
+    if not isinstance(content, str) or (operation == "append" and not content):
         yield Message("system", "No content provided")
         return
 

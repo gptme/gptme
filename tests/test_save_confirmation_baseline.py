@@ -8,8 +8,9 @@ from gptme.hooks import ConfirmationResult
 from gptme.tools.save import execute_save
 
 
+@pytest.mark.parametrize("content", ["REPLACEMENT\n", ""])
 def test_save_preserves_confirmation_time_edit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
     target = tmp_path / "file.txt"
     target.write_text("BASELINE\n")
@@ -20,9 +21,7 @@ def test_save_preserves_confirmation_time_edit(
         return ConfirmationResult.confirm()
 
     monkeypatch.setattr("gptme.hooks.get_confirmation", confirm)
-    messages = list(
-        execute_save(None, None, {"path": str(target), "content": "REPLACEMENT\n"})
-    )
+    messages = list(execute_save(None, None, {"path": str(target), "content": content}))
     assert target.read_text() == "CONCURRENT\n"
     assert any("changed" in message.content.lower() for message in messages)
     assert not any("Saved to" in message.content for message in messages)
@@ -178,8 +177,9 @@ def test_save_baseline_controls(
 
 
 @pytest.mark.parametrize("boundary", ["pre_hook", "yielded_hook", "mkdir_confirm"])
+@pytest.mark.parametrize("content", ["REPLACEMENT\n", ""])
 def test_save_revalidates_after_interactive_boundaries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str, content: str
 ) -> None:
     import gptme.hooks as hooks
     from gptme.hooks import HookType
@@ -215,7 +215,7 @@ def test_save_revalidates_after_interactive_boundaries(
         return True
 
     monkeypatch.setattr(save, "confirm", mkdir_confirm)
-    operation = execute_save("REPLACEMENT\n", [str(target)], None)
+    operation = execute_save(content, [str(target)], None)
     messages = []
     if boundary == "yielded_hook":
         messages.append(next(operation))

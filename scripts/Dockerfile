@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install the resolver/build frontend (poetry-core remains the build backend).
+# Install the resolver/build frontend (Hatchling is the build backend).
 RUN pip install --no-cache-dir uv
 
 # Copy files needed for building wheel

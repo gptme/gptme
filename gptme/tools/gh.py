@@ -11,7 +11,8 @@ Native operations that materially help:
 - ``pr view``    — combines PR body, comments, review-thread resolution, CI,
                     and mergeability in one call
 - ``pr status``  — structured check-run summary with actionable run IDs
-- ``pr checks``  — polls CI until completion with live progress updates
+- ``pr checks``  — polls CI until a failure, completion, or the foreground
+                    wait budget, with live progress updates
 - ``pr merge``   — squash default, ``--match-head-commit`` guard, auto-merge
 - ``run view``   — extracts and structures failed log sections from CI runs
 
@@ -27,6 +28,8 @@ guards, or poll/wait for completion.
 
 import json
 import logging
+import math
+import os
 import re
 import shlex
 import shutil
@@ -52,6 +55,51 @@ def has_gh_tool() -> bool:
     return shutil.which("gh") is not None
 
 
+def _get_commit_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
+    """Collect a complete, consistent check-run listing or raise on partial data."""
+    runs: list[dict] = []
+    seen: set[int] = set()
+    total: int | None = None
+    page = 1
+    while True:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"/repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        data = json.loads(result.stdout)
+        if not isinstance(data, dict):
+            raise ValueError("Invalid check-run response")
+        count = data.get("total_count")
+        batch = data.get("check_runs")
+        if type(count) is not int or count < 0 or not isinstance(batch, list):
+            raise ValueError("Missing or invalid check-run count/list")
+        if total is None:
+            total = count
+        if count != total:
+            raise ValueError("Check-run total changed during pagination; retry")
+        for run in batch:
+            if not isinstance(run, dict) or type(run.get("id")) is not int:
+                raise ValueError("Invalid check-run entry")
+            if run["id"] in seen:
+                raise ValueError("Repeated check run during pagination; retry")
+            seen.add(run["id"])
+            runs.append(run)
+        if len(runs) > total:
+            raise ValueError("Check-run listing exceeds reported total")
+        if len(runs) == total:
+            return runs
+        if not batch:
+            raise ValueError("Incomplete check-run listing: empty page before total")
+        page += 1
+
+
 def _get_pr_check_runs(
     owner: str, repo: str, pr_number: int
 ) -> tuple[str | None, list | None, str | None]:
@@ -75,17 +123,7 @@ def _get_pr_check_runs(
         if not head_sha:
             return None, None, "Could not get HEAD commit SHA"
 
-        # Get check runs for the commit
-        check_runs_result = subprocess.run(
-            ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-
-        check_runs_data = json.loads(check_runs_result.stdout)
-        check_runs = check_runs_data.get("check_runs", [])
+        check_runs = _get_commit_check_runs(owner, repo, head_sha)
 
         return head_sha, check_runs, None
 
@@ -93,7 +131,7 @@ def _get_pr_check_runs(
         return None, None, "GitHub API call timed out after 30s"
     except subprocess.CalledProcessError as e:
         return None, None, f"Failed to fetch check status: {e}"
-    except (json.JSONDecodeError, KeyError) as e:
+    except (ValueError, KeyError) as e:
         return None, None, f"Failed to parse check data: {e}"
 
 
@@ -123,10 +161,68 @@ def _failed_check_reference(run: dict) -> str:
     return f"{name} — {url}" if url else name
 
 
+_CHECKS_FOREGROUND_TIMEOUT_DEFAULT = 60.0
+_CHECKS_FOREGROUND_TIMEOUT_ENV = "GPTME_GH_CHECKS_TIMEOUT"
+
+
+def _get_checks_timeout() -> float:
+    """Return the foreground wait budget for ``pr checks``, in seconds.
+
+    Default is 60s so the tool can return a failure or a still-pending snapshot
+    without pinning the conversation for 30 minutes. Set
+    ``GPTME_GH_CHECKS_TIMEOUT=0`` to return after the first poll. Invalid
+    values fall back to the default.
+    """
+    raw = os.environ.get(
+        _CHECKS_FOREGROUND_TIMEOUT_ENV, str(_CHECKS_FOREGROUND_TIMEOUT_DEFAULT)
+    )
+    try:
+        timeout = float(raw)
+        if not math.isfinite(timeout) or timeout < 0:
+            raise ValueError
+    except ValueError:
+        logger.warning(
+            "Invalid %s value: %s, using %gs",
+            _CHECKS_FOREGROUND_TIMEOUT_ENV,
+            raw,
+            _CHECKS_FOREGROUND_TIMEOUT_DEFAULT,
+        )
+        return _CHECKS_FOREGROUND_TIMEOUT_DEFAULT
+    return timeout
+
+
+def _format_still_running(names: list[str]) -> str:
+    """Summarize checks that have not finished yet."""
+    if not names:
+        return ""
+    shown = ", ".join(names[:3])
+    extra = len(names) - 3
+    if extra > 0:
+        shown = f"{shown} and {extra} more"
+    return f"\nStill running: {shown}\n"
+
+
+def _pending_timeout_message(
+    max_wait: float,
+    in_progress: int,
+    status_parts: list[str],
+    in_progress_runs: list[str],
+) -> Message:
+    """Foreground-budget snapshot so the caller can stop waiting."""
+    timeout_msg = (
+        f"\n⏱️ Stopped waiting after {max_wait:g}s with "
+        f"{in_progress} checks still running.\n"
+    )
+    if status_parts:
+        timeout_msg += f"{', '.join(status_parts)}\n"
+    timeout_msg += _format_still_running(in_progress_runs)
+    return Message("system", timeout_msg)
+
+
 def _wait_for_checks(
     owner: str, repo: str, url: str, commit_sha: str | None = None
 ) -> Generator[Message, None, None]:
-    """Wait for all GitHub Actions checks to complete on a PR or commit."""
+    """Wait until checks fail, complete, or the foreground wait budget elapses."""
     logger = logging.getLogger(__name__)
 
     # Use provided commit SHA or get from PR
@@ -162,32 +258,17 @@ def _wait_for_checks(
 
     previous_status = None
     poll_interval = 10  # seconds
-    max_wait = 30 * 60  # 30 minutes
+    max_wait = _get_checks_timeout()
     start_time = time.time()
 
     while True:
-        if time.time() - start_time > max_wait:
-            yield Message(
-                "system",
-                f"\n⏱️ Timed out after {max_wait // 60} minutes waiting for checks to complete.\n",
-            )
-            return
-
         # Get check runs for the original commit directly
         try:
-            check_runs_result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            check_runs_data = json.loads(check_runs_result.stdout)
-            check_runs = check_runs_data.get("check_runs", [])
+            check_runs = _get_commit_check_runs(owner, repo, head_sha)
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
-            json.JSONDecodeError,
+            ValueError,
             KeyError,
         ) as e:
             yield Message("system", f"Error fetching checks: {e}")
@@ -197,7 +278,7 @@ def _wait_for_checks(
             yield Message("system", f"No checks found for commit {head_sha[:7]}")
             return
 
-        # Group by status and conclusion, track failed runs
+        # Group by status and conclusion, track failed and still-running checks
         status_counts = {
             "success": 0,
             "failure": 0,
@@ -208,6 +289,7 @@ def _wait_for_checks(
         }
 
         failed_runs = []
+        in_progress_runs: list[str] = []
 
         for run in check_runs:
             state = _check_run_state(run)
@@ -215,6 +297,8 @@ def _wait_for_checks(
             # Preserve the original reason and the correct CI service reference.
             if state == "failure":
                 failed_runs.append(_failed_check_reference(run))
+            elif state == "in_progress":
+                in_progress_runs.append(str(run.get("name", "Unknown")))
 
             status_counts[state] += 1
 
@@ -229,41 +313,50 @@ def _wait_for_checks(
             "neutral": status_counts["neutral"],
         }
 
+        status_parts = []
+        if current_status["success"] > 0:
+            status_parts.append(f"✅ {current_status['success']} passed")
+        if current_status["failure"] > 0:
+            status_parts.append(f"❌ {current_status['failure']} failed")
+        if current_status["cancelled"] > 0:
+            status_parts.append(f"🚫 {current_status['cancelled']} cancelled")
+        if current_status["skipped"] > 0:
+            status_parts.append(f"⏭️ {current_status['skipped']} skipped")
+        if current_status["neutral"] > 0:
+            status_parts.append(f"➖ {current_status['neutral']} neutral")
+        if current_status["in_progress"] > 0:
+            status_parts.append(f"🔄 {current_status['in_progress']} in progress")
+
         # Show update if status changed
         if current_status != previous_status:
-            status_parts = []
-            if current_status["success"] > 0:
-                status_parts.append(f"✅ {current_status['success']} passed")
-            if current_status["failure"] > 0:
-                status_parts.append(f"❌ {current_status['failure']} failed")
-            if current_status["cancelled"] > 0:
-                status_parts.append(f"🚫 {current_status['cancelled']} cancelled")
-            if current_status["skipped"] > 0:
-                status_parts.append(f"⏭️ {current_status['skipped']} skipped")
-            if current_status["neutral"] > 0:
-                status_parts.append(f"➖ {current_status['neutral']} neutral")
-            if current_status["in_progress"] > 0:
-                status_parts.append(f"🔄 {current_status['in_progress']} in progress")
-
             yield Message(
                 "system",
                 f"[{time.strftime('%H:%M:%S')}] {', '.join(status_parts)}\n",
             )
             previous_status = current_status
 
-        # Check if all checks are done
+        # Return as soon as a failure is known, even if other jobs are pending.
+        if current_status["failure"] > 0:
+            failure_msg = (
+                f"\n❌ Checks failed: {current_status['failure']} failed, "
+                f"{current_status['success']} passed"
+            )
+            if current_status["in_progress"] > 0:
+                failure_msg += f", {current_status['in_progress']} still running"
+            failure_msg += "\n"
+
+            if failed_runs:
+                failure_msg += "\nFailed runs:\n"
+                for reference in failed_runs:
+                    failure_msg += f"  - {reference}\n"
+
+            failure_msg += _format_still_running(in_progress_runs)
+            yield Message("system", failure_msg)
+            return
+
+        # Check if all remaining checks are done
         if current_status["in_progress"] == 0:
-            # All checks complete
-            if current_status["failure"] > 0:
-                failure_msg = f"\n❌ Checks failed: {current_status['failure']} failed, {current_status['success']} passed\n"
-
-                if failed_runs:
-                    failure_msg += "\nFailed runs:\n"
-                    for reference in failed_runs:
-                        failure_msg += f"  - {reference}\n"
-
-                yield Message("system", failure_msg)
-            elif current_status["cancelled"] > 0:
+            if current_status["cancelled"] > 0:
                 yield Message(
                     "system",
                     f"\n🚫 Checks cancelled: {current_status['cancelled']} cancelled, {current_status['success']} passed\n",
@@ -281,8 +374,28 @@ def _wait_for_checks(
                 )
             return
 
-        # Wait before next poll
-        time.sleep(poll_interval)
+        remaining = max_wait - (time.time() - start_time)
+        if remaining <= 0:
+            yield _pending_timeout_message(
+                max_wait,
+                current_status["in_progress"],
+                status_parts,
+                in_progress_runs,
+            )
+            return
+
+        # Wait before next poll, without overshooting the foreground budget
+        time.sleep(min(poll_interval, remaining))
+        # Do not start another API poll after the budget is gone; a check-run
+        # listing can take up to 30s per page.
+        if time.time() - start_time >= max_wait:
+            yield _pending_timeout_message(
+                max_wait,
+                current_status["in_progress"],
+                status_parts,
+                in_progress_runs,
+            )
+            return
 
 
 def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> str:
@@ -397,21 +510,13 @@ def _handle_pr_status(
 
     if commit_sha:
         try:
-            result = subprocess.run(
-                ["gh", "api", f"/repos/{owner}/{repo}/commits/{commit_sha}/check-runs"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-            data = json.loads(result.stdout)
+            check_runs = _get_commit_check_runs(owner, repo, commit_sha)
             head_sha = commit_sha
-            check_runs = data.get("check_runs", [])
             error = None
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
-            json.JSONDecodeError,
+            ValueError,
             KeyError,
         ) as e:
             error = f"Failed to fetch checks: {e}"
@@ -441,7 +546,48 @@ def _handle_pr_merge(
     args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Generator[Message, None, None]:
     """Handle `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]`."""
-    info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
+    # A structured caller may provide its reference through the separate url
+    # parameter, leaving options (rather than a reference) at index 2.
+    has_ref = bool(args and len(args) > 2 and not args[2].startswith("-"))
+    flags = args[3 if has_ref else 2 :] if args else []
+    method: str | None = None
+    auto = False
+    delete_branch = False
+    match_head: str | None = None
+
+    i = 0
+    while i < len(flags):
+        arg = flags[i]
+        if arg in ("--squash", "--rebase", "--merge"):
+            if method is not None and method != arg[2:]:
+                yield Message("system", "Error: Conflicting merge methods")
+                return
+            method = arg[2:]
+        elif arg == "--auto":
+            auto = True
+        elif arg == "--delete-branch":
+            delete_branch = True
+        elif arg == "--match-head-commit" or arg.startswith("--match-head-commit="):
+            if match_head is not None:
+                yield Message("system", "Error: Repeated --match-head-commit guard")
+                return
+            if arg == "--match-head-commit":
+                i += 1
+                value = flags[i] if i < len(flags) else ""
+            else:
+                value = arg.split("=", 1)[1]
+            if not value.strip() or value.startswith("-"):
+                yield Message(
+                    "system", "Error: --match-head-commit requires a SHA value"
+                )
+                return
+            match_head = value
+        else:
+            yield Message("system", f"Error: Unsupported merge argument: {arg}")
+            return
+        i += 1
+
+    info, err = _resolve_ref(args if has_ref else None, kwargs, "pull", "PR reference")
     if err:
         yield err
         return
@@ -451,40 +597,11 @@ def _handle_pr_merge(
     owner = info["owner"]
     repo = info["repo"]
 
-    # Parse flags from remaining args (index 3+)
-    # Boolean flags (no value): --squash, --rebase, --merge, --auto, --delete-branch
-    # Value flags: --match-head-commit SHA
-    method = "squash"  # Default
-    auto = False
-    delete_branch = False
-    match_head: str | None = None
-
-    if args:
-        i = 3
-        while i < len(args):
-            arg = args[i]
-            if arg in ("--squash", "--rebase", "--merge"):
-                method = arg[2:]
-            elif arg == "--auto":
-                auto = True
-            elif arg == "--delete-branch":
-                delete_branch = True
-            elif arg == "--match-head-commit":
-                if i + 1 < len(args):
-                    match_head = args[i + 1]
-                    i += 1
-                else:
-                    yield Message(
-                        "system", "Error: --match-head-commit requires a SHA value"
-                    )
-                    return
-            i += 1
-
     result = merge_github_pr(
         owner,
         repo,
         pr_number,
-        method=method,
+        method=method or "squash",
         auto=auto,
         delete_branch=delete_branch,
         match_head_commit=match_head,
@@ -764,7 +881,7 @@ Native paths help avoid hallucination:
 - `gh issue view <ref>` gets issue body and comments in one result
 - `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
 - `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
-- `gh pr checks <ref> [commit_sha]` waits for checks to settle
+- `gh pr checks <ref> [commit_sha]` waits until a check fails, all checks complete, or the 60s foreground wait budget is reached
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
 

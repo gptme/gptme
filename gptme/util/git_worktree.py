@@ -5,12 +5,13 @@ of the repository without interfering with the parent's working directory.
 """
 
 import logging
+import re
 import shutil
 import subprocess
 import uuid
 from pathlib import Path
 
-from .git_cmd import GIT_CMD
+from .git_cmd import GIT_CMD, git_inspect_cmd
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +29,21 @@ def has_changes(worktree_path: Path) -> bool:
         worktree_path: Path to the worktree to inspect.
 
     Returns:
-        True if the worktree has any local changes, False if it is identical
-        to the commit it was created from.
+        True if changed or inspection cannot establish cleanliness. False only
+        for a clean worktree with a known branch-creation baseline. This does
+        not change cleanup's directory-removal policy or recover dirty files.
     """
     try:
         # 1. Uncommitted changes (staged or unstaged)
         result = subprocess.run(
-            [GIT_CMD, "status", "--porcelain"],
+            [*git_inspect_cmd(), "status", "--porcelain"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
             check=False,
             timeout=10,
         )
-        if result.returncode == 0 and result.stdout.strip():
+        if result.returncode != 0 or result.stdout:
             return True
 
         # 2. Committed changes: find commits in the worktree branch that are
@@ -51,7 +53,7 @@ def has_changes(worktree_path: Path) -> bool:
         # git reflog show <branch> lists entries newest-first; the last entry
         # is the creation point. If HEAD != that initial SHA, commits exist.
         branch_r = subprocess.run(
-            [GIT_CMD, "rev-parse", "--abbrev-ref", "HEAD"],
+            [*git_inspect_cmd(), "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
@@ -59,39 +61,48 @@ def has_changes(worktree_path: Path) -> bool:
             timeout=10,
         )
         if branch_r.returncode != 0:
-            return False
+            return True
 
-        branch = branch_r.stdout.strip()
-        if branch in ("HEAD", ""):
-            # Detached HEAD — can't use branch reflog
-            return False
+        branch = branch_r.stdout.removesuffix("\n")
+        if (
+            not branch
+            or branch == "HEAD"
+            or branch.startswith("-")
+            or any(char.isspace() or ord(char) < 32 for char in branch)
+        ):
+            # Detached, missing or malformed branch: no known creation point.
+            return True
 
         reflog_r = subprocess.run(
-            [GIT_CMD, "reflog", "show", "--format=%H", branch],
+            [*git_inspect_cmd(), "reflog", "show", "--format=%H", branch],
             cwd=worktree_path,
             capture_output=True,
             text=True,
             check=False,
             timeout=10,
         )
-        if reflog_r.returncode == 0:
-            shas = [
-                line.strip() for line in reflog_r.stdout.splitlines() if line.strip()
-            ]
-            if shas:
-                creation_sha = shas[-1]  # oldest reflog entry = creation point
-                ahead_r = subprocess.run(
-                    [GIT_CMD, "rev-list", "--count", f"{creation_sha}..HEAD"],
-                    cwd=worktree_path,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=10,
-                )
-                if ahead_r.returncode == 0 and int(ahead_r.stdout.strip() or "0") > 0:
-                    return True
-
-        return False
+        if reflog_r.returncode != 0:
+            return True
+        shas = reflog_r.stdout.splitlines()
+        if not shas or any(
+            re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", sha) is None for sha in shas
+        ):
+            return True
+        creation_sha = shas[-1]  # oldest reflog entry = creation point
+        ahead_r = subprocess.run(
+            [*git_inspect_cmd(), "rev-list", "--count", f"{creation_sha}..HEAD"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if ahead_r.returncode != 0:
+            return True
+        count = ahead_r.stdout.removesuffix("\n")
+        if re.fullmatch(r"[0-9]+", count) is None:
+            return True
+        return count.lstrip("0") != ""
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         # On error, assume changes exist (safe default: don't lose modified work)
         return True
@@ -108,7 +119,7 @@ def get_git_root(path: Path | None = None) -> Path | None:
     """
     try:
         result = subprocess.run(
-            [GIT_CMD, "rev-parse", "--show-toplevel"],
+            [*git_inspect_cmd(), "rev-parse", "--show-toplevel"],
             check=False,
             capture_output=True,
             text=True,
@@ -125,7 +136,7 @@ def get_git_root(path: Path | None = None) -> Path | None:
 def _worktree_branch_marker(worktree_path: Path) -> Path:
     """Locate gptme's ownership marker in the worktree's Git admin directory."""
     result = subprocess.run(
-        [GIT_CMD, "rev-parse", "--absolute-git-dir"],
+        [*git_inspect_cmd(), "rev-parse", "--absolute-git-dir"],
         cwd=worktree_path,
         capture_output=True,
         text=True,

@@ -539,7 +539,7 @@ def memory_audit(scope: str | None, quiet: bool):
     "--skip-existing/--no-skip-existing",
     default=True,
     show_default=True,
-    help="Skip entries whose slugified name already exists in the store.",
+    help="Skip source identities already migrated into the destination root.",
 )
 def memory_migrate_knowledge_jsonl(
     jsonl_path: str | None,
@@ -556,6 +556,13 @@ def memory_migrate_knowledge_jsonl(
     type-aware section headings (entry_type is preserved in provenance),
     and existing tags and keywords are preserved as memory keywords.
 
+    Names are allocated within the physical destination root. Full source IDs
+    match existing migration provenance; colliding names get checked suffixes.
+    Missing IDs use canonical record content, so identical anonymous records are
+    one identity. Old anonymous migrations without identity provenance may get
+    a new copy on their first rerun; unrelated existing files are never adopted
+    by name alone. --no-skip-existing updates only the matching source identity.
+
     After migration, ``gptme-util knowledge`` commands still work against the
     original JSONL; retire it once you are satisfied with the migrated entries.
 
@@ -565,13 +572,19 @@ def memory_migrate_knowledge_jsonl(
         gptme-util memory migrate-knowledge-jsonl --dry-run
         gptme-util memory migrate-knowledge-jsonl --scope user
     """
+    import hashlib
     import json as _json
     from pathlib import Path as _Path
     from textwrap import shorten as _shorten
 
     from ..dirs import get_data_dir  # fmt: skip
     from ..knowledge import _ENTRY_TYPE_LABELS  # fmt: skip
-    from ..memory.schema import MemoryParseError, slugify  # fmt: skip
+    from ..memory.schema import (  # fmt: skip
+        MemoryParseError,
+        is_index_file,
+        parse_entry,
+        slugify,
+    )
 
     if jsonl_path is None:
         source = get_data_dir() / "knowledge" / "entries.jsonl"
@@ -600,8 +613,36 @@ def memory_migrate_knowledge_jsonl(
         sys.exit(0)
 
     store = _store()
+    # Reads must use the same physical root as save, not the layered read union
+    # (even multiple explicit roots can have the same scope).
+    try:
+        target = type(store)([store.root(scope)])
+    except KeyError as e:
+        raise click.ClickException(str(e)) from e
+    # Retrieval deduplicates frontmatter names, even within a single root. Only
+    # physical filenames can establish which destinations are already occupied.
+    root = target.root(scope)
+    existing = set()
+    identities: dict[str, str] = {}
+    for path in sorted(root.path.glob("*.md")):
+        existing.add(path.stem)
+        if is_index_file(path):
+            continue
+        try:
+            entry = parse_entry(path, scope=root.scope)
+        except (MemoryParseError, OSError, UnicodeDecodeError):
+            continue  # Unparseable files remain occupied, never overwrite them.
+        previous_provenance = entry.metadata.get("provenance", {})
+        if not isinstance(previous_provenance, dict):
+            continue
+        if previous_provenance.get("source") == "knowledge-jsonl":
+            identity = previous_provenance.get("migration_identity")
+            if not identity and previous_provenance.get("original_id"):
+                identity = "id:" + str(previous_provenance["original_id"])
+            if isinstance(identity, str) and identity:
+                identities.setdefault(identity, path.stem)
+    claimed = set(existing)
     migrated = skipped = errors = 0
-    _seen_names: set[str] = set()
 
     for obj in entries:
         problem: str = obj["problem"]
@@ -620,20 +661,30 @@ def memory_migrate_knowledge_jsonl(
         # Combine tags and keywords, deduplicate
         all_keywords = list(dict.fromkeys(tags + keywords))
 
-        # Build a slug from the problem text; append an ID suffix to avoid
-        # collisions when two entries share similar problem text.
-        slug_source = problem[:80]
-        name = slugify(slug_source)
-        if not name:
-            name = f"knowledge-{original_id[:8]}" if original_id else "knowledge-entry"
-        # Detect slug collision: if this name is already claimed by a *different*
-        # in-progress entry (tracked below), append the entry's ID suffix.
-        if name in _seen_names:
-            suffix = (
-                original_id[:8] if original_id else str(migrated + skipped + errors)
-            )
-            name = f"{name}-{suffix}"
-        _seen_names.add(name)
+        # Missing IDs use canonical record content; identical anonymous records
+        # are one identity. Preserve IDs in provenance, never truncate them for
+        # identity comparisons. Reuse published names across reordered reruns.
+        identity = (
+            "id:" + str(original_id)
+            if original_id
+            else "content:"
+            + hashlib.sha256(
+                _json.dumps(obj, sort_keys=True, ensure_ascii=True).encode()
+            ).hexdigest()
+        )
+        name = identities.get(identity)
+        if name is None:
+            base = slugify(problem[:80])
+            if base.startswith("memory"):
+                base = "knowledge-" + base
+            name = base
+            suffix = hashlib.sha256(identity.encode()).hexdigest()[:16]
+            attempt = 0
+            while name in claimed:
+                attempt += 1
+                name = f"{base}-{suffix}" + (f"-{attempt}" if attempt > 1 else "")
+            claimed.add(name)
+            identities[identity] = name
 
         description = _shorten(problem, width=120, placeholder="…")
 
@@ -646,7 +697,7 @@ def memory_migrate_knowledge_jsonl(
             f"## {primary_label}\n\n{problem}\n\n## {secondary_label}\n\n{resolution}\n"
         )
 
-        provenance: dict = {"source": "knowledge-jsonl"}
+        provenance: dict = {"source": "knowledge-jsonl", "migration_identity": identity}
         if entry_type != "problem_resolution":
             provenance["original_entry_type"] = entry_type
         if original_id:
@@ -654,7 +705,7 @@ def memory_migrate_knowledge_jsonl(
         if created_at:
             provenance["migrated_from_created_at"] = created_at
 
-        if skip_existing and store.get(name) is not None:
+        if skip_existing and name in existing:
             if dry_run:
                 click.echo(f"  would skip (exists): {name!r}", err=True)
             else:
@@ -662,13 +713,23 @@ def memory_migrate_knowledge_jsonl(
             skipped += 1
             continue
 
+        # save() normalizes names again. Never redirect a recovered filename
+        # onto a different physical entry during --no-skip-existing updates.
+        if slugify(name) != name:
+            click.echo(
+                f"  error ({name!r}): noncanonical destination filename", err=True
+            )
+            errors += 1
+            continue
+
         if dry_run:
             click.echo(f"  would migrate: {name!r} ({len(all_keywords)} keyword(s))")
+            existing.add(name)
             migrated += 1
             continue
 
         try:
-            store.save(
+            target.save(
                 name,
                 description,
                 body,
@@ -677,6 +738,7 @@ def memory_migrate_knowledge_jsonl(
                 keywords=all_keywords or None,
                 metadata={"provenance": provenance},
             )
+            existing.add(name)
             click.echo(f"  migrated: {name!r}")
             migrated += 1
         except (KeyError, OSError, ValueError, MemoryParseError) as e:

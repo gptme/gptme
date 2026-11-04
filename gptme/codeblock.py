@@ -1,4 +1,5 @@
 import re
+from bisect import bisect_left
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
@@ -342,6 +343,402 @@ def _scan_ipython_triple_quote(
     return in_triple_double, in_triple_single, in_single, in_double
 
 
+def _is_valid_lang_tag(potential_lang: str) -> bool:
+    return bool(potential_lang) and (
+        potential_lang[0].isalnum() or potential_lang[0] in "_/.~"
+    )
+
+
+def _is_thinking_lang(lang: str) -> bool:
+    """True for thinking-section language tags, including Gemini's `thinking>`."""
+    token = lang.strip().rstrip(">")
+    first = token.split()[0] if token else ""
+    return first in ("thinking", "think")
+
+
+# Languages where a bare fence at depth 1 is never a nested opener.
+# Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
+# only produces false positives (swallowing prose + output blocks into
+# the command). See gptme/gptme#3697.
+_EXEC_LANGS = frozenset(
+    {"shell", "sh", "bash", "zsh", "fish", "ksh", "nu", "ps1", "powershell", "ipython"}
+)
+# Shell languages that support heredoc syntax (``<<``). IPython/Python's
+# ``<<`` is always the bitwise left-shift operator — there is no heredoc
+# syntax in Python — so ipython is excluded from heredoc state tracking.
+_SHELL_LANGS = _EXEC_LANGS - {"ipython"}
+
+
+def _line_fence_states(
+    text: str, streaming: bool = False
+) -> list[tuple[int, bool, str]]:
+    """Per-line fence state matching `_extract_codeblocks` recovery rules.
+
+    Each entry is `(content_depth, is_fence_delimiter, outer_lang)`:
+    - `content_depth` is nesting depth of the line's payload (0 = outside any fence)
+    - `is_fence_delimiter` is True for open/close/recovery lines (skip tag checks)
+    - `outer_lang` is the current top-level fence language, or "" at depth 0
+
+    Replicates adjacent-fence recovery (` ``` ```lang` / ` ``````lang`) and
+    language-tagged nested openers so thinking-tag checks agree with extraction.
+    """
+    lines = text.split("\n")
+    # Suffix queries only need to know whether a tagged fence remains. Compute
+    # its last position once rather than rescanning for every literal example.
+    last_tagged_fence = next(
+        (
+            i
+            for i in range(len(lines) - 1, -1, -1)
+            if re.match(r"^`{3,}\s*[^`\s]", lines[i])
+        ),
+        -1,
+    )
+    # Index literal substring occurrences too: missing closers otherwise cause
+    # a full suffix scan for every unclosed thinking-tag example.
+    thinking_closer_lines = {
+        tag: [i for i, line in enumerate(lines) if tag in line]
+        for tag in ("</think>", "</thinking>")
+    }
+    # Prose can separate a completed tool fence from a reasoning opener.
+    # Index both boundaries so recovery need not rescan every remaining suffix.
+    thinking_opener_lines = [
+        i for i, line in enumerate(lines) if line.startswith(("<think>", "<thinking>"))
+    ]
+    fence_lines = [i for i, line in enumerate(lines) if line.startswith("```")]
+    states: list[tuple[int, bool, str]] = []
+    depth = 0
+    fence_len = 0
+    outer_lang = ""
+    ipy_td = ipy_ts = ipy_s = ipy_d = False
+    qs_single = qs_double = qs_ansi = False
+    heredoc_terminator: str | None = None
+    for i, line in enumerate(lines):
+        if depth == 0:
+            scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
+            fence_match = re.match(r"^(`{3,})", scan)
+            if fence_match:
+                fence_len = len(fence_match.group(1))
+                outer_lang = scan[fence_len:].strip()
+                states.append((0, True, ""))
+                depth = 1
+                ipy_td = ipy_ts = ipy_s = ipy_d = False
+                qs_single = qs_double = qs_ansi = False
+                heredoc_terminator = None
+                continue
+            states.append((0, False, ""))
+            continue
+
+        if depth == 1 and line.startswith("`" * fence_len):
+            rest = line[fence_len:]
+            if re.match(r"^`{3,}\S", rest):
+                rest_match = re.match(r"^(`{3,})", rest)
+                if not rest_match:
+                    states.append((1, False, outer_lang))
+                    continue
+                states.append((1, True, outer_lang))
+                fence_len = len(rest_match.group(1))
+                outer_lang = rest[fence_len:].strip()
+                depth = 1
+                ipy_td = ipy_ts = ipy_s = ipy_d = False
+                qs_single = qs_double = qs_ansi = False
+                heredoc_terminator = None
+                continue
+            if rest.startswith(("<think>", "<thinking>")):
+                states.append((1, True, outer_lang))
+                depth = 0
+                fence_len = 0
+                outer_lang = ""
+                continue
+
+        # Carry exactly the same shell/Python string state as extraction. In
+        # particular, heredoc body quotes do not change the outer shell state.
+        if outer_lang in _SHELL_LANGS:
+            if heredoc_terminator is None:
+                candidate, qs_single, qs_double, qs_ansi = _find_heredoc_terminator(
+                    line, qs_single, qs_double, qs_ansi
+                )
+                if candidate is not None and any(
+                    later.strip() == candidate for later in lines[i + 1 : i + 201]
+                ):
+                    heredoc_terminator = candidate
+            elif line.strip() == heredoc_terminator:
+                heredoc_terminator = None
+                qs_single = qs_double = qs_ansi = False
+        elif outer_lang == "ipython":
+            ipy_td, ipy_ts, ipy_s, ipy_d = _scan_ipython_triple_quote(
+                line, ipy_td, ipy_ts, ipy_s, ipy_d
+            )
+
+        line_fence_match = re.match(r"^(`{3,})", line)
+        if line_fence_match:
+            line_fence_len = len(line_fence_match.group(1))
+            is_bare_fence = line.strip() == "`" * line_fence_len
+            is_outer_close = is_bare_fence and line_fence_len == fence_len
+            if is_outer_close or (is_bare_fence and depth > 1):
+                if qs_single or qs_double or qs_ansi or ipy_td or ipy_ts:
+                    states.append((depth, False, outer_lang))
+                    continue
+                next_has_content = i + 1 < len(lines) and bool(lines[i + 1].strip())
+                next_is_fence = i + 1 < len(lines) and bool(
+                    re.match(r"^`{3,}", lines[i + 1])
+                )
+                if (
+                    depth == 1
+                    and next_has_content
+                    and not next_is_fence
+                    and (
+                        outer_lang not in _EXEC_LANGS or heredoc_terminator is not None
+                    )
+                ):
+                    # Match extraction's bounded nested-fence lookahead. Without
+                    # a confirmed inner closer, non-streaming keeps this fence
+                    # literal; streaming conservatively opens another level.
+                    has_closing_fence = False
+                    has_following_tagged_fence = False
+                    nested_closer_idx: int | None = None
+                    for j in range(i + 1, min(i + 20, len(lines))):
+                        if re.match(r"^(`{3,})$", lines[j].strip()):
+                            nested_closer_idx = j
+                            has_closing_fence = any(
+                                lines[k].strip()
+                                for k in range(j + 1, min(j + 5, len(lines)))
+                            )
+                            break
+                        if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
+                            has_following_tagged_fence = True
+                            break
+                    states.append((depth, True, outer_lang))
+                    next_line = lines[i + 1]
+                    opener_pos = bisect_left(thinking_opener_lines, i + 1)
+                    fence_pos = bisect_left(fence_lines, i + 1)
+                    if opener_pos < len(thinking_opener_lines):
+                        opener_line = lines[thinking_opener_lines[opener_pos]]
+                        opener_close = (
+                            "</thinking>"
+                            if opener_line.startswith("<thinking>")
+                            else "</think>"
+                        )
+                        # Intervening output/example fences must not hide an
+                        # unfinished reasoning opener from the fail-closed path.
+                        if (
+                            fence_pos == len(fence_lines)
+                            or thinking_opener_lines[opener_pos]
+                            < fence_lines[fence_pos]
+                            or bisect_left(
+                                thinking_closer_lines[opener_close],
+                                thinking_opener_lines[opener_pos],
+                            )
+                            == len(thinking_closer_lines[opener_close])
+                        ):
+                            next_line = opener_line
+                    if heredoc_terminator is None and next_line.startswith(
+                        ("<think>", "<thinking>")
+                    ):
+                        # Heredoc payload tags are literal shell content, not
+                        # evidence that the preceding tool fence has closed.
+                        # Only this branch reads `nested_example_continues`.
+                        # Scanning the remaining suffix on every bare fence
+                        # made large Markdown quadratic even when no thinking
+                        # tags were present.
+                        nested_example_continues = False
+                        if nested_closer_idx is not None:
+                            # A later tagged fence after the nested closer is a
+                            # tool call. That shape is also unfinished reasoning
+                            # after a completed save (`Considering:` then ```draft
+                            # then ```shell): unlabelled content between the tag
+                            # and nested fence cannot tell those apart, so fail
+                            # closed. Nested unclosed-think saves still extract
+                            # when no later tagged command follows. Search the
+                            # rest of the message, not a 4-line window: blank
+                            # lines between the nested closer and a later
+                            # ```shell would otherwise hide the command.
+                            nested_example_continues = (
+                                last_tagged_fence <= nested_closer_idx
+                            )
+                        start_tag = (
+                            "<thinking>"
+                            if next_line.startswith("<thinking>")
+                            else "<think>"
+                        )
+                        close_tag = start_tag.replace("<", "</")
+                        closer_lines = thinking_closer_lines[close_tag]
+                        closer_pos = bisect_left(closer_lines, i + 1)
+                        thinking_closer_idx = (
+                            closer_lines[closer_pos]
+                            if closer_pos < len(closer_lines)
+                            else None
+                        )
+                        thinking_closed = thinking_closer_idx is not None
+                        # A tagged fence can itself be inside a literal nested
+                        # example. Confirm the unlabelled example's closer after
+                        # the thinking span instead of truncating the outer save
+                        # at its opener merely because lookahead hit ```shell.
+                        if thinking_closer_idx is not None:
+                            after_thinking = bisect_left(
+                                fence_lines, thinking_closer_idx + 1
+                            )
+                            if after_thinking < len(fence_lines):
+                                example_close = fence_lines[after_thinking]
+                                if (
+                                    re.fullmatch(r"`{3,}", lines[example_close])
+                                    and example_close + 1 < len(lines)
+                                    and lines[example_close + 1].strip()
+                                    and not lines[example_close + 1].startswith("```")
+                                ):
+                                    has_closing_fence = True
+                                    nested_example_continues = True
+                        # A bare fence *before* the reasoning closer belongs
+                        # to reasoning, not a literal example beginning with
+                        # thinking tags. A later tagged tool confirms that the
+                        # preceding save ended; otherwise keep nested examples.
+                        reasoning_contains_fence = (
+                            nested_closer_idx is not None
+                            and thinking_closer_idx is not None
+                            and nested_closer_idx < thinking_closer_idx
+                        )
+                        # Unclosed reasoning after this fence means the tool
+                        # block completed — nested unlabelled examples close
+                        # their thinking tags because those tags are content.
+                        # An unclosed opener as the first nested-example line
+                        # still continues the save when lookahead finds a
+                        # nested closer and no later tagged command.
+                        # During streaming, closed tags alone cannot distinguish
+                        # reasoning from a still-growing literal nested example.
+                        # Wait for a following tagged fence before recovering a
+                        # completed tool block; never execute a truncated save.
+                        if (
+                            streaming
+                            and thinking_closer_idx is not None
+                            and has_following_tagged_fence
+                            and fence_pos < len(fence_lines)
+                            and fence_lines[fence_pos] < thinking_closer_idx
+                            and not has_closing_fence
+                        ):
+                            # A growing literal example may not have emitted
+                            # its closing fence yet. Do not expose a prefix save.
+                            depth += 1
+                        elif (
+                            (not thinking_closed or reasoning_contains_fence)
+                            and not nested_example_continues
+                        ) or (
+                            not has_closing_fence
+                            and (not streaming or has_following_tagged_fence)
+                        ):
+                            depth = 0
+                            fence_len = 0
+                            outer_lang = ""
+                        else:
+                            depth += 1
+                    elif has_closing_fence or streaming:
+                        depth += 1
+                    continue
+                if (
+                    depth == 1
+                    and streaming
+                    and (
+                        outer_lang not in _EXEC_LANGS or heredoc_terminator is not None
+                    )
+                    and not (i + 1 < len(lines) - 1 and not lines[i + 1].strip())
+                ):
+                    states.append((depth, True, outer_lang))
+                    depth += 1
+                    continue
+                states.append((depth, True, outer_lang))
+                depth -= 1
+                if depth == 0:
+                    fence_len = 0
+                    outer_lang = ""
+                continue
+            potential_lang = line[line_fence_len:].strip()
+            if _is_valid_lang_tag(potential_lang) and not (ipy_td or ipy_ts):
+                states.append((depth, True, outer_lang))
+                depth += 1
+                continue
+            states.append((depth, False, outer_lang))
+            continue
+
+        states.append((depth, False, outer_lang))
+    return states
+
+
+def _is_standalone_outside_fences(text: str, tag: str, streaming: bool = False) -> bool:
+    """
+    Return True if `tag` appears at the start of a line in `text` that is NOT inside a code fence.
+
+    Used to distinguish genuine thinking-section markers from the same tags appearing
+    as literal file content inside a save/patch code block. Fence tracking follows
+    `_extract_codeblocks` (adjacent-fence recovery and nested language tags).
+    """
+    if tag not in text:
+        return False
+    lines = text.split("\n")
+    for line, (depth, is_delim, _) in zip(
+        lines, _line_fence_states(text, streaming=streaming), strict=True
+    ):
+        if is_delim:
+            continue
+        if depth == 0 and line.startswith(tag):
+            return True
+    return False
+
+
+def _literal_thinking_closers(text: str, streaming: bool = False) -> set[int]:
+    """Offsets of closing thinking tags inside non-thinking code fences.
+
+    Compute all offsets in one pass so repeated literal tags in templates do
+    not each rescan the whole message during streaming extraction.
+
+    A closer that appears after a genuine standalone thinking opener is still
+    a thinking-section end even if a code fence opened *inside* that reasoning
+    and was never closed (Claude sometimes forgets to close those). Skipping
+    it would hide later tool blocks.
+    """
+    lines = text.split("\n")
+    states = _line_fence_states(text, streaming=streaming)
+    literal_closers: set[int] = set()
+    offset = 0
+    in_thinking = False
+    for line, (depth, is_delim, outer_lang) in zip(lines, states, strict=True):
+        if (
+            (not is_delim and depth == 0) or (is_delim and line.startswith("```"))
+        ) and line.lstrip("`").startswith(("<thinking>", "<think>")):
+            in_thinking = True
+        if not in_thinking and depth > 0 and not _is_thinking_lang(outer_lang):
+            literal_closers.update(
+                offset + match.start()
+                for match in re.finditer(r"</(?:thinking|think)>", line)
+            )
+        if in_thinking and re.search(r"</(?:thinking|think)>", line):
+            # Inline reasoning can open and close on the same line. A closer
+            # also ends reasoning whose inner code fence was left unclosed.
+            in_thinking = False
+        offset += len(line) + 1
+    return literal_closers
+
+
+def _unclosed_standalone_after(
+    text: str, after_pos: int, streaming: bool = False
+) -> bool:
+    """True if a fence-outside thinking opener after `after_pos` has no closer."""
+    # The closer ends reasoning even when its inner fence was left unclosed.
+    # Fence state from that reasoning must not hide openers in the new suffix.
+    text = text[after_pos:]
+    lines = text.split("\n")
+    states = _line_fence_states(text, streaming=streaming)
+    offset = 0
+    for line, (depth, is_delim, _) in zip(lines, states, strict=True):
+        line_start = offset
+        offset += len(line) + 1
+        if is_delim or depth != 0:
+            continue
+        for start_tag in ("<thinking>", "<think>"):
+            if line.startswith(start_tag):
+                close_tag = start_tag.replace("<", "</")
+                if close_tag not in text[line_start:]:
+                    return True
+    return False
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -377,82 +774,143 @@ def _extract_codeblocks(
     # appears in the prefix at all).  We must NOT strip when <think> appears only
     # concatenated with a fence closer (e.g. "```<think>") — that is handled later
     # by the inner-loop fence-recovery logic.
-    _concatenated_end_found = False
-    _concatenated_end_pos = -1
-    for _think_end_tag in ["</thinking>", "</think>"]:
-        _think_end = markdown.find(_think_end_tag)
-        if _think_end != -1:
-            _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
-            _prefix = markdown[:_think_end]
-            _has_standalone = bool(
-                re.search(r"(?:^|\n)" + re.escape(_think_start_tag), _prefix)
-            )
-            _has_any = _think_start_tag in _prefix
-            # Strip if standalone opening exists, or if there is no opening tag at
-            # all in the prefix (covers the Gemini "```thinking>" malformed case).
-            if _has_standalone or not _has_any:
-                # remove anything before and including the closing thinking tag
-                markdown = markdown[_think_end + len(_think_end_tag) :]
+    while True:
+        _concatenated_end_found = False
+        _concatenated_end_pos = -1
+        _stripped = False
+        _literal_closers = (
+            _literal_thinking_closers(markdown, streaming=streaming)
+            if "</think" in markdown
+            else set()
+        )
+        for _think_end_tag in ["</thinking>", "</think>"]:
+            _search_from = 0
+            while True:
+                _think_end = markdown.find(_think_end_tag, _search_from)
+                if _think_end == -1:
+                    break
+                # Literal closer inside save/patch/shell/etc. is file content, not a
+                # thinking-section end. Skip it and keep looking (Gemini `thinking>`
+                # fences are still actionable — they are thinking langs).
+                if _think_end in _literal_closers:
+                    _search_from = _think_end + 1
+                    continue
+                _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
+                # Use the complete message for fence lookahead, not a prefix
+                # truncated just before this closer. Keep tool calls preceding
+                # the opener when removing a later reasoning section.
+                _standalone_start = None
+                _concatenated_start = None
+                _gemini_fence_start = None
+                _has_any = False
+                _offset = 0
+                for _line, (_depth, _delim, _outer) in zip(
+                    markdown.split("\n"),
+                    _line_fence_states(markdown, streaming=streaming),
+                    strict=True,
+                ):
+                    if _offset >= _think_end:
+                        break
+                    # Only text before this closer can open it. A second
+                    # `<think>` after `</think>` on the same line is a new
+                    # section, not an opener preceding this closer.
+                    _line_before = _line[: max(0, _think_end - _offset)]
+                    _payload = _line_before.lstrip("`")
+                    _concat_here = _delim and _payload.startswith(_think_start_tag)
+                    if _think_start_tag in _line_before and (
+                        _depth == 0 or _is_thinking_lang(_outer) or _concat_here
+                    ):
+                        _has_any = True
+                    if _concat_here and _concatenated_start is None:
+                        # Keep the fence closer (` ``` `) and strip from the
+                        # thinking tag. Leaving the span in place lets fence
+                        # recovery split ```<think> and extract inner commands.
+                        _concatenated_start = (
+                            _offset + len(_line_before) - len(_payload)
+                        )
+                    if (
+                        not _delim
+                        and _depth == 0
+                        and _line.startswith(_think_start_tag)
+                    ):
+                        if _standalone_start is None:
+                            # Repeated openers are one span: keep the first.
+                            _standalone_start = _offset
+                    if _delim and _depth == 0:
+                        _fence_match = re.match(r"^(`{3,})", _line)
+                        if _fence_match and _is_thinking_lang(
+                            _line[len(_fence_match.group(1)) :].strip()
+                        ):
+                            _gemini_fence_start = _offset
+                    _offset += len(_line) + 1
+                _has_standalone = _standalone_start is not None
+                # Strip if standalone opening exists, concatenated ```<think>
+                # is closed, or there is no real opening tag outside literal
+                # file content (Gemini ```thinking>).
+                if _has_standalone or not _has_any or _concatenated_start is not None:
+                    # Ordinary reasoning removes only its own span. Concatenated
+                    # ```<think> keeps the fence closer. Gemini's ```thinking>
+                    # opener has no <thinking> tag; strip from that fence so a
+                    # prior save with literal tags survives.
+                    if _standalone_start is not None or _concatenated_start is not None:
+                        # Repeated openers form one span regardless of whether
+                        # the first opener was standalone or fence-concatenated.
+                        _start = min(
+                            pos
+                            for pos in (_standalone_start, _concatenated_start)
+                            if pos is not None
+                        )
+                    elif _gemini_fence_start is not None:
+                        _start = _gemini_fence_start
+                    else:
+                        _start = 0
+                    markdown = (
+                        markdown[:_start]
+                        + ("\n" if _start > 0 else "")
+                        + markdown[_think_end + len(_think_end_tag) :]
+                    )
+                    _stripped = True
+                    break
+                # Found </think> but didn't strip: opening was inline in prose,
+                # not a line-start or ```<think> fence. Inner-loop recovery
+                # still needs the closer position for unclosed-after checks.
+                # NOTE: if both </thinking> and </think> appear concatenated in the same message,
+                # _concatenated_end_pos is overwritten by the second iteration (the later position).
+                # This means the _after_concat scan misses standalone think blocks between the two
+                # concatenated end-tags. Emitting both concatenated closers in one message is
+                # extremely unlikely in practice so this edge case is acceptable.
+                _concatenated_end_found = True
+                _concatenated_end_pos = _think_end + len(_think_end_tag)
+                break  # first actionable closer of this tag type
+            if _stripped:
                 break
-            # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
-            # Inner-loop fence-recovery handles this; track position of the closing tag.
-            # NOTE: if both </thinking> and </think> appear concatenated in the same message,
-            # _concatenated_end_pos is overwritten by the second iteration (the later position).
-            # This means the _after_concat scan misses standalone think blocks between the two
-            # concatenated end-tags. Emitting both concatenated closers in one message is
-            # extremely unlikely in practice so this edge case is acceptable.
-            _concatenated_end_found = True
-            _concatenated_end_pos = _think_end + len(_think_end_tag)
+        if not _stripped:
+            break
+        # Recheck both variants after stripping; offsets and fence state belong
+        # to the remaining suffix, and it may contain another thinking section.
+
+    # if start thinking tag but no end, early exit (only for standalone tags;
+    # concatenated occurrences like "```<think>" are handled by inner-loop logic).
+    if not _concatenated_end_found:
+        for _think_start_tag in ["<thinking>", "<think>"]:
+            if _is_standalone_outside_fences(
+                markdown, _think_start_tag, streaming=streaming
+            ):
+                return
     else:
-        # if start thinking tag but no end, early exit (only for standalone tags;
-        # concatenated occurrences like "```<think>" are handled by inner-loop logic).
-        if not _concatenated_end_found:
-            for _think_start_tag in ["<thinking>", "<think>"]:
-                if re.search(r"(?:^|\n)" + re.escape(_think_start_tag), markdown):
-                    return
-        else:
-            # A concatenated </think> was found (not stripped). Check if any standalone
-            # <think> appearing AFTER that closing tag is genuinely unclosed. If so,
-            # early-exit to avoid extracting blocks from inside an unclosed thinking section.
-            _after_concat = markdown[_concatenated_end_pos:]
-            for _think_start_tag in ["<thinking>", "<think>"]:
-                _standalone_match = re.search(
-                    r"(?:^|\n)" + re.escape(_think_start_tag), _after_concat
-                )
-                if _standalone_match:
-                    _close_tag = _think_start_tag.replace("<", "</")
-                    _rest = _after_concat[_standalone_match.start() :]
-                    if _close_tag not in _rest:
-                        return  # genuinely unclosed standalone think block
+        # A concatenated </think> was found (not stripped). Check if any standalone
+        # <think> appearing AFTER that closing tag is genuinely unclosed. If so,
+        # early-exit to avoid extracting blocks from inside an unclosed thinking section.
+        if _unclosed_standalone_after(
+            markdown, _concatenated_end_pos, streaming=streaming
+        ):
+            return
 
     # speed check (early exit): check if message contains a code block
     # Check for at least 2 fence markers (3+ backticks each)
     fence_pattern = re.compile(r"`{3,}")
     if len(fence_pattern.findall(markdown)) < 2:
         return
-
-    # Languages where a bare fence at depth 1 is never a nested opener.
-    # Shell/ipython have no triple-backtick syntax; the look-ahead heuristic
-    # only produces false positives (swallowing prose + output blocks into
-    # the command). See gptme/gptme#3697.
-    _EXEC_LANGS = frozenset(
-        {
-            "shell",
-            "sh",
-            "bash",
-            "zsh",
-            "fish",
-            "ksh",
-            "nu",
-            "ps1",
-            "powershell",
-            "ipython",
-        }
-    )
-    # Shell languages that support heredoc syntax (``<<``).  IPython/Python's
-    # ``<<`` is always the bitwise left-shift operator — there is no heredoc
-    # syntax in Python — so ipython is excluded from heredoc state tracking.
-    _SHELL_LANGS = _EXEC_LANGS - {"ipython"}
 
     lines = markdown.split("\n")
     i = 0
@@ -721,6 +1179,9 @@ def _extract_codeblocks(
                                         # Hit a language-tagged fence, stop looking
                                         break
 
+                                # Genuine reasoning was removed above. Any tags
+                                # still here belong to literal content and must
+                                # not confirm closure of a growing nested save.
                                 if has_closing_fence:
                                     # Looks like a real nested block
                                     nesting_depth += 1

@@ -474,16 +474,30 @@ class TestBrowserThreadRetry:
 class TestBrowserThreadSessionContext:
     """Test the CDP session context lifecycle."""
 
-    def test_cdp_creates_session_context_with_defaults(self, mock_playwright):
+    def test_cdp_creates_session_context_lazily_with_defaults(
+        self, mock_playwright, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gptme.tools import _browser_playwright as bp
+
         mock_pw, _ = mock_playwright
         mock_cdp_browser = MagicMock()
+        context: MagicMock = mock_cdp_browser.new_context.return_value
         mock_pw.chromium.connect_over_cdp.return_value = mock_cdp_browser
+        monkeypatch.setattr(bp, "_current_page", None)
+        monkeypatch.setattr(bp, "_current_context", None)
+        monkeypatch.setattr(bp, "_session_owner", None)
 
         expected_options = get_context_options()
         bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
+        monkeypatch.setattr(bp, "_browser", bt)
         try:
+            mock_cdp_browser.new_context.assert_not_called()
+            assert bt._session_context is None
+
+            managed = bt.execute(bp._create_page)
             mock_cdp_browser.new_context.assert_called_once_with(**expected_options)
-            assert bt._session_context is mock_cdp_browser.new_context.return_value
+            assert managed.page is context.new_page.return_value
+            assert bt._session_context is context
         finally:
             bt.stop()
 
@@ -496,17 +510,25 @@ class TestBrowserThreadSessionContext:
         finally:
             bt.stop()
 
-    def test_session_context_recreated_after_restart(self, mock_playwright):
-        """A connection-error restart must rebuild the session context on the
-        reconnected browser, never leaving a stale one bound to the dead conn."""
+    def test_session_context_recreated_after_restart(
+        self, mock_playwright, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reconnect drops the stale context; the next page rebuilds it lazily."""
+        from gptme.tools import _browser_playwright as bp
+
         mock_pw, _ = mock_playwright
         browser1, browser2 = MagicMock(name="browser1"), MagicMock(name="browser2")
         ctx1: MagicMock = browser1.new_context.return_value
         ctx2: MagicMock = browser2.new_context.return_value
         mock_pw.chromium.connect_over_cdp.side_effect = [browser1, browser2]
+        monkeypatch.setattr(bp, "_current_page", None)
+        monkeypatch.setattr(bp, "_current_context", None)
+        monkeypatch.setattr(bp, "_session_owner", None)
 
         bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
+        monkeypatch.setattr(bp, "_browser", bt)
         try:
+            bt.execute(bp._create_page)
             assert bt._session_context is ctx1
 
             call_count = 0
@@ -519,9 +541,14 @@ class TestBrowserThreadSessionContext:
                 return "ok"
 
             assert bt.execute(flaky) == "ok"
-            # Stale context closed; fresh one created on the reconnected browser.
             ctx1.close.assert_called_once()
+            assert bt._session_context is None
+            browser2.new_context.assert_not_called()
+
+            managed = bt.execute(bp._create_page)
+            browser2.new_context.assert_called_once_with(**get_context_options())
             assert bt._session_context is ctx2
+            assert managed.page is ctx2.new_page.return_value
         finally:
             bt.stop()
 

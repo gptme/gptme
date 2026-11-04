@@ -1,4 +1,4 @@
-.PHONY: test test-api docs build build-docker build-docker-computer run-docker-computer check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar bundle-webui
+.PHONY: test test-perf test-api docs build build-docker build-docker-computer run-docker-computer check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar bundle-webui
 
 # set default shell
 SHELL := $(shell which bash)
@@ -51,7 +51,7 @@ bundle-webui: ## Bundle the modern webui dist into the package (run after `cd we
 	rsync -a --delete webui/dist/ gptme/server/webui-dist/
 	@echo "Bundled webui/dist → gptme/server/webui-dist/ ($(ls gptme/server/webui-dist | wc -l) files at top level)"
 
-validate-release-package: ## Verify built packages contain the modern webui
+validate-release-package: ## Verify built packages contain required runtime assets
 	python3 scripts/validate_release_package.py dist/*.whl dist/*.tar.gz
 
 # pytest-xdist workers. Every worker re-collects the whole suite (~90s of CPU on
@@ -60,15 +60,21 @@ validate-release-package: ## Verify built packages contain the modern webui
 # first test ran. `auto` = one worker per CPU. Override: make test PYTEST_WORKERS=16
 PYTEST_WORKERS ?= auto
 
-test: ## Run tests
+# Keep perf tests out of xdist because worker contention distorts timings.
+test: ## Run fast tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \
 		$(if $(NO_COVERAGE),,--cov=gptme --cov-report=xml --cov-report=term-missing --cov-report=html) --junitxml=junit.xml \
 		-n $(PYTEST_WORKERS) \
-		$(if $(EVAL), , -m "not eval") \
-		$(if $(SLOW), , -m "not slow and not eval") \
+		-m "$(if $(SLOW),$(if $(EVAL),not perf,not eval and not perf),not slow and not eval and not perf)" \
 		--timeout 60 --retries 2 --retry-delay 5 \
 		$(if $(PROFILE), --profile-svg)
+
+test-perf: ## Run performance tests without xdist worker contention
+	uv run pytest tests -v --log-level INFO --durations=5 --no-cov -n 0 \
+		-m "perf$(if $(SLOW),, and not slow)" \
+		--timeout 60 --retries 2 --retry-delay 5 --junitxml=junit-perf.xml \
+		-o junit_family=legacy
 
 test-api: ## Run only API-dependent tests (requires_api marker)
 	uv run pytest ${SRCDIRS} -v --log-level INFO --durations=5 \

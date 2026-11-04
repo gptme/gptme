@@ -4,10 +4,12 @@ Tests the content-addressable file storage system used for
 preserving file versions in conversation history.
 """
 
+import errno
 from pathlib import Path
 
 import pytest
 
+from gptme.util import file_storage
 from gptme.util.file_storage import (
     compute_file_hash,
     get_files_dir,
@@ -127,6 +129,57 @@ class TestGetFilesDir:
 
 class TestStoreFile:
     """Tests for store_file — content-addressable storage."""
+
+    def test_failed_copy_can_be_retried(
+        self, logdir: Path, sample_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A partial copy must not become a reusable attachment."""
+
+        def fail_copy(source: Path, destination: Path) -> None:
+            Path(destination).write_bytes(source.read_bytes()[:5])
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(file_storage.shutil, "copy2", fail_copy)
+            with pytest.raises(OSError, match="No space left"):
+                store_file(logdir, sample_file)
+
+        _, stored_name = store_file(logdir, sample_file)
+        assert (logdir / "files" / stored_name).read_bytes() == sample_file.read_bytes()
+        assert list((logdir / "files").iterdir()) == [logdir / "files" / stored_name]
+
+    def test_attachment_is_unavailable_until_copy_completes(
+        self, logdir: Path, sample_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Readers must not see incomplete attachment bytes."""
+        file_hash = compute_file_hash(sample_file)
+        copy = file_storage.shutil.copy2
+
+        def observe_copy(source: Path, destination: Path) -> None:
+            Path(destination).write_bytes(source.read_bytes()[:5])
+            assert get_stored_path(logdir, file_hash, ".py") is None
+            copy(source, destination)
+
+        monkeypatch.setattr(file_storage.shutil, "copy2", observe_copy)
+        _, stored_name = store_file(logdir, sample_file)
+        assert (logdir / "files" / stored_name).read_bytes() == sample_file.read_bytes()
+
+    def test_failed_publication_cleans_up(
+        self, logdir: Path, sample_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Failed publication leaves no cache entry or staging files."""
+
+        def fail_replace(self: Path, target: Path) -> Path:
+            raise PermissionError("publication denied")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "replace", fail_replace)
+            with pytest.raises(PermissionError, match="publication denied"):
+                store_file(logdir, sample_file)
+
+        assert list((logdir / "files").iterdir()) == []
+        _, stored_name = store_file(logdir, sample_file)
+        assert (logdir / "files" / stored_name).read_bytes() == sample_file.read_bytes()
 
     def test_basic_store(self, logdir: Path, sample_file: Path):
         file_hash, stored_name = store_file(logdir, sample_file)

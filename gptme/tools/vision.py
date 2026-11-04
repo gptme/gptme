@@ -6,6 +6,7 @@ Requires a model which supports vision, such as GPT-4o, Anthropic, and Llama 3.2
 
 import atexit
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -93,52 +94,125 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
             f"Image size: {dimensions[0]}x{dimensions[1]}, {file_size / 1024:.1f}KB"
         ]
 
+        normalized: Image.Image | None = None
         if file_size <= MAX_SIZE:
-            msg_parts.append("No scaling required (under 1MB)")
-            return Message(
-                "system",
-                f"Viewing image at `{image_path}`\n" + "\n".join(msg_parts),
-                files=[image_path.absolute()],
+            # Provider serializers infer MIME from the suffix and only accept
+            # these containers. Pillow can also read BMP/TIFF and renamed files.
+            supported_suffixes = {
+                "JPEG": {".jpg", ".jpeg"},
+                "PNG": {".png"},
+                "GIF": {".gif"},
+                "WEBP": {".webp"},
+            }
+            if image_path.suffix.lower() in supported_suffixes.get(
+                img.format or "", set()
+            ):
+                msg_parts.append("No scaling required (under 1MB)")
+                return Message(
+                    "system",
+                    f"Viewing image at `{image_path}`\n" + "\n".join(msg_parts),
+                    files=[image_path.absolute()],
+                )
+
+            # Normalize displayed pixels losslessly for small readable containers.
+            # Close the handle before encoding (also works on Windows).
+            oriented = ImageOps.exif_transpose(img)
+            mode = (
+                "RGBA"
+                if "A" in oriented.getbands() or "transparency" in oriented.info
+                else "RGB"
             )
+            normalized = oriented.convert(mode)
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                normalized_path = Path(tmp.name)
+            try:
+                normalized.save(normalized_path, "PNG")
+                normalized_size = normalized_path.stat().st_size
+            except BaseException:
+                normalized_path.unlink(missing_ok=True)
+                raise
+            if normalized_size <= MAX_SIZE:
+                _temp_files.append(normalized_path)
+                msg_parts.append(f"Normalized to PNG: {normalized_size / 1024:.1f}KB")
+                return Message(
+                    "system",
+                    f"Viewing normalized image ({normalized.width}x{normalized.height}) from `{image_path}`\n"
+                    + "\n".join(msg_parts),
+                    files=[normalized_path.absolute()],
+                )
+            # A small compressed source may expand as PNG; keep the existing
+            # JPEG compression/scaling path rather than bypassing its size gate.
+            normalized_path.unlink(missing_ok=True)
 
         # JPEG output drops orientation metadata, so apply it to pixels first.
-        oriented = ImageOps.exif_transpose(img)
+        oriented = (
+            normalized if normalized is not None else ImageOps.exif_transpose(img)
+        )
         dimensions = oriented.size
 
-        # Convert RGBA to RGB if needed (convert both branches to ensure Image type)
+        # JPEG cannot encode palettes or alpha. Resolve unsupported modes to RGB,
+        # dropping alpha (without compositing) as for existing RGBA inputs.
+        # Resolve palette transparency via RGBA, including byte-table alpha.
         out: Image.Image = (
-            oriented.convert("RGB")
-            if oriented.mode == "RGBA"
-            else oriented.convert(oriented.mode)
+            oriented.convert("RGBA") if oriented.mode == "P" else oriented
         )
+        if out.mode not in ("1", "L", "RGB", "RGBX", "CMYK", "YCbCr"):
+            out = out.convert("RGB")
 
-        # First try just compressing as JPG without scaling
+        # libjpeg rejects either axis above JPEG_MAX_DIMENSION, even before
+        # byte-based scaling can run. Keep the aspect ratio within pixel rounding.
+        MAX_JPEG_DIMENSION = 65500
+        dimension_scaled = max(out.size) > MAX_JPEG_DIMENSION
+        if dimension_scaled:
+            longest = max(out.size)
+            new_size = (
+                max(1, round(out.width * MAX_JPEG_DIMENSION / longest)),
+                max(1, round(out.height * MAX_JPEG_DIMENSION / longest)),
+            )
+            msg_parts.append(
+                f"Scaling from {dimensions} to {new_size} for JPEG encoding"
+            )
+            out = out.resize(new_size, Image.Resampling.LANCZOS)
+            dimensions = out.size
+
+        # Try compression first, after ensuring the dimensions are encoder-safe.
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            out.save(tmp.name, "JPEG", quality=85)
-            compressed_size = Path(tmp.name).stat().st_size
+            scaled_path = Path(tmp.name)
+        try:
+            out.save(scaled_path, "JPEG", quality=85)
+            compressed_size = scaled_path.stat().st_size
             msg_parts.append(f"Compressed to: {compressed_size / 1024:.1f}KB")
 
             # If compression alone wasn't enough, scale down and compress
             if compressed_size > MAX_SIZE:
                 # Calculate scaling factor to get file size roughly under 1MB
                 scale_factor = (MAX_SIZE / compressed_size) ** 0.5
-                new_size: tuple[int, int] = (
-                    int(out.size[0] * scale_factor),
-                    int(out.size[1] * scale_factor),
+                new_size = (
+                    max(1, int(out.size[0] * scale_factor)),
+                    max(1, int(out.size[1] * scale_factor)),
                 )
                 msg_parts.append(f"Scaling from {dimensions} to {new_size}")
 
                 # Create a scaled version
                 scaled_img = out.resize(new_size, Image.Resampling.LANCZOS)
-                scaled_img.save(tmp.name, "JPEG", quality=85)
-                final_size = Path(tmp.name).stat().st_size
+                scaled_img.save(scaled_path, "JPEG", quality=85)
+                final_size = scaled_path.stat().st_size
                 msg_parts.append(f"Final size after scaling: {final_size / 1024:.1f}KB")
                 dimensions = new_size
+        except BaseException:
+            # The temporary handle is closed before unlinking (also on Windows).
+            # Cleanup must not mask the original encoding/resize error.
+            with suppress(OSError):
+                scaled_path.unlink(missing_ok=True)
+            raise
 
-            scaled_path = Path(tmp.name)
-            _temp_files.append(scaled_path)
+        _temp_files.append(scaled_path)
 
-        action = "scaled and compressed" if compressed_size > MAX_SIZE else "compressed"
+        action = (
+            "scaled and compressed"
+            if dimension_scaled or compressed_size > MAX_SIZE
+            else "compressed"
+        )
         return Message(
             "system",
             f"Viewing {action} image ({dimensions[0]}x{dimensions[1]}) from {image_path}\n"

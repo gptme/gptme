@@ -1,7 +1,10 @@
 """Tests for the watch tool (slice 3: monitors + ScheduleWakeup parity)."""
 
+import shlex
+import sys
 import threading
 import time
+import tracemalloc
 from pathlib import Path
 
 import pytest
@@ -145,6 +148,231 @@ def test_until_fires_once(tmp_path: Path):
         time.sleep(0.05)
     assert w.fired
     assert "condition met" in w.events[-1]
+
+
+@pytest.mark.parametrize("output_fd", [1, 2])
+def test_until_accepts_high_pipe_descriptor(monkeypatch, output_fd):
+    import os
+
+    fcntl = pytest.importorskip("fcntl")
+    resource = pytest.importorskip("resource")
+    soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft_limit != resource.RLIM_INFINITY and soft_limit <= 1024:
+        pytest.skip("requires a pipe descriptor above 1023")
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    popen = _watch_mod.subprocess.Popen
+
+    def high_fd_popen(*args, **kwargs):
+        proc = popen(*args, **kwargs)
+        assert proc.stdout is not None
+        original = proc.stdout
+        assert isinstance(original, _watch_mod.io.TextIOWrapper)
+        fd = fcntl.fcntl(original.fileno(), fcntl.F_DUPFD_CLOEXEC, 1024)
+        proc.stdout = os.fdopen(fd, encoding=original.encoding, errors="replace")
+        original.close()
+        return proc
+
+    monkeypatch.setattr(_watch_mod.subprocess, "Popen", high_fd_popen)
+    command = shlex.join(
+        [sys.executable, "-c", f"import os; os.write({output_fd}, b'ready')"]
+    )
+    watch = Watch(
+        id="high-fd",
+        kind="until",
+        description="high-fd",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    try:
+        _watch_mod._poll_until(watch, command, 0.01)
+        assert watch.proc is not None and watch.proc.returncode == 0
+        assert watch.proc.stdout is not None and watch.proc.stdout.closed
+        assert list(watch.events) == ["condition met: ready"]
+    finally:
+        _kill_proc(watch.proc)
+
+
+@pytest.mark.parametrize("fd", [1, 2])
+def test_until_bounds_output_before_retaining_it(monkeypatch, fd):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            f"import os; os.write({fd}, b'prefix' + b'x' * (8 * 1024 * 1024))",
+        ]
+    )
+    watch = Watch(
+        id="bounded",
+        kind="until",
+        description="verbose",
+        created=time.time(),
+        deadline=time.time() + 10,
+    )
+    already_tracing = tracemalloc.is_tracing()
+    if not already_tracing:
+        tracemalloc.start()
+    baseline, _ = tracemalloc.get_traced_memory()
+    tracemalloc.reset_peak()
+    try:
+        _watch_mod._poll_until(watch, command, 0.01)
+        _, peak = tracemalloc.get_traced_memory()
+        peak -= baseline
+    finally:
+        if not already_tracing:
+            tracemalloc.stop()
+    assert watch.fired
+    assert watch.events[-1].startswith("condition met: prefix")
+    assert len(watch.events[-1]) <= 515
+    assert peak < 4 * 1024 * 1024
+
+
+def test_until_waits_for_exit_after_output_eof(monkeypatch):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    command = "exec " + shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import os,time; os.close(1); os.close(2); time.sleep(2.2)",
+        ]
+    )
+    watch = Watch(
+        id="eof",
+        kind="until",
+        description="slow",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert watch.fired
+    assert watch.proc is not None and watch.proc.returncode == 0
+    assert watch.events[-1] == f"condition met: {command[:500]}"
+
+
+def test_until_retries_nonzero_probe(monkeypatch, tmp_path):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    marker = tmp_path / "attempt"
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; import sys; p=Path({str(marker)!r}); "
+            "seen=p.exists(); p.write_text('attempt'); print('success' if seen else 'retry'); sys.exit(0 if seen else 1)",
+        ]
+    )
+    watch = Watch(
+        id="retry",
+        kind="until",
+        description="retry",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == ["condition met: success"]
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_until_stops_quiet_probe_after_eof(monkeypatch, cancel):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    command = "exec " + shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import os,time; os.close(1); os.close(2); time.sleep(30)",
+        ]
+    )
+    watch = Watch(
+        id="stop",
+        kind="until",
+        description="quiet",
+        created=time.time(),
+        deadline=time.time() + (5 if cancel else 0.3),
+    )
+    thread = threading.Thread(
+        target=_watch_mod._poll_until, args=(watch, command, 0.01)
+    )
+    thread.start()
+    try:
+        if cancel:
+            time.sleep(0.1)
+            watch.cancelled = True
+            watch.cancel_event.set()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert watch.proc is not None and watch.proc.poll() is not None
+        assert watch.proc.stdout is not None and watch.proc.stdout.closed
+        if cancel:
+            assert not watch.events
+        else:
+            assert list(watch.events) == ["expired without condition met (quiet)"]
+    finally:
+        watch.cancelled = True
+        _kill_proc(watch.proc)
+        thread.join(timeout=5)
+
+
+def test_until_decodes_split_utf8_and_newlines(monkeypatch):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    popen = _watch_mod.subprocess.Popen
+
+    def utf8_popen(*args, **kwargs):
+        return popen(*args, **kwargs, encoding="utf-8")
+
+    monkeypatch.setattr(_watch_mod.subprocess, "Popen", utf8_popen)
+    read = _watch_mod.os.read
+    monkeypatch.setattr(_watch_mod.os, "read", lambda fd, size: read(fd, 1))
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.write(1, b'  \\xe2\\x82\\xac\\r\\nend\\xff')",
+        ]
+    )
+    watch = Watch(
+        id="unicode",
+        kind="until",
+        description="unicode",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == ["condition met: €\nend�"]
+
+
+@pytest.mark.parametrize("suffix", ["", "b", "  b  "])
+def test_until_strips_before_truncating(monkeypatch, suffix):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    output = "a" + " " * 499 + suffix
+    command = shlex.join([sys.executable, "-c", f"print({output!r}, end='')"])
+    watch = Watch(
+        id="strip",
+        kind="until",
+        description="strip",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == [f"condition met: {output.strip()[:500]}"]
+
+
+def test_until_preserves_subprocess_encoding(monkeypatch):
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    popen = _watch_mod.subprocess.Popen
+
+    def latin1_popen(*args, **kwargs):
+        return popen(*args, **kwargs, encoding="latin-1")
+
+    monkeypatch.setattr(_watch_mod.subprocess, "Popen", latin1_popen)
+    command = shlex.join([sys.executable, "-c", "import os; os.write(1, b'caf\\xe9')"])
+    watch = Watch(
+        id="encoding",
+        kind="until",
+        description="encoding",
+        created=time.time(),
+        deadline=time.time() + 5,
+    )
+    _watch_mod._poll_until(watch, command, 0.01)
+    assert list(watch.events) == ["condition met: café"]
 
 
 def _record_all() -> list[Watch]:
@@ -1249,3 +1477,361 @@ def test_server_step_drains_only_its_watch_branch(
     finally:
         session.acp_runtime = None
         SessionManager.remove_session(session.id)
+
+
+@pytest.mark.parametrize(("pattern_text", "stable"), [(None, 0.01), ("ready", 0)])
+@pytest.mark.parametrize(
+    "stderr", ["can't find pane: missing", "no server running", "", "x" * 2000]
+)
+def test_tmux_nonzero_capture_never_reports_success(
+    monkeypatch, pattern_text, stable, stderr
+):
+    import re
+    import subprocess
+
+    w = Watch(
+        id="capture",
+        kind="tmux",
+        description="missing",
+        created=time.time(),
+        deadline=time.time() + 0.1,
+    )
+    calls = []
+
+    def capture(*args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args[0], 1, "ready", stderr)
+
+    monkeypatch.setattr(_watch_mod.subprocess, "run", capture)
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    pattern = re.compile(pattern_text) if pattern_text else None
+    _watch_mod._poll_tmux(w, "missing", pattern, stable)
+    assert w.fired
+    assert len(calls) == 1
+    assert len(w.events) == 1
+    assert w.events[0].startswith("tmux capture failed:")
+    assert "exit 1" in w.events[0]
+    assert len(w.events[0]) < 600
+    if stderr:
+        assert stderr[:100] in w.events[0]
+
+
+@pytest.mark.parametrize(
+    ("output", "pattern_text"), [("", None), ("idle", None), ("ready", "ready")]
+)
+def test_tmux_successful_capture_preserves_empty_stability_and_match(
+    monkeypatch, output, pattern_text
+):
+    import re
+    import subprocess
+
+    w = Watch(
+        id="capture",
+        kind="tmux",
+        description="control",
+        created=time.time(),
+        deadline=time.time() + 3,
+    )
+    monkeypatch.setattr(
+        _watch_mod.subprocess,
+        "run",
+        lambda *args, **kw: subprocess.CompletedProcess(args[0], 0, output, ""),
+    )
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    _watch_mod._poll_tmux(
+        w, "control", re.compile(pattern_text) if pattern_text else None, 0.01
+    )
+    assert w.fired
+    assert len(w.events) == 1
+    assert w.events[0].startswith(
+        "pattern matched:" if pattern_text else "pane output stable"
+    )
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_tmux_cancelled_or_expired_watch_does_not_capture(monkeypatch, cancelled):
+    w = Watch(
+        id="capture",
+        kind="tmux",
+        description="control",
+        created=time.time(),
+        deadline=time.time() - 1,
+        cancelled=cancelled,
+    )
+
+    def unexpected_capture(*args, **kwargs):
+        pytest.fail("An expired or cancelled watch must not capture")
+
+    monkeypatch.setattr(_watch_mod.subprocess, "run", unexpected_capture)
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    _watch_mod._poll_tmux(w, "control", None, 0.01)
+    assert list(w.events) == ([] if cancelled else ["expired without match"])
+
+
+@pytest.mark.parametrize("newline", [False, True])
+def test_stream_bounds_oversized_lines(
+    newline: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real pipe reads must bound events before retention and delivery."""
+    import subprocess
+    import sys
+
+    limit = 64 * 1024
+    ending = b"\nshort\n" if newline else b""
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; sys.stdout.buffer.write("
+                f"b'x' * {2 * 1024 * 1024} + {ending!r})"
+            ),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    w = Watch(
+        id="bounded",
+        kind="stream",
+        description="test",
+        created=time.time(),
+        deadline=time.time() + 10,
+        proc=proc,
+    )
+    delivered = []
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda _, text: delivered.append(text))
+    try:
+        _watch_mod._poll_stream(w, proc)
+        assert proc.returncode == 0
+        assert not w.cancelled
+        assert delivered == list(w.events)
+        assert max(len(text.encode("utf-8")) for text in delivered) <= limit
+        assert delivered[0].startswith("x" * 1024)
+        assert "truncated" in delivered[0]
+        assert delivered[0].count("truncated") == 1
+        if newline:
+            assert delivered[1] == "short"
+        assert delivered[-1] == "stream ended (rc=0)"
+    finally:
+        _kill_proc(proc)
+        proc.wait(timeout=3)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
+@pytest.mark.parametrize("size", [65535, 65536, 65537])
+@pytest.mark.parametrize("ending", [b"\n", b""])
+def test_stream_line_limit_boundaries(size: int, ending: bytes) -> None:
+    bounded = _watch_mod._StreamLines()
+    payload = b"a" * size + ending
+    events: list[str] = []
+    for offset in range(0, len(payload), 4096):
+        events.extend(bounded.feed(payload[offset : offset + 4096]))
+        assert len(bounded.buffer) <= 65536
+    events.extend(bounded.feed(b"", final=True))
+    assert len(events) == 1
+    assert len(events[0].encode("utf-8")) <= 65536
+    if size <= 65536:
+        assert events == ["a" * size]
+    else:
+        assert events[0].endswith(_watch_mod._STREAM_TRUNCATED)
+
+
+def test_stream_carry_and_discard_are_bounded() -> None:
+    bounded = _watch_mod._StreamLines()
+    events: list[str] = []
+    for _ in range(2048):
+        events.extend(bounded.feed(b"x" * 4096))
+        assert len(bounded.buffer) <= 65536
+        assert len(events) <= 1
+    assert bounded.discarding
+    assert not bounded.buffer
+    events.extend(bounded.feed(b"\nnext\nlast"))
+    events.extend(bounded.feed(b"", final=True))
+    assert len(events[0].encode("utf-8")) == 65536
+    assert events[0].endswith(_watch_mod._STREAM_TRUNCATED)
+    assert events[1:] == ["next", "last"]
+    assert not bounded.buffer
+
+
+@pytest.mark.parametrize("chunk_size", [1, 7, 4096])
+def test_stream_utf8_split_and_truncation(chunk_size: int) -> None:
+    bounded = _watch_mod._StreamLines()
+    ordinary = "café 日本語 😀"
+    payload = (ordinary + "\n" + "😀" * 20000 + "\n" + ordinary).encode()
+    events: list[str] = []
+    for offset in range(0, len(payload), chunk_size):
+        events.extend(bounded.feed(payload[offset : offset + chunk_size]))
+        assert len(bounded.buffer) <= 65536
+    events.extend(bounded.feed(b"", final=True))
+    assert events[0] == events[2] == ordinary
+    assert events[1].endswith(_watch_mod._STREAM_TRUNCATED)
+    assert "\ufffd" not in "".join(events)
+    assert all(len(event.encode()) <= 65536 for event in events)
+
+
+def test_stream_incomplete_utf8_eof_is_replaced() -> None:
+    bounded = _watch_mod._StreamLines()
+    assert list(bounded.feed(b"hello \xf0\x9f")) == []
+    assert list(bounded.feed(b"", final=True)) == ["hello \ufffd"]
+
+
+def test_stream_real_pipe_split_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    import sys
+
+    # Force read boundaries inside multibyte codepoints, independently of
+    # OS pipe scheduling. All bytes still come from a real child process.
+    real_read = _watch_mod.os.read
+    monkeypatch.setattr(_watch_mod.os, "read", lambda fd, n: real_read(fd, min(n, 1)))
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write('café 😀\\nfin'.encode())",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    w = Watch(
+        id="utf8",
+        kind="stream",
+        description="test",
+        created=time.time(),
+        deadline=time.time() + 10,
+        proc=proc,
+    )
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    try:
+        _watch_mod._poll_stream(w, proc)
+        assert list(w.events) == ["café 😀", "fin", "stream ended (rc=0)"]
+    finally:
+        _kill_proc(proc)
+        proc.wait(timeout=3)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
+@pytest.mark.parametrize("stop_kind", ["deadline", "cancel"])
+def test_stream_oversized_live_child_cleanup(
+    stop_kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+    import sys
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os, time; os.write(1, b'x' * (2 * 1024 * 1024)); time.sleep(60)",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    delivered = threading.Event()
+    w = Watch(
+        id="cleanup", kind="stream", description="test", created=time.time(), proc=proc
+    )
+
+    def deliver(_: Watch, text: str) -> None:
+        if "truncated" in text:
+            delivered.set()
+
+    monkeypatch.setattr(_watch_mod, "_deliver", deliver)
+    worker = threading.Thread(
+        target=_watch_mod._poll_stream, args=(w, proc), daemon=True
+    )
+    worker.start()
+    try:
+        assert delivered.wait(timeout=5), (
+            "oversized unterminated line must signal loss promptly"
+        )
+        assert proc.poll() is None
+        if stop_kind == "deadline":
+            w.deadline = time.time() - 1
+        else:
+            w.cancelled = True
+            w.cancel_event.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert proc.poll() is not None
+        assert proc.stdout is not None and proc.stdout.closed
+        assert all(len(text.encode()) <= 65536 for text in w.events)
+        if stop_kind == "deadline":
+            assert not w.cancelled
+            assert "expired without event" in w.events[-1]
+        else:
+            assert len(w.events) == 1
+    finally:
+        _kill_proc(proc)
+        worker.join(timeout=3)
+        proc.wait(timeout=3)
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+
+@pytest.mark.parametrize("guard", ["queue", "storm"])
+def test_stream_firehose_guards_still_stop_child(
+    guard: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import queue
+    import subprocess
+    import sys
+
+    # Use the real bounded queue and child I/O. The queue case deliberately
+    # stalls the first delivery until overflow; the storm case allows enough
+    # queue headroom that the consumer's event-count guard trips first.
+    monkeypatch.setattr(
+        _watch_mod, "_STREAM_LINE_QUEUE", 1 if guard == "queue" else 512
+    )
+    queued_sizes: list[int] = []
+
+    class MeasuredQueue(queue.Queue[str | None]):
+        def put(
+            self, item: str | None, block: bool = True, timeout: float | None = None
+        ) -> None:
+            if item is not None:
+                queued_sizes.append(len(item.encode("utf-8")))
+            super().put(item, block=block, timeout=timeout)
+
+    monkeypatch.setattr(_watch_mod.queue, "Queue", MeasuredQueue)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os, time; os.write(1, b'short\\n' * 300); time.sleep(60)",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    w = Watch(
+        id="firehose",
+        kind="stream",
+        description="test",
+        created=time.time(),
+        deadline=time.time() + 10,
+        proc=proc,
+    )
+
+    def deliver(_: Watch, text: str) -> None:
+        if guard == "queue":
+            assert w.cancel_event.wait(timeout=3), (
+                "reader must cancel on queue overflow"
+            )
+
+    monkeypatch.setattr(_watch_mod, "_deliver", deliver)
+    try:
+        _watch_mod._poll_stream(w, proc)
+        assert w.cancelled
+        assert proc.poll() is not None
+        assert proc.stdout is not None and proc.stdout.closed
+        assert queued_sizes and max(queued_sizes) <= 65536
+        if guard == "storm":
+            assert w.seen > _watch_mod._CANCEL_COUNT
+        else:
+            assert w.seen == 1
+    finally:
+        _kill_proc(proc)
+        proc.wait(timeout=3)
+        if proc.stdout is not None:
+            proc.stdout.close()

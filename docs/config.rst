@@ -158,7 +158,20 @@ The recommended approach is to use ``[models].default`` in your config:
 .. code-block:: toml
 
     [models]
-    default = "anthropic/claude-sonnet-4-6"
+    default = "anthropic"  # resolves the current provider recommendation
+    # summary = "provider/model"  # optional fully qualified override
+
+``summary`` selects the model for conversation titles and shared summary-model
+consumers (such as tool-output pruning). Without it, gptme uses the main
+provider's summary recommendation, or the main model if none is defined.
+A provider-only value for ``default`` follows recommendations when gptme is
+updated; an explicit model ID pins your choice. ``summary`` requires a full
+``provider/model`` ID.
+
+If the title model returns HTTP 404, naming retries once with the main model
+and logs which model failed and how to set ``[models].summary``. Authentication,
+rate-limit, and network errors do not trigger this fallback. A failed title does
+not mean the main chat model failed.
 
 Alternatively, set ``MODEL`` once in the ``[env]`` section — but do **not** add it twice, since TOML does not allow duplicate keys within the same table.
 
@@ -206,7 +219,7 @@ in your config to change the permanent default:
     gptme "explain this" -m groq/llama-3.3-70b-versatile
 
     # Use OpenRouter's model picker syntax
-    gptme "hello" -m openrouter/google/gemini-2.5-flash
+    gptme "hello" -m openrouter  # resolves the current provider recommendation
 
 The ``<provider>/<model-name>`` prefix determines which API key is used —
 ``anthropic/...`` uses ``ANTHROPIC_API_KEY``, ``groq/...`` uses ``GROQ_API_KEY``, etc.
@@ -540,6 +553,12 @@ Chat config
 The chat configuration file stores configuration options for a particular chat.
 It is used to store the model, toolset, tool format, and streaming/interactive mode.
 
+``watch_autowake`` (default on) controls whether a child-agent result or fired
+watch may resume an idle CLI, TUI, or server conversation without another
+prompt. Set it to ``false`` for notification-only delivery at idle. Progress
+updates never start generation. Non-interactive shutdown is independent of
+this setting.
+
 The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
 
 See :class:`gptme.config.ChatConfig` for the API reference.
@@ -559,6 +578,8 @@ Besides the configuration files, gptme supports several environment variables to
 - ``GPTME_SESSION_BUDGET_USD`` - Optional per-session cost budget in USD. When set, gptme warns once the current session crosses ``GPTME_BUDGET_WARN_PCT`` of the budget.
 - ``GPTME_SESSION_BUDGET_TOKENS`` - Optional per-session token budget. Counts input, output, cache-read, and cache-creation tokens.
 - ``GPTME_BUDGET_WARN_PCT`` - Percentage of the configured session budget that triggers the warning (default: 80).
+- ``GPTME_AUTO_INCLUDE_PATHS`` - Restore legacy implicit local-path inclusion in prompts (default: false). Otherwise use explicit ``@path`` attachments; see :ref:`prompt-attachments`.
+- ``GPTME_DISABLE_PATH_INCLUDE`` - Disable all text-discovered local paths and URLs, including explicit ``@path`` attachments (default: false). Overrides ``GPTME_AUTO_INCLUDE_PATHS``; configured prompt files and existing message attachments remain independent.
 - ``GPTME_FRESH`` - Enable fresh context mode (default: false)
 - ``GPTME_BREAK_ON_TOOLUSE`` - Interrupt generation when tool use occurs in stream. Default is model-dependent: ``false`` for capable models that support parallel tool calls (e.g. claude-sonnet-4-6, gpt-4o), ``true`` for others. Set to ``0`` to force parallel tool calls, ``1`` to force single tool call per response.
 - ``GPTME_PATCH_RECOVERY`` - Return file content in error for non-matching patches (default: false)

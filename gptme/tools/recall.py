@@ -42,7 +42,7 @@ def _lookup_master_result(result_id: int) -> Message | str:
     if manager is None:
         return "Error: no current conversation is available for result recall."
 
-    messages = manager.master_log.messages
+    messages = manager.full_log.messages
     index = result_id - 1
     if index < 0 or index >= len(messages):
         return f"Error: result #{result_id} does not exist in the master log."

@@ -147,7 +147,9 @@ class TestAddTokenUsageWarning:
         msg = cast(Message, msgs[0])
         assert msg.role == "system"
         assert "50000/200000" in msg.content
-        assert "150000 remaining" in msg.content
+        assert "Retained log estimate" in msg.content
+        assert "not provider input" in msg.content
+        assert "remaining provider context is unknown" in msg.content
         assert msg.hide is True
 
     def test_with_workspace_first_call_initializes(self, tmp_path: Path):
@@ -332,3 +334,20 @@ class TestAddTokenUsageWarning:
         # All percentages are valid fractions
         for p in WARNING_PERCENTAGES:
             assert 0 < p < 1
+
+
+def test_oversized_retained_log_warning_has_no_negative_remaining() -> None:
+    from gptme.logmanager import Log
+
+    log = Log([Message("system", "output " * 10000)])
+    with patch("gptme.llm.models.get_default_model", return_value=_make_model(100)):
+        messages = list(
+            add_token_usage_warning(
+                ToolExecutePostData(log=log, workspace=None, tool_use=None)
+            )
+        )
+    text = cast(Message, messages[0]).content
+    assert "Retained log estimate" in text
+    assert "not provider input" in text
+    assert "remaining provider context is unknown" in text
+    assert "-" not in text

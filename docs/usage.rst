@@ -15,6 +15,51 @@ This will show you a list of past chats, allowing you to select one or start a n
 
 To get inspiration for your first prompt, see the :doc:`examples`.
 
+.. _prompt-attachments:
+
+Attaching Files and URLs
+------------------------
+
+Prefix a local file or directory with ``@`` to include it in your prompt.
+Ordinary mentions such as ``README.md`` or ``src/`` stay as text; the
+assistant can read them through tools when needed. In the default context mode,
+directories attach a bounded file listing, not every file's contents.
+
+.. code-block:: bash
+
+    gptme 'review this' @src/main.py @README.md
+    gptme 'what do you see?' @image.png
+    gptme 'summarize this' '`@my notes.txt`'
+
+Inside a chat, use the same backtick-wrapped reference for names with spaces:
+```@my notes.txt```. Shell single quotes in the example preserve the backticks
+literally. Clipboard image paste in the CLI inserts an explicit attachment.
+Ordinary pasted text follows the same rules as typed text.
+
+The CLI, TUI, queued prompts, and in-turn steering share this policy.
+``GPTME_AUTO_INCLUDE_PATHS=1`` restores legacy automatic inclusion of local
+path mentions. ``GPTME_DISABLE_PATH_INCLUDE=1`` takes precedence and disables
+all text-discovered local paths and URLs, including explicit ``@`` references.
+Files already attached through message metadata and configured prompt files
+remain independent of these flags.
+
+HTTP/HTTPS URLs keep their existing behavior. In the default context mode,
+interactive CLI and TUI sessions ask which URLs to fetch; non-interactive
+sessions fetch them automatically.
+Declining a URL keeps the prompt text and skips fetching it. Paths and URLs
+inside fenced code blocks or XML blocks are excluded from discovery.
+
+Inspect expansion without sending a model request with:
+
+.. code-block:: bash
+
+    gptme-util prompts expand 'review @README.md'
+    GPTME_AUTO_INCLUDE_PATHS=1 gptme-util prompts expand 'review README.md'
+
+This inspection command ignores ``GPTME_DISABLE_PATH_INCLUDE``, as before,
+but respects the explicit-attachment default and ``GPTME_AUTO_INCLUDE_PATHS``.
+It can read files and fetch URLs during expansion.
+
 .. _usage-commands:
 
 Commands

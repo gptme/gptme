@@ -11,7 +11,7 @@ Use gptme to reproduce an error, trace through it, and apply a fix — without l
 Pass the test output and the relevant files:
 
 ```bash
-python -m pytest tests/test_api.py -x 2>&1 | gptme 'fix the failing test' src/api.py tests/test_api.py
+python -m pytest tests/test_api.py -x 2>&1 | gptme 'fix the failing test' @src/api.py @tests/test_api.py
 ```
 
 The `-x` flag stops at the first failure so the output is focused.
@@ -21,13 +21,13 @@ The `-x` flag stops at the first failure so the output is focused.
 Pipe the error and the source file:
 
 ```bash
-python myapp.py 2>&1 | gptme 'explain this traceback and fix the root cause' myapp.py
+python myapp.py 2>&1 | gptme 'explain this traceback and fix the root cause' @myapp.py
 ```
 
 ## Reproduce and fix a bug from a description
 
 ```bash
-gptme 'users report that login fails when the username contains a space; reproduce the bug and fix it' src/auth.py tests/test_auth.py
+gptme 'users report that login fails when the username contains a space; reproduce the bug and fix it' @src/auth.py @tests/test_auth.py
 ```
 
 gptme will write a failing test, run it, trace the error, and apply the fix.
@@ -35,19 +35,19 @@ gptme will write a failing test, run it, trace the error, and apply the fix.
 ## Trace a performance issue
 
 ```bash
-python -m cProfile -s cumulative myapp.py 2>&1 | gptme 'identify the bottleneck and suggest a fix' myapp.py
+python -m cProfile -s cumulative myapp.py 2>&1 | gptme 'identify the bottleneck and suggest a fix' @myapp.py
 ```
 
 ## Add debug logging and re-run
 
 ```bash
-gptme 'add temporary debug logging to trace the request path, run the failing test, then remove the logging' src/handler.py
+gptme 'add temporary debug logging to trace the request path, run the failing test, then remove the logging' @src/handler.py
 ```
 
 ## Investigate a flaky test
 
 ```bash
-gptme 'this test fails intermittently; find the source of flakiness and fix it' tests/test_cache.py src/cache.py
+gptme 'this test fails intermittently; find the source of flakiness and fix it' @tests/test_cache.py @src/cache.py
 ```
 
 Useful pattern: tell gptme to run the test multiple times and look for patterns.

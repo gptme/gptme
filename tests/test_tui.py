@@ -32,8 +32,10 @@ from gptme.tui.app import (
     _append_pt_history,
     _find_open_tool_fence_pos,
     _has_tool_calls,
+    _join_queued_prompts,
     _load_pt_history,
     _markdown_tool_renderable,
+    _restore_input_text,
     _split_all_tool_calls,
     _split_markdown_tool_calls,
     _split_streaming_markdown_tool_calls,
@@ -60,6 +62,26 @@ def test_summarize():
     assert _summarize("```stdout\nfoo\n```").startswith("stdout")
     long = "x" * 200
     assert len(_summarize(long)) < 100
+
+
+def test_join_queued_prompts_uses_blank_line_boundaries():
+    assert _join_queued_prompts(["first", "second\nwith\nlines", "third"]) == (
+        "first\n\nsecond\nwith\nlines\n\nthird"
+    )
+    assert _join_queued_prompts([Message("user", "alpha"), "beta"]) == "alpha\n\nbeta"
+
+
+def test_restore_input_text_keeps_existing_draft():
+    queued = "first\n\nsecond"
+    assert _restore_input_text("draft in progress", queued) == (
+        "draft in progress\n\nfirst\n\nsecond"
+    )
+    assert _restore_input_text("   \n", queued) == queued
+    assert _restore_input_text("draft", "") == "draft"
+    assert _restore_input_text("", queued) == queued
+    assert _restore_input_text("  indented\n  draft\n\n", queued) == (
+        "  indented\n  draft\n\nfirst\n\nsecond"
+    )
 
 
 @pytest.mark.asyncio
@@ -407,8 +429,7 @@ def test_complete_input_commands():
 
 
 def test_complete_input_paths(tmp_path, monkeypatch):
-    """Tab completes the last word as a path; directories get a slash so
-    include_paths treats them as paths (a bare "journal" is prose)."""
+    """Tab completes paths and preserves the user's explicit @ prefix."""
     from gptme.tui.app import complete_input
 
     (tmp_path / "journal").mkdir()
@@ -425,7 +446,7 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     assert "/tmp/" in complete_input("/tm")
     assert complete_input("hello") == []
     assert complete_input("hello ") == []
-    # completed names must be ones include_paths attaches
+    # Bare completion remains prose; @ completion requests attachment.
     (tmp_path / "Makefile").write_text("x")
     (tmp_path / "my notes.txt").write_text("x")
     assert complete_input("see Mak") == ["see ./Makefile"]
@@ -441,6 +462,56 @@ def test_complete_input_paths(tmp_path, monkeypatch):
     # a symlink loop is skipped, not raised
     (tmp_path / "loop").symlink_to(tmp_path / "loop")
     assert complete_input("see lo") == []
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_complete_path_skips_nested_tick_filename(tmp_path, monkeypatch, legacy):
+    """Nested ticks in a completed name must not attach a different file.
+
+    Wrapping ``photo `@secret.txt` album.txt`` would close the quote early so
+    include_paths treats the inner ``@secret.txt`` as a separate reference.
+    Skip that candidate (same fail-closed policy as CLI) rather than invent
+    quoting. Ordinary spaced files and directory children still complete.
+    """
+    from gptme.tui.app import complete_path
+    from gptme.util.context import include_paths
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    # Default vs legacy auto-include (#4655). On master both values exercise
+    # current auto-include; after that switch they split. A leaked nested-tick
+    # wrap exposes explicit `@secret.txt`, so either policy would attach it.
+    monkeypatch.setenv("GPTME_AUTO_INCLUDE_PATHS", "1" if legacy else "0")
+    (tmp_path / "secret.txt").write_text("SYNTHETIC-SECRET-MARKER")
+    (tmp_path / "photo `@secret.txt` album.txt").write_text("SYNTHETIC-TARGET")
+
+    assert complete_path("see @pho") == []
+    assert complete_path("see pho") == []
+
+    (tmp_path / "photo album.txt").write_text("SYNTHETIC-SAFE")
+    assert complete_path("see @pho") == ["see `@photo album.txt`"]
+    assert complete_path("see pho") == ["see `photo album.txt`"]
+    safe = include_paths(
+        Message("user", complete_path("see @pho")[0]), pre_confirmed_urls=[]
+    )
+    assert "SYNTHETIC-SAFE" in safe.content
+    assert "SYNTHETIC-SECRET-MARKER" not in safe.content
+    assert "SYNTHETIC-TARGET" not in safe.content
+
+    (tmp_path / "my dir").mkdir()
+    (tmp_path / "my dir" / "child.md").write_text("child-content-marker")
+    assert complete_path("see my") == ["see `my dir/`"]
+    assert complete_path("see `my dir/ch") == ["see `my dir/child.md`"]
+
+    for candidate in (
+        *complete_path("see @pho"),
+        *complete_path("see pho"),
+        *complete_path("see my"),
+        *complete_path("see `my dir/ch"),
+    ):
+        result = include_paths(Message("user", candidate), pre_confirmed_urls=[])
+        assert "SYNTHETIC-SECRET-MARKER" not in result.content
+        assert "SYNTHETIC-TARGET" not in result.content
 
 
 def test_complete_input_root_path_prompt(tmp_path, monkeypatch):
@@ -469,14 +540,18 @@ async def test_tab_quoted_directory_attaches_and_completes_children(
         at = "@" if prefix.endswith("@") else ""
         base = prefix.removesuffix(at) if at else prefix
         assert inp.text == base + f"`{at}my dir/`"
-        assert "my dir/" in _find_potential_paths(inp.text)
+        assert (
+            "my dir/" in _find_potential_paths(inp.text, auto_include=False)
+        ) == bool(at)
         assert (
             len(inp.document.get_text_range((0, 0), inp.cursor_location))
             == len(inp.text) - 1
         )
         await pilot.press("c", "h", "tab")
         assert inp.text == base + f"`{at}my dir/child.md`"
-        assert "my dir/child.md" in _find_potential_paths(inp.text)
+        assert (
+            "my dir/child.md" in _find_potential_paths(inp.text, auto_include=False)
+        ) == bool(at)
         assert inp.cursor_location == inp.document.end
 
 
@@ -2241,25 +2316,80 @@ async def test_inline_resize_handler_reset_on_unmount(tmp_path):
     assert signal.getsignal(signal.SIGWINCH) is signal.SIG_DFL
 
 
-@pytest.mark.asyncio
-async def test_inline_queued_prompts_visible(tmp_path):
-    manager = make_manager(tmp_path, [Message("user", "hello")])
-    app = GptmeApp(manager, workspace=tmp_path, inline=True)
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        app.generating = True
-        inp = app.query_one("#input", ChatInput)
-        inp.text = "queued prompt"
+_QUEUED_RESTORE_PROMPTS = (
+    "first prompt",
+    "second\nwith\nlines",
+    "third prompt",
+)
+_QUEUED_RESTORE_DRAFT = "draft in progress"
+_QUEUED_RESTORE_TEXT = (
+    f"{_QUEUED_RESTORE_DRAFT}\n\nfirst prompt\n\nsecond\nwith\nlines\n\nthird prompt"
+)
+
+
+async def _queue_restore_prompts(app, pilot) -> ChatInput:
+    """Queue three prompts (one multiline) while a turn is running."""
+    app.generating = True
+    inp = app.query_one("#input", ChatInput)
+    for prompt in _QUEUED_RESTORE_PROMPTS:
+        inp.text = prompt
         await pilot.press("enter")
         await pilot.pause()
+    assert app.prompt_queue == list(_QUEUED_RESTORE_PROMPTS)
+    return inp
+
+
+@pytest.mark.asyncio
+async def test_inline_queued_prompts_visible(tmp_path, monkeypatch):
+    manager = make_manager(tmp_path, [Message("user", "hello")])
+    app = GptmeApp(manager, workspace=tmp_path, inline=True)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = await _queue_restore_prompts(app, pilot)
         queued = app.query_one("#queued", Static)
-        assert "queued prompt" in str(queued.render())
+        rendered = str(queued.render())
+        assert "first prompt" in rendered
+        assert "second" in rendered
+        assert "third prompt" in rendered
         # interrupting hands the text back and clears the queued view
+        inp.text = _QUEUED_RESTORE_DRAFT
         app._interrupt_event.set()
         await app._generation_done()
         await pilot.pause()
-        assert "queued prompt" not in str(queued.render())
-        assert inp.text == "queued prompt"
+        assert not queued.display
+        assert "queued:" not in str(queued.render())
+        assert inp.text == _QUEUED_RESTORE_TEXT
+        assert app.prompt_queue == []
+        assert app.generating is False
+        assert started == []
+        assert [m.content for m in manager.log if m.role == "user"] == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_fullscreen_queued_prompts_restored_after_interrupt(
+    tmp_path, monkeypatch
+):
+    manager = make_manager(tmp_path, [Message("user", "hello")])
+    app = GptmeApp(manager, workspace=tmp_path)
+    started: list[bool] = []
+    monkeypatch.setattr(app, "_start_generation", lambda: started.append(True))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        inp = await _queue_restore_prompts(app, pilot)
+        queued = [w for w in app.query(UserMessage) if "queued" in w.classes]
+        assert [w.content for w in queued] == list(_QUEUED_RESTORE_PROMPTS)
+        inp.text = _QUEUED_RESTORE_DRAFT
+        app._interrupt_event.set()
+        await app._generation_done()
+        await pilot.pause()
+        assert [w for w in app.query(UserMessage) if "queued" in w.classes] == []
+        assert inp.text == _QUEUED_RESTORE_TEXT
+        assert app.prompt_queue == []
+        assert app.generating is False
+        assert started == []
+        assert [m.content for m in manager.log if m.role == "user"] == ["hello"]
 
 
 @pytest.mark.asyncio
@@ -3767,10 +3897,12 @@ async def test_url_dialog_answered_after_interrupt_returns_text(tmp_path, monkey
     async with app.run_test() as pilot:
         await pilot.pause()
         app._interrupt_event.set()  # interrupted while the dialog was open
+        inp = app.query_one("#input", ChatInput)
+        inp.text = "draft in progress"
         app._enqueue_confirmed("see https://example.com", [])
         await pilot.pause()
         assert started == []
-        assert app.query_one("#input", ChatInput).text == "see https://example.com"
+        assert inp.text == "draft in progress\n\nsee https://example.com"
         assert app._confirmed_urls == {}
 
 
@@ -4249,3 +4381,63 @@ async def test_stream_marks_text_like_the_finished_message(tmp_path):
             await pilot.pause()
             assert app._stream_widget is not None
             assert app._stream_widget.has_class("has-text"), show_thinking
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivery", ["send", "steer"])
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_prompt_attachment_policy_at_delivery(
+    tmp_path, monkeypatch, delivery, explicit
+):
+    """Actual TUI send and queued steering share the explicit attachment policy."""
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+    monkeypatch.delenv("GPTME_AUTO_INCLUDE_PATHS", raising=False)
+    monkeypatch.setattr("gptme.util.context.use_fresh_context", lambda: False)
+    source = tmp_path / "notes.txt"
+    source.write_text("attachment-delivery-marker")
+    text = f"See {'@' if explicit else ''}{source}"
+    app = GptmeApp(make_manager(tmp_path), workspace=tmp_path)
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        if delivery == "send":
+            await app._submit(text)
+            result = app.manager.log[-1]
+        else:
+            app._enqueue_prompt(text)
+            await pilot.pause()
+            taken = app._take_steer_prompts()
+            assert len(taken) == 1
+            result = taken[0]
+        if explicit:
+            assert "attachment-delivery-marker" in result.content
+        else:
+            assert result.content == text
+        assert not result.files
+
+
+@pytest.mark.asyncio
+async def test_status_distinguishes_retained_log_from_provider_input(tmp_path):
+    from gptme.llm.models import ModelMeta
+
+    model = ModelMeta(provider="openai", model="gpt-4", context=10000)
+    messages = [
+        Message(
+            "assistant",
+            "Working",
+            metadata={
+                "input_log_model": model.full,
+                "usage": {"input_tokens": 1000},
+            },
+        ),
+        Message("system", "CI output line\n" * 10000, hide=True),
+    ]
+    app = GptmeApp(make_manager(tmp_path, messages), workspace=tmp_path)
+    app._statusline_cmd = None
+    async with app.run_test(size=(160, 30)) as pilot:
+        app._model = model
+        app._update_status()
+        await pilot.pause()
+        text = str(app.query_one("#status", Static).render())
+        assert "last input 1k/10k (10%)" in text
+        assert "log ~" in text

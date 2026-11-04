@@ -376,9 +376,7 @@ def ensure_todo_state(
     key = (manager.logdir.resolve(), manager.current_branch)
     with _todo_lock:
         if key not in _todo_stores:
-            log = (
-                manager.master_log if manager.current_branch == "main" else manager.log
-            )
+            log = manager.full_log
             _todo_stores[key], _ = _restore_todos(log.messages)
     yield from ()
 
@@ -394,7 +392,7 @@ def restore_todos_before_tool(
     with _todo_lock:
         if key in _todo_stores:
             return
-        log = manager.master_log if manager.current_branch == "main" else manager.log
+        log = manager.full_log
         messages = log.messages
 
         # Establish ownership by identity first: equal independent commands are

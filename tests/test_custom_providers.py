@@ -1,9 +1,12 @@
 """Tests for custom OpenAI-compatible providers configuration."""
 
+import logging
 import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from gptme.config import Config, ProviderConfig, UserConfig
 from gptme.config.user import get_user_config_runtime_path, load_user_config
@@ -128,6 +131,117 @@ providers = ["not-a-table"]
         assert config.providers == []
     finally:
         os.remove(f.name)
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    ['"invalid"', "42", "true", '{ name = "bad" }', '["bad", 42, {}]'],
+)
+@pytest.mark.parametrize("runtime", [False, True])
+def test_malformed_main_providers_allow_local_overlay(
+    tmp_path: Path, caplog, malformed: str, runtime: bool
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text(f"providers = {malformed}\n", encoding="utf-8")
+    (tmp_path / "config.local.toml").write_text(
+        '[[providers]]\nname = "local"\nbase_url = "http://localhost:8000/v1"\n',
+        encoding="utf-8",
+    )
+    if runtime:
+        get_user_config_runtime_path(str(main)).write_text("# defaults\n")
+
+    config = load_user_config(str(main))
+
+    assert [p.name for p in config.providers] == ["local"]
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.WARNING
+    ]
+    assert any("providers" in message for message in warnings)
+    assert all("runtime defaults" not in message for message in warnings)
+
+
+@pytest.mark.parametrize("runtime", [False, True])
+@pytest.mark.parametrize(
+    ("main_value", "local_value", "expected"),
+    [
+        ('"openai"', '"anthropic"', "anthropic"),
+        ('{ region = "old" }', '{ region = "new" }', {"region": "new"}),
+        ('["openai"]', '["anthropic"]', ["anthropic"]),
+    ],
+)
+def test_nested_plugin_providers_keep_normal_overlay_semantics(
+    tmp_path: Path,
+    runtime: bool,
+    main_value: str,
+    local_value: str,
+    expected: str | dict[str, str] | list[str],
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text(f"[plugin.router]\nproviders = {main_value}\n", encoding="utf-8")
+    (tmp_path / "config.local.toml").write_text(
+        f"[plugin.router]\nproviders = {local_value}\n", encoding="utf-8"
+    )
+    if runtime:
+        get_user_config_runtime_path(str(main)).write_text(
+            '[plugin.router]\nproviders = "runtime"\n', encoding="utf-8"
+        )
+
+    config = load_user_config(str(main))
+
+    assert config.plugin["router"]["providers"] == expected
+
+
+@pytest.mark.parametrize("malformed", ['"invalid"', "42", '{ name = "bad" }'])
+def test_malformed_local_provider_container_keeps_main(
+    tmp_path: Path, caplog, malformed: str
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text(
+        '[[providers]]\nname = "main"\nbase_url = "http://localhost:8000/v1"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "config.local.toml").write_text(f"providers = {malformed}\n")
+
+    assert [p.name for p in load_user_config(str(main)).providers] == ["main"]
+    assert "providers" in caplog.text
+
+
+@pytest.mark.parametrize("malformed", ['"invalid"', "42", '{ name = "bad" }'])
+def test_malformed_runtime_providers_are_not_repaired_by_local_overlay(
+    tmp_path: Path, malformed: str
+) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text("# user\n")
+    runtime = get_user_config_runtime_path(str(main))
+    runtime.write_text(f"providers = {malformed}\n")
+    (tmp_path / "config.local.toml").write_text(
+        '[[providers]]\nname = "local"\nbase_url = "http://localhost:8000/v1"\n'
+    )
+
+    with pytest.raises(ValueError, match="providers.*should be a list") as exc_info:
+        load_user_config(str(main))
+    assert str(runtime) in str(exc_info.value)
+
+
+def test_local_provider_partial_override_and_malformed_override(tmp_path: Path) -> None:
+    main = tmp_path / "config.toml"
+    main.write_text(
+        '[[providers]]\nname = "keep"\nbase_url = "http://localhost:8000/v1"\n'
+        '[[providers]]\nname = "override"\nbase_url = "http://localhost:9000/v1"\n'
+    )
+    (tmp_path / "config.local.toml").write_text(
+        '[[providers]]\nname = "keep"\nunexpected_key = true\n'
+        '[[providers]]\nname = "override"\napi_key = "synthetic-key"\n'
+        '[[providers]]\nname = "new"\nbase_url = "http://localhost:7000/v1"\n'
+    )
+
+    providers = load_user_config(str(main)).providers
+    assert [p.name for p in providers] == ["keep", "override", "new"]
+    assert providers[0].base_url == "http://localhost:8000/v1"
+    assert providers[1].base_url == "http://localhost:9000/v1"
+    assert providers[1].api_key == "synthetic-key"
 
 
 def test_malformed_user_providers_skipped_with_empty_runtime_overlay(

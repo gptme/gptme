@@ -99,3 +99,46 @@ def measure_context_tokens(messages: list[Message], model: str) -> int:
         tail = [message for message in messages[index:] if not message.ui_only]
         return total + len_tokens(tail, model)
     return len_tokens(visible, model)
+
+
+def last_provider_input_tokens(messages: list[Message], model: str) -> int | None:
+    """Historical request usage, not a prediction of the next prepared request.
+
+    Unlike measure_context_tokens, this deliberately does not add retained tail
+    messages: those may be pruned before generation. Require the qualified model
+    identity so usage from another provider/model is never displayed as current.
+    """
+    for message in reversed(messages):
+        metadata = message.metadata or {}
+        if message.role != "assistant" or message.ui_only:
+            continue
+        if metadata.get("input_log_model") != model:
+            continue
+        usage = metadata.get("usage")
+        if not usage:
+            continue
+        counts = [
+            usage.get("input_tokens", 0),
+            usage.get("cache_read_tokens", 0),
+            usage.get("cache_creation_tokens", 0),
+        ]
+        if any(type(count) is not int or count < 0 for count in counts):
+            continue
+        total = sum(counts)
+        if total > 0:
+            return total
+    return None
+
+
+def format_context_status(
+    log_tokens: int, context: int, last_input_tokens: int | None
+) -> str:
+    """Keep retained-log estimates distinct from historical provider input."""
+    retained = f"log ~{log_tokens // 1000}k"
+    if last_input_tokens is None:
+        return f"{retained}; request usage unknown (window {context // 1000}k)"
+    percent = 100 * last_input_tokens / context if context else 0
+    return (
+        f"last input {last_input_tokens // 1000}k/{context // 1000}k "
+        f"({percent:.0f}%); {retained}"
+    )

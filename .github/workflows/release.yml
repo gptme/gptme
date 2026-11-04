@@ -37,6 +37,11 @@ on:
           - dev      # Development pre-release (.devYYYYMMDD)
           - patch    # Stable patch release (x.y.Z+1)
           - minor    # Stable minor release (x.Y+1.0)
+      source_ref:
+        description: 'Source commit/ref on master to release (blank: workflow commit). CI is checked on this exact commit.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -56,15 +61,41 @@ jobs:
     timeout-minutes: 15
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      - name: Resolve release source
+        id: source
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          # Resolve explicit branches from the remote, not checkout's potentially
+          # stale local branch. Blank input still pins the triggering commit.
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          if [ -z "$SOURCE_REF" ]; then
+            SOURCE_SHA=$(git rev-parse --verify --end-of-options "${WORKFLOW_SHA}^{commit}")
+          else
+            SOURCE_SHA=$(git rev-parse --verify --end-of-options "refs/remotes/origin/${SOURCE_REF#refs/heads/}^{commit}" ||
+              git rev-parse --verify --end-of-options "${SOURCE_REF}^{commit}")
+          fi
+          # Resolve once; prepare must not follow a moving branch after CI passes.
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" origin/master; then
+            echo "::error::Release source must be a commit on master (use the master SHA behind a dev tag)."
+            exit 1
+          fi
+          git checkout --detach "$SOURCE_SHA"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Release source: $SOURCE_SHA"
+
       - name: Check for changes and CI status
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type || 'dev' }}
         run: |
           # Find last stable release tag (no pre-release suffix)
           LAST_STABLE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
@@ -91,8 +122,9 @@ jobs:
           echo "commits=$COMMITS_SINCE_TAG" >> "$GITHUB_OUTPUT"
           echo "Last stable: $LAST_STABLE | Last tag: $LAST_TAG | Commits since tag: $COMMITS_SINCE_TAG"
 
-          # Skip if no new commits
-          if [ "$COMMITS_SINCE_TAG" -eq 0 ]; then
+          # Scheduled dev releases need new commits. Manual stable cuts may
+          # promote the same source as the last dev build.
+          if [ "$COMMITS_SINCE_TAG" -eq 0 ] && [ "$RELEASE_TYPE" = "dev" ]; then
             echo "No new commits since $LAST_TAG — skipping release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -183,11 +215,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: master
+          ref: ${{ github.sha }}
           fetch-depth: 0
           # Clone over SSH and persist the deploy key so the pushes in
           # publish_release.sh (branch + tag) authenticate with it.
           ssh-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Check out verified release source
+        env:
+          SOURCE_SHA: ${{ needs.check.outputs.source_sha }}
+        run: |
+          # Keep the publisher from this workflow revision: an older source
+          # does not know how to publish without rewinding an advanced master.
+          cp scripts/publish_release.sh "$RUNNER_TEMP/publish_release.sh"
+          test -n "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - name: Configure git
         run: |
@@ -217,6 +260,10 @@ jobs:
             SINCE="${{ steps.version.outputs.last_stable }}"
           fi
 
+          # Global tag ordering determines version uniqueness, not source
+          # ancestry. Anchor notes at the common ancestor so the symmetric
+          # range never lists newer commits excluded from a pinned source.
+          SINCE=$(git merge-base "$SINCE" "$TAG")
           echo "Generating changelog: ${SINCE}...${TAG}"
           if [ "$PRERELEASE" = "true" ]; then
             # Dev releases only get a GitHub release body. No version header —
@@ -271,7 +318,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bash scripts/publish_release.sh --notes-file /tmp/changelog.md
+          bash "$RUNNER_TEMP/publish_release.sh" --notes-file /tmp/changelog.md
 
   # ── Publish ───────────────────────────────────────────────────────────
   # Runs for ALL triggers:

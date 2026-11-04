@@ -66,12 +66,18 @@ describe('useConversationSettings submit', () => {
 
     act(() => {
       result.current.form.setValue('chat.name', 'renamed');
+      result.current.form.setValue('mcp.servers.0.headers', { Authorization: 'test-token' });
     });
 
+    const onValid = jest.fn(result.current.onSubmit);
     await act(async () => {
-      await result.current.onSubmit(result.current.form.getValues());
+      await result.current.form.handleSubmit(onValid)();
     });
 
+    expect(onValid).toHaveBeenCalledTimes(1);
+    expect(onValid.mock.calls[0][0].mcp.servers?.[0].headers).toEqual({
+      Authorization: 'test-token',
+    });
     expect(updateChatConfig).toHaveBeenCalledTimes(1);
     const submitted = updateChatConfig.mock.calls[0][1] as ChatConfig;
     expect(submitted.chat.name).toBe('renamed');
@@ -82,5 +88,34 @@ describe('useConversationSettings submit', () => {
       ' padded ',
       '',
     ]);
+  });
+
+  it('rejects non-string MCP headers before submitting a mounted form', async () => {
+    const config = makeConfig();
+    conversations$.set(
+      new Map([
+        ['c1', observable({ id: 'c1', data: { id: 'c1', log: [] }, chatConfig: config })],
+      ]) as never
+    );
+
+    const { result } = renderHook(() => useConversationSettings('c1'));
+    await waitFor(() => expect(result.current.chatConfig).toBeTruthy());
+
+    act(() => {
+      result.current.form.setValue('mcp.servers.0.headers', {
+        Authorization: 123,
+      } as unknown as Record<string, string>);
+    });
+
+    const onInvalid = jest.fn();
+    await act(async () => {
+      await result.current.form.handleSubmit(result.current.onSubmit, onInvalid)();
+    });
+
+    expect(onInvalid).toHaveBeenCalledTimes(1);
+    expect(onInvalid.mock.calls[0][0].mcp.servers[0].headers.Authorization).toMatchObject({
+      type: 'invalid_type',
+    });
+    expect(updateChatConfig).not.toHaveBeenCalled();
   });
 });

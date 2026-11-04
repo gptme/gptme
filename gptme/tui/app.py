@@ -97,6 +97,7 @@ from ..tools.restart import (
 )
 from ..util.content import is_message_command
 from ..util.context import extract_urls, include_paths
+from ..util.context_measurement import format_context_status, last_provider_input_tokens
 from ..util.cost_display import inline_cost_text
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
 from ..util.history import append_history, load_history
@@ -125,6 +126,25 @@ MAX_QUEUED_SHOWN = 5
 def _queued_prompt_text(item: str | Message) -> str:
     """Return the user-visible text for a TUI-queued prompt."""
     return item.content if isinstance(item, Message) else item
+
+
+def _join_queued_prompts(items: Sequence[str | Message]) -> str:
+    """Join queued prompts into one draft, separated by a blank line."""
+    return "\n\n".join(_queued_prompt_text(item) for item in items)
+
+
+def _restore_input_text(existing: str, queued_text: str) -> str:
+    """Keep a live input draft and append restored queued prompts.
+
+    Whitespace-only drafts are treated as empty so they don't add a gap.
+    Nonempty drafts keep leading indentation and internal newlines; trailing
+    newlines are collapsed into the blank-line separator.
+    """
+    if not queued_text:
+        return existing
+    if not existing.strip():
+        return queued_text
+    return existing.rstrip("\n") + "\n\n" + queued_text
 
 
 SUMMARY_MAXLEN = 80
@@ -1630,11 +1650,15 @@ TUI_COMMANDS: dict[str, list[list[str]]] = {
 def complete_path(text: str) -> list[str]:
     """Full-text candidates completing the last word as a filesystem path.
 
-    Candidates are written so include_paths attaches them: directories get a
-    trailing slash ("journ<Tab>" -> "journal/"; a bare "journal" is prose),
-    bare cwd files without an extension get "./" ("./Makefile"), and names
-    with spaces are backtick-quoted. The input widget keeps the cursor inside
+    Directories get a trailing slash ("journ<Tab>" -> "journal/"), bare cwd
+    files without an extension get "./" ("./Makefile"), and names with spaces
+    are backtick-quoted. An @ prefix is preserved for explicit attachments;
+    completing an ordinary path leaves it as prose. The input widget keeps the cursor inside
     a quoted directory, so it can be submitted or completed further.
+
+    Names containing backticks are skipped: wrapping them would close the
+    quote early and expose an inner ``@path`` as a separate attachment.
+    Type those names instead of completing them.
     """
     quoted = text.count("`") % 2 == 1  # completing inside an open `...
     seg = text[text.rindex("`") + 1 :] if quoted else re.split(r"\s", text)[-1]
@@ -1658,6 +1682,10 @@ def complete_path(text: str) -> list[str]:
         except OSError:  # e.g. a symlink loop
             continue
         path = at + dir_part + e.name + ("/" if is_dir else "")
+        # Nested ticks would close the wrapper early and expose an inner
+        # `@path` token. Skip those names; the user can type them.
+        if "`" in path:
+            continue
         if not at and not dir_part and not is_dir and "." not in e.name.strip("."):
             path = "./" + path
         if quoted:
@@ -3205,12 +3233,18 @@ class GptmeApp(App):
         parts = []
         model = self._model
         tokens: int | None = None
+        request_tokens: int | None = None
         if model:
             parts.append(model.full)
             try:
                 tokens = len_tokens(self.manager.log.messages, model.model)
-                pct = 100 * tokens / model.context if model.context else 0
-                parts.append(f"{tokens // 1000}k/{model.context // 1000}k ({pct:.0f}%)")
+
+                request_tokens = last_provider_input_tokens(
+                    self.manager.log.messages, model.full
+                )
+                parts.append(
+                    format_context_status(tokens, model.context, request_tokens)
+                )
             except Exception:  # token counting must never break the UI
                 pass
         cost = sum(e.cost for e in self._session_costs.snapshot_entries())
@@ -3228,7 +3262,7 @@ class GptmeApp(App):
                     workspace=self.workspace,
                     model=model.full if model else None,
                     context_size=model.context if model else None,
-                    tokens=tokens,
+                    tokens=request_tokens,
                     cost=cost,
                     duration_ms=int((time.monotonic() - self._started) * 1000),
                     state=self.state,
@@ -3350,8 +3384,8 @@ class GptmeApp(App):
             return
 
         if is_message_command(text):
-            # a real /command; paths like /tmp/foo.md fall through to _submit,
-            # which attaches file contents via include_paths
+            # A real /command; paths like /tmp/foo.md fall through as prose.
+            # Explicit @paths are attached by _submit via include_paths.
             self._handle_command(text)
             return
         if self.generating and extract_urls(text):
@@ -3376,8 +3410,7 @@ class GptmeApp(App):
             # the rest of the queue, instead of starting a new turn
             self._confirmed_urls.pop(id(msg))
             chat_input = self.query_one("#input", ChatInput)
-            existing = chat_input.text.strip()
-            chat_input._set_text(f"{existing}\n{text}" if existing else text)
+            chat_input._set_text(_restore_input_text(chat_input.text, text))
         else:  # the turn ended while the dialog was open
             self.call_later(self._submit, msg)
 
@@ -4298,7 +4331,7 @@ class GptmeApp(App):
             return
         if self._interrupt_event.is_set() and self.prompt_queue:
             # user interrupted: hand queued text back instead of auto-submitting
-            text = "\n".join(_queued_prompt_text(item) for item in self.prompt_queue)
+            queued_text = _join_queued_prompts(self.prompt_queue)
             for item in self.prompt_queue:
                 if isinstance(item, Message) and item.metadata:
                     record_skill_phase(
@@ -4306,13 +4339,14 @@ class GptmeApp(App):
                         item.metadata.get("skill_invocation_id"),
                         "abandoned",
                     )
+            chat_input = self.query_one("#input", ChatInput)
+            chat_input._set_text(_restore_input_text(chat_input.text, queued_text))
             self.prompt_queue.clear()
             self._confirmed_urls.clear()
             self._drop_delivered_widget()
             for w in self._queued_widgets:
                 w.remove()
             self._queued_widgets.clear()
-            self.query_one("#input", ChatInput)._set_text(text)
         elif self.prompt_queue:
             # everything you queued goes in one turn, not one per turn
             if steer := self._take_steer_prompts():

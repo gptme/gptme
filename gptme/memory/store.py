@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import importlib
 import logging
 import os
 import re
 import stat
+import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -36,12 +38,34 @@ LOCK_FILENAME = ".memory.lock"
 
 
 def _preserve_mode(tmp: Path, dest: Path) -> None:
-    """Copy dest's permission bits onto tmp so ``os.replace`` does not widen access."""
+    """Copy ownership, access ACL and mode; fail closed on preservation errors."""
     try:
-        mode = stat.S_IMODE(dest.stat().st_mode)
+        original = dest.stat()
     except FileNotFoundError:
         return
-    os.chmod(tmp, mode)
+    if os.name == "posix":
+        staged = tmp.stat()
+        if (staged.st_uid, staged.st_gid) != (original.st_uid, original.st_gid):
+            # chown can clear permission bits, so do it before ACL/mode copying.
+            os.chown(tmp, original.st_uid, original.st_gid)
+    if sys.platform == "linux":
+        try:
+            acl = os.getxattr(dest, "system.posix_acl_access")
+        except OSError as exc:
+            if exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                raise
+            # A temp can inherit its directory's default ACL even when dest
+            # has none. Remove it before chmod could enable named-user access.
+            try:
+                os.removexattr(tmp, "system.posix_acl_access")
+            except OSError as remove_exc:
+                if remove_exc.errno not in (errno.ENODATA, errno.ENOTSUP):
+                    raise
+        else:
+            # Apply the ACL before chmod: stat's group bits are the ACL mask,
+            # not the owning group's permissions. chmod alone can widen access.
+            os.setxattr(tmp, "system.posix_acl_access", acl)
+    os.chmod(tmp, stat.S_IMODE(original.st_mode))
 
 
 def _atomic_write(path: Path, text: str | bytes) -> None:
@@ -133,36 +157,19 @@ except ImportError:  # pragma: no cover - POSIX
     _msvcrt = None
 
 
-def _lock_exclusive(f) -> None:
-    """Lock ``MEMORY.md`` for in-place upserts. Unix flock only.
-
-    Windows first-save opens an empty index; byte-range locking that file is
-    unreliable, so concurrent ``save`` stays best-effort there. ``supersede``
-    serializes through ``_locked_root`` instead.
-    """
-    if _fcntl is not None:
-        _fcntl.flock(f, _fcntl.LOCK_EX)
-
-
-def _unlock(f) -> None:
-    if _fcntl is not None:
-        _fcntl.flock(f, _fcntl.LOCK_UN)
-
-
 @contextmanager
-def _locked_root(root_path: Path):
+def _locked_root(root_path: Path, *, lock_name: str = LOCK_FILENAME):
     """Exclusive lock covering one memory root's read-validate-commit window.
 
-    ``update_index_line`` already flocks ``MEMORY.md`` for single-line upserts.
-    ``supersede`` mutates two entries plus the index and cannot use that file as
-    the lock target: ``os.replace`` of ``MEMORY.md`` would drop the flock onto
-    a replaced inode. A dedicated lock file stays put for the whole window.
+    Index updates and paired entry/index saves replace ``MEMORY.md`` atomically,
+    so it cannot be the lock target: ``os.replace`` would leave the flock on a
+    replaced inode. A dedicated lock file stays put for the whole window.
 
     Unix uses ``fcntl.flock``; Windows uses ``msvcrt.locking`` on a 1-byte
     sidecar (same pattern as ``gptme.logmanager.eventlog``).
     """
     root_path.mkdir(parents=True, exist_ok=True)
-    with open(root_path / LOCK_FILENAME, "a+b") as lock:
+    with open(root_path / lock_name, "a+b") as lock:
         if _fcntl is not None:
             _fcntl.flock(lock, _fcntl.LOCK_EX)
         elif _msvcrt is not None:  # pragma: no cover - Windows
@@ -179,6 +186,19 @@ def _locked_root(root_path: Path):
             elif _msvcrt is not None:  # pragma: no cover - Windows
                 lock.seek(0)
                 _msvcrt.locking(lock.fileno(), _msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def _locked_legacy_index(index_path: Path):
+    """Lock the resolved target across rendering, publication and rollback.
+
+    Different roots can share an index through symlinks. Its stable sidecar,
+    rather than the replaced index inode or either root lock, serializes them.
+    Callers acquire their root lock first; this lock never acquires a root lock.
+    """
+    target = index_path.resolve()
+    with _locked_root(target.parent, lock_name=f".{target.name}.memory.lock"):
+        yield target
 
 
 def update_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
@@ -214,37 +234,39 @@ def _upsert_index_line(memory_dir: Path, entry: MemoryEntry) -> None:
     clobbered; full regeneration is the explicit ``index --write`` path.
 
     The file name is the key, so renaming an entry's title updates the same
-    line instead of adding a duplicate. An exclusive lock serialises
-    concurrent writers.
+    line instead of adding a duplicate. The caller holds the root lock; the
+    target sidecar also serialises roots sharing a symlinked index.
     """
-    index_path = memory_dir / INDEX_FILENAME
-    if not entry.is_living and not index_path.exists():
-        return
+    with _locked_legacy_index(memory_dir / INDEX_FILENAME) as index_path:
+        index_text = _legacy_index_text(index_path, entry)
+        if index_text is not None:
+            _atomic_write(index_path, index_text)
+
+
+def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
+    """Render one legacy pointer update without publishing it.
+
+    Callers hold the root and resolved-target locks so reading the curated index
+    and committing its replacement are serialized even when its inode changes.
+    """
+    try:
+        content = index_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        if not entry.is_living:
+            return None
+        content = ""
     line = entry.index_line()
     # Allow brackets in titles, but never cross the leading link's destination.
     pattern = rf"^- \[(?:(?!\]\().)*\]\({re.escape(entry.filename)}\).*$"
-    with open(index_path, "a+", encoding="utf-8") as f:
-        _lock_exclusive(f)
-        try:
-            f.seek(0)
-            content = f.read()
-            if not entry.is_living:
-                new_content = re.sub(pattern + r"\n?", "", content, flags=re.MULTILINE)
-            elif not content:
-                new_content = f"{INDEX_HEADER}\n\n{line}\n"
-            elif re.search(pattern, content, re.MULTILINE):
-                new_content = re.sub(
-                    pattern, lambda _: line, content, flags=re.MULTILINE
-                )
-            else:
-                if not content.endswith("\n"):
-                    content += "\n"
-                new_content = content + line + "\n"
-            f.seek(0)
-            f.truncate()
-            f.write(new_content)
-        finally:
-            _unlock(f)
+    if not entry.is_living:
+        return re.sub(pattern + r"\n?", "", content, flags=re.MULTILINE)
+    if not content:
+        return f"{INDEX_HEADER}\n\n{line}\n"
+    if re.search(pattern, content, re.MULTILINE):
+        return re.sub(pattern, lambda _: line, content, flags=re.MULTILINE)
+    if not content.endswith("\n"):
+        content += "\n"
+    return content + line + "\n"
 
 
 class MemoryStore:
@@ -353,12 +375,11 @@ class MemoryStore:
         A policy-managed root regenerates its selected view within the stored
         budget, committing entry and index together. New entries remain available
         to recall but are not selected automatically. Legacy roots upsert living
-        pointers and remove retired pointers, preserving unrelated index prose.
+        pointers and remove retired pointers, preserving unrelated index prose
+        and committing the curated index and the entry together as well.
 
-        The root lock serialises this write against concurrent ``supersede`` calls.
-        ``supersede`` replaces ``MEMORY.md`` via ``os.replace``, which would drop
-        a POSIX flock held on the old inode by a concurrent ``update_index_line``.
-        Acquiring ``_locked_root`` here prevents that interleaving.
+        The root lock serialises this write against concurrent ``supersede`` and
+        ``update_index_line`` calls. It stays valid across index inode replacement.
         """
         slug = slugify(name)
         if slug.upper().startswith("MEMORY"):
@@ -388,8 +409,12 @@ class MemoryStore:
             text = entry.to_markdown()
             entry = entry_from_text(text, path=path, scope=root.scope, strict=True)
             if policy is None:
-                _atomic_write(path, text)
-                _upsert_index_line(root.path, entry)
+                with _locked_legacy_index(self.index_path(scope)) as index_path:
+                    index_text = _legacy_index_text(index_path, entry)
+                    replacements = [(path, text)]
+                    if index_text is not None:
+                        replacements.append((index_path, index_text))
+                    _commit_replacements(replacements)
             else:
                 entries = [e for e in self.index_entries(scope) if e.path != path]
                 entries.append(entry)

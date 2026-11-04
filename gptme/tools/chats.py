@@ -440,45 +440,60 @@ def _format_message_with_context(
     """
     if not isinstance(content, str):
         return "[non-string content]"
+    import bisect
+
     query_lower = query.lower()
-
-    # Split content into lines for line-based context
-    lines = content.split("\n")
-    lines_lower = [line.lower() for line in lines]
-
-    # Find all lines containing the query
-    line_indices = []
-    for line_idx, line_lower in enumerate(lines_lower):
-        start = 0
-        while True:
-            idx = line_lower.find(query_lower, start)
-            if idx == -1:
-                break
-            line_indices.append((line_idx, idx, idx + len(query_lower)))
-            start = idx + len(query_lower)
-
-    if not line_indices:
+    if not query.strip():
         return content[:100] + "..." if len(content) > 100 else content
+    lowered = content.lower()
+    boundaries = [0]
+    if len(lowered) != len(content):
+        # Whole-string lower() preserves search semantics (including final sigma).
+        # Per-character lengths only map expanded offsets back to original text.
+        for character in content:
+            boundaries.append(boundaries[-1] + len(character.lower()))
 
-    # Gather the matches to render (up to max_matches)
-    visible = line_indices[:max_matches]
+    lines = content.split("\n")
+    line_starts = [0]
+    for line in lines[:-1]:
+        line_starts.append(line_starts[-1] + len(line) + 1)
 
-    # Merge overlapping context windows so nearby matches share a single block.
-    # Each window is [context_start, context_end) in line space.
     windows: list[tuple[int, int, list[tuple[int, int, int]]]] = []
-    for match_idx, start_pos, end_pos in visible:
-        cs = max(0, match_idx - context_lines)
-        ce = min(len(lines), match_idx + context_lines + 1)
-        if windows and cs <= windows[-1][1]:
-            # Overlaps with the previous window — extend it
-            prev_cs, _, prev_matches = windows[-1]
-            windows[-1] = (
-                prev_cs,
-                max(ce, windows[-1][1]),
-                prev_matches + [(match_idx, start_pos, end_pos)],
-            )
+    match_count = 0
+    start = 0
+    while True:
+        idx = lowered.find(query_lower, start)
+        if idx < 0:
+            break
+        start = idx + len(query_lower)
+        match_count += 1
+        if match_count > max_matches:
+            continue
+        if len(lowered) != len(content):
+            original_start = bisect.bisect_right(boundaries, idx) - 1
+            original_end = bisect.bisect_left(boundaries, start)
         else:
-            windows.append((cs, ce, [(match_idx, start_pos, end_pos)]))
+            original_start, original_end = idx, start
+        first = bisect.bisect_right(line_starts, original_start) - 1
+        last = bisect.bisect_right(line_starts, original_end - 1) - 1
+        segments = [
+            (
+                i,
+                max(0, original_start - line_starts[i]),
+                min(len(lines[i]), original_end - line_starts[i]),
+            )
+            for i in range(first, last + 1)
+        ]
+        cs = max(0, first - max(0, context_lines))
+        ce = min(len(lines), last + max(0, context_lines) + 1)
+        if windows and cs <= windows[-1][1]:
+            prev_cs, prev_ce, prev_matches = windows[-1]
+            windows[-1] = (prev_cs, max(ce, prev_ce), prev_matches + segments)
+        else:
+            windows.append((cs, ce, segments))
+
+    if not match_count:
+        return content[:100] + "..." if len(content) > 100 else content
 
     # Build a highlight map: line_idx -> list of (start, end) char positions
     def _highlight_line(line: str, highlights: list[tuple[int, int]]) -> str:
@@ -487,6 +502,10 @@ def _format_message_with_context(
         result_parts = []
         prev = 0
         for hs, he in sorted(highlights):
+            # Distinct lower-string hits can map to the same original character.
+            hs = max(prev, hs)
+            if he <= hs:
+                continue
             result_parts.append(line[prev:hs])
             match_text = line[hs:he]
             if sys.stdout.isatty():
@@ -517,8 +536,8 @@ def _format_message_with_context(
         formatted_matches.append(context_text)
 
     result = "\n".join(formatted_matches)
-    if len(line_indices) > max_matches:
-        result += f"\n(+{len(line_indices) - max_matches} more matches)"
+    if match_count > max_matches:
+        result += f"\n(+{match_count - max(0, max_matches)} more matches)"
 
     return result
 
@@ -620,6 +639,7 @@ def find_empty_conversations(
         List of dicts with conversation metadata and disk size.
     """
     from ..logmanager import get_conversations, get_user_conversations  # fmt: skip
+    from ..logmanager.cleanup import cleanup_conversation
 
     conversation_iter = (
         get_conversations() if include_test else get_user_conversations()
@@ -630,7 +650,11 @@ def find_empty_conversations(
         # Skip conversations with branch history — conv.messages only counts the main
         # branch, so a conversation with few main-branch messages but significant branch
         # history could be incorrectly flagged as empty.
-        if conv.messages <= max_messages and conv.branches <= 1:
+        if (
+            conv.messages <= max_messages
+            and conv.branches <= 1
+            and cleanup_conversation(conv, max_messages=max_messages)
+        ):
             # Calculate disk usage for the conversation directory
             conv_dir = Path(conv.path).parent
             try:
@@ -786,6 +810,10 @@ def conversation_stats(
 ) -> None:
     """Show statistics about conversation history.
 
+    Per-model conversation counts include each conversation once for every model
+    in its usage metadata, so these counts need not sum to the global count.
+    Histories without per-model usage fall back to their last model (or unknown).
+
     Args:
         since: Only include conversations since this date (YYYY-MM-DD or Nd).
         as_json: Output as JSON instead of formatted text.
@@ -901,12 +929,20 @@ def conversation_stats(
         agent = conv.agent_name or "interactive"
         agent_counts[agent] += 1
 
-        # Model breakdown and cost/token tracking
-        model = conv.model or "unknown"
-        model_counts[model] += 1
-        model_cost[model] = model_cost.get(model, 0.0) + conv.total_cost
-        model_input_tokens[model] += conv.total_input_tokens
-        model_output_tokens[model] += conv.total_output_tokens
+        # Count a conversation once per participating model, not per message.
+        # Older metadata may have only conversation-wide totals.
+        models_usage = conv.models_usage or {
+            conv.model or "unknown": {
+                "cost": conv.total_cost,
+                "input_tokens": conv.total_input_tokens,
+                "output_tokens": conv.total_output_tokens,
+            }
+        }
+        for model, usage in models_usage.items():
+            model_counts[model] += 1
+            model_cost[model] = model_cost.get(model, 0.0) + usage.get("cost", 0.0)
+            model_input_tokens[model] += usage.get("input_tokens", 0)
+            model_output_tokens[model] += usage.get("output_tokens", 0)
         total_cost += conv.total_cost
         total_input_tokens += conv.total_input_tokens
         total_output_tokens += conv.total_output_tokens
@@ -1025,14 +1061,13 @@ def conversation_stats(
             print(f"  {agent:20s}  {count:5,} ({pct:5.1f}%)")
 
     # Model breakdown with cost and tokens
-    known_models = {m: c for m, c in model_counts.items() if m != "unknown"}
-    if known_models:
-        print("\nBy Model")
+    if model_counts:
+        print("\nBy Model (conversations may use multiple models)")
         top_models = sorted(
-            known_models, key=lambda m: known_models.get(m, 0), reverse=True
+            model_counts, key=lambda m: model_counts.get(m, 0), reverse=True
         )[:15]
         for model in top_models:
-            count = known_models[model]
+            count = model_counts[model]
             cost = model_cost[model]
             in_tok = model_input_tokens[model]
             out_tok = model_output_tokens[model]

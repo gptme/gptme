@@ -3,14 +3,17 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
+from dataclasses import replace
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    ParamSpec,
+    Protocol,
     TypedDict,
-    Union,
+    TypeVar,
     cast,
 )
 
@@ -56,6 +59,7 @@ _THINKING_EFFORT_BUDGETS: dict[str, int] = {
     "max": 32000,
 }
 _EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
+
 
 # Models that reject the legacy ``thinking: {type: "enabled", budget_tokens: N}``
 # format with HTTP 400 and require ``thinking: {type: "adaptive"}`` + the
@@ -164,19 +168,30 @@ def _extract_schema_result(content_blocks):
     return None
 
 
-def _record_usage(
-    usage: Union["anthropic.types.Usage", "anthropic.types.MessageDeltaUsage"],
-    model: str,
-) -> MessageMetadata | None:
+class _UsageMetrics(Protocol):
+    @property
+    def input_tokens(self) -> int | None: ...
+
+    @property
+    def output_tokens(self) -> int | None: ...
+
+    @property
+    def cache_creation_input_tokens(self) -> int | None: ...
+
+    @property
+    def cache_read_input_tokens(self) -> int | None: ...
+
+
+def _record_usage(usage: _UsageMetrics, model: str) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
         return None
 
     # Extract token counts
-    input_tokens = getattr(usage, "input_tokens", None)
-    output_tokens = getattr(usage, "output_tokens", None)
-    cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
-    cache_read_tokens = getattr(usage, "cache_read_input_tokens", None)
+    input_tokens = usage.input_tokens
+    output_tokens = usage.output_tokens
+    cache_creation_tokens = usage.cache_creation_input_tokens
+    cache_read_tokens = usage.cache_read_input_tokens
 
     # Calculate total tokens
     total_tokens = 0
@@ -346,9 +361,16 @@ def _stamp_reasoning_effort(
     return metadata
 
 
-def _served_model_of(message: Any) -> str | None:
+class _HasModel(Protocol):
+    @property
+    def model(self) -> object: ...
+
+
+def _served_model_of(message: _HasModel) -> str | None:
     """Return the provider-reported ``message.model`` if it is a non-empty string."""
-    value = getattr(message, "model", None)
+    if not hasattr(message, "model"):
+        return None
+    value = message.model
     if isinstance(value, str) and value.strip():
         return value
     return None
@@ -372,7 +394,7 @@ def _stamp_served_model(
 
 def _partial_stream_metadata(
     model: str,
-    usage: Any,
+    usage: _UsageMetrics | None,
     *,
     use_thinking: bool,
     served_model: str | None = None,
@@ -387,13 +409,13 @@ def _partial_stream_metadata(
     metadata: MessageMetadata = {"model": model}
     if served_model is not None:
         metadata["served_model"] = served_model
-    if usage:
+    if usage is not None:
         partial_usage: UsageData = {}
-        if (v := getattr(usage, "input_tokens", None)) is not None:
+        if (v := usage.input_tokens) is not None:
             partial_usage["input_tokens"] = v
-        if (v := getattr(usage, "cache_read_input_tokens", None)) is not None:
+        if (v := usage.cache_read_input_tokens) is not None:
             partial_usage["cache_read_tokens"] = v
-        if (v := getattr(usage, "cache_creation_input_tokens", None)) is not None:
+        if (v := usage.cache_creation_input_tokens) is not None:
             partial_usage["cache_creation_tokens"] = v
         if partial_usage:
             metadata["usage"] = partial_usage
@@ -410,7 +432,7 @@ class _OutputConfig(TypedDict):
 
 
 class _OutputConfigKwargs(TypedDict, total=False):
-    output_config: _OutputConfig
+    output_config: "anthropic.types.OutputConfigParam"
 
 
 def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
@@ -422,6 +444,11 @@ def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
         return {}
 
     return {"output_config": {"effort": effort_level}}
+
+
+class _ChatOptionalParams(TypedDict, total=False):
+    tools: list["anthropic.types.ToolParam"]
+    thinking: "anthropic.types.ThinkingConfigParam"
 
 
 def _matches_model(model: str, models: frozenset[str]) -> bool:
@@ -451,7 +478,7 @@ def _requires_adaptive_thinking(model: str) -> bool:
 
 def _build_thinking_param(
     model: str, use_thinking: bool, thinking_budget: int
-) -> dict[str, object] | None:
+) -> "anthropic.types.ThinkingConfigParam | None":
     """Build the ``thinking`` kwarg for Anthropic's messages API.
 
     Returns ``None`` when legacy thinking is disabled so callers can substitute
@@ -614,17 +641,21 @@ def _handle_anthropic_transient_error(
         raise e
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
 def retry_on_overloaded(
     max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
-):
+) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Decorator to retry functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
     """
 
-    def decorator(func):
+    def decorator(func: Callable[_P, _R]) -> Callable[_P, _R]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
             # Capture the retry generation once per call: if test teardown
             # interrupts pending retries after this point, every backoff wait
             # for this call aborts immediately (even attempts started later).
@@ -669,9 +700,15 @@ def retry_on_overloaded(
     return decorator
 
 
+_Y = TypeVar("_Y")
+
+
 def retry_generator_on_overloaded(
     max_retries: int | None = None, base_delay: float = DEFAULT_BASE_DELAY
-):
+) -> Callable[
+    [Callable[_P, Generator[_Y, None, _R]]],
+    Callable[_P, Generator[_Y, None, _R]],
+]:
     """Decorator to retry generator functions on Anthropic API transient errors with exponential backoff.
 
     Handles 5xx server errors, rate limits, and other transient API issues.
@@ -680,9 +717,11 @@ def retry_generator_on_overloaded(
     has started, errors are raised immediately to prevent duplicate output.
     """
 
-    def decorator(func):
+    def decorator(
+        func: Callable[_P, Generator[_Y, None, _R]],
+    ) -> Callable[_P, Generator[_Y, None, _R]]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> Generator[_Y, None, _R]:
             # Capture the retry generation once per call (see retry_abort.py).
             generation = current_generation()
             from .recovery import recovery_active
@@ -917,13 +956,15 @@ def chat(
     top_p: float | None = None,
     via_gptme: bool = False,
 ) -> tuple[str, MessageMetadata | None]:
-    from anthropic import NOT_GIVEN  # fmt: skip
-
     if temperature is not None or top_p is not None:
         logger.warning(
             "temperature and top_p are not supported by Anthropic SDK 1.x and will be ignored"
         )
 
+    if not via_gptme and _anthropic is None:
+        from ..config import get_config
+
+        init(get_config())
     client = _get_gptme_client() if via_gptme else _anthropic
     if not client:
         raise RuntimeError("LLM not initialized")
@@ -989,6 +1030,7 @@ def chat(
     else:
         _call_timeout = _chat_timeout()
 
+    send_client: Anthropic
     with bounded_client(client, "anthropic") as send_client:
         reserve_request(
             send_client,
@@ -998,13 +1040,17 @@ def chat(
         from .recovery import reserve_recovery_request
 
         reserve_recovery_request()
-        response = send_client.messages.create(
+        optional_params: _ChatOptionalParams = {}
+        if tools_dict:
+            optional_params["tools"] = tools_dict
+        if thinking_param is not None:
+            optional_params["thinking"] = thinking_param
+        response: anthropic.types.Message = send_client.messages.create(
             model=api_model,
             messages=messages_dicts,
             system=system_messages,
             max_tokens=max_tokens,
-            tools=tools_dict or NOT_GIVEN,
-            thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
+            **optional_params,
             **output_config_kwargs,
             **_compaction_betas_kwargs(messages),
             **_fast_mode_kwargs(),
@@ -1357,6 +1403,8 @@ def _extract_thinking_content(
 
 
 def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
+    pending_call_ids: set[str] = set()
+    pending_notices: list[dict] = []
     for message in message_dicts:
         # Format tool result as expected by the model
         if message["role"] == "user" and "call_id" in message:
@@ -1369,8 +1417,11 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
                 }
             ]
             yield modified_message
+            pending_call_ids.discard(message["call_id"])
         # Find tool_use occurrences and format them as expected
         elif message["role"] == "assistant":
+            yield from pending_notices
+            pending_notices = []
             modified_message = dict(message)
             original_content = message["content"]
 
@@ -1430,9 +1481,18 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
             if final_content:
                 modified_message["content"] = final_content
 
+            pending_call_ids = {tool.call_id for tool in tool_uses if tool.call_id}
             yield modified_message
+        elif pending_call_ids:
+            # Hooks and partial tool output can precede the paired results.
+            # Anthropic requires every tool_result before any text in that turn.
+            pending_notices.append(message)
         else:
+            yield from pending_notices
+            pending_notices = []
             yield message
+
+    yield from pending_notices
 
 
 # File extensions allowed for image uploads
@@ -1501,9 +1561,10 @@ def _transform_system_messages(
     1. Extracts the leading static system prompt messages as the main system prompt
     2. For models without native system-message support (< Opus 4.8): wraps
        subsequent system messages as ``<system>`` tags in user messages
-    3. For Opus 4.8+: preserves subsequent system messages as ``role: "system"``
-       (native mid-conversation system-message support)
-    4. Merges consecutive user messages (for legacy path)
+    3. For Opus 4.8+: preserves system sections only after a user turn and
+       before an assistant turn or the end of the history. Tool results always
+       become user messages so _handle_tools can emit native tool_result blocks.
+    4. Merges consecutive user messages
     5. Applies cache control to optimize performance
 
     Note: Anthropic allows up to 4 cache breakpoints in a conversation.
@@ -1540,28 +1601,40 @@ def _transform_system_messages(
 
     native_system = model is not None and _supports_native_system_messages(model)
 
-    if native_system:
-        # Opus 4.8+: subsequent system messages are kept as-is (native support).
-        # No transformation needed — they pass through as role="system".
-        pass
-    else:
-        # Pre-Opus-4.8: convert subsequent system messages into <system> tags
-        # inside user messages, unless a `call_id` is present, indicating the
-        # tool_format is 'tool'. Tool responses are handled separately by _handle_tool.
-        for i, message in enumerate(messages):
-            if message.role == "system":
+    i = 0
+    while i < len(messages):
+        message = messages[i]
+        if message.role != "system":
+            i += 1
+            continue
+
+        # Consecutive plain system messages form one section. Tool results
+        # instead belong to the user turn, even on models with native support.
+        end = i + 1
+        if message.call_id is None:
+            while (
+                end < len(messages)
+                and messages[end].role == "system"
+                and messages[end].call_id is None
+            ):
+                end += 1
+        keep_native = (
+            native_system
+            and message.call_id is None
+            and i > 0
+            and messages[i - 1].role == "user"
+            and (end == len(messages) or messages[end].role == "assistant")
+        )
+        if not keep_native:
+            for j in range(i, end):
+                message = messages[j]
                 content = (
                     f"<system>{message.content}</system>"
                     if message.call_id is None
                     else message.content
                 )
-
-                messages[i] = Message(
-                    "user",
-                    content=content,
-                    files=message.files,
-                    call_id=message.call_id,
-                )
+                messages[j] = replace(message, role="user", content=content)
+        i = end
 
     # find consecutive user role messages and merge them together
     messages_new: list[Message] = []
@@ -1668,16 +1741,13 @@ def _prepare_messages_for_api(
     # Transform system messages
     messages, system_messages = _transform_system_messages(messages, model=model)
 
-    # Find the stable boundary before the first ephemeral message.
-    # This index (into messages_dicts_new after conversion) is passed to
-    # apply_cache_control so a cache breakpoint is placed just before the
-    # ephemeral block, keeping the stable prefix cached as messages expire.
-    first_ephemeral_in_messages = next(
-        (i for i, m in enumerate(messages) if m.ephemeral_ttl is not None), None
+    # Carry ephemeral identity through tool-result/notice reordering. An input
+    # position no longer identifies the same message after _handle_tools().
+    # This private marker is discarded when constructing the API payload below.
+    messages_dicts = (
+        _process_file({**data, "_ephemeral": message.ephemeral_ttl is not None})
+        for message, data in zip(messages, msgs2dicts(messages))
     )
-
-    # Handle files and convert to dicts
-    messages_dicts = (_process_file(f) for f in msgs2dicts(messages))
 
     # Prepare tools
     tools_dict = [_spec2tool(tool) for tool in tools] if tools else None
@@ -1708,9 +1778,8 @@ def _prepare_messages_for_api(
 
     # Apply cache control to optimize performance
     messages_dicts_new: list[anthropic.types.MessageParam] = []
-    # Track the output index of the stable boundary before the ephemeral block.
-    # msg_input_idx counts messages from the generator (before filtering).
-    _msg_input_idx = 0
+    # Track the stable prefix in emitted order, including filtered messages.
+    _seen_ephemeral = False
     _ephemeral_boundary_output_idx: int | None = None
     for msg in messages_dicts:
         content_parts: list[
@@ -1755,12 +1824,10 @@ def _prepare_messages_for_api(
         # Record the boundary before potentially skipping this message.
         # The boundary is the last output index before the first ephemeral input,
         # so it must be captured regardless of whether this message has content.
-        if (
-            first_ephemeral_in_messages is not None
-            and _msg_input_idx == first_ephemeral_in_messages
-            and len(messages_dicts_new) > 0
-        ):
-            _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
+        if msg.get("_ephemeral") and not _seen_ephemeral:
+            _seen_ephemeral = True
+            if messages_dicts_new:
+                _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
 
         # Only add message if it has content (prevents Anthropic API error)
         if content_parts:
@@ -1769,7 +1836,6 @@ def _prepare_messages_for_api(
             logger.warning(
                 f"Skipping message with role '{msg['role']}' - all content was filtered out"
             )
-        _msg_input_idx += 1
 
     # Apply cache control for Anthropic prompt caching
     # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching

@@ -38,7 +38,8 @@ boundary. Results for another branch wait until you return to that branch.
 Set ``watch_autowake = false`` under ``[chat]`` in the conversation's
 ``config.toml`` for notification-only delivery. Tool and URL confirmations still
 apply to any resumed generation. An interrupt suppresses automatic continuation.
-This does not change plain CLI wakeups or non-interactive shutdown policy.
+The interactive CLI uses the same setting and preserves unsent prompt text
+across the wake. Non-interactive shutdown policy is unchanged.
 
 Installation
 ------------
@@ -173,9 +174,11 @@ shown inline in the conversation. ``/quit`` is a TUI-local alias for
 ``/exit``, and ``/display`` (see `Display settings`_) is TUI-only.
 
 Outside commands, Tab completes the last word as a file path, adding a
-trailing ``/`` to directories. A path in your message (``journal/``,
-``./notes.md``, ``README.md``) is attached to it; a bare word like
-``journal`` is left as text.
+trailing ``/`` to directories. Prefix a path with ``@`` to attach it:
+``@journal/``, ``@./notes.md``, or ``@README.md``. Completion preserves that
+prefix and wraps names with spaces in backticks, such as ```@my notes.txt```.
+Bare paths remain text, including when completed with Tab. See
+:ref:`prompt-attachments` for the shared CLI/TUI policy and legacy opt-in.
 
 Limitations
 -----------

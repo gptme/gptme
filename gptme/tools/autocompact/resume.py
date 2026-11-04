@@ -844,14 +844,13 @@ def _build_dropped_result_stubs(
     retained: list[Message],
     model: str,
 ) -> Message | None:
-    """Build compact references for master-log tool results absent from a view.
+    """Build references for tool results in this branch's lossless history.
 
-    Result IDs are the 1-based message positions in ``conversation.jsonl``.
-    Those positions remain stable because compacted views are stored separately
-    and later messages are dual-written to the append-only master transcript.
+    Result IDs are 1-based positions in the branch-owned full transcript.
+    Compacted views are separate and later messages are dual-written there.
     """
     recall_available = has_tool("recall")
-    master_messages = manager.master_log.messages
+    master_messages = manager.full_log.messages
     retained_counts = Counter(_message_identity(message) for message in retained)
     lines: list[str] = []
     for index, message in enumerate(master_messages):

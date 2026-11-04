@@ -1,9 +1,9 @@
 """A successful HTTP EOF is not a successful SDK generation without its terminal."""
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import nullcontext
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Protocol, cast
 from unittest.mock import MagicMock
 
 import httpx
@@ -15,6 +15,14 @@ from openai.types.chat import ChatCompletionChunk
 from gptme.llm import llm_anthropic, llm_openai
 from gptme.llm.openai_responses import ResponsesStreamError, _stream_responses_events
 from gptme.message import Message, MessageMetadata
+from gptme.tools import ToolSpec
+
+
+class _WrappedStream(Protocol):
+    __wrapped__: Callable[
+        [list[Message], str, list[ToolSpec] | None],
+        Generator[str, None, MessageMetadata | None],
+    ]
 
 
 def _chat_chunk(
@@ -67,7 +75,8 @@ def _sdk_stream(
         monkeypatch.setattr(llm_openai, "get_client", lambda _: client)
         monkeypatch.setattr(llm_openai, "_is_proxy", lambda _: False)
         monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
-        return llm_openai.stream.__wrapped__(
+        # Bypass retries deliberately: these tests exercise one SDK stream.
+        return cast(_WrappedStream, llm_openai.stream).__wrapped__(
             [Message("user", "hi")], "openai/gpt-4o", None
         )
     events = []
@@ -101,7 +110,7 @@ def _sdk_stream(
     client = MagicMock()
     client.messages.stream.return_value = nullcontext(iter(events))
     monkeypatch.setattr(llm_anthropic, "_anthropic", client)
-    return llm_anthropic.stream.__wrapped__(
+    return cast(_WrappedStream, llm_anthropic.stream).__wrapped__(
         [Message("system", "You are helpful."), Message("user", "hi")],
         "claude-sonnet-4-6",
         None,

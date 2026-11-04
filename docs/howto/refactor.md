@@ -26,13 +26,13 @@ gptme 'rename UserRecord to User and change its constructor to take keyword argu
 ## Extract a helper function
 
 ```bash
-gptme 'the validation logic in process_order() is repeated; extract it into a validate_order() function' src/orders.py
+gptme 'the validation logic in process_order() is repeated; extract it into a validate_order() function' @src/orders.py
 ```
 
 ## Split a large module
 
 ```bash
-gptme 'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)' src/monolith.py
+gptme 'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)' @src/monolith.py
 ```
 
 ## Change an API's interface
@@ -51,7 +51,7 @@ gptme 'remove all code marked with the TODO: deprecated comment and update calle
 ## Add a new parameter to a function with a default
 
 ```bash
-gptme 'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers' src/http.py src/client.py
+gptme 'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers' @src/http.py @src/client.py
 ```
 
 ## Restructure a directory

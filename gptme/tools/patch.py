@@ -17,6 +17,7 @@ from ..config import get_config
 from ..message import Message
 from ..util import path_with_tilde
 from ..util.ask_execute import execute_with_confirmation
+from ..util.file_write import write_text_preserving_original
 from .base import (
     Parameter,
     ToolSpec,
@@ -30,7 +31,8 @@ To patch/modify files, we use an adapted version of git conflict markers.
 
 Keep patches small. ORIGINAL must match the file exactly, including ellipsis
 comments (`# ...`): these are literal, not wildcards. Use separate
-ORIGINAL/UPDATED blocks to skip unchanged code.
+ORIGINAL/UPDATED blocks to skip unchanged code. ORIGINAL must have exactly one
+match, including overlapping occurrences; add surrounding context to disambiguate.
 
 ### When to use patch vs save
 
@@ -102,11 +104,12 @@ class Patch:
 
     def apply(self, content: str) -> str:
         # Fast path: try exact match first (backward compatible)
-        if self.original in content:
-            count = content.count(self.original)
-            if count > 1:
+        first_match = content.find(self.original)
+        if first_match != -1:
+            # Start one character later, not after the chunk: matches can overlap.
+            if content.find(self.original, first_match + 1) != -1:
                 raise ValueError(
-                    f"original chunk is not unique ({count} matches found). "
+                    "original chunk is not unique (at least 2 matches found). "
                     "Provide more surrounding context to make the match unique."
                 )
             new_content = content.replace(self.original, self.updated, 1)
@@ -359,14 +362,15 @@ def execute_patch_impl(
         # Re-check before the write: the read above is fast but not atomic with this write.
         if path.exists() and not path.is_file():
             raise ValueError(f"Cannot patch non-regular file `{path}`")
-        with open(path, "w", encoding="utf-8", newline=newline) as f:
-            # Normalize \r\n → \n unconditionally: files are read in universal-newline
-            # mode so the content model is always LF-only. Python's newline= then
-            # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
-            # for LF). Skipping this on LF files would let model-emitted \r\n create
-            # mixed line endings.
-            text = patched_content.replace("\r\n", "\n")
-            f.write(text)
+        # Normalize \r\n → \n unconditionally: files are read in universal-newline
+        # mode so the content model is always LF-only. Python's newline= then
+        # applies the target ending exactly once (\n→\r\n for CRLF files, no-op
+        # for LF). Skipping this on LF files would let model-emitted \r\n create
+        # mixed line endings.
+        text = patched_content.replace("\r\n", "\n")
+        # Validate UTF-8 before staging the replacement.
+        text.encode("utf-8")
+        write_text_preserving_original(path, text, newline=newline)
 
         # Return success message with any warnings
         warnings_str = "\n".join(warnings)
@@ -378,6 +382,10 @@ def execute_patch_impl(
     except FileNotFoundError:
         raise ValueError(
             f"Patch failed: No such file or directory `{path}` (pwd: `{Path.cwd()}`)"
+        ) from None
+    except UnicodeEncodeError as e:
+        raise ValueError(
+            f"Patch failed: content is not encodable as UTF-8 at character {e.start}."
         ) from None
     except UnicodeDecodeError as e:
         # Subclass of ValueError whose args[0] is just the codec name ("utf-8")

@@ -121,7 +121,7 @@ def test_save_browser_state_no_open_page_raises():
 
 
 def test_save_browser_state_calls_storage_state(tmp_path):
-    """save_browser_state() calls context.storage_state(path=...) with the right path."""
+    """save_browser_state() publishes serialized state from same-directory staging."""
     import gptme.tools._browser_playwright as _pw
 
     mock_context = MagicMock()
@@ -138,7 +138,12 @@ def test_save_browser_state_calls_storage_state(tmp_path):
     with patch.object(_pw, "_current_context", mock_context):
         result = _do_save_browser_state(MagicMock(), str(state_path))
 
-    mock_context.storage_state.assert_called_once_with(path=str(state_path))
+    mock_context.storage_state.assert_called_once()
+    staged_path = Path(mock_context.storage_state.call_args.kwargs["path"])
+    assert staged_path.parent == state_path.parent
+    assert staged_path != state_path
+    assert not staged_path.exists()
+    assert state_path.read_text() == '{"cookies":[],"origins":[]}'
     assert str(state_path) in result
 
 

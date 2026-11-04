@@ -2,10 +2,12 @@ import json
 import logging
 import os
 import time
+from typing import assert_type
 
 import httpx2
 import pytest
 from anthropic import Anthropic
+from pydantic import TypeAdapter
 
 import gptme.llm.llm_anthropic as llm_anthropic
 from gptme.llm.llm_anthropic import (
@@ -961,6 +963,72 @@ def test_claude_5_chat_wire_payload(model, reasoning, monkeypatch):
     assert text == "Hello"
 
 
+@pytest.mark.parametrize(
+    ("model", "reasoning", "include_tools"),
+    [
+        ("claude-opus-4-7", "0", False),
+        ("claude-sonnet-5-5", "1", True),
+    ],
+)
+def test_chat_serializes_optional_sdk_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    reasoning: str,
+    include_tools: bool,
+) -> None:
+    """Optional SDK fields are omitted when unset and serialized when set."""
+    tools = None
+    if include_tools:
+        init_tools(allowlist=["save"])
+        tool_save = get_tool("save")
+        assert tool_save is not None
+        tools = [tool_save]
+
+    payloads: list[dict[str, object]] = []
+    payload_parser = TypeAdapter(dict[str, object])
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        payloads.append(payload_parser.validate_json(request.content))
+        # These fixed model names come from the parameter table above. Serve
+        # wire JSON directly, without httpx2's dynamically typed json argument.
+        response_body = (
+            '{"id":"msg_test","type":"message","role":"assistant",'
+            f'"model":"{model}","content":[{{"type":"text","text":"Hello"}}],'
+            '"stop_reason":"end_turn","stop_sequence":null,'
+            '"usage":{"input_tokens":10,"output_tokens":5}}'
+        )
+        return httpx2.Response(
+            200, text=response_body, headers={"Content-Type": "application/json"}
+        )
+
+    monkeypatch.setenv("GPTME_REASONING", reasoning)
+    monkeypatch.setenv("GPTME_THINKING_EFFORT", "high")
+    monkeypatch.setattr(llm_anthropic, "_is_proxy", False)
+    monkeypatch.setattr(llm_anthropic, "_HAS_OUTPUT_CONFIG", True)
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as http_client:
+        client = Anthropic(api_key="test-key", http_client=http_client, timeout=600)
+        monkeypatch.setattr(llm_anthropic, "_anthropic", client)
+        answer = llm_anthropic.chat(
+            [Message("system", "Be helpful."), Message("user", "Hello")],
+            model,
+            tools=tools,
+        )[0]
+
+    assert_type(answer, str)
+    assert answer == "Hello"
+    if include_tools:
+        tools_payload = payloads[0]["tools"]
+        assert isinstance(tools_payload, list)
+        assert isinstance(tools_payload[0], dict)
+        assert tools_payload[0]["name"] == "save"
+        assert payloads[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
+        assert payloads[0]["output_config"] == {"effort": "high"}
+    else:
+        assert "tools" not in payloads[0]
+        assert "thinking" not in payloads[0]
+        assert "output_config" not in payloads[0]
+
+
 def test_opus_47_returns_adaptive():
     # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
     assert _build_thinking_param(
@@ -1275,27 +1343,30 @@ def test_chat_preserves_tool_input(
 ) -> None:
     """Native arguments survive the real SDK, persisted syntax, and API replay."""
     init_tools(["save"])
+    response_encoder = TypeAdapter(dict[str, object])
 
     def serve(request: httpx2.Request) -> httpx2.Response:
+        response_payload: dict[str, object] = {
+            "id": "msg_tool",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-6",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_save",
+                    "name": "save",
+                    "input": tool_input,
+                }
+            ],
+            "stop_reason": "tool_use",
+            "stop_sequence": None,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
         return httpx2.Response(
             200,
-            json={
-                "id": "msg_tool",
-                "type": "message",
-                "role": "assistant",
-                "model": "claude-sonnet-4-6",
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "id": "toolu_save",
-                        "name": "save",
-                        "input": tool_input,
-                    }
-                ],
-                "stop_reason": "tool_use",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            },
+            content=response_encoder.dump_json(response_payload),
+            headers={"Content-Type": "application/json"},
         )
 
     messages = [Message("system", "Be helpful."), Message("user", "Save the file.")]

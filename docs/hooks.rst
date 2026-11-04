@@ -37,10 +37,24 @@ Tool Lifecycle Hooks
 File Operation Hooks
 ~~~~~~~~~~~~~~~~~~~~~
 
-- ``FILE_SAVE_PRE``: Before saving a file
-- ``FILE_SAVE_POST``: After saving a file
+- ``FILE_SAVE_PRE``: Before saving or appending to a file
+- ``FILE_SAVE_POST``: After successfully saving or appending to a file
 - ``FILE_PATCH_PRE``: Before patching a file
 - ``FILE_PATCH_POST``: After patching a file
+
+For ``save`` and ``append``, PRE receives the requested ``content`` before
+newline normalization. POST receives the content passed to the text writer,
+before platform/file newline translation. For ``append`` this is **only the
+appended chunk**, including any inserted leading separator and final newline,
+not the resulting full file. Read ``path`` to inspect the full file after a write.
+Both events receive the resolved absolute ``path``; POST also receives ``created``.
+For append, ``created`` records whether the destination was absent before its
+creation prompts and hooks. Hook messages are propagated to the conversation.
+
+Append dispatches PRE after confirmation but before creating or writing the
+file, and POST only after a successful write and close. Refused or failed writes
+do not emit POST. These are notification hooks, not a veto, rollback, or
+transaction API; hook failures retain the registry's normal error handling.
 
 Session Lifecycle Hooks
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -199,7 +213,13 @@ execution is auto-confirmed (autonomous mode).
    A guardrail must out-rank **every** built-in confirmation hook, or it can be
    pre-empted before it ever runs. The built-ins register at:
 
+   - ``guardrails`` — priority **200**
+   - ``anomaly_watchdog.confirm`` — priority **150**
+   - ``watch.sleep_poll_guard`` — priority **150** (watch tool)
    - ``server_confirm`` — priority **100**
+   - ``tui_confirm`` — priority **100** (TUI)
+   - ``shell.allowlist`` — priority **10** (auto-confirms allowlisted commands)
+   - ``watch.allowlist`` — priority **10**
    - ``cli_confirm`` — priority **0**
    - ``auto_confirm`` — priority **0**
 
@@ -208,8 +228,9 @@ execution is auto-confirmed (autonomous mode).
    guardrail named ``guardrail.secrets`` registered at priority ``100`` therefore
    loses to ``server_confirm`` (``"s" > "g"``), which returns a non-``None``
    result and prevents the guardrail from running at all. Pick a priority
-   strictly greater than 100 (the example uses ``1000``) rather than relying on
-   the name tie-break.
+   strictly greater than the highest built-in you need to out-rank. The highest
+   default is ``guardrails`` at 200; the secrets example uses ``1000`` and the
+   opt-in HOL Guard example uses ``250``. Do not rely on the name tie-break.
 
 .. note::
 

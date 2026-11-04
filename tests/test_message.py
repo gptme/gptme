@@ -965,6 +965,43 @@ def test_message_metadata_reasoning_fields_roundtrip():
     assert restored.metadata["usage"]["reasoning_tokens"] == 25
 
 
+@pytest.mark.parametrize("wire_format", ["jsonl", "toml"])
+def test_message_opaque_metadata_roundtrip(tmp_path: Path, wire_format: str) -> None:
+    """Opaque metadata retains nested and unknown fields across persistence."""
+    from gptme.logmanager import Log
+    from gptme.message import MessageMetadata
+
+    metadata: MessageMetadata = {
+        "voice_call": {
+            "call_sid": "CA_test",
+            "duration_seconds": 1.5,
+            "future_field": {"enabled": True, "channels": [1, 2]},
+        },
+        "panel_hints": [
+            {
+                "id": "panel_test",
+                "kind": "iframe",
+                "bootstrap": {"options": {"enabled": True, "labels": ["one"]}},
+            }
+        ],
+        "anthropic_compaction_block": {
+            "type": "compaction",
+            "signature": "opaque-signature",
+            "future_provider_field": {"items": [{"id": 1}]},
+        },
+    }
+    message = Message("assistant", "Saved metadata", metadata=metadata)
+
+    if wire_format == "jsonl":
+        logfile = tmp_path / "metadata.jsonl"
+        Log([message]).write_jsonl(logfile)
+        restored = Log.read_jsonl(logfile).messages[0]
+    else:
+        restored = Message.from_toml(message.to_toml())
+
+    assert restored.metadata == metadata
+
+
 def test_message_metadata_migration_nests_reasoning_tokens():
     from gptme.message import _migrate_metadata
 

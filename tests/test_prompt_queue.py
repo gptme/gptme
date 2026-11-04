@@ -7,14 +7,17 @@ must survive a drain cycle rather than being silently deleted.
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from gptme.message import Message, MessageMetadata
 from gptme.prompt_queue import (
     drain_prompt_queue,
     drain_steer_prompts,
     get_prompt_queue_path,
     queue_prompt,
+    requeue_prompts,
 )
 
 
@@ -126,3 +129,88 @@ def test_skill_invocation_metadata_survives_partial_drain(tmp_path: Path) -> Non
     assert steer_message.content == "steering prompt"
     assert steer_message.metadata is None
     assert not get_prompt_queue_path(tmp_path).exists()
+
+
+def test_requeue_prompts_prepends_and_preserves_metadata(tmp_path: Path) -> None:
+    queue_prompt(tmp_path, "already on disk")
+    parked = [
+        Message("user", "parked first", metadata={"skill_invocation_id": "inv-1"}),
+        Message(
+            "user",
+            "parked steer",
+            metadata=cast(MessageMetadata, {"steer": True}),
+        ),
+        Message("user", "   "),
+    ]
+
+    assert requeue_prompts(tmp_path, parked) == 2
+    assert [message.content for message in drain_prompt_queue(tmp_path)] == [
+        "parked first",
+        "already on disk",
+    ]
+    (steer_message,) = drain_steer_prompts(tmp_path)
+    assert steer_message.content == "parked steer"
+    assert not get_prompt_queue_path(tmp_path).exists()
+
+
+def test_requeue_prompts_append_keeps_existing_ahead(tmp_path: Path) -> None:
+    queue_prompt(tmp_path, "already on disk")
+    assert requeue_prompts(tmp_path, [Message("user", "later")], prepend=False) == 1
+    assert [message.content for message in drain_prompt_queue(tmp_path)] == [
+        "already on disk",
+        "later",
+    ]
+
+
+def test_requeue_prompts_preserves_non_user_role(tmp_path: Path) -> None:
+    assert requeue_prompts(tmp_path, [Message("system", "subagent done")]) == 1
+    (message,) = drain_prompt_queue(tmp_path)
+    assert message.role == "system"
+    assert message.content == "subagent done"
+
+
+@pytest.mark.parametrize("role", ["tool", [], {}, None, 123])
+def test_requeue_prompts_unknown_role_defaults_to_user(
+    tmp_path: Path, role: object
+) -> None:
+    get_prompt_queue_path(tmp_path).write_text(
+        json.dumps({"content": "mystery", "role": role}) + "\n", encoding="utf-8"
+    )
+    (message,) = drain_prompt_queue(tmp_path)
+    assert message.role == "user"
+    assert message.content == "mystery"
+
+
+@pytest.mark.parametrize("failure", ["write", "replace"])
+def test_requeue_failure_preserves_existing_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """A partial staging write or failed publish cannot erase durable intent."""
+    queue_prompt(tmp_path, "already durable")
+    queue_path = get_prompt_queue_path(tmp_path)
+    original = queue_path.read_bytes()
+    write_text = Path.write_text
+
+    def fail_write(path: Path, text: str, *args, **kwargs) -> int:
+        # Model ENOSPC after truncation and a partial write, not before open.
+        write_text(path, text[:7], *args, **kwargs)
+        raise OSError("synthetic disk full")
+
+    def fail_replace(*args, **kwargs) -> None:
+        raise OSError("synthetic publish failure")
+
+    if failure == "write":
+        monkeypatch.setattr(Path, "write_text", fail_write)
+    else:
+        monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="synthetic"):
+        requeue_prompts(tmp_path, [Message("user", "parked intent")])
+
+    assert queue_path.read_bytes() == original
+    assert {path.name for path in tmp_path.iterdir()} == {
+        "prompt-queue.jsonl",
+        ".prompt-queue.lock",
+    }
+    assert [message.content for message in drain_prompt_queue(tmp_path)] == [
+        "already durable"
+    ]

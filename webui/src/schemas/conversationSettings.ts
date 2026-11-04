@@ -11,7 +11,7 @@ export const mcpServerSchema = z.object({
   originalArgs: z.array(z.string()).optional(),
   // Retained by the global editor even though the shared form edits stdio fields only.
   url: z.string().optional(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
 
   original_name: z.string().optional(),
   rename_locked: z.boolean().optional(),

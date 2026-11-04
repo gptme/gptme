@@ -105,25 +105,12 @@ def _generate_llm_name(
         return None
 
     try:
-        from ..llm import _chat_complete
-        from ..llm.models import ModelMeta, get_model, get_summary_model
+        from ..llm.models import ModelMeta
+        from .summary import complete_summary
 
         # Handle case where model is already a ModelMeta object
         if isinstance(model, ModelMeta):
             model = model.full
-
-        # Try to use cheaper summary model (if available for provider)
-        naming_model = model
-        try:
-            current_model = get_model(model)
-            if current_model.provider != "unknown":
-                summary_model_name = get_summary_model(current_model.provider)
-                # Only switch models if a summary model is defined for this provider
-                if summary_model_name is not None:
-                    naming_model = f"{current_model.provider}/{summary_model_name}"
-                # For local/unknown providers, keep using the original model
-        except Exception:
-            logger.exception("exception during auto-name")
 
         # Create context from recent messages
         context = ""
@@ -191,14 +178,12 @@ Examples of GOOD titles:
 Conversation:
 {context}"""
 
-        # Use summary model directly (no fallback)
-        response, _metadata = _chat_complete(
+        response = complete_summary(
             [
                 Message("system", "Generate concise conversation titles."),
                 Message("user", prompt),
             ],
-            naming_model,
-            None,
+            model,
         )
 
         # Strip think tags (Claude models may use these)
@@ -366,9 +351,9 @@ def generate_llm_name(messages: list[Message]) -> str:
     Falls back to random name if LLM naming fails.
     """
     try:
-        from ..llm.models import get_default_model_summary
+        from ..llm.models import get_default_model
 
-        model = get_default_model_summary()
+        model = get_default_model()
         if model:
             name = generate_conversation_name(
                 strategy="llm", messages=messages, model=model.full, dash_separated=True

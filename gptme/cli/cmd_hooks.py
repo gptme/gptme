@@ -204,8 +204,8 @@ def uninstall(workspace: Path, global_install: bool) -> None:
 
     for event in (_USERPROMPTSUBMIT, _PRETOOLUSE):
         entries = hooks_cfg.get(event, [])
-        new_entries = [e for e in entries if not _is_gptme_entry(e)]
-        if len(new_entries) < len(entries):
+        new_entries = _without_gptme_hooks(entries)
+        if new_entries != entries:
             hooks_cfg[event] = new_entries
             changed = True
 
@@ -450,6 +450,23 @@ def _is_gptme_entry(entry: dict) -> bool:
     return False
 
 
+def _without_gptme_hooks(entries: list[dict]) -> list[dict]:
+    """Remove owned commands, retaining unrelated hooks and entry metadata."""
+    result = []
+    for entry in entries:
+        if not _is_gptme_entry(entry):
+            result.append(entry)
+            continue
+        remaining = [
+            hook
+            for hook in entry.get("hooks", [])
+            if _HOOK_COMMAND not in hook.get("command", "")
+        ]
+        if remaining:
+            result.append({**entry, "hooks": remaining})
+    return result
+
+
 def _is_hook_installed(hooks_cfg: dict, event: str) -> bool:
     """Return True if a gptme hook entry already exists for this event."""
     return any(_is_gptme_entry(e) for e in hooks_cfg.get(event, []))
@@ -461,8 +478,8 @@ def _upsert_hook_entry(
     """Insert or replace a gptme hook entry for the given event."""
     entries: list[dict] = hooks_cfg.setdefault(event, [])
     if force:
-        # Remove existing gptme entries before inserting the new one
-        entries[:] = [e for e in entries if not _is_gptme_entry(e)]
+        # Replace owned commands without deleting their unrelated siblings.
+        entries[:] = _without_gptme_hooks(entries)
     elif _is_hook_installed(hooks_cfg, event):
         # Already present for this event — skip to avoid duplicate entries
         return

@@ -33,6 +33,7 @@ import os
 import re
 import site
 import sys
+import tempfile
 import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
@@ -67,6 +68,7 @@ if TYPE_CHECKING:
     )
 
     from ..message import ArtifactDescriptor, MessageMetadata
+    from .python_kernel import KernelExecResult
 
 
 logger = getLogger(__name__)
@@ -441,12 +443,28 @@ def _get_ipython():
     from IPython.core.interactiveshell import InteractiveShell  # fmt: skip
 
     if _ipython is None:
+        from IPython.core.displayhook import DisplayHook
+
+        class ResultDisplayHook(DisplayHook):
+            """Collect results without writing them; the caller renders them once."""
+
+            def write_output_prompt(self) -> None:
+                pass
+
+            def write_format_data(
+                self, format_dict: dict, md_dict: dict | None = None
+            ) -> None:
+                pass
+
+            def finish_displayhook(self) -> None:
+                pass
+
         _setup_venv_paths()
 
         # Disable colors in IPython to avoid ANSI escape codes in output
         # Note: We set IPython's colors mode directly rather than using NO_COLOR
         # globally, as that would affect other parts of the application (like Rich)
-        _ipython = InteractiveShell()
+        _ipython = InteractiveShell(displayhook_class=ResultDisplayHook)
         _ipython.colors = "NoColor"
         _ipython.push(registered_functions)
 
@@ -457,20 +475,12 @@ class TeeIO(io.StringIO):
     def __init__(self, original_stream):
         super().__init__()
         self.original_stream = original_stream
-        self.in_result_block = False
         self._byte_count = 0
         self._buffered_bytes = 0
         self._truncated = False
 
     def write(self, s):
-        # hack to get rid of ipython result-prompt ("Out[0]: ...") and everything after it
-        if s.startswith("Out["):
-            self.in_result_block = True
-        if self.in_result_block:
-            if s.startswith("\n"):
-                self.in_result_block = False
-            else:
-                s = ""
+
         self.original_stream.write(s)
         self.original_stream.flush()  # Ensure immediate display
         # Stop buffering once the cap is reached to avoid unbounded memory growth,
@@ -518,6 +528,60 @@ def capture_and_display():
         sys.stdout, sys.stderr = old_stdout, old_stderr
 
 
+def _kernel_image_attachments(
+    result: "KernelExecResult",
+) -> tuple[list[Path], "list[ArtifactDescriptor]", list[str]]:
+    """Write private rasters into the existing conversation attachment lifecycle."""
+    from ..logmanager import LogManager
+
+    manager = LogManager.get_current_log()
+    directory = manager.logdir / "attachments" if manager is not None else None
+    files: list[Path] = []
+    artifacts: list[ArtifactDescriptor] = []
+    notices = list(result.image_notices)
+    suffixes = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }
+    for image in result.images:
+        path: Path | None = None
+        try:
+            if directory is not None:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # Without a current conversation, use the same private retained temp
+            # file approach as vision. LogManager snapshots Message.files later.
+            with tempfile.NamedTemporaryFile(
+                prefix="kernel-",
+                suffix=suffixes[image.mime_type],
+                dir=directory,
+                delete=False,
+            ) as file:
+                path = Path(file.name)
+                file.write(image.data)
+            files.append(path)
+            if manager is not None:
+                artifacts.append(
+                    {
+                        "source_type": "attachment",
+                        "path": path.relative_to(manager.logdir).as_posix(),
+                        "kind": "image",
+                        "mime_type": image.mime_type,
+                        "tool": "python",
+                        "title": f"Kernel {image.output_type} image",
+                    }
+                )
+        except OSError:
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove incomplete kernel image %s", path)
+            notices.append("Could not retain kernel image attachment; image omitted.")
+    return files, artifacts, notices
+
+
 def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
     """Execute *code* in the separate Jupyter kernel process."""
     from .python_kernel import get_backend
@@ -548,6 +612,8 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
         and not result.stdout
         and not result.stderr
         and not result.error
+        and not result.images
+        and not result.image_notices
     ):
         yield from backend._bridge.messages
         return
@@ -575,7 +641,15 @@ def _execute_python_kernel(code: str) -> Generator[Message, None, None]:
 
     output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
 
-    yield Message("system", "Executed code block (kernel).\n\n" + output)
+    files, artifacts, notices = _kernel_image_attachments(result)
+    if notices:
+        output += "\n".join(dict.fromkeys(notices)) + "\n"
+    yield Message(
+        "system",
+        "Executed code block (kernel).\n\n" + output,
+        files=list(files),
+        metadata={"artifacts": artifacts} if artifacts else None,
+    )
 
 
 def execute_python(
@@ -844,7 +918,7 @@ If you first write the code in a normal python codeblock, remember to also execu
 
 def examples(tool_format):
     return f"""
-#### Result of the last expression will be returned
+#### Return the last expression
 
 > User: What is 2 + 2?
 > Assistant:
@@ -852,25 +926,23 @@ def examples(tool_format):
 > System: Executed code block.
 {md_codeblock("result", "4")}
 
-#### Write a function and call it
+#### Define and call a function
 
-> User: compute fib 10
-> Assistant: To compute the 10th Fibonacci number, we can run the following code:
+> User: Square 10
+> Assistant:
 {
         ToolUse(
             "ipython",
             [],
             '''
-def fib(n):
-    if n <= 1:
-        return n
-    return fib(n - 1) + fib(n - 2)
-fib(10)
+def square(n):
+    return n * n
+square(10)
 '''.strip(),
         ).to_output(tool_format)
     }
 > System: Executed code block.
-{md_codeblock("result", "55")}
+{md_codeblock("result", "100")}
 """.strip()
 
 

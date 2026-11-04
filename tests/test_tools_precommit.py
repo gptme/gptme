@@ -12,7 +12,9 @@ Tests cover:
 - tool spec: registration, hooks, commands
 """
 
+import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +25,7 @@ from gptme.message import Message
 from gptme.tools.autocommit import tool as autocommit_tool
 from gptme.tools.precommit import (
     _get_modified_files,
+    _get_repo_root,
     check_precommit_available,
     get_precommit_runner,
     handle_precommit_command,
@@ -33,6 +36,7 @@ from gptme.tools.precommit import (
     tool,
     use_checks,
 )
+from gptme.util.git_cmd import GIT_CMD
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -48,7 +52,9 @@ def _mock_config(env: dict[str, str] | None = None):
     return patch("gptme.tools.precommit.get_config", return_value=config)
 
 
-def _mock_subprocess_run(returncode: int = 0, stdout: str = "", stderr: str = ""):
+def _mock_subprocess_run(
+    returncode: int = 0, stdout: str | bytes = "", stderr: str | bytes = ""
+):
     """Return a mock subprocess.run result."""
     result = MagicMock()
     result.returncode = returncode
@@ -57,7 +63,7 @@ def _mock_subprocess_run(returncode: int = 0, stdout: str = "", stderr: str = ""
     return result
 
 
-def _mock_which(path: str | None = "/usr/bin/pre-commit"):
+def _mock_which(path: str | None = os.path.abspath("/usr/bin/pre-commit")):
     """Return a patched shutil.which."""
     return patch("gptme.tools.precommit.shutil.which", return_value=path)
 
@@ -66,8 +72,17 @@ def _mock_which_available(*available: str):
     """Return a patched shutil.which that only resolves the named binaries."""
     return patch(
         "gptme.tools.precommit.shutil.which",
-        side_effect=lambda name: f"/usr/bin/{name}" if name in available else None,
+        side_effect=lambda name: (
+            os.path.abspath(f"/usr/bin/{name}") if name in available else None
+        ),
     )
+
+
+@pytest.fixture
+def mock_repo_root(tmp_path: Path) -> Iterator[MagicMock]:
+    """Keep runner/git-query subprocess mocks separate from root discovery."""
+    with patch("gptme.tools.precommit._get_repo_root", return_value=tmp_path) as root:
+        yield root
 
 
 # ── TestUseChecks ─────────────────────────────────────────────────────────
@@ -176,11 +191,18 @@ class TestGetPrecommitRunner:
 
     def test_prefers_pre_commit(self):
         with _mock_which_available("pre-commit", "prek"):
-            assert get_precommit_runner() == "pre-commit"
+            assert get_precommit_runner() == os.path.abspath("/usr/bin/pre-commit")
 
     def test_falls_back_to_prek(self):
         with _mock_which_available("prek"):
-            assert get_precommit_runner() == "prek"
+            assert get_precommit_runner() == os.path.abspath("/usr/bin/prek")
+
+    def test_keeps_symlink_parent_components(self, tmp_path: Path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with _mock_which("runner-link/../bin/pre-commit"):
+            assert get_precommit_runner() == os.path.join(
+                str(tmp_path), "runner-link/../bin/pre-commit"
+            )
 
     def test_returns_none_when_neither_installed(self):
         with _mock_which_available():
@@ -219,82 +241,154 @@ class TestRunChecksPerFile:
 # ── TestGetModifiedFiles ──────────────────────────────────────────────────
 
 
+class TestGetRepoRoot:
+    """Root discovery decodes bytes and removes only Git's terminating LF."""
+
+    @pytest.mark.parametrize("name", ["repo", " repo \t", "repo\n", "repo\n\n"])
+    @patch("subprocess.run")
+    def test_preserves_path_whitespace(
+        self, mock_run: MagicMock, tmp_path: Path, name: str
+    ) -> None:
+        root = tmp_path / name
+        mock_run.return_value = _mock_subprocess_run(stdout=os.fsencode(root) + b"\n")
+        assert _get_repo_root() == root
+        mock_run.assert_called_once_with(
+            [GIT_CMD, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+
+    @pytest.mark.parametrize("returncode", [0, 128])
+    @patch("subprocess.run")
+    def test_no_root(self, mock_run: MagicMock, returncode: int) -> None:
+        mock_run.return_value = _mock_subprocess_run(returncode=returncode, stdout=b"")
+        assert _get_repo_root() is None
+
+    @patch("subprocess.run")
+    def test_ignores_output_on_failure(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = _mock_subprocess_run(
+            returncode=128, stdout=b"/not/root\n"
+        )
+        assert _get_repo_root() is None
+
+    @pytest.mark.parametrize(
+        "error", [subprocess.TimeoutExpired("git", 10), FileNotFoundError("git")]
+    )
+    @patch("subprocess.run")
+    def test_discovery_error(self, mock_run: MagicMock, error: Exception) -> None:
+        mock_run.side_effect = error
+        assert _get_repo_root() is None
+
+
+@pytest.mark.usefixtures("mock_repo_root")
 class TestGetModifiedFiles:
-    """Tests for _get_modified_files — git status parsing."""
+    """Tests for _get_modified_files — NUL-delimited git path parsing."""
 
     @patch("subprocess.run")
-    def test_returns_modified_and_untracked(self, mock_run: MagicMock):
-        """Combines modified and untracked files."""
+    def test_returns_modified_and_untracked(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        """Combines worktree, index and untracked files from root-relative queries."""
+        for name in ("file1.py", "file2.py", "staged.py", "new_file.py"):
+            (tmp_path / name).touch()
         mock_run.side_effect = [
-            _mock_subprocess_run(stdout="file1.py\nfile2.py\n"),
-            _mock_subprocess_run(stdout="new_file.py\n"),
+            _mock_subprocess_run(stdout=b"file1.py\0file2.py\0"),
+            _mock_subprocess_run(stdout=b"staged.py\0"),
+            _mock_subprocess_run(stdout=b"new_file.py\0"),
         ]
-        result = _get_modified_files()
-        assert sorted(result) == ["file1.py", "file2.py", "new_file.py"]
+        assert _get_modified_files() == [
+            "file1.py",
+            "file2.py",
+            "new_file.py",
+            "staged.py",
+        ]
+        assert [call.args[0] for call in mock_run.call_args_list] == [
+            [GIT_CMD, "diff", "--name-only", "-z"],
+            [GIT_CMD, "diff", "--cached", "--name-only", "-z"],
+            [GIT_CMD, "ls-files", "--others", "--exclude-standard", "-z"],
+        ]
+        for call in mock_run.call_args_list:
+            assert call.kwargs == {
+                "cwd": tmp_path,
+                "capture_output": True,
+                "check": False,
+                "timeout": 10,
+            }
 
     @patch("subprocess.run")
-    def test_deduplicates_files(self, mock_run: MagicMock):
-        """Same file in both diff and ls-files isn't duplicated."""
-        mock_run.side_effect = [
-            _mock_subprocess_run(stdout="shared.py\n"),
-            _mock_subprocess_run(stdout="shared.py\n"),
-        ]
-        result = _get_modified_files()
-        assert result == ["shared.py"]
+    def test_deduplicates_files(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        """Same file in all three queries isn't duplicated."""
+        (tmp_path / "shared.py").touch()
+        mock_run.return_value = _mock_subprocess_run(stdout=b"shared.py\0")
+        assert _get_modified_files() == ["shared.py"]
+        assert mock_run.call_count == 3
 
     @patch("subprocess.run")
-    def test_returns_sorted(self, mock_run: MagicMock):
+    def test_returns_sorted(self, mock_run: MagicMock, tmp_path: Path) -> None:
         """Results are sorted alphabetically."""
+        for name in ("z.py", "a.py", "m.py"):
+            (tmp_path / name).touch()
         mock_run.side_effect = [
-            _mock_subprocess_run(stdout="z.py\na.py\n"),
-            _mock_subprocess_run(stdout="m.py\n"),
+            _mock_subprocess_run(stdout=b"z.py\0a.py\0"),
+            _mock_subprocess_run(stdout=b""),
+            _mock_subprocess_run(stdout=b"m.py\0"),
         ]
-        result = _get_modified_files()
-        assert result == ["a.py", "m.py", "z.py"]
+        assert _get_modified_files() == ["a.py", "m.py", "z.py"]
 
     @patch("subprocess.run")
-    def test_empty_when_no_changes(self, mock_run: MagicMock):
+    def test_empty_when_no_changes(self, mock_run: MagicMock) -> None:
         """Returns empty list when no modifications."""
-        mock_run.side_effect = [
-            _mock_subprocess_run(stdout=""),
-            _mock_subprocess_run(stdout=""),
-        ]
+        mock_run.return_value = _mock_subprocess_run(stdout=b"")
         assert _get_modified_files() == []
+        assert mock_run.call_count == 3
 
     @patch("subprocess.run")
-    def test_handles_git_failure(self, mock_run: MagicMock):
+    def test_handles_git_failure(self, mock_run: MagicMock) -> None:
         """Returns empty list when git fails."""
-        mock_run.side_effect = [
-            _mock_subprocess_run(returncode=128, stdout=""),
-            _mock_subprocess_run(returncode=128, stdout=""),
-        ]
+        mock_run.return_value = _mock_subprocess_run(returncode=128, stdout=b"")
         assert _get_modified_files() == []
+        assert mock_run.call_count == 3
 
     @patch("subprocess.run")
-    def test_handles_timeout(self, mock_run: MagicMock):
+    def test_handles_timeout(self, mock_run: MagicMock) -> None:
         """Returns empty list on timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("git", 10)
         assert _get_modified_files() == []
+        assert mock_run.call_count == 3
 
     @patch("subprocess.run")
-    def test_handles_git_not_found(self, mock_run: MagicMock):
+    def test_handles_git_not_found(self, mock_run: MagicMock) -> None:
         """Returns empty list when git not installed."""
         mock_run.side_effect = FileNotFoundError("git not found")
         assert _get_modified_files() == []
+        assert mock_run.call_count == 3
 
     @patch("subprocess.run")
-    def test_partial_failure(self, mock_run: MagicMock):
-        """Returns files from successful command when one fails."""
+    def test_partial_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        """Returns files from successful commands when one fails."""
+        (tmp_path / "file.py").touch()
+        (tmp_path / "new.py").touch()
         mock_run.side_effect = [
-            _mock_subprocess_run(stdout="file.py\n"),
-            _mock_subprocess_run(returncode=128, stdout=""),
+            _mock_subprocess_run(stdout=b"file.py\0"),
+            _mock_subprocess_run(returncode=128, stdout=b"ignored.py\0"),
+            _mock_subprocess_run(stdout=b"new.py\0"),
         ]
-        assert _get_modified_files() == ["file.py"]
+        assert _get_modified_files() == ["file.py", "new.py"]
+
+    @patch("subprocess.run")
+    def test_no_root_skips_queries(
+        self, mock_run: MagicMock, mock_repo_root: MagicMock
+    ) -> None:
+        mock_repo_root.return_value = None
+        assert _get_modified_files() == []
+        mock_run.assert_not_called()
 
 
 # ── TestRunPrecommitChecks ────────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("mock_repo_root")
 class TestRunPrecommitChecks:
     """Tests for run_precommit_checks — main check runner."""
 
@@ -314,8 +408,14 @@ class TestRunPrecommitChecks:
         mock_run.return_value = _mock_subprocess_run()
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
             run_precommit_checks(all_files=True)
-        args = mock_run.call_args[0][0]
-        assert "--all-files" in args
+        mock_run.assert_called_once_with(
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
 
     @patch("subprocess.run")
     def test_uses_prek_when_only_prek_installed(
@@ -328,7 +428,9 @@ class TestRunPrecommitChecks:
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which_available("prek"):
             run_precommit_checks(all_files=True)
         args = mock_run.call_args[0][0]
-        assert args == ["prek", "run", "--all-files"]
+        assert args == [os.path.abspath("/usr/bin/prek"), "run", "--all-files"]
+        assert mock_run.call_count == 1
+        assert mock_run.call_args.kwargs["cwd"] == tmp_path
 
     @patch("gptme.tools.precommit._get_modified_files")
     @patch("subprocess.run")
@@ -346,10 +448,15 @@ class TestRunPrecommitChecks:
         mock_run.return_value = _mock_subprocess_run()
         with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
             run_precommit_checks(all_files=False)
-        args = mock_run.call_args[0][0]
-        assert "--files" in args
-        assert "a.py" in args
-        assert "b.py" in args
+        mock_modified.assert_called_once_with(tmp_path)
+        mock_run.assert_called_once_with(
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--files", "a.py", "b.py"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
 
     @patch("gptme.tools.precommit._get_modified_files")
     @patch("subprocess.run")
@@ -369,6 +476,75 @@ class TestRunPrecommitChecks:
             run_precommit_checks(all_files=False)
         args = mock_run.call_args[0][0]
         assert "--all-files" in args
+
+    @pytest.mark.parametrize("all_files", [True, False])
+    @patch("subprocess.run")
+    def test_no_root_preserves_nonrepo_runner(
+        self,
+        mock_run: MagicMock,
+        mock_repo_root: MagicMock,
+        all_files: bool,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Missing root still runs checks in the current directory."""
+        monkeypatch.chdir(tmp_path)
+        mock_repo_root.return_value = None
+        mock_run.return_value = _mock_subprocess_run()
+        with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
+            assert run_precommit_checks(all_files=all_files) == (True, None)
+        mock_run.assert_called_once_with(
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
+            cwd=None,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
+
+    @patch("subprocess.run")
+    def test_does_not_select_outer_repository_config(
+        self,
+        mock_run: MagicMock,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An outer config must not be passed explicitly into a nested repo."""
+        (tmp_path / ".pre-commit-config.yaml").write_text("repos: []")
+        root = tmp_path / "inner-repo"
+        nested = root / "service"
+        nested.mkdir(parents=True)
+        monkeypatch.chdir(nested)
+        mock_run.return_value = _mock_subprocess_run()
+        with (
+            _mock_config({"GPTME_CHECK": "true"}),
+            _mock_which(),
+            patch("gptme.tools.precommit._get_repo_root", return_value=root),
+        ):
+            run_precommit_checks()
+        assert "--config" not in mock_run.call_args.args[0]
+        assert mock_run.call_args.kwargs["cwd"] == root
+
+    @patch("subprocess.run")
+    def test_runner_timeout(
+        self, mock_run: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Timeout applies to the runner, not the separately mocked root query."""
+        monkeypatch.chdir(tmp_path)
+        mock_run.side_effect = subprocess.TimeoutExpired("pre-commit", 300)
+        with _mock_config({"GPTME_CHECK": "true"}), _mock_which():
+            assert run_precommit_checks() == (
+                False,
+                "Pre-commit checks timed out after 300s",
+            )
+        mock_run.assert_called_once_with(
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
 
     @patch("subprocess.run")
     def test_success_returns_true_none(
@@ -398,6 +574,14 @@ class TestRunPrecommitChecks:
         assert success is False
         assert output is not None
         assert "Pre-commit checks failed" in output
+        mock_run.assert_called_once_with(
+            [os.path.abspath("/usr/bin/pre-commit"), "run", "--all-files"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
 
     @patch("subprocess.run")
     def test_failure_includes_stdout(
@@ -625,8 +809,13 @@ class TestRunPrecommitOnFile:
         ):
             list(run_precommit_on_file(None, tmp_path, tmp_path / "f.py", "content"))
         calls = [call.args[0] for call in mock_run.call_args_list]
-        assert calls[0] == ["prek", "--version"]
-        assert calls[1] == ["prek", "run", "--files", str(tmp_path / "f.py")]
+        assert calls[0] == [os.path.abspath("/usr/bin/prek"), "--version"]
+        assert calls[1] == [
+            os.path.abspath("/usr/bin/prek"),
+            "run",
+            "--files",
+            str(tmp_path / "f.py"),
+        ]
 
     @patch("subprocess.run")
     def test_check_fails(self, mock_run: MagicMock, tmp_path: Path, monkeypatch):

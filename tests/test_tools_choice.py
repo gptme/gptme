@@ -1,5 +1,10 @@
 """Tests for the choice tool parsing logic."""
 
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
+
 from gptme.tools.choice import (
     execute_choice,
     parse_options_from_content,
@@ -165,6 +170,79 @@ def test_execute_empty_kwargs():
     messages = list(execute_choice(None, None, {}))
     assert len(messages) == 1
     assert "No options provided" in messages[0].content
+
+
+@pytest.mark.parametrize("input_format", ["markdown", "native", "native-comma"])
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        (["3.12", "3.13"], ["3.12", "3.13"]),
+        (["127.0.0.1", "0.75", "-0.5"], ["127.0.0.1", "0.75", "-0.5"]),
+        (["3.12 stable", "2.fast mode"], ["3.12 stable", "2.fast mode"]),
+        (["1. Python", "20. Rust"], ["Python", "Rust"]),
+        (["1.  Keep   spaces!", "2.\tOther"], ["Keep   spaces!", "Other"]),
+        (["1.", "2."], ["1.", "2."]),
+        (["1.2. Label", "3.x"], ["1.2. Label", "3.x"]),
+        (["Alpha", "Beta"], ["Alpha", "Beta"]),
+    ],
+)
+def test_execute_preserves_labels(
+    monkeypatch: pytest.MonkeyPatch,
+    input_format: str,
+    options: list[str],
+    expected: list[str],
+) -> None:
+    select = Mock(
+        side_effect=lambda *a, **kw: SimpleNamespace(ask=lambda: kw["choices"][0])
+    )
+    monkeypatch.setattr("questionary.select", select)
+    if input_format == "markdown":
+        messages = list(execute_choice("Pick one?\n" + "\n".join(options), None, None))
+    else:
+        separator = ", " if input_format == "native-comma" else "\n"
+        messages = list(
+            execute_choice(
+                None,
+                None,
+                {"question": "Pick one?", "options": separator.join(options)},
+            )
+        )
+    select.assert_called_once_with("Pick one?", choices=expected, use_shortcuts=True)
+    assert [message.content for message in messages] == [
+        f"User selected: {expected[0]}"
+    ]
+
+
+@pytest.mark.parametrize("input_format", ["markdown", "native"])
+@pytest.mark.parametrize("outcome", [None, KeyboardInterrupt(), EOFError()])
+def test_execute_cancelled(
+    monkeypatch: pytest.MonkeyPatch, input_format: str, outcome: object
+) -> None:
+    ask = Mock(side_effect=outcome if isinstance(outcome, BaseException) else None)
+    ask.return_value = outcome
+    select = Mock(return_value=SimpleNamespace(ask=ask))
+    monkeypatch.setattr("questionary.select", select)
+    if input_format == "markdown":
+        messages = list(execute_choice("Pick one?\n3.12\n3.13", None, None))
+    else:
+        messages = list(execute_choice(None, None, {"options": "3.12\n3.13"}))
+    assert [message.content for message in messages] == ["Selection cancelled"]
+
+
+@pytest.mark.parametrize("input_format", ["markdown", "native"])
+def test_execute_blank_options_does_not_prompt(
+    monkeypatch: pytest.MonkeyPatch, input_format: str
+) -> None:
+    select = Mock()
+    monkeypatch.setattr("questionary.select", select)
+    if input_format == "markdown":
+        messages = list(execute_choice(" \n \t\n", None, None))
+    else:
+        messages = list(execute_choice(None, None, {"options": " \n \t\n"}))
+    select.assert_not_called()
+    assert [message.content for message in messages] == [
+        "No options provided for selection"
+    ]
 
 
 # --- Tool registration ---

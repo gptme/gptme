@@ -1,7 +1,10 @@
 """Tests for setup helpers."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 from gptme.cli.setup import (
     _choose_first_run_auth,
@@ -142,3 +145,87 @@ def test_provider_setup_forwards_default_model_requirement(monkeypatch):
 
     assert ask_for_api_key(require_default_model=True) == ("custom", "")
     setup_custom.assert_called_once_with(require_default_model=True)
+
+
+def test_custom_provider_update_preserves_key_and_overrides_old_local_values(
+    tmp_path, monkeypatch
+):
+    """Interactive edits must survive a reload across both config layers."""
+    import gptme.config.user as user_mod
+
+    main = tmp_path / "config.toml"
+    local = tmp_path / "config.local.toml"
+    main.write_text('[user]\nname = "Unrelated"\n')
+    local.write_text(
+        '[[providers]]\nname = "relay"\nbase_url = "https://old.invalid/v1"\n'
+        'api_key = "SYNTHETIC-ONLY"\ndefault_model = "old-model"\n'
+    )
+    monkeypatch.setattr(user_mod, "config_path", str(main))
+    monkeypatch.setattr("gptme.cli.setup.config_path", str(main))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.setattr(
+        "gptme.cli.setup.get_config",
+        lambda: SimpleNamespace(user=user_mod.load_user_config(str(main))),
+    )
+    monkeypatch.setattr(
+        "gptme.cli.setup.Prompt.ask",
+        MagicMock(side_effect=["relay", "https://new.invalid/v2", "", "new-model"]),
+    )
+
+    _setup_custom_provider()
+
+    provider = user_mod.load_user_config(str(main)).providers[0]
+    assert provider.base_url == "https://new.invalid/v2"
+    assert provider.default_model == "new-model"
+    assert provider.api_key == "SYNTHETIC-ONLY"
+    assert main.read_text() == '[user]\nname = "Unrelated"\n'
+    assert "SYNTHETIC-ONLY" not in main.read_text()
+
+
+@pytest.mark.parametrize("new_key", ["", "SYNTHETIC-NEW"])
+def test_custom_provider_update_keeps_partial_local_overrides_and_other_providers(
+    tmp_path, monkeypatch, new_key
+):
+    import gptme.config.user as user_mod
+
+    main = tmp_path / "config.toml"
+    local = tmp_path / "config.local.toml"
+    original_main = (
+        '# Shared config\n[user]\nname = "Unrelated"\n'
+        '[[providers]]\nname = "relay"\nbase_url = "https://old.invalid/v1"\n'
+        'default_model = "old-model"\napi_key_env = "RELAY_TOKEN"\n'
+        '[[providers]]\nname = "other"\nbase_url = "https://other.invalid/v1"\n'
+    )
+    main.write_text(original_main)
+    local.write_text(
+        '# Private config\n[env]\nUNRELATED = "preserved"\n'
+        '[[providers]]\nname = "relay"\ndefault_model = "local-model"\n'
+        '[[providers]]\nname = "private-other"\nbase_url = "https://private.invalid/v1"\n'
+        'api_key = "SYNTHETIC-OTHER"\n'
+    )
+    monkeypatch.setattr(user_mod, "config_path", str(main))
+    monkeypatch.setattr("gptme.cli.setup.config_path", str(main))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.setattr(
+        "gptme.cli.setup.get_config",
+        lambda: SimpleNamespace(user=user_mod.load_user_config(str(main))),
+    )
+    monkeypatch.setattr(
+        "gptme.cli.setup.Prompt.ask",
+        MagicMock(side_effect=["relay", "https://new.invalid/v2", new_key, ""]),
+    )
+
+    before = user_mod.load_user_config(str(main))
+    assert before.providers[0].default_model == "local-model"
+    _setup_custom_provider()
+    loaded = user_mod.load_user_config(str(main))
+    provider = loaded.providers[0]
+    assert provider.base_url == "https://new.invalid/v2"
+    assert provider.default_model == "local-model"
+    assert provider.api_key == (new_key or None)
+    assert provider.api_key_env == "RELAY_TOKEN"
+    assert loaded.providers[1:] == before.providers[1:]
+    assert main.read_text() == original_main
+    assert "# Private config" in local.read_text()
+    assert 'UNRELATED = "preserved"' in local.read_text()
+    assert "SYNTHETIC" not in main.read_text()

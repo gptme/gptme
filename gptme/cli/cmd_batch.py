@@ -97,14 +97,21 @@ def _summarize_child_output(
         if event.get("type") != "message":
             continue
 
+        # Batch starts the same-version child, whose chat loop tags step stops.
+        # Do not infer control flow from legacy display text or tool results.
+        # A stop followed by a child failure must still report the failure.
+        if (
+            returncode == 0
+            and event.get("role") == "system"
+            and not event.get("call_id")
+            and isinstance(metadata, dict)
+            and metadata.get("max_steps_stop") is True
+        ):
+            exit_reason = "max_turns"
+
         content = event.get("content")
         if isinstance(content, str):
             tool_calls += _count_tool_calls(content)
-            # Detection uses substring match to tolerate message format changes.
-            # The canonical source is chat.py:
-            #   Message("system", f"Stopped: reached max steps limit ({...})")
-            if "reached max steps" in content:
-                exit_reason = "max_turns"
 
     record: dict[str, Any] = {
         "index": index,

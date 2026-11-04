@@ -146,7 +146,12 @@ def chats_search(
     matches: int,
     all_agents: bool,
 ):
-    """Search conversation logs."""
+    """Search conversation logs.
+
+    JSON snippets center on the first literal case-insensitive match. The
+    normal 200-character budget expands for longer queries or when surrounding
+    Unicode context is needed to preserve the match's lowercase form.
+    """
     if not query.strip():
         raise click.UsageError("search query cannot be empty")
     _ensure_tools()
@@ -159,7 +164,7 @@ def chats_search(
                 err=True,
             )
         from ..logmanager import LogManager, get_user_conversations  # fmt: skip
-        from ..tools.chats import _get_matching_messages  # fmt: skip
+        from ..tools.chats import _get_matching_messages, _matching_excerpt  # fmt: skip
 
         results = []
         for conv in get_user_conversations():
@@ -174,7 +179,7 @@ def chats_search(
                         "index": idx,
                         "message_number": idx + 1,
                         "role": msg.role,
-                        "content": msg.content[:200],
+                        "content": _matching_excerpt(msg.content, query, budget=200),
                     }
                     for idx, msg in matching[:3]
                 ]
@@ -470,7 +475,7 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         gptme-util chats clean --delete         # Delete empty conversations
         gptme-util chats clean --include-test   # Include test/eval conversations
     """
-    from ..logmanager import delete_conversation  # fmt: skip
+    from ..logmanager.cleanup import delete_empty_conversation
 
     _ensure_tools()
 
@@ -504,7 +509,9 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         if delete:
             for r in results:
                 try:
-                    if delete_conversation(r["conversation"].id):
+                    if delete_empty_conversation(
+                        r["conversation"].id, max_messages=max_messages
+                    ):
                         deleted_count += 1
                         freed_bytes += r["size_bytes"]
                 except PermissionError as e:
@@ -548,7 +555,7 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
         for r in results:
             conv_id = r["conversation"].id
             try:
-                if delete_conversation(conv_id):
+                if delete_empty_conversation(conv_id, max_messages=max_messages):
                     deleted += 1
                     freed_bytes += r["size_bytes"]
             except PermissionError as e:
@@ -733,7 +740,10 @@ def chats_stats(id: str | None, since: str | None, as_json: bool):
     """Show conversation statistics.
 
     Without an ID, displays overview of conversation history including counts,
-    date ranges, message totals, and activity breakdown.
+    date ranges, message totals, and activity breakdown. Model usage is attributed
+    to each originating model. A conversation counts once for each model it used,
+    so model counts can exceed the total conversation count. Legacy histories
+    without per-model usage fall back to the last model (or unknown).
 
     With an ID, shows detailed stats for one conversation including role counts,
     tool calls, token usage, and duration.

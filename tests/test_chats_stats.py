@@ -391,3 +391,189 @@ def test_cli_chats_stats_rejects_since_with_id():
     result = runner.invoke(main, ["chats", "stats", "demo-chat", "--since", "7d"])
     assert result.exit_code != 0
     assert "Cannot use --since" in result.output
+
+
+@pytest.fixture
+def usage_histories(tmp_path, monkeypatch):
+    """Exercise the real JSONL scanner, not mocked conversation aggregates."""
+    import os
+
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    def write_history(name, metadata, days_ago=0):
+        directory = tmp_path / name
+        directory.mkdir()
+        path = directory / "conversation.jsonl"
+        rows = [{"role": "user", "content": "hello"}]
+        rows.extend(
+            {"role": "assistant", "content": "reply", "metadata": meta}
+            for meta in metadata
+        )
+        path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).timestamp()
+        os.utime(path, (ts, ts))
+
+    return write_history
+
+
+def test_cli_stats_real_mixed_model_usage(usage_histories):
+    usage_histories(
+        "mixed",
+        [
+            {
+                "model": "provider/model-a",
+                "cost": 1.25,
+                "usage": {
+                    "input_tokens": 80,
+                    "cache_read_tokens": 20,
+                    "output_tokens": 10,
+                },
+            },
+            {
+                "model": "provider/model-b",
+                "cost": 0.25,
+                "usage": {"input_tokens": 20, "output_tokens": 2},
+            },
+        ],
+    )
+    usage_histories(
+        "single",
+        [
+            {
+                "model": "provider/model-a",
+                "cost": 0.5,
+                "input_tokens": 30,
+                "output_tokens": 3,
+            },
+        ],
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["chats", "stats", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["total_conversations"] == 2
+    assert data["total_cost"] == 2.0
+    assert data["total_input_tokens"] == 150
+    assert data["total_output_tokens"] == 15
+    assert data["total_cache_read_tokens"] == 20
+    assert data["by_model"] == {
+        "provider/model-a": {
+            "conversations": 2,
+            "cost": 1.75,
+            "input_tokens": 130,
+            "output_tokens": 13,
+        },
+        "provider/model-b": {
+            "conversations": 1,
+            "cost": 0.25,
+            "input_tokens": 20,
+            "output_tokens": 2,
+        },
+    }
+    assert sum(data["by_day"].values()) == 2
+    text = runner.invoke(main, ["chats", "stats"])
+    assert text.exit_code == 0, text.output
+    a_line = next(
+        line for line in text.output.splitlines() if "provider/model-a" in line
+    )
+    b_line = next(
+        line for line in text.output.splitlines() if "provider/model-b" in line
+    )
+    assert "2 convs" in a_line and "143 tok" in a_line and "$1.75" in a_line
+    assert "1 convs" in b_line and "22 tok" in b_line and "$0.25" in b_line
+
+
+@pytest.mark.parametrize("since", [None, "7d"])
+def test_cli_stats_unknown_zero_and_filtered_usage(usage_histories, since):
+    # Usage before any model is known stays unknown; metadata without a model
+    # after a model switch inherits the scanner's current model.
+    usage_histories(
+        "unknown-and-known",
+        [
+            {"cost": 0.125, "input_tokens": 5, "output_tokens": 1},
+            {
+                "model": "provider/model-a",
+                "cost": 0.5,
+                "usage": {"input_tokens": 10, "output_tokens": 2},
+            },
+            {"cost": 0.25, "input_tokens": 20, "output_tokens": 3},
+            {"model": "provider/zero"},
+        ],
+    )
+    usage_histories("no-metadata", [])
+    usage_histories(
+        "old",
+        [
+            {"model": "provider/old", "cost": 2.0, "input_tokens": 50},
+        ],
+        days_ago=30,
+    )
+    args = ["chats", "stats"] + (["--since", since] if since else [])
+    runner = CliRunner()
+    result = runner.invoke(main, [*args, "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    expected = {
+        "unknown": {
+            "conversations": 2,
+            "cost": 0.125,
+            "input_tokens": 5,
+            "output_tokens": 1,
+        },
+        "provider/model-a": {
+            "conversations": 1,
+            "cost": 0.75,
+            "input_tokens": 30,
+            "output_tokens": 5,
+        },
+        "provider/zero": {
+            "conversations": 1,
+            "cost": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+        },
+    }
+    if not since:
+        expected["provider/old"] = {
+            "conversations": 1,
+            "cost": 2.0,
+            "input_tokens": 50,
+            "output_tokens": 0,
+        }
+    assert data["by_model"] == expected
+    assert data["total_conversations"] == (2 if since else 3)
+    for field, total_field in [
+        ("cost", "total_cost"),
+        ("input_tokens", "total_input_tokens"),
+        ("output_tokens", "total_output_tokens"),
+    ]:
+        assert sum(row[field] for row in data["by_model"].values()) == data[total_field]
+    text = runner.invoke(main, args)
+    assert text.exit_code == 0, text.output
+    unknown = next(line for line in text.output.splitlines() if "unknown" in line)
+    assert "2 convs" in unknown and "6 tok" in unknown and "$0.12" in unknown
+    assert ("provider/old" in text.output) == (since is None)
+
+
+@pytest.mark.parametrize("model", [None, "provider/legacy"])
+@patch("gptme.logmanager.get_user_conversations")
+def test_stats_legacy_totals_fallback(mock_get_convs, capsys, model):
+    # Old callers/cached metadata have no models_usage. Preserve their totals.
+    mock_get_convs.return_value = iter(
+        [
+            _make_conv(
+                "legacy", model=model, cost=0.5, input_tokens=40, output_tokens=4
+            ),
+        ]
+    )
+    conversation_stats(as_json=True)
+    data = json.loads(capsys.readouterr().out)
+    assert data["by_model"] == {
+        model or "unknown": {
+            "conversations": 1,
+            "cost": 0.5,
+            "input_tokens": 40,
+            "output_tokens": 4,
+        },
+    }
+    assert data["total_cost"] == 0.5

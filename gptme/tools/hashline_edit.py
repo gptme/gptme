@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -396,6 +397,9 @@ def _resolve_block_end(file_lines: list[str], start: int) -> int:
             and _RE_CONTINUATION_CLAUSE.match(line.lstrip())
         ):
             end = i + 1  # absorb the continuation clause header itself
+            # Continuation headers can span lines just like the initial header.
+            # Carry their lexical state into the same scan/EOF guard above.
+            bracket_depth, open_quote = _scan_line(line)
             i += 1
         else:
             break  # same or lower indent, not a continuation clause: block is complete
@@ -427,7 +431,8 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     1. Pre-scan: capture lines for all ``CUT @name`` ops (using ORIGINAL lines).
     2. Resolve: attach the captured lines to matching register PUT operations.
 
-    Raises :class:`ValueError` on out-of-range line references or a missing register.
+    Raises :class:`ValueError` on out-of-range line references, incompatible
+    overlapping mutations, or a missing register.
     """
     had_trailing_newline = content.endswith("\n")
     file_lines = content.splitlines()
@@ -467,7 +472,7 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
             if reg not in registers:
                 raise ValueError(
                     f"Register @{reg} is not defined — "
-                    "add a 'CUT N.=M @{reg}' operation earlier in the same edit block"
+                    f"add a 'CUT N.=M @{reg}' operation earlier in the same edit block"
                 )
             source = register_sources[reg]
             if op.start <= source.end and source.start <= op.end:
@@ -490,8 +495,8 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
     ops = step2
 
     # A register paste that shares its start coordinate with another operation
-    # has order-dependent semantics on the mutable line list. Preserve the
-    # existing behavior for same-coordinate ordinary edits.
+    # has order-dependent semantics on the mutable line list. Ordinary insertions
+    # are handled separately below; retain the stricter register contract.
     for register_put in (op for op in ops if op.resolved_register_lines is not None):
         if any(
             other is not register_put and other.start == register_put.start
@@ -532,8 +537,38 @@ def _apply_operations(content: str, ops: list[HashlineOp]) -> str:
         if op.end < 1 or op.end > total:
             raise ValueError(f"Line {op.end} out of range (file has {total} lines)")
 
-    # Apply bottom-up (highest line numbers first) to keep earlier indices stable
-    for op in sorted(ops, key=lambda o: o.start, reverse=True):
+    # All ranges are now concrete ORIGINAL coordinates, including block extents.
+    # Destructive ranges cannot intersect. Insertions use a gap between original
+    # lines: the outer boundaries survive, but a gap inside a range does not.
+    mutations = [op for op in ops if op.kind in ("replace", "delete")]
+    for i, mutation in enumerate(mutations):
+        for other in mutations[i + 1 :]:
+            if mutation.start <= other.end and other.start <= mutation.end:
+                raise ValueError(
+                    f"Mutation lines {mutation.start}-{mutation.end} overlap "
+                    f"{other.kind} lines {other.start}-{other.end}; "
+                    "use non-overlapping original ranges"
+                )
+        for insertion in ops:
+            if insertion.kind not in ("insert_before", "insert_after"):
+                continue
+            gap = (
+                insertion.start - 1
+                if insertion.kind == "insert_before"
+                else insertion.start
+            )
+            if mutation.start - 1 < gap < mutation.end:
+                raise ValueError(
+                    f"{insertion.kind} at line {insertion.start} overlaps "
+                    f"{mutation.kind} lines {mutation.start}-{mutation.end}; "
+                    "insert outside the range or at an outer boundary"
+                )
+
+    # At the same original line, insert AFTER first, mutate second, and insert
+    # BEFORE last. This preserves both outer boundaries even when replacement
+    # changes the line count. Stable sorting retains same-kind insertion order.
+    priority = {"insert_after": 1, "replace": 0, "delete": 0, "insert_before": -1}
+    for op in sorted(ops, key=lambda o: (o.start, priority[o.kind]), reverse=True):
         s = op.start - 1  # convert to 0-indexed
         e = op.end  # exclusive end for slicing
 
@@ -626,6 +661,15 @@ New content lines are prefixed with ``+``.  An empty line ends a content block.
 CUT (with or without a register) has no content block.  Register-paste operations
 (``PUT ... @r``) also have no content block.  Line numbers reference the version
 shown by ``read``.
+
+Destructive ranges (PUT replacements and CUT deletions, including resolved block
+replacements) must not overlap; even a shared endpoint is rejected before
+confirmation or writing. Ordinary insertions may sit at either outer boundary:
+``PUT <N:`` before a range starting at N, or ``PUT >M:`` after a range ending at M.
+Insertions strictly inside a destructive range are rejected. Boundary insertion
+placement does not depend on operation order. Multiple same-kind insertions at
+one coordinate retain their existing bottom-up application order. Register PUTs
+retain the stricter destination checks described above.
 
 ### Example
 
@@ -928,25 +972,20 @@ def execute_hashline_edit(
     ):
         updated = confirm_result.edited_content
 
-    # For merge-recovered edits, re-read the file right before writing to guard
-    # against concurrent changes that arrived during the confirmation dialog.
-    # This applies regardless of whether the user edited the proposed content —
-    # the live file could have changed while the confirmation dialog was open.
-    if merge_recovered:
-        try:
-            post_confirm_content = resolved.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, PermissionError, OSError) as e:
-            yield Message(
-                "system", f"hashline_edit: cannot re-read file before write: {e}"
-            )
-            return
-        if post_confirm_content != live_content:
-            yield Message(
-                "system",
-                f"hashline_edit: file changed again during confirmation for {resolved}. "
-                "Call `read` to get a fresh snapshot and retry.",
-            )
-            return
+    # Re-read before every write: ordinary and merge-recovered targets can both
+    # change while confirmation is open, including when the user edits the preview.
+    try:
+        post_confirm_content = resolved.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, PermissionError, OSError) as e:
+        yield Message("system", f"hashline_edit: cannot re-read file before write: {e}")
+        return
+    if post_confirm_content != live_content:
+        yield Message(
+            "system",
+            f"hashline_edit: file changed again during confirmation for {resolved}. "
+            "Call `read` to get a fresh snapshot and retry.",
+        )
+        return
 
     # Write result atomically: write to a temp file in the same directory,
     # then rename into place.  os.replace() is a single POSIX syscall (rename(2))
@@ -964,6 +1003,8 @@ def execute_hashline_edit(
             # universal-newline mode, so it is LF-only here.
             with os.fdopen(tmp_fd, "w", encoding="utf-8", newline=newline) as fh:
                 fh.write(updated.replace("\r\n", "\n"))
+            # mkstemp creates the file as 0600; keep the original's mode.
+            shutil.copymode(resolved, tmp_name)
         except Exception:
             os.unlink(tmp_name)
             raise

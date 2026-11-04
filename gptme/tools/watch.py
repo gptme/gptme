@@ -8,6 +8,8 @@ server session exists, else queued and drained at STEP_PRE.
 Design: knowledge/design/2026-09-10-gptme-monitors-and-completion-events.md
 """
 
+import codecs
+import io
 import logging
 import os
 import queue
@@ -21,6 +23,7 @@ from collections import deque
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -39,6 +42,9 @@ _POLL_INTERVAL = 1.0
 # Bound in-flight stream lines so a firehose cannot grow the reader queue
 # without limit while the consumer is applying storm guards.
 _STREAM_LINE_QUEUE = 256
+# Each stream event includes its loss marker within this UTF-8 byte budget.
+_STREAM_LINE_BYTES = 64 * 1024
+_STREAM_TRUNCATED = " [line truncated at 64 KiB]"
 # `run` only reports a tail; never retain the child's full stdout.
 _RUN_TAIL_CHARS = 1000
 
@@ -324,30 +330,54 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
             errors="replace",
         )
         watch.proc = proc
+        # Retain only the displayed prefix, but drain the pipe continuously so
+        # verbose probes cannot block on stdout or accumulate in communicate().
+        assert proc.stdout is not None
+        fd = proc.stdout.fileno()
+        poller = select.poll()
+        poller.register(fd, select.POLLIN | select.POLLHUP)
+        decoder = io.IncrementalNewlineDecoder(
+            codecs.getincrementaldecoder(cast(io.TextIOWrapper, proc.stdout).encoding)(
+                errors="replace"
+            ),
+            translate=True,
+        )
         stdout = ""
-        while True:
-            if watch.cancelled:
-                _kill_proc(proc)
-                try:
-                    proc.communicate(timeout=2)
-                except Exception:
-                    pass
-                return
-            if watch.deadline is not None and time.time() > watch.deadline:
-                _kill_proc(proc)
-                try:
-                    proc.communicate(timeout=2)
-                except Exception:
-                    pass
-                _fire(watch, f"expired without condition met ({watch.description})")
-                return
-            try:
-                stdout, _ = proc.communicate(timeout=0.2)
-                break
-            except subprocess.TimeoutExpired:
-                continue
+        seen_chars = 0
+        stripped_end = 0
+        eof = False
+        try:
+            while True:
+                if watch.cancelled:
+                    _kill_proc(proc)
+                    return
+                if watch.deadline is not None and time.time() > watch.deadline:
+                    _kill_proc(proc)
+                    _fire(watch, f"expired without condition met ({watch.description})")
+                    return
+                if eof:
+                    try:
+                        proc.wait(timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                if not poller.poll(200):
+                    continue
+                piece = os.read(fd, 4096)
+                text = decoder.decode(piece, final=not piece)
+                if not stdout:
+                    text = text.lstrip()
+                # Track where the full stream's stripped text ends, without
+                # retaining it: spaces at the prefix boundary may be internal.
+                if text.rstrip():
+                    stripped_end = min(500, seen_chars + len(text.rstrip()))
+                seen_chars = min(500, seen_chars + len(text))
+                stdout += text[: max(0, 500 - len(stdout))]
+                eof = not piece
+        finally:
+            _close_stdout(proc)
         if proc.returncode == 0:
-            out = (stdout or "").strip() or command
+            out = stdout[:stripped_end] or command
             _fire(watch, f"condition met: {out[:500]}")
             return
         delay = every
@@ -357,6 +387,42 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
             watch.cancel_event.wait(timeout=delay)
 
 
+class _StreamLines:
+    """Bound line carry before queueing; discard overflow until the next newline."""
+
+    def __init__(self) -> None:
+        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.buffer = bytearray()
+        self.discarding = False
+
+    def feed(self, piece: bytes, *, final: bool = False) -> Generator[str, None, None]:
+        text = self.decoder.decode(piece, final=final)
+        parts = text.split("\n")
+        for i, part in enumerate(parts):
+            if not self.discarding:
+                encoded = part.encode("utf-8")
+                remaining = _STREAM_LINE_BYTES - len(self.buffer)
+                # Slice before extending: even an unterminated line never
+                # grows the carry beyond the event budget.
+                self.buffer.extend(encoded[:remaining])
+                if len(encoded) > remaining:
+                    budget = _STREAM_LINE_BYTES - len(_STREAM_TRUNCATED.encode("utf-8"))
+                    yield (
+                        self.buffer[:budget].decode("utf-8", errors="ignore")
+                        + _STREAM_TRUNCATED
+                    )
+                    self.buffer.clear()
+                    self.discarding = True
+            if i < len(parts) - 1:
+                if not self.discarding:
+                    yield self.buffer.decode("utf-8")
+                self.buffer.clear()
+                self.discarding = False
+        if final and self.buffer:
+            yield self.buffer.decode("utf-8")
+            self.buffer.clear()
+
+
 def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     """Each stdout line is an event; process exit ends the watch.
 
@@ -364,7 +430,9 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     grandchild that inherited the pipe cannot pin us on blocking
     ``readline``. Parent exit ends the stream even if EOF never arrives.
     The queue is bounded: if the consumer cannot keep up, the watch
-    auto-cancels instead of buffering an unbounded firehose.
+    auto-cancels instead of buffering an unbounded firehose. Each line is
+    bounded to 64 KiB of UTF-8 including a visible truncation marker; excess
+    bytes are discarded until newline without growing the reader carry.
     """
     assert proc.stdout is not None
     stdout = proc.stdout
@@ -377,7 +445,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
     reader_done = threading.Event()
 
     def _reader() -> None:
-        buf = ""
+        bounded = _StreamLines()
         try:
             fd = stdout.fileno()
             while not stop.is_set() and not watch.cancelled:
@@ -393,9 +461,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 piece = os.read(fd, 4096)
                 if not piece:
                     break
-                buf += piece.decode("utf-8", errors="replace")
-                while "\n" in buf:
-                    line, buf = buf.split("\n", 1)
+                for line in bounded.feed(piece):
                     try:
                         lines.put(line, timeout=0.5)
                     except queue.Full:
@@ -406,17 +472,18 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
                             "watch %s stream queue full; auto-cancelled", watch.id
                         )
                         return
-            if buf and not stop.is_set() and not watch.cancelled:
-                try:
-                    lines.put(buf, timeout=0.5)
-                except queue.Full:
-                    with watch.lock:
-                        watch.cancelled = True
-                        watch.cancel_event.set()
-                    logger.warning(
-                        "watch %s stream queue full; auto-cancelled", watch.id
-                    )
-                    return
+            if not stop.is_set() and not watch.cancelled:
+                for line in bounded.feed(b"", final=True):
+                    try:
+                        lines.put(line, timeout=0.5)
+                    except queue.Full:
+                        with watch.lock:
+                            watch.cancelled = True
+                            watch.cancel_event.set()
+                        logger.warning(
+                            "watch %s stream queue full; auto-cancelled", watch.id
+                        )
+                        return
         except Exception:
             logger.debug("watch %s stream reader failed", watch.id, exc_info=True)
         finally:
@@ -496,6 +563,7 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
 
     def _reader() -> None:
         nonlocal tail, read_error
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
             fd = stdout.fileno()
             while not stop.is_set() and not watch.cancelled:
@@ -505,11 +573,12 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 if not ready:
                     continue
                 piece = os.read(fd, 4096)
-                if not piece:
-                    return
-                text = piece.decode("utf-8", errors="replace")
+                # Pipe reads can split a character; flush incomplete input only at EOF.
+                text = decoder.decode(piece, final=not piece)
                 with buf_lock:
                     tail = (tail + text)[-_RUN_TAIL_CHARS:]
+                if not piece:
+                    return
         except Exception as exc:
             read_error = str(exc)
             logger.debug("watch %s run reader failed", watch.id, exc_info=True)
@@ -554,12 +623,20 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
 
 def _poll_timer(watch: Watch, seconds: float) -> None:
     end = time.time() + seconds
-    while not watch.cancelled and time.time() < end:
-        watch.cancel_event.wait(
-            timeout=min(_POLL_INTERVAL, max(0.1, end - time.time()))
-        )
-    if not watch.cancelled:
-        _fire(watch, f"timer elapsed ({watch.description})")
+    while not watch.cancelled:
+        now = time.time()
+        if (
+            watch.deadline is not None
+            and watch.deadline <= end
+            and now >= watch.deadline
+        ):
+            _fire(watch, f"expired before timer elapsed ({watch.description})")
+            return
+        if now >= end:
+            _fire(watch, f"timer elapsed ({watch.description})")
+            return
+        boundary = min(end, watch.deadline) if watch.deadline is not None else end
+        watch.cancel_event.wait(timeout=min(_POLL_INTERVAL, boundary - now))
 
 
 def _poll_tmux(
@@ -583,6 +660,14 @@ def _poll_tmux(
             out = proc.stdout
         except Exception as exc:
             _fire(watch, f"tmux capture failed: {exc}")
+            return
+        if proc.returncode != 0:
+            detail = (proc.stderr or "").strip()[:300]
+            _fire(
+                watch,
+                f"tmux capture failed: exit {proc.returncode}"
+                + (f": {detail}" if detail else ""),
+            )
             return
         if pattern is not None and pattern.search(out):
             line = next(
@@ -1197,7 +1282,9 @@ tool = ToolSpec(
         "Arming a source:\n"
         "- `watch until <cmd> --every 30s`: fire once when cmd exits 0 (e.g. `gh pr checks`)\n"
         "- `watch run <cmd>`: fire when the process exits, with rc + output tail\n"
-        "- `watch stream <cmd>`: each stdout line is an event (Monitor)\n"
+        "- `watch stream <cmd>`: each stdout line is an event (Monitor); "
+        "lines over 64 KiB of UTF-8 are visibly truncated within that limit, "
+        "discarding the remainder until newline\n"
         "- `watch timer 10m [desc]`: fire once after a duration (ScheduleWakeup)\n"
         "- `watch tmux <session> --pattern <re> --stable 5s`: fire on pane match/stability\n"
         "- `watch list`\n"

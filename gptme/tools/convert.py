@@ -6,7 +6,8 @@ graceful degradation when specific converters are unavailable.
 Supported conversions:
 
   - PDF → PNG/JPEG (Poppler/pdftoppm, ImageMagick fallback)
-  - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback)
+  - Image → Image: PNG ↔ JPEG ↔ WebP (FFmpeg primary, ImageMagick fallback).
+    PNG/JPEG output selects the first frame of animated input.
   - DOCX → text/markdown (python-docx, LibreOffice headless fallback)
   - MP4/video → JPEG thumbnail (FFmpeg)
   - PDF → text (pypdf, Poppler/pdftotext fallback)
@@ -15,13 +16,18 @@ Supported conversions:
 from __future__ import annotations
 
 import glob as _glob
+import html
 import importlib.util
 import logging
 import mimetypes
+import re
 import shutil
+import stat
+import string
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
@@ -59,10 +65,24 @@ def _para_to_md(para: object) -> str:
     Respects Heading 1/2/3 styles (→ ``#``/``##``/``###``) and list
     paragraphs (→ ``-``).  Inline bold and italic are rendered as
     ``**text**`` and ``*text*`` respectively via the paragraph's runs.
+    Hyperlinks contribute their display runs in inline order, without emitting
+    or fetching targets. Like ordinary runs, labels use the existing Markdown
+    formatting policy rather than a separate escaping policy.
     Paragraphs with no text become empty lines (blank-line separators).
     """
     style_name: str = getattr(getattr(para, "style", None), "name", "") or ""
     runs = getattr(para, "runs", [])
+    element = getattr(para, "_p", None)
+    if element is not None:
+        from docx.text.paragraph import Paragraph
+        from docx.text.run import Run
+
+        # Paragraph.runs excludes hyperlink children. Walk both kinds in XML
+        # order, using APIs available before iter_inner_content() was added.
+        if isinstance(para, Paragraph):
+            runs = [
+                Run(run, para) for run in element.xpath("./w:r | ./w:hyperlink/w:r")
+            ]
 
     # Build inline text with bold/italic from runs; fall back to para.text.
     if runs:
@@ -71,6 +91,7 @@ def _para_to_md(para: object) -> str:
             text = run.text
             if not text:
                 continue
+            text = re.sub(r"([" + re.escape(string.punctuation) + r"])", r"\\\1", text)
             if getattr(run, "bold", False):
                 text = f"**{text}**"
             elif getattr(run, "italic", False):
@@ -78,11 +99,22 @@ def _para_to_md(para: object) -> str:
             parts.append(text)
         inline = "".join(parts)
     else:
-        inline = getattr(para, "text", "")
+        inline = re.sub(
+            r"([" + re.escape(string.punctuation) + r"])",
+            r"\\\1",
+            getattr(para, "text", ""),
+        )
 
     if not inline.strip():
         return ""
 
+    # Protect every line, including lines after manual Word breaks, from code blocks.
+    inline = re.sub(
+        r"^[ \t]+",
+        lambda match: "".join(f"&#{ord(c)};" for c in match[0]),
+        inline,
+        flags=re.MULTILINE,
+    )
     if style_name.startswith("Heading 1"):
         return f"# {inline}"
     if style_name.startswith("Heading 2"):
@@ -90,7 +122,9 @@ def _para_to_md(para: object) -> str:
     if style_name.startswith("Heading 3"):
         return f"### {inline}"
     if "List" in style_name:
-        return f"- {inline}"
+        # Structural indentation keeps every continuation block in this item;
+        # the character references above preserve its literal Word whitespace.
+        return "- " + inline.replace("\n", "\n  ")
     return inline
 
 
@@ -179,9 +213,52 @@ class ConversionResult:
         return " | ".join(parts)
 
 
+def _check_destination(dest: Path, converter_used: str = "") -> ConversionResult | None:
+    """Reject existing destinations that cannot hold a regular output file."""
+    try:
+        mode = dest.stat().st_mode
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return ConversionResult(
+            success=False,
+            output_path=dest,
+            converter_used=converter_used,
+            error=f"Could not inspect destination {dest}: {exc}",
+        )
+    if stat.S_ISDIR(mode):
+        reason = "an existing directory"
+    elif not stat.S_ISREG(mode):
+        reason = "not a regular file"
+    else:
+        return None
+    return ConversionResult(
+        success=False,
+        output_path=dest,
+        converter_used=converter_used,
+        error=f"Destination is {reason}: {dest}",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Abstract converter base
 # ---------------------------------------------------------------------------
+
+
+def _source_error(src: Path) -> str | None:
+    """Check source shape without opening it; follow regular-file symlinks.
+
+    This pathname check does not prevent a source being replaced afterwards.
+    """
+    try:
+        mode = src.stat().st_mode
+    except FileNotFoundError:
+        return f"Input file not found: {src}"
+    except OSError as exc:
+        return f"Could not inspect input file {src}: {exc}"
+    if not stat.S_ISREG(mode):
+        return f"Input is not a regular file: {src}"
+    return None
 
 
 class Converter(ABC):
@@ -192,14 +269,78 @@ class Converter(ABC):
     @abstractmethod
     def is_available(self, avail: ToolAvailability) -> bool: ...
 
-    @abstractmethod
     def convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
-    ) -> ConversionResult: ...
+    ) -> ConversionResult:
+        """Publish a completed single output, never a backend's partial writes.
+
+        Resolve the destination separately from its staging filename: existing
+        symlinks keep pointing to their target, while the requested extension
+        still selects the output format. Replacement is on the same filesystem.
+        This is not a durability or concurrent-path-mutation guarantee.
+        """
+        result = ConversionResult(
+            success=False, output_path=None, converter_used=self.name
+        )
+        published = False
+        try:
+            try:
+                target = dest.resolve()
+            except RuntimeError as exc:
+                # Python <3.13 reports symlink loops as RuntimeError, not OSError.
+                raise OSError(str(exc)) from exc
+            # Non-strict resolve on Python >=3.13 can leave a loop unresolved.
+            if target.is_symlink():
+                target.stat()
+            if target.is_dir():
+                result.output_path = dest
+                result.error = f"Destination is an existing directory: {dest}"
+                return result
+            if target.exists() and not target.is_file():
+                result.error = f"Destination is not a regular file: {dest}"
+                return result
+            with tempfile.TemporaryDirectory(
+                prefix=".gptme-convert-", dir=target.parent
+            ) as directory:
+                staged = Path(directory) / dest.name
+                result = self._convert(src, staged, quality=quality, **kwargs)
+                if result.success:
+                    if not staged.is_file():
+                        result.success = False
+                        result.error = f"Converter did not produce output for {dest}"
+                    else:
+                        if target.exists():
+                            shutil.copymode(target, staged)
+                        staged.replace(target)
+                        published = True
+                        result.output_path = dest
+                if not result.success:
+                    result.output_path = None
+                return result
+        except OSError as exc:
+            if published:
+                result.warnings.append(
+                    f"Output published, but staging cleanup failed: {exc}"
+                )
+                return result
+            result.success = False
+            result.output_path = None
+            result.error = f"Could not write {dest}: {exc}"
+            return result
+
+    def _convert(
+        self,
+        src: Path,
+        dest: Path,
+        quality: str = "medium",
+        **kwargs,
+    ) -> ConversionResult:
+        """Write to staging; legacy subclasses may still override convert instead."""
+        raise NotImplementedError("Implement _convert or override convert")
 
     def can_handle(self, src_mime: str, dest_ext: str) -> bool:
         dest_ext = dest_ext.lstrip(".").lower()
@@ -215,7 +356,7 @@ class Converter(ABC):
 
 
 class PDFToImageConverter(Converter):
-    """PDF pages → raster images (PNG/JPEG) via pdftoppm or ImageMagick."""
+    """PDF first page → one raster image (PNG/JPEG) via pdftoppm or ImageMagick."""
 
     name = "pdf-to-image"
     supported = [
@@ -229,28 +370,25 @@ class PDFToImageConverter(Converter):
     def is_available(self, avail: ToolAvailability) -> bool:
         return avail.pdftoppm or avail.imagemagick
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         dpi = self._DPI.get(quality, 150)
         dest_ext = dest.suffix.lstrip(".").lower()
         warnings: list[str] = []
 
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
         if avail.pdftoppm:
-            # pdftoppm outputs <dest_stem>-<N>.ppm / .png; we want single page or first
+            # Bound rendering itself, not just the output selected below.
             fmt_flag = "-png" if dest_ext == "png" else "-jpeg"
             with tempfile.TemporaryDirectory() as _tmpdir:
                 tmp_prefix = Path(_tmpdir) / dest.stem
@@ -259,6 +397,10 @@ class PDFToImageConverter(Converter):
                     fmt_flag,
                     "-r",
                     str(dpi),
+                    "-f",
+                    "1",
+                    "-l",
+                    "1",
                     _arg(src),
                     _arg(tmp_prefix),
                 ]
@@ -297,10 +439,10 @@ class PDFToImageConverter(Converter):
                                 error=f"Destination {dest} was replaced by a directory during conversion",
                                 warnings=warnings,
                             )
-                        if len(candidates) > 1:
-                            warnings.append(
-                                f"Multi-page PDF: only first page saved ({len(candidates)} pages total)"
-                            )
+                        # Rendered files cannot tell us the PDF's total page count.
+                        warnings.append(
+                            "PDF-to-image conversion saves only the first page"
+                        )
                         return ConversionResult(
                             success=True,
                             output_path=dest,
@@ -325,6 +467,7 @@ class PDFToImageConverter(Converter):
             ]
             result = subprocess.run(cmd, capture_output=True, check=False)
             if result.returncode == 0:
+                warnings.append("PDF-to-image conversion saves only the first page")
                 return ConversionResult(
                     success=True,
                     output_path=dest,
@@ -381,28 +524,59 @@ class ImageConverter(Converter):
             "tiff",
         )
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         dest_ext = dest.suffix.lstrip(".").lower()
         q = self._QUALITY.get(quality, 80)
         lossy = dest_ext in ("jpg", "jpeg", "webp")
+        single_frame = dest_ext in ("png", "jpg", "jpeg")
+        multipage_tiff = False
+        if dest_ext == "tiff":
+            from PIL import Image
+            from PIL.TiffImagePlugin import PREFIXES
 
-        if avail.ffmpeg:
-            cmd = ["ffmpeg", "-y", "-i", _arg(src)]
+            try:
+                # Identify TIFF content before Pillow's pixel-size guard runs.
+                # Non-TIFF inputs need no page inspection, regardless of suffix.
+                with src.open("rb") as stream:
+                    is_tiff = stream.read(4).startswith(tuple(PREFIXES))
+                if is_tiff:
+                    with Image.open(src) as image:
+                        try:
+                            image.seek(1)
+                        except EOFError:
+                            pass  # A proven single-page TIFF can use FFmpeg.
+                        else:
+                            multipage_tiff = True
+            except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+                # An unknown page count is not evidence that FFmpeg is safe.
+                # Pillow cannot inspect every TIFF variant ImageMagick supports.
+                multipage_tiff = True
+        if multipage_tiff and not avail.imagemagick:
+            return ConversionResult(
+                success=False,
+                output_path=None,
+                converter_used=self.name,
+                error="Preserving multipage TIFF requires ImageMagick. Install: imagemagick",
+            )
+
+        # FFmpeg's TIFF decoder reads only one page, even when it exits successfully.
+        if avail.ffmpeg and not multipage_tiff:
+            # Absolute local paths cannot be interpreted as protocol URLs.
+            cmd = ["ffmpeg", "-y", "-i", str(src.absolute())]
+            if single_frame:
+                cmd += ["-frames:v", "1"]
             if dest_ext != "gif":
                 # The image2 muxer otherwise expands %d/%03d into numbered files.
                 # GIF uses its own muxer, which already treats the path literally.
@@ -415,7 +589,31 @@ class ImageConverter(Converter):
                     # JPEG/other: ffmpeg q:v scale 1-31 (lower = better)
                     cmd += ["-q:v", str(max(1, (100 - q) // 5))]
             cmd += [_arg(dest)]
-            result = subprocess.run(cmd, capture_output=True, check=False)
+            with ExitStack() as inputs:
+                directory = None
+                if "%" in str(src.absolute()):
+                    # A safe basename avoids image2 sequence expansion without
+                    # forcing a demuxer (which would discard APNG animation).
+                    try:
+                        directory = inputs.enter_context(tempfile.TemporaryDirectory())
+                        literal = Path(directory) / f"source{src.suffix}"
+                        shutil.copyfile(src, literal)
+                    except OSError as error:
+                        return ConversionResult(
+                            success=False,
+                            output_path=None,
+                            converter_used=self.name,
+                            error=f"Could not prepare literal image input: {error}",
+                        )
+                    # Anchor relative PATH entries before changing the child cwd.
+                    if executable := shutil.which(cmd[0]):
+                        cmd[0] = str(Path(executable).absolute())
+                    # Use a basename even if the temporary parent contains '%'.
+                    cmd[cmd.index("-i") + 1] = literal.name
+                    cmd[-1] = str(dest.absolute())
+                result = subprocess.run(
+                    cmd, capture_output=True, check=False, cwd=directory
+                )
             if result.returncode == 0:
                 return ConversionResult(
                     success=True,
@@ -427,13 +625,16 @@ class ImageConverter(Converter):
                 "ffmpeg image convert failed: %s",
                 result.stderr.decode(errors="replace")[-200:],
             )
+            # A fallback must produce its own output, not inherit partial bytes.
+            dest.unlink(missing_ok=True)
 
         if avail.imagemagick:
+            source = f"{_im_src(src)}[0]" if single_frame else _arg(src)
             # Normalize pixels and reset EXIF orientation before writing, including
             # formats that cannot retain orientation metadata (e.g. BMP).
             cmd = [
                 "convert",
-                _arg(src),
+                source,
                 "-auto-orient",
                 "-define",
                 "filename:literal=true",
@@ -476,21 +677,18 @@ class PDFToTextConverter(Converter):
     def is_available(self, avail: ToolAvailability) -> bool:
         return avail.pypdf or avail.pdftotext
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         warnings: list[str] = []
 
@@ -550,6 +748,17 @@ class PDFToTextConverter(Converter):
         )
 
 
+def _markdown_table_row(cells: list[str]) -> str:
+    """Render literal cell text, keeping line breaks inside the table row."""
+    escaped = []
+    for text in cells:
+        text = html.escape(text, quote=False)
+        for character in "\\|*_~`[]":
+            text = text.replace(character, "\\" + character)
+        escaped.append(text.replace("\n", "<br>"))
+    return "| " + " | ".join(escaped) + " |"
+
+
 class DocumentToTextConverter(Converter):
     """DOCX/ODT/etc. → plain text or markdown via python-docx or LibreOffice."""
 
@@ -574,35 +783,77 @@ class DocumentToTextConverter(Converter):
             "."
         ).lower() in ("txt", "md")
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         warnings: list[str] = []
 
         if avail.python_docx and src.suffix.lower() == ".docx":
             try:
                 import docx
+                from docx.oxml.ns import qn
+                from docx.table import Table, _Cell
+                from docx.text.paragraph import Paragraph
 
                 doc = docx.Document(str(src))
-                dest_ext = dest.suffix.lower().lstrip(".")
-
-                if dest_ext == "md":
-                    lines = [_para_to_md(para) for para in doc.paragraphs]
-                else:
-                    lines = [para.text for para in doc.paragraphs]
+                markdown = dest.suffix.lower() == ".md"
+                lines: list[str] = []
+                # Walk the body, not doc.paragraphs, which omits all tables.
+                for element in doc.element.body.iterchildren():
+                    if element.tag == qn("w:p"):
+                        para = Paragraph(element, doc)
+                        if markdown and lines:
+                            lines.append("")
+                        lines.append(_para_to_md(para) if markdown else para.text)
+                    elif element.tag == qn("w:tbl"):
+                        table = Table(element, doc)
+                        rows: list[list[str]] = []
+                        # Read each XML row directly: older python-docx releases
+                        # lack grid_cols_before/after and flatten row.cells across
+                        # omitted positions, potentially borrowing the next row.
+                        for row in table.rows:
+                            before = row._tr.xpath("./w:trPr/w:gridBefore/@w:val")
+                            after = row._tr.xpath("./w:trPr/w:gridAfter/@w:val")
+                            cells = [""] * (int(before[0]) if before else 0)
+                            for tc in row._tr.tc_lst:
+                                column = len(cells)
+                                if tc.vMerge == "continue" and rows:
+                                    cells.extend(
+                                        rows[-1][column : column + tc.grid_span]
+                                    )
+                                else:
+                                    cells.extend([_Cell(tc, table).text] * tc.grid_span)
+                            cells.extend([""] * (int(after[0]) if after else 0))
+                            rows.append(cells)
+                        # Omitted cells still occupy grid positions. Normalize
+                        # widths so a short header cannot hide later values.
+                        width = max(len(table.columns), max(map(len, rows), default=0))
+                        for cells in rows:
+                            cells.extend([""] * (width - len(cells)))
+                        if markdown and rows:
+                            # Markdown has no spans: repeat merged cells in each
+                            # grid position.
+                            if lines:
+                                lines.append("")
+                            lines.extend(
+                                [
+                                    _markdown_table_row(rows[0]),
+                                    "| " + " | ".join(["---"] * len(rows[0])) + " |",
+                                ]
+                                + [_markdown_table_row(row) for row in rows[1:]]
+                            )
+                        else:
+                            lines.extend("\t".join(row) for row in rows)
 
                 try:
                     dest.write_text("\n".join(lines), encoding="utf-8")
@@ -638,7 +889,12 @@ class DocumentToTextConverter(Converter):
                     out_files = list(Path(tmpdir).glob("*.txt"))
                     if out_files:
                         try:
-                            out_files[0].replace(dest)
+                            # Stage on the destination filesystem before replacing
+                            # so cross-device output and failed copies are safe.
+                            with tempfile.TemporaryDirectory(dir=dest.parent) as stage:
+                                staged = Path(stage) / "output.txt"
+                                shutil.copyfile(out_files[0], staged)
+                                staged.replace(dest)
                         except OSError as e:
                             return ConversionResult(
                                 success=False,
@@ -698,21 +954,18 @@ class VideoThumbnailConverter(Converter):
             "png",
         )
 
-    def convert(
+    def _convert(
         self,
         src: Path,
         dest: Path,
         quality: str = "medium",
         **kwargs,
     ) -> ConversionResult:
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used="",
-                error=f"Destination is an existing directory: {dest}",
-            )
+        if failure := _check_destination(dest):
+            return failure
 
+        if error := _source_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         if not avail.ffmpeg:
             return ConversionResult(
@@ -726,8 +979,12 @@ class VideoThumbnailConverter(Converter):
             "ffmpeg",
             "-y",
             "-i",
-            _arg(src),
+            # Keep protocol-shaped local filenames literal, as for image input.
+            str(src.absolute()),
             "-vframes",
+            "1",
+            # Disable image2's %d/%03d filename expansion for this single output.
+            "-update",
             "1",
             _arg(dest),
         ]
@@ -777,6 +1034,9 @@ def _detect_mime(path: Path) -> str:
 def find_converter(
     src: Path, dest_ext: str, avail: ToolAvailability | None = None
 ) -> Converter | None:
+    """Select a converter for a regular source; raise ValueError for invalid input."""
+    if error := _source_error(src):
+        raise ValueError(error)
     if avail is None:
         avail = get_availability()
     src_mime = _detect_mime(src)
@@ -784,6 +1044,18 @@ def find_converter(
         if conv.can_handle(src_mime, dest_ext) and conv.is_available(avail):
             return conv
     return None
+
+
+def _is_same_existing_file(src: Path, dest: Path) -> bool:
+    """True when src and dest name the same existing inode.
+
+    ``Path.resolve()`` follows symlinks but treats two hardlinks as distinct.
+    A missing destination is a new output, not an identity alias.
+    """
+    try:
+        return src.exists() and dest.exists() and src.samefile(dest)
+    except OSError:
+        return False
 
 
 def convert_file(
@@ -801,11 +1073,16 @@ def convert_file(
         quality: One of 'low', 'medium', 'high'.
         dry_run: If True, return converter plan without executing.
     """
+    if error := _source_error(src):
+        return ConversionResult(False, None, "none", error=error)
     avail = get_availability()
     src_mime = _detect_mime(src)
     dest_ext = dest.suffix.lstrip(".")
 
-    conv = find_converter(src, dest_ext, avail)
+    try:
+        conv = find_converter(src, dest_ext, avail)
+    except ValueError as e:
+        return ConversionResult(False, None, "none", error=str(e))
     if conv is None:
         return ConversionResult(
             success=False,
@@ -817,29 +1094,23 @@ def convert_file(
             ),
         )
 
-    if dry_run:
-        # Match the concrete converters: a directory destination cannot succeed.
-        # Dry-run used to skip this check and report a possible conversion.
-        if dest.is_dir():
-            return ConversionResult(
-                success=False,
-                output_path=dest,
-                converter_used=conv.name,
-                error=f"Destination is an existing directory: {dest}",
-            )
-        return ConversionResult(
-            success=True,
-            output_path=dest,
-            converter_used=conv.name,
-            metadata={"dry_run": True, "src_mime": src_mime, "dest_ext": dest_ext},
-        )
-
-    if src.resolve() == dest.resolve():
+    if _is_same_existing_file(src, dest):
         return ConversionResult(
             success=False,
             output_path=None,
             converter_used="none",
             error="Source and destination paths must be different",
+        )
+
+    if failure := _check_destination(dest, conv.name):
+        return failure
+
+    if dry_run:
+        return ConversionResult(
+            success=True,
+            output_path=dest,
+            converter_used=conv.name,
+            metadata={"dry_run": True, "src_mime": src_mime, "dest_ext": dest_ext},
         )
 
     try:
@@ -903,16 +1174,13 @@ tool = ToolSpec(
     name="convert",
     desc="Convert a file to another format using offline system tools",
     instructions=(
-        "Use this tool when a workflow needs a file in a different format: "
-        "render a PDF to images for visual inspection, extract text from a "
-        "document for summarization, make a video thumbnail, or reformat an "
-        "image. It runs fully offline, falling back gracefully when a specific "
-        "converter is unavailable.\n\n"
-        "Choose the destination format by the `output_path` extension (e.g. "
-        "`.png`, `.jpg`, `.txt`, `.md`). Set `quality` to low/medium/high "
-        "when the conversion supports it, and pass `dry_run` = true to see "
-        "the converter plan first. For a new conversion, dry-run before "
-        "executing to confirm the chain is available."
+        "Convert files offline: render PDFs as images, extract document text, "
+        "make video thumbnails, or reformat images. Falls back to available "
+        "converters.\n\n"
+        "The `output_path` extension selects the format (e.g. `.png`, `.jpg`, "
+        "`.txt`, `.md`). Use `quality` low/medium/high where supported. "
+        "For each new conversion, first pass `dry_run` = true to inspect "
+        "the plan and confirm an available conversion chain."
     ),
     execute=_execute_convert,
     parameters=[

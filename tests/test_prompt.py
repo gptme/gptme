@@ -29,6 +29,7 @@ def test_is_valid_path(test_dir, monkeypatch):
     """Test path validation function."""
     # Change to test directory
     monkeypatch.chdir(test_dir)
+    clear_path_cache()
 
     # Test absolute paths
     assert is_valid_path(str(test_dir / "file.txt"))

@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from gptme.hooks import ConfirmationResult
 from gptme.message import Message
 from gptme.tools import save as save_tool
+from gptme.tools.base import ToolUse
 from gptme.tools.save import (
     _get_preview_lang,
     _read_text_safe,
@@ -79,6 +81,230 @@ def test_save_without_text_convention(
     list(execute_save(content, [str(path)], None))
 
     assert path.read_bytes() == content.encode("utf-8")
+
+
+@pytest.mark.parametrize("original", [None, b"", b"old\r\ncontent\r\n", b"\xff\xfe"])
+@pytest.mark.parametrize("native", [False, True])
+def test_save_explicit_empty_content(
+    tmp_path: Path, monkeypatch, original: bytes | None, native: bool
+) -> None:
+    path = tmp_path / "empty.txt"
+    if original is not None:
+        path.write_bytes(original)
+    previews: list[str] = []
+
+    def confirm(**kwargs):
+        previews.append(kwargs["preview"])
+        # Confirmation must happen before creation or truncation.
+        assert path.exists() == (original is not None)
+        if original is not None:
+            assert path.read_bytes() == original
+        return ConfirmationResult.confirm()
+
+    monkeypatch.setattr("gptme.hooks.get_confirmation", confirm)
+    messages = list(
+        execute_save(
+            "ignored fallback" if native else "",
+            None if native else [str(path)],
+            {"path": str(path), "content": ""} if native else None,
+        )
+    )
+
+    assert any("Saved to" in message.content for message in messages)
+    assert path.read_bytes() == b""
+    assert len(previews) == 1
+    if original == b"old\r\ncontent\r\n":
+        assert "-old" in previews[0]
+        assert "-content" in previews[0]
+    else:
+        assert previews == [""]
+
+
+@pytest.mark.parametrize("original", [None, b"keep me\n"])
+def test_empty_save_can_be_declined(tmp_path: Path, monkeypatch, original) -> None:
+    path = tmp_path / "declined.txt"
+    if original is not None:
+        path.write_bytes(original)
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.skip("declined")
+    )
+
+    messages = list(execute_save(None, None, {"path": str(path), "content": ""}))
+
+    assert [m.content for m in messages] == ["declined"]
+    assert path.exists() == (original is not None)
+    if original is not None:
+        assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("content", [None, 0, False, [], {}])
+def test_save_missing_or_invalid_content(tmp_path: Path, monkeypatch, content) -> None:
+    path = tmp_path / "unchanged.txt"
+    path.write_bytes(b"keep me\n")
+
+    def unexpected_confirmation(**_):
+        pytest.fail("missing/invalid content must not request confirmation")
+
+    monkeypatch.setattr("gptme.hooks.get_confirmation", unexpected_confirmation)
+    kwargs = {"path": str(path)}
+    if content is not None:
+        kwargs["content"] = content
+    messages = list(execute_save(None, None, kwargs))
+
+    assert [m.content for m in messages] == ["No content provided"]
+    assert path.read_bytes() == b"keep me\n"
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_empty_append_remains_rejected(tmp_path: Path, native: bool) -> None:
+    path = tmp_path / "unchanged.txt"
+    path.write_bytes(b"no final newline")
+
+    messages = list(
+        execute_append(
+            None if native else "",
+            None if native else [str(path)],
+            {"path": str(path), "content": ""} if native else None,
+        )
+    )
+
+    assert [m.content for m in messages] == ["No content provided"]
+    assert path.read_bytes() == b"no final newline"
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_empty_save_through_tool_use(tmp_path: Path, native: bool) -> None:
+    path = tmp_path / "empty.txt"
+    tool_use = (
+        ToolUse("save", None, None, kwargs={"path": str(path), "content": ""})
+        if native
+        else ToolUse("save", [str(path)], "")
+    )
+
+    messages = list(tool_use.execute())
+
+    assert any("Saved to" in message.content for message in messages)
+    assert path.read_bytes() == b""
+
+
+@pytest.mark.parametrize("original", [None, b"original\n"])
+def test_empty_save_markdown_parsing(tmp_path: Path, original: bytes | None) -> None:
+    path = tmp_path / "parsed.txt"
+    if original is not None:
+        path.write_bytes(original)
+    calls = list(
+        ToolUse.iter_from_content(
+            f"```save {path}\n\n```", tool_format_override="markdown"
+        )
+    )
+    assert len(calls) == 1
+    assert calls[0].content == ""
+
+    messages = list(calls[0].execute())
+
+    assert any("Saved to" in message.content for message in messages)
+    assert path.read_bytes() == b""
+
+
+def test_empty_save_edited_replacement_can_be_declined(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "declined-edit.txt"
+    path.write_bytes(b"original\n")
+    results = iter(
+        [
+            ConfirmationResult.edit("replacement"),
+            ConfirmationResult.skip("declined edit"),
+        ]
+    )
+    monkeypatch.setattr("gptme.hooks.get_confirmation", lambda **_: next(results))
+
+    messages = list(execute_save(None, None, {"path": str(path), "content": ""}))
+
+    assert [m.content for m in messages] == ["declined edit"]
+    assert path.read_bytes() == b"original\n"
+
+
+@pytest.mark.parametrize("edited", ["replacement", ""])
+def test_empty_save_confirmation_edits(
+    tmp_path: Path, monkeypatch, edited: str
+) -> None:
+    path = tmp_path / "edited.txt"
+    path.write_bytes(b"original\n")
+    previews: list[str] = []
+
+    def confirm(**kwargs):
+        previews.append(kwargs["preview"])
+        if len(previews) == 1:
+            return ConfirmationResult.edit(edited)
+        return ConfirmationResult.confirm()
+
+    monkeypatch.setattr("gptme.hooks.get_confirmation", confirm)
+    messages = list(execute_save(None, None, {"path": str(path), "content": ""}))
+
+    if edited:
+        assert path.read_bytes() == b"replacement\n"
+        assert len(previews) == 2
+        assert "+replacement" in previews[1]
+        assert messages[-1].content == "(content was edited by user)"
+    else:
+        # Keep the shared confirmation contract: an empty edit cancels.
+        assert path.read_bytes() == b"original\n"
+        assert len(previews) == 1
+        assert "Editing returned no content" in messages[0].content
+
+
+@pytest.mark.parametrize("target_kind", ["directory", "fifo", "escape"])
+def test_empty_save_path_safeguards(
+    tmp_path: Path, monkeypatch, target_kind: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "target"
+    if target_kind == "escape":
+        path = "../escape.txt"
+    else:
+        path = str(target)
+        if target_kind == "directory":
+            target.mkdir()
+        elif hasattr(os, "mkfifo"):
+            os.mkfifo(target)
+        else:
+            pytest.skip("FIFOs not supported on Windows")
+
+    messages = list(execute_save("", [path], None))
+
+    assert not any("Saved to" in message.content for message in messages)
+    if target_kind == "escape":
+        assert "Path traversal" in messages[0].content
+        assert not (tmp_path.parent / "escape.txt").exists()
+    else:
+        assert "not a regular file" in messages[0].content
+
+
+@pytest.mark.parametrize("approve_parent", [False, True])
+def test_empty_save_missing_parent(
+    tmp_path: Path, monkeypatch, approve_parent: bool
+) -> None:
+    path = tmp_path / "missing" / "empty.txt"
+    monkeypatch.setattr(
+        "gptme.hooks.get_confirmation", lambda **_: ConfirmationResult.confirm()
+    )
+    prompts: list[str] = []
+
+    def confirm(prompt: str) -> bool:
+        prompts.append(prompt)
+        return approve_parent
+
+    monkeypatch.setattr(save_tool, "confirm", confirm)
+    messages = list(execute_save(None, None, {"path": str(path), "content": ""}))
+
+    assert len(prompts) == 1
+    if approve_parent:
+        assert path.read_bytes() == b""
+        assert "created missing folder" in messages[0].content
+    else:
+        assert not path.parent.exists()
+        assert "refused to create a missing folder" in messages[0].content
 
 
 def test_save_tool_placeholders(tmp_path: Path):

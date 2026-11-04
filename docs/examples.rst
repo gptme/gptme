@@ -18,9 +18,9 @@ Everyday prompts that work well with gptme out of the box. gptme picks the right
 .. code-block:: bash
 
     # ask questions about files
-    gptme 'summarize this' README.md
-    gptme 'refactor this' main.py
-    gptme 'what do you see?' image.png  # vision
+    gptme 'summarize this' @README.md
+    gptme 'refactor this' @main.py
+    gptme 'what do you see?' @image.png  # vision
 
     # compound questions that need several tools
     gptme "Read README.md, list the project's dependencies from pyproject.toml, and tell me if any are pinned to an old major version"
