@@ -163,6 +163,9 @@ def init_llm(provider: Provider):
         provider: Provider name (built-in or custom)
     """
     global _subscription_initialized
+    from ..credentials import require_scoped_provider
+
+    require_scoped_provider(str(provider))
     config = get_config()
 
     # Provider modules are imported lazily per-branch: each pulls in its SDK
@@ -607,6 +610,9 @@ def _chat_complete(
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
+    from ..credentials import require_scoped_provider
+
+    require_scoped_provider(str(provider))
 
     # Anthropic-backed gptme cloud models must use the Anthropic SDK (native
     # format) — the gateway forwards the body verbatim to Anthropic, which
@@ -780,6 +786,9 @@ def _stream(
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
+    from ..credentials import require_scoped_provider
+
+    require_scoped_provider(str(provider))
 
     # Anthropic-backed gptme cloud models use the Anthropic SDK (native format);
     # see the matching note in _chat_complete.
@@ -1358,8 +1367,17 @@ def list_available_providers(
         auth_source is an env var name for API key providers, or "oauth" for
         OAuth-based providers like openai-subscription.
     """
-    from ..credentials import STORED_CREDENTIALS_SOURCE, list_stored_credentials
+    from ..credentials import (
+        SCOPED_OPENROUTER_FILE,
+        STORED_CREDENTIALS_SOURCE,
+        list_stored_credentials,
+        read_scoped_openrouter_key,
+        scoped_inference_enabled,
+    )
 
+    if scoped_inference_enabled():
+        read_scoped_openrouter_key()
+        return [("openrouter", SCOPED_OPENROUTER_FILE)]
     config = config or get_config()
     available = []
     seen: set[str] = set()

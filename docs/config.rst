@@ -224,6 +224,30 @@ in your config to change the permanent default:
 The ``<provider>/<model-name>`` prefix determines which API key is used —
 ``anthropic/...`` uses ``ANTHROPIC_API_KEY``, ``groq/...`` uses ``GROQ_API_KEY``, etc.
 
+**Explicit OpenRouter credential delivery (opt-in launchers):**
+
+A launcher can set ``GPTME_OPENROUTER_API_KEY_FILE`` to a protected regular
+file containing only one OpenRouter key (up to 16 KiB). The selector is read
+from the process environment, not configuration. On POSIX the file must have
+no group/other permission bits; the launcher provisions and rotates it.
+An empty selector, missing/invalid file or unavailable credential fails closed.
+
+In this mode provider discovery and inference are OpenRouter-only. Credentials
+from environment, config, ``credentials.toml``, configured inference proxies and
+runtime account switching are not fallbacks. Requests use the canonical
+OpenRouter endpoint. Automatic ``.env`` loading is disabled at initialization
+and workspace preparation. Without the selector, existing behavior is unchanged.
+
+The key is read into the inference client, never exported into ``os.environ``
+for shell children. This is an incremental delivery control, **not a sandbox**:
+the launcher must already supply an explicit nonsecret environment. It does not
+scrub unrelated variables already inherited, prevent arbitrary in-process code
+from reading config, or prevent same-user tools from opening the credential
+file (whose path is inherited). Existing filesystem/network controls remain
+necessary for stronger isolation. No credential store or service is migrated
+automatically. Removing the selector restores legacy behavior; launchers that
+require scoped delivery must defer rather than silently retry without it.
+
 **Using local models (Ollama, llama-cpp-python, etc.):**
 
 Set ``MODEL`` to ``local/<model-name>`` and point ``OPENAI_BASE_URL`` at your

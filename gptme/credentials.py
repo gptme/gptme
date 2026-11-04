@@ -74,3 +74,48 @@ def mask_secret(secret: str) -> str:
     if len(secret) <= 8:
         return "*" * len(secret)
     return f"{secret[:4]}...{secret[-4:]}"
+
+
+# This opt-in selector is read only from the launch environment, never config.
+SCOPED_OPENROUTER_FILE = "GPTME_OPENROUTER_API_KEY_FILE"
+
+
+def scoped_inference_enabled() -> bool:
+    """Whether the launcher selected explicit OpenRouter-only delivery."""
+    return SCOPED_OPENROUTER_FILE in os.environ
+
+
+def require_scoped_provider(provider: str) -> None:
+    """Do not silently switch to another credential source in scoped mode."""
+    if scoped_inference_enabled() and provider != "openrouter":
+        raise ValueError("Scoped inference requires openrouter")
+
+
+def read_scoped_openrouter_key() -> str:
+    """Read one protected credential into the inference client, not os.environ.
+
+    This reduces accidental inheritance, not same-user filesystem authority.
+    The launcher owns file provisioning (e.g. a service credential); gptme never
+    retrieves a vault or falls back to ambient/config/stored keys here.
+    """
+    import stat
+
+    try:
+        path = os.environ[SCOPED_OPENROUTER_FILE]
+        # Nonblocking open avoids hanging on a mistakenly provisioned FIFO.
+        flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+                raise ValueError
+            raw = stream.read(16385)
+        if len(raw) > 16384:
+            raise ValueError
+        key = raw.decode("utf-8").strip()
+        if not key or any(ch.isspace() or ord(ch) < 32 for ch in key):
+            raise ValueError
+        return key
+    except (OSError, KeyError, ValueError):
+        # No path, bytes or nested decoder exception in user-visible errors.
+        raise ValueError("Scoped OpenRouter credential unavailable") from None

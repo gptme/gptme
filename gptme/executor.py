@@ -58,8 +58,11 @@ def prepare_execution_environment(
 
     set_config(config)
 
-    # Load .env file if present
-    load_dotenv(dotenv_path=workspace / ".env")
+    # Scoped launchers supply explicit settings; do not refill their environment.
+    from .credentials import scoped_inference_enabled
+
+    if not scoped_inference_enabled():
+        load_dotenv(dotenv_path=workspace / ".env")
 
     # Initialize tools and hooks
     initialized_tools = init_tools(tools)
