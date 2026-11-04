@@ -143,6 +143,18 @@ def _block_budget_text(blocks: int) -> str:
     )
 
 
+def _episode_messages(manager: "LogManager") -> "list[Message]":
+    """Messages to count policy blocks over.
+
+    ``manager.log`` is the active view once compaction has run: a summary plus a
+    retained tail. The summary does not keep the individual ``[policy-block]``
+    system messages, so counting it let a mid-episode compaction replenish the
+    budget. ``history_log`` is the branch's full history and is unaffected by
+    the view.
+    """
+    return manager.history_log.messages
+
+
 def _blocks_over_budget(messages: "list[Message]") -> int | None:
     """Return the episode block count if it has reached the budget, else None."""
     budget = _block_budget()
@@ -710,7 +722,7 @@ def _auto_reply_nudge_interactive(
     if nudge_count >= 1:
         return
 
-    if (blocks := _blocks_over_budget(manager.log.messages)) is not None:
+    if (blocks := _blocks_over_budget(_episode_messages(manager))) is not None:
         logger.warning("Auto-nudge: %d policy blocks, asking agent to stop", blocks)
         yield Message(
             "user",
@@ -798,7 +810,7 @@ def auto_reply_hook(
     # Over the policy-block budget: stop the "please continue" pressure. The
     # incomplete-todo reminder is suppressed too — todos are expected to be
     # incomplete when policy blocked the work.
-    if (blocks := _blocks_over_budget(manager.log.messages)) is not None:
+    if (blocks := _blocks_over_budget(_episode_messages(manager))) is not None:
         logger.warning("Auto-reply: %d policy blocks, asking agent to stop", blocks)
         yield Message(
             "user",
@@ -880,7 +892,7 @@ def block_budget_hook(
     # as non-interactive.
     if not budget or (chat is not None and chat.interactive):
         return
-    blocks = count_policy_blocks(manager.log.messages)
+    blocks = count_policy_blocks(_episode_messages(manager))
     if blocks >= 2 * budget:
         logger.warning(
             "policy-block-budget-exhausted: %d blocks (budget %d)", blocks, budget

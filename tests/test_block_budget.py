@@ -29,9 +29,13 @@ def _blocks(n: int) -> list[Message]:
     return [_block(i) for i in range(n)]
 
 
-def _manager(messages: list[Message]) -> MagicMock:
+def _manager(
+    messages: list[Message], history: list[Message] | None = None
+) -> MagicMock:
     manager = MagicMock()
     manager.log.messages = messages
+    # The budget counts the branch history, not the possibly-compacted view.
+    manager.history_log.messages = messages if history is None else history
     return manager
 
 
@@ -306,11 +310,42 @@ class TestHardStop:
         # human is present, so the hard stop still applies.
         monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
         # No ``logdir`` attribute at all — mirrors a library/headless manager.
+        messages = [PROMPT, *_blocks(6)]
         manager = cast(
-            Any, SimpleNamespace(log=SimpleNamespace(messages=[PROMPT, *_blocks(6)]))
+            Any,
+            SimpleNamespace(
+                log=SimpleNamespace(messages=messages),
+                history_log=SimpleNamespace(messages=messages),
+            ),
         )
         with (
             patch("gptme.config.get_config", return_value=SimpleNamespace(chat=None)),
             pytest.raises(SessionCompleteException),
         ):
             list(block_budget_hook(manager))
+
+
+class TestCompactionDoesNotResetBudget:
+    """Compaction must not replenish budget the episode already spent.
+
+    ``manager.log`` becomes a summary plus a retained tail once compaction has
+    run, and a summary does not keep the individual ``[policy-block]`` system
+    messages. Counting the view therefore under-counted the episode and let a
+    mid-episode compaction postpone the hard stop.
+    """
+
+    def test_compacted_view_does_not_replenish_hard_stop(self, monkeypatch):
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        view = [Message("system", "Summary of earlier work."), _block()]
+        history = [PROMPT, *_blocks(6)]
+        with _chat(interactive=False), pytest.raises(SessionCompleteException) as e:
+            list(block_budget_hook(_manager(view, history)))
+        assert "policy block budget exhausted: 6 blocks" in str(e.value)
+
+    def test_compacted_view_does_not_replenish_budget_text(self, monkeypatch):
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        view = [Message("system", "Summary of earlier work."), THINK]
+        history = [PROMPT, *_blocks(3)]
+        out = _replies(_manager(view, history), interactive=False, prompt_queue=[])
+        assert len(out) == 1
+        assert "blocked by policy" in out[0].content

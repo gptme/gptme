@@ -1043,6 +1043,13 @@ def step(
                     finally:
                         with session.step_lock:
                             session.finish_skill_turn("abandoned")
+                            # A checkpoint injected before the budget stopped
+                            # this step must not reserve a generation later: the
+                            # next request is a fresh human prompt (its user
+                            # message resets the block count), so a surviving
+                            # continuation flag would answer the abandoned chain
+                            # with an unsolicited extra response.
+                            session.checkpoint_needs_continuation = False
                             session.generating = False
                             session.generating_since = None
                             # Keep reservation release and its event atomic.
