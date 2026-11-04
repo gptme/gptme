@@ -120,8 +120,7 @@ def prepare_pending_memory(call: ToolUse, workspace: Path | None = None) -> Tool
             if key not in env and settings.get(key) is not None:
                 env[key] = settings[key] or ""
         selected = MemoryStore.from_workspace(workspace, env=env).root(scope)
-        path = selected.path
-        root = MemoryRoot(selected.scope, (workspace / path).resolve())
+        root = MemoryRoot(selected.scope, selected.path.resolve())
         target = root.path / f"{slugify(name)}.md"
     except (KeyError, OSError, ValueError):
         return call

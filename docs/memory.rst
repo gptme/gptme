@@ -195,6 +195,10 @@ requires an existing configured agent memory directory. ``user`` writes under
 ``<gptme config directory>/memory/``. When ``GPTME_MEMORY_DIRS`` is set, it
 replaces all other roots: only ``explicit`` is available. An unavailable or
 invalid scope fails without falling back or creating another root.
+Relative paths in ``GPTME_MEMORY_DIRS`` and ``GPTME_AGENT_WORKSPACE`` are resolved
+against the selected workspace (the conversation workspace on the server),
+before directory availability checks and duplicate-root removal. Absolute paths
+and ``~``-expanded paths keep their configured destinations.
 
 Without a scope, the tool follows the CLI default: first explicit root, else
 existing project ``memory/``, else the workspace's CC root. This is not a

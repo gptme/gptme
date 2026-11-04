@@ -198,6 +198,35 @@ class TestRoots:
         roots = resolve_roots(ws, env={}, config_dir=tmp_path / "cfg")
         assert [r.scope for r in roots] == ["project", "user"]
 
+    def test_relative_explicit_roots_deduplicate_in_workspace(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workspace = tmp_path / "workspace"
+        server = tmp_path / "server"
+        workspace.mkdir()
+        server.mkdir()
+        monkeypatch.chdir(server)
+        target = workspace / "memories"
+        roots = resolve_roots(
+            workspace,
+            env={"GPTME_MEMORY_DIRS": os.pathsep.join(("./memories", str(target)))},
+        )
+        assert roots == [MemoryRoot("explicit", target)]
+        assert not target.exists()
+        assert not (server / "memories").exists()
+
+    def test_relative_agent_alias_collapses_onto_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workspace = tmp_path / "workspace"
+        (workspace / "memory").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        roots = resolve_roots(
+            workspace, env={"GPTME_AGENT_WORKSPACE": "."}, config_dir=tmp_path / "cfg"
+        )
+        assert "agent" not in [root.scope for root in roots]
+        assert roots[0] == MemoryRoot("project", workspace / "memory")
+
     def test_cc_is_default_write_root_without_project_dir(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
             "gptme.memory.roots.get_cc_memory_dir", lambda _ws: tmp_path / "cc"

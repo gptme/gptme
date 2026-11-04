@@ -245,6 +245,55 @@ def test_pending_memory_reads_workspace_dotenv_without_mutating_environment(
     assert target.exists(), [m.content for m in messages]
 
 
+@pytest.mark.parametrize("server_has_agent", [False, True])
+@pytest.mark.parametrize("workspace_has_agent", [False, True])
+def test_pending_agent_root_uses_conversation_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    server_has_agent: bool,
+    workspace_has_agent: bool,
+) -> None:
+    from gptme.tools.memory import prepare_pending_memory
+
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.setenv("GPTME_AGENT_WORKSPACE", "./agent")
+    server = tmp_path / "server"
+    workspace = tmp_path / "project"
+    server.mkdir()
+    workspace.mkdir()
+    server_memory = server / "agent/memory"
+    workspace_memory = workspace / "agent/memory"
+    if server_has_agent:
+        server_memory.mkdir(parents=True)
+        (server_memory / "fact.md").write_text("Server sentinel.")
+    if workspace_has_agent:
+        workspace_memory.mkdir(parents=True)
+    monkeypatch.chdir(server)
+    call = ToolUse(
+        "memory",
+        None,
+        None,
+        kwargs={"name": "fact", "content": CONTENT, "scope": "agent"},
+    )
+    pending = prepare_pending_memory(call, workspace=workspace)
+    if workspace_has_agent:
+        assert pending._memory_root == ("agent", workspace_memory)
+        assert str(workspace_memory / "fact.md") in (pending.confirmation_header or "")
+        register_hook(
+            "approve", HookType.TOOL_CONFIRM, lambda *_: ConfirmationResult.confirm()
+        )
+        messages = list(pending.execute(workspace=workspace))
+        assert (workspace_memory / "fact.md").is_file(), [m.content for m in messages]
+    else:
+        assert pending._memory_root is None
+        assert pending.confirmation_header is None
+        assert not workspace_memory.exists()
+    if server_has_agent:
+        assert (server_memory / "fact.md").read_text() == "Server sentinel."
+    else:
+        assert not server_memory.exists()
+
+
 def test_pending_memory_environment_overrides_dotenv(tmp_path, monkeypatch):
     from gptme.tools.memory import prepare_pending_memory
 
