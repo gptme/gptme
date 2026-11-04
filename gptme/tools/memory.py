@@ -6,6 +6,7 @@ remain workspace-local. Startup loading depends on the harness configuration.
 
 import shlex
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 
 from ..dirs import get_workspace
@@ -97,68 +98,85 @@ def save_memory(
     return _save_to_root(name, content, store.root(scope))
 
 
+def prepare_pending_memory(call: ToolUse) -> ToolUse:
+    """Resolve a server's initial approval without creating directories or files.
+
+    The same normalization as execution is used for native, Markdown and XML
+    calls. Invalid calls keep their normal execution-time error reporting.
+    """
+    try:
+        name, _content, scope, _args = _parse_memory_call(
+            call.content, call.args, call.kwargs, call._format == "xml"
+        )
+        selected = MemoryStore.from_workspace(get_workspace()).root(scope)
+        root = MemoryRoot(selected.scope, selected.path.resolve())
+        target = root.path / f"{slugify(name)}.md"
+    except (KeyError, OSError, ValueError):
+        return call
+    return replace(
+        call,
+        confirmation_header=f"Save memory '{name}' (scope: {root.scope}) to `{target}`?",
+        _memory_root=(root.scope, root.path),
+    )
+
+
+def _parse_memory_call(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+    xml: bool,
+) -> tuple[str, str, str | None, list[str]]:
+    scope = kwargs.get("scope") if kwargs else None
+    if not args and kwargs:
+        name = kwargs.get("name", "").strip()
+        if name:
+            args = [name]
+        code = code or kwargs.get("content", "")
+    if xml and args and len(args) == 1 and "--scope" in args[0].split():
+        try:
+            args = shlex.split(args[0])
+        except ValueError as e:
+            raise ValueError(f"Error parsing memory arguments: {e}") from e
+    if not args:
+        raise ValueError(
+            "Error: memory tool requires a name argument, e.g. `memory my-memory-name`"
+        )
+    if len(args) != 1:
+        if len(args) == 3 and args[1] == "--scope" and scope is None:
+            scope = args[2]
+        else:
+            raise ValueError("Error: expected `memory <name> [--scope <scope>]`.")
+    content = (code or "").strip()
+    if not content:
+        raise ValueError(
+            "Error: memory content is empty. Provide the memory text in the code block body."
+        )
+    return args[0], content, scope, args
+
+
 def execute_memory(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None = None,
 ) -> Generator[Message, None, None]:
     """Save a memory after confirming its exact scope, path and content."""
-    scope = kwargs.get("scope") if kwargs else None
-    # Normalize native kwargs → legacy positional form
-    if not args and kwargs:
-        name_from_kwargs = kwargs.get("name", "").strip()
-        content_from_kwargs = kwargs.get("content", "").strip()
-        if name_from_kwargs:
-            args = [name_from_kwargs]
-        if content_from_kwargs and not code:
-            code = content_from_kwargs
-
-    # XML carries scoped arguments in one attribute. Legacy unscoped XML treats
-    # the whole attribute as a name (including spaces or apostrophes).
     current_call = get_current_tool_use()
-    if (
-        current_call
-        and current_call._format == "xml"
-        and args
-        and len(args) == 1
-        and "--scope" in args[0].split()
-    ):
-        try:
-            args = shlex.split(args[0])
-        except ValueError as e:
-            yield Message("system", f"Error parsing memory arguments: {e}")
-            return
-
-    if not args:
-        yield Message(
-            "system",
-            "Error: memory tool requires a name argument, e.g. `memory my-memory-name`",
+    try:
+        name, code, scope, args = _parse_memory_call(
+            code, args, kwargs, bool(current_call and current_call._format == "xml")
         )
-        return
-
-    name = args[0]
-    if len(args) != 1:
-        if len(args) == 3 and args[1] == "--scope" and scope is None:
-            scope = args[2]
-        else:
-            yield Message(
-                "system", "Error: expected `memory <name> [--scope <scope>]`."
-            )
-            return
-
-    content = (code or "").strip()
-    if not content:
-        yield Message(
-            "system",
-            "Error: memory content is empty. Provide the memory text in the code block body.",
-        )
+    except ValueError as e:
+        yield Message("system", str(e))
         return
 
     try:
         # Resolve once: environment/workspace changes during confirmation must not
         # redirect the approved write to another root.
-        selected = MemoryStore.from_workspace(get_workspace()).root(scope)
-        root = MemoryRoot(selected.scope, selected.path.resolve())
+        if current_call and current_call._memory_root is not None:
+            root = MemoryRoot(*current_call._memory_root)
+        else:
+            selected = MemoryStore.from_workspace(get_workspace()).root(scope)
+            root = MemoryRoot(selected.scope, selected.path.resolve())
         target_path = root.path / f"{slugify(name)}.md"
     except (KeyError, OSError, ValueError) as e:
         yield Message("system", f"Error selecting memory scope: {e}")

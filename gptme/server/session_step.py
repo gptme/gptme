@@ -1248,14 +1248,7 @@ def step(
                 conversation_id,
                 {
                     "type": "tool_pending",
-                    "tool_id": tool_id,
-                    "tooluse": {
-                        "tool": tooluse.tool,
-                        "args": tooluse.args,
-                        "content": tooluse.content,
-                        "kwargs": tooluse.kwargs,
-                    },
-                    "auto_confirm": tool_exec.auto_confirm,
+                    **tool_exec.to_pending_dict(),
                 },
             )
 

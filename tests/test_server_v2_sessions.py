@@ -3233,3 +3233,123 @@ def test_native_kwargs_tool_pending_sse_and_snapshot_keep_arguments(
     assert connected["type"] == "connected"
     (snapshot,) = connected["pending_tools"]
     assert snapshot["tooluse"] == expected
+
+
+def test_memory_rerun_and_reconnect_show_pinned_destination(
+    conv, client, tmp_path, monkeypatch
+):
+    from gptme.tools import memory
+
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(memory, "get_workspace", lambda: tmp_path)
+    conversation_id = conv["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "role": "assistant",
+            "content": "```memory preference --scope user\nConcise answers.\n```",
+        },
+    )
+    assert response.status_code == 200
+    events = []
+    with patch.object(
+        SessionManager, "add_event", side_effect=lambda cid, event: events.append(event)
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/rerun",
+            json={"session_id": conv["session_id"]},
+        )
+    assert response.status_code == 200
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    try:
+        initial = next(event for event in events if event["type"] == "tool_pending")
+        target = tmp_path / "config/gptme/memory/preference.md"
+        assert str(target) in initial["tooluse"]["confirmation_header"]
+        assert not target.exists()
+        stream = client.get(
+            f"/api/v2/conversations/{conversation_id}/events?session_id={session.id}",
+            buffered=False,
+        )
+        try:
+            connected = json.loads(
+                next(iter(stream.response)).decode().removeprefix("data: ")
+            )
+            assert connected["pending_tools"][0]["tooluse"] == initial["tooluse"]
+        finally:
+            stream.close()
+    finally:
+        session.pending_tools.clear()
+
+
+def test_memory_step_initial_approval_has_destination(conv, tmp_path, monkeypatch):
+    from gptme.llm.models import get_model
+    from gptme.message import Message
+    from gptme.server.session_step import step
+    from gptme.tools import memory
+
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(memory, "get_workspace", lambda: tmp_path)
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    session.step_seq = 1
+    session.generating = True
+    events = []
+    with (
+        patch(
+            "gptme.server.session_step._stream",
+            return_value=iter(
+                [
+                    '@memory(call_memory_1): {"name":"preference","content":"Concise answers.","scope":"user"}'
+                ]
+            ),
+        ),
+        patch("gptme.server.session_step.require_workspace_exists"),
+        patch("gptme.server.session_step.prepare_execution_environment"),
+        patch("gptme.server.session_step.trigger_hook", return_value=[]),
+        patch(
+            "gptme.server.session_step.prepare_messages",
+            return_value=[Message("user", "test")],
+        ),
+        patch("gptme.server.session_step._try_auto_name_and_notify"),
+        patch("gptme.server.session_step.set_workspace_cwd"),
+        patch(
+            "gptme.server.session_step.ChatConfig.load_or_create",
+            return_value=MagicMock(
+                tool_format="tool",
+                tools=None,
+                workspace=tmp_path,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+            ),
+        ),
+        patch("gptme.llm.models.get_model", return_value=get_model("gpt-4")),
+        patch("gptme.llm.models.set_default_model"),
+        patch("gptme.model_attestation.record_runtime_selection"),
+        patch("gptme.server.session_step._start_step_thread", return_value=True),
+        patch.object(
+            SessionManager,
+            "add_event",
+            side_effect=lambda cid, event: events.append(event),
+        ),
+    ):
+        step(
+            conversation_id=conv["conversation_id"],
+            session=session,
+            model="gpt-4",
+            workspace=tmp_path,
+            step_seq=1,
+        )
+    try:
+        event = next(event for event in events if event["type"] == "tool_pending")
+        target = tmp_path / "config/gptme/memory/preference.md"
+        assert str(target) in event["tooluse"]["confirmation_header"]
+        assert not target.exists()
+        (pending,) = session.pending_tools.values()
+        assert pending.tooluse.call_id == "call_memory_1"
+        assert event["tooluse"] == pending.to_pending_dict()["tooluse"]
+    finally:
+        session.pending_tools.clear()

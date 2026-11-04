@@ -255,17 +255,8 @@ def api_conversation_events(conversation_id: str):
                 "generating": session.generating,
                 "last_error": session.last_error,
                 "pending_tools": [
-                    {
-                        "tool_id": tid,
-                        "tooluse": {
-                            "tool": te.tooluse.tool,
-                            "args": te.tooluse.args,
-                            "content": te.tooluse.content,
-                            "kwargs": te.tooluse.kwargs,
-                        },
-                        "auto_confirm": te.auto_confirm,
-                    }
-                    for tid, te in list(session.pending_tools.items())
+                    te.to_pending_dict()
+                    for te in list(session.pending_tools.values())
                     if te.status == ToolStatus.PENDING
                 ],
             }
@@ -1033,14 +1024,7 @@ def api_conversation_rerun(conversation_id: str):
                 conversation_id,
                 {
                     "type": "tool_pending",
-                    "tool_id": tool_id,
-                    "tooluse": {
-                        "tool": tooluse.tool,
-                        "args": tooluse.args,
-                        "content": tooluse.content,
-                        "kwargs": tooluse.kwargs,
-                    },
-                    "auto_confirm": tool_exec.auto_confirm,
+                    **tool_exec.to_pending_dict(),
                 },
             )
 

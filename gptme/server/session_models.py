@@ -88,6 +88,28 @@ class ToolExecution:
     temperature: float | None = None
     top_p: float | None = None
 
+    def __post_init__(self) -> None:
+        if self.tooluse.tool == "memory":
+            from ..tools.memory import prepare_pending_memory
+
+            self.tooluse = prepare_pending_memory(self.tooluse)
+
+    def to_pending_dict(self) -> dict:
+        """One approval payload for initial detection, rerun and reconnect."""
+        tooluse = {
+            "tool": self.tooluse.tool,
+            "args": self.tooluse.args,
+            "content": self.tooluse.content,
+            "kwargs": self.tooluse.kwargs,
+        }
+        if self.tooluse.confirmation_header is not None:
+            tooluse["confirmation_header"] = self.tooluse.confirmation_header
+        return {
+            "tool_id": self.tool_id,
+            "tooluse": tooluse,
+            "auto_confirm": self.auto_confirm,
+        }
+
 
 @dataclass
 class ConversationSession(BaseSession):

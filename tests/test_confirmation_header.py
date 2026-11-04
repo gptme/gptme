@@ -114,6 +114,7 @@ def test_cli_header_outside_preview_and_editor(monkeypatch: pytest.MonkeyPatch) 
 def test_server_pending_and_event_header_content_parity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("flask", reason="requires server extras")
     from gptme.hooks import server_confirm
     from gptme.server.api_v2_sessions import SessionManager
 
@@ -155,3 +156,43 @@ def test_print_preview_renders_header_literally(
     header = "Scope: user /memory/[red]literal[/bold].md"
     print_preview(CONTENT, "text", header=header)
     assert header in capsys.readouterr().out
+
+
+def test_server_memory_pending_pins_destination_before_execution(tmp_path, monkeypatch):
+    pytest.importorskip("flask")
+    from gptme.server.session_models import ToolExecution
+    from gptme.tools import memory
+
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.delenv("GPTME_AGENT_WORKSPACE", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(memory, "get_workspace", lambda: workspace)
+    call = ToolUse(
+        "memory",
+        None,
+        None,
+        kwargs={"name": "preference", "content": CONTENT, "scope": "user"},
+        call_id="memory_pending_1",
+        _format="tool",
+    )
+    pending = ToolExecution(tool_id="pending-1", tooluse=call)
+    target = tmp_path / "config/gptme/memory/preference.md"
+    assert str(target) in (pending.tooluse.confirmation_header or "")
+    assert "scope: user" in (pending.tooluse.confirmation_header or "")
+    assert not target.exists()
+    assert pending.tooluse.preview_content == CONTENT
+    assert (
+        pending.to_pending_dict()["tooluse"]["confirmation_header"]
+        == pending.tooluse.confirmation_header
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "different-config"))
+    register_hook(
+        "approve", HookType.TOOL_CONFIRM, lambda *_: ConfirmationResult.confirm()
+    )
+    messages = list(pending.tooluse.execute(workspace=workspace))
+    assert target.exists(), [m.content for m in messages]
+    assert CONTENT in target.read_text()
+    assert "Save memory" not in target.read_text()
+    assert not (tmp_path / "different-config/gptme/memory/preference.md").exists()

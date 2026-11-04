@@ -930,6 +930,11 @@ class ToolUse:
     _source_content: str | None = field(default=None, compare=False, repr=False)
     # Confirmation-only metadata, separate from editable execution content.
     confirmation_header: str | None = field(default=None, compare=False)
+    # Runtime-only destination selected before a server approval, never serialized
+    # into model arguments or persisted assistant messages.
+    _memory_root: tuple[str, Path] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def execute(
         self,
