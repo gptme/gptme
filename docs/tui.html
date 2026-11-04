@@ -684,7 +684,8 @@ boundary. Results for another branch wait until you return to that branch.</p>
 <p>Set <code class="docutils literal notranslate"><span class="pre">watch_autowake</span> <span class="pre">=</span> <span class="pre">false</span></code> under <code class="docutils literal notranslate"><span class="pre">[chat]</span></code> in the conversation’s
 <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> for notification-only delivery. Tool and URL confirmations still
 apply to any resumed generation. An interrupt suppresses automatic continuation.
-This does not change plain CLI wakeups or non-interactive shutdown policy.</p>
+The interactive CLI uses the same setting and preserves unsent prompt text
+across the wake. Non-interactive shutdown policy is unchanged.</p>
 </section>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>

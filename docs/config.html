@@ -1143,6 +1143,11 @@ explicitly, or start a session in that workspace.</p>
 <span id="id4"></span><h2>Chat config<a class="headerlink" href="#chat-config" title="Link to this heading">#</a></h2>
 <p>The chat configuration file stores configuration options for a particular chat.
 It is used to store the model, toolset, tool format, and streaming/interactive mode.</p>
+<p><code class="docutils literal notranslate"><span class="pre">watch_autowake</span></code> (default on) controls whether a child-agent result or fired
+watch may resume an idle CLI, TUI, or server conversation without another
+prompt. Set it to <code class="docutils literal notranslate"><span class="pre">false</span></code> for notification-only delivery at idle. Progress
+updates never start generation. Non-interactive shutdown is independent of
+this setting.</p>
 <p>The chat configuration file is stored as <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in the chat log directory (i.e. <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml</span></code>). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.</p>
 <p>See <a class="reference internal" href="api/config.html#gptme.config.ChatConfig" title="gptme.config.ChatConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.ChatConfig</span></code></a> for the API reference.</p>
 </section>

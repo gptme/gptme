@@ -553,6 +553,12 @@ Chat config
 The chat configuration file stores configuration options for a particular chat.
 It is used to store the model, toolset, tool format, and streaming/interactive mode.
 
+``watch_autowake`` (default on) controls whether a child-agent result or fired
+watch may resume an idle CLI, TUI, or server conversation without another
+prompt. Set it to ``false`` for notification-only delivery at idle. Progress
+updates never start generation. Non-interactive shutdown is independent of
+this setting.
+
 The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
 
 See :class:`gptme.config.ChatConfig` for the API reference.
