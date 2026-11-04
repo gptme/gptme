@@ -279,11 +279,11 @@ def chat(
     skill_lifecycle = ExitStack()
     idle_block_token = _idle_autowake_blocked.set(False)
     try:
-        skill_lifecycle.enter_context(program_status("idle"))
         # Reset here (inside try) so the finally clause always restores
         # _prev_tokens if any setup code above raises before reaching this point.
         _reset_token_accumulator()
         set_output_format(output_format)
+        skill_lifecycle.enter_context(program_status("idle"))
         if interactive:
             from .util.prompt import idle_prompt_scope
 
