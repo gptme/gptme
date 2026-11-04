@@ -3847,9 +3847,12 @@ class TestGetAvailableModels:
         mock_requests_get,
     ):
         """gptme model listing should hit its OpenAI-compatible /models endpoint."""
-        from gptme.llm.llm_openai import get_available_models
+        from gptme.llm.llm_openai import (
+            _get_available_models_cached,
+            get_available_models,
+        )
 
-        get_available_models.cache_clear()
+        _get_available_models_cached.cache_clear()
         mock_get_config.return_value = MagicMock()
         mock_get_api_key.return_value = "gptme-token"
         mock_get_models_url.return_value = "https://auth.gptme.ai/functions/v1"
