@@ -759,14 +759,26 @@ def _setup_custom_provider(
     console.print()
 
     name = Prompt.ask("Provider name", default="custom").strip()
-    base_url = Prompt.ask("Base URL", default="https://api.example.com/v1").strip()
+    existing = next((p for p in get_config().user.providers if p.name == name), None)
+    base_url = Prompt.ask(
+        "Base URL",
+        default=existing.base_url if existing else "https://api.example.com/v1",
+    ).strip()
     api_key = Prompt.ask(
-        "API key (leave blank to skip)", password=True, default=""
+        "API key (leave blank to keep existing key)"
+        if existing
+        else "API key (leave blank to skip)",
+        password=True,
+        default="",
     ).strip()
     default_model_prompt = (
         "Default model"
         if require_default_model
-        else "Default model (leave blank to skip)"
+        else (
+            "Default model (leave blank to keep existing model)"
+            if existing
+            else "Default model (leave blank to skip)"
+        )
     )
     default_model = Prompt.ask(default_model_prompt, default="").strip()
     while require_default_model and not default_model:
@@ -778,10 +790,13 @@ def _setup_custom_provider(
     provider = ProviderConfig(
         name=name,
         base_url=base_url,
-        api_key=api_key or None,
-        default_model=default_model or None,
+        api_key=api_key or (existing.api_key if existing else None),
+        api_key_env=existing.api_key_env if existing and not api_key else None,
+        default_model=default_model or (existing.default_model if existing else None),
     )
-    local = bool(api_key)
+    # An interactive update must override any stale same-name local entry.
+    # Keep retained inline secrets out of the shareable main config.
+    local = bool(api_key) or existing is not None
     save_provider_config(provider, local=local)
 
     _, local_path = get_user_config_paths()
@@ -793,7 +808,7 @@ def _setup_custom_provider(
             border_style="green",
         )
     )
-    return name, api_key
+    return name, provider.api_key or ""
 
 
 def _choose_first_run_auth() -> str:
