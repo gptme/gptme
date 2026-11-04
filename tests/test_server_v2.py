@@ -6056,3 +6056,44 @@ def test_v2_chat_config_preserves_mcp_argv_and_null_tool_format(client: FlaskCli
     assert config.tool_format is None
     assert config.mcp is not None
     assert config.mcp.servers[0].args == args
+
+
+@pytest.mark.timeout(15)
+@pytest.mark.parametrize("checkpoint_pending", [False, True])
+def test_v2_preparation_context_error_releases_session(
+    v2_conv, client: FlaskClient, checkpoint_pending: bool
+) -> None:
+    """A preparation failure must be visible and must release the busy state."""
+    from gptme.server.session_models import SessionManager
+    from gptme.util.reduce import ContextLimitError
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Oversized request"},
+    )
+    assert response.status_code == 200
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+    session.checkpoint_needs_continuation = checkpoint_pending
+    error = "Shorten the request or select a larger-context model"
+    with unittest.mock.patch(
+        "gptme.server.session_step.prepare_messages",
+        side_effect=ContextLimitError(error),
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={"session_id": session_id, "model": "openai/mock-model"},
+        )
+    assert response.status_code == 500
+    assert error in response.get_json()["error"]
+    deadline = time.monotonic() + 3
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+    while session.generating and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert session.last_error == error
+    assert not session.generating
+    assert session.generating_since is None
+    assert not session.checkpoint_needs_continuation

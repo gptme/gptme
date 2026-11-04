@@ -59,6 +59,7 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
+from .util.reduce import ContextLimitError
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
@@ -638,10 +639,11 @@ def _run_chat_loop(
         except Exception as e:
             # A failed LLM reply (provider outage or detected degeneration) must
             # not kill an interactive session: report it and hand control back
-            # to the user, who can retry or switch model.  Only errors tagged at
-            # the provider call inside `reply()` qualify — tool/hook SDK errors
-            # must not be swallowed.  Non-interactive runs still fail loudly.
-            if not is_llm_reply_error(e):
+            # to the user, who can retry or switch model. Expected context-limit
+            # failures during preparation are recoverable too. Other errors must
+            # be tagged at the provider call inside `reply()` — tool/hook SDK
+            # errors must not be swallowed. Non-interactive runs fail loudly.
+            if not isinstance(e, ContextLimitError) and not is_llm_reply_error(e):
                 raise
             # Park remaining intent before interactive continue or headless
             # raise so a later explicit resume can recover it. Consuming the

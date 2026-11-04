@@ -37,6 +37,7 @@ from ..tools.autocompact.recovery import recover_reply
 from ..tools.shell import set_workspace_cwd
 from ..util.context_measurement import anchor_context_usage, input_log_digest
 from ..util.cost_tracker import CostTracker, session_id_for_logdir
+from ..util.reduce import ContextLimitError
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
 from .session_models import (
     ConversationSession,
@@ -966,18 +967,30 @@ def step(
                 )
             )
 
-    # Prepare messages for the model
-    msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
+    # Preparation can reject an oversized request before generation begins.
+    # Publish that expected failure and release only this worker's epoch, even
+    # if persisting the error fails.
+    preparation_error = None
+    try:
+        msgs = prepare_messages(manager.log.messages, logdir=manager.logdir)
+    except ContextLimitError as exc:
+        msgs = []
+        preparation_error = str(exc)
     if not msgs:
-        _persist_generation_error(manager, session, "No messages to process")
-        error_event: ErrorEvent = {
-            "type": "error",
-            "error": "No messages to process",
-        }
-        SessionManager.add_event(conversation_id, error_event)
+        error_message = preparation_error or "No messages to process"
         with session.step_lock:
-            if session.step_seq == my_step_seq:
+            if session.step_seq != my_step_seq or session.interrupted:
+                return
+            session.last_error = error_message
+            try:
+                _persist_generation_error(manager, session, error_message)
+            except Exception:
+                logger.exception("Failed to persist preparation error")
+            finally:
+                error_event: ErrorEvent = {"type": "error", "error": error_message}
+                SessionManager.add_event(conversation_id, error_event)
                 session.finish_skill_turn("failed")
+                session.checkpoint_needs_continuation = False
                 session.generating = False
                 session.generating_since = None
                 # Emit while still holding step_lock — see step() finally
