@@ -1056,6 +1056,21 @@ def test_should_prompt_after_provider_error_system_message():
     )
     assert _should_prompt_for_input(with_budget_reminder) is True
 
+    # Idle child/watch notices after an assistant turn must still prompt, so
+    # Ctrl-D exits instead of crash-recovering into an unrequested generation.
+    with_idle_notice = Log(
+        [
+            Message("user", "delegate"),
+            Message("assistant", "done"),
+            Message(
+                "system",
+                "⏳ Subagent 'child' progress: working",
+                metadata={"idle_notification": True},
+            ),
+        ]
+    )
+    assert _should_prompt_for_input(with_idle_notice) is True
+
 
 def test_should_prompt_after_max_steps_stop():
     """A trailing GPTME_MAX_STEPS stop message must return control to the user.
@@ -2118,7 +2133,7 @@ def test_get_user_input_interruptible_during_include_paths(monkeypatch):
     clear_interruptible()
 
     result = _get_user_input(Log(messages=[Message("assistant", "ok")]), None)
-    assert result is not None
+    assert isinstance(result, Message)
     assert result.content == "hello /"
     assert seen["interruptible"] is True
     assert _interruptible_var.get() is False

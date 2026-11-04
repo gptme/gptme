@@ -38,7 +38,8 @@ boundary. Results for another branch wait until you return to that branch.
 Set ``watch_autowake = false`` under ``[chat]`` in the conversation's
 ``config.toml`` for notification-only delivery. Tool and URL confirmations still
 apply to any resumed generation. An interrupt suppresses automatic continuation.
-This does not change plain CLI wakeups or non-interactive shutdown policy.
+The interactive CLI uses the same setting and preserves unsent prompt text
+across the wake. Non-interactive shutdown policy is unchanged.
 
 Installation
 ------------
