@@ -4,6 +4,7 @@ Use explicit user scope for cross-project preferences; project and CC scopes
 remain workspace-local. Startup loading depends on the harness configuration.
 """
 
+import os
 import shlex
 from collections.abc import Generator
 from dataclasses import replace
@@ -98,7 +99,7 @@ def save_memory(
     return _save_to_root(name, content, store.root(scope))
 
 
-def prepare_pending_memory(call: ToolUse) -> ToolUse:
+def prepare_pending_memory(call: ToolUse, workspace: Path | None = None) -> ToolUse:
     """Resolve a server's initial approval without creating directories or files.
 
     The same normalization as execution is used for native, Markdown and XML
@@ -108,8 +109,19 @@ def prepare_pending_memory(call: ToolUse) -> ToolUse:
         name, _content, scope, _args = _parse_memory_call(
             call.content, call.args, call.kwargs, call._format == "xml"
         )
-        selected = MemoryStore.from_workspace(get_workspace()).root(scope)
-        root = MemoryRoot(selected.scope, selected.path.resolve())
+        from dotenv import dotenv_values
+
+        workspace = (workspace or get_workspace()).resolve()
+        # Match the worker's dotenv precedence without loading another
+        # conversation's settings into the server's process environment.
+        env = dict(os.environ)
+        settings = dotenv_values(workspace / ".env")
+        for key in ("GPTME_MEMORY_DIRS", "GPTME_AGENT_WORKSPACE"):
+            if key not in env and settings.get(key) is not None:
+                env[key] = settings[key] or ""
+        selected = MemoryStore.from_workspace(workspace, env=env).root(scope)
+        path = selected.path
+        root = MemoryRoot(selected.scope, (workspace / path).resolve())
         target = root.path / f"{slugify(name)}.md"
     except (KeyError, OSError, ValueError):
         return call
@@ -126,6 +138,12 @@ def _parse_memory_call(
     kwargs: dict[str, str] | None,
     xml: bool,
 ) -> tuple[str, str, str | None, list[str]]:
+    if kwargs and any(
+        not isinstance(value, str)
+        for key, value in kwargs.items()
+        if key in ("name", "content", "scope")
+    ):
+        raise ValueError("Error: memory name, content and scope must be strings.")
     scope = kwargs.get("scope") if kwargs else None
     if not args and kwargs:
         name = kwargs.get("name", "").strip()

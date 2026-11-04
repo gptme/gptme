@@ -162,7 +162,9 @@ def test_native_confirmation_hook_sees_frozen_destination_on_edit(
     assert any(str(target) in m.content and "saved" in m.content for m in messages)
 
 
-@pytest.mark.parametrize("name", ["My Cool Fact", "Erik's preference"])
+@pytest.mark.parametrize(
+    "name", ["My Cool Fact", "Erik's preference", "deployment --scope user"]
+)
 def test_legacy_xml_name_round_trip(tmp_path, monkeypatch, name):
     from gptme.memory import slugify
 
@@ -210,3 +212,39 @@ def test_scoped_memory_serialization_preserves_operation(
     assert entry.description == "Summary."
     assert entry.body == "Detail."
     assert "scope: explicit" in messages[-1].content
+
+
+@pytest.mark.parametrize("parser", ["_iter_from_xml_lxml", "_iter_from_xml_etree"])
+@pytest.mark.parametrize("name", ["fact", "My Cool Fact", "Erik's preference"])
+def test_parsed_scoped_xml_to_native_preserves_operation(parser, name):
+    if parser.endswith("_lxml"):
+        pytest.importorskip("lxml")
+    xml = ToolUse("memory", [name, "--scope", "user"], "Summary.\nDetail.").to_output(
+        "xml"
+    )
+    call = list(getattr(ToolUse, parser)(xml))[0]
+    assert call._to_params() == {
+        "name": name,
+        "content": "Summary.\nDetail.",
+        "scope": "user",
+    }
+
+
+def test_xml_literal_scope_token_can_be_quoted(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    call = list(
+        ToolUse._iter_from_xml_etree(
+            '<tool-use><memory args="&quot;deployment --scope user&quot;">Summary.</memory></tool-use>'
+        )
+    )[0]
+    assert call._to_params() == {
+        "name": "deployment --scope user",
+        "content": "Summary.",
+    }
+    with patch(
+        "gptme.hooks.get_confirmation", return_value=ConfirmationResult.confirm()
+    ):
+        messages = list(call.execute())
+    assert (tmp_path / "deployment-scope-user.md").exists(), [
+        m.content for m in messages
+    ]

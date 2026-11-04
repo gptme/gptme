@@ -1234,6 +1234,7 @@ def step(
             tool_exec = ToolExecution(
                 tool_id=tool_id,
                 tooluse=tooluse,
+                workspace=workspace,
                 auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
                 branch=branch,
                 assistant_msg_timestamp=msg.timestamp,

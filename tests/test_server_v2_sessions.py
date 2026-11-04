@@ -3353,3 +3353,41 @@ def test_memory_step_initial_approval_has_destination(conv, tmp_path, monkeypatc
         assert event["tooluse"] == pending.to_pending_dict()["tooluse"]
     finally:
         session.pending_tools.clear()
+
+
+def test_memory_rerun_loads_conversation_workspace_dotenv(
+    conv, client, tmp_path, monkeypatch
+):
+    from gptme.config import ChatConfig
+    from gptme.dirs import get_logs_dir
+
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    workspace = tmp_path / "rerun-workspace"
+    workspace.mkdir()
+    (workspace / ".env").write_text("GPTME_MEMORY_DIRS=./memories\n")
+    conversation_id = conv["conversation_id"]
+    config = ChatConfig.from_logdir(get_logs_dir() / conversation_id)
+    config.workspace = workspace
+    config.save()
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "assistant", "content": "```memory fact\nSummary.\n```"},
+    )
+    assert response.status_code == 200
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/rerun",
+        json={"session_id": conv["session_id"]},
+    )
+    assert response.status_code == 200
+    session = SessionManager.get_session(conv["session_id"])
+    assert session is not None
+    try:
+        (pending,) = session.pending_tools.values()
+        assert pending.tooluse._memory_root == ("explicit", workspace / "memories")
+        assert (
+            str(workspace / "memories/fact.md")
+            in pending.to_pending_dict()["tooluse"]["confirmation_header"]
+        )
+        assert not (workspace / "memories").exists()
+    finally:
+        session.pending_tools.clear()

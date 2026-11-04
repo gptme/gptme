@@ -184,6 +184,11 @@ XML format carries the same shell-quoted arguments in its ``args`` attribute:
    </memory>
    </tool-use>
 
+In XML, ``--scope`` is reserved for scope selection. To save a literal name
+containing that token, quote the entire name inside the attribute, for example
+``args="'deployment --scope user'"``. Other unscoped XML names retain their
+whole-attribute behavior; serialized literal names with ``--scope`` are quoted.
+
 Available scopes are ``project``, ``cc``, ``agent``, ``user``, and ``explicit``.
 ``project`` requires an existing workspace ``memory/`` directory; ``agent``
 requires an existing configured agent memory directory. ``user`` writes under

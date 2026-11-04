@@ -196,3 +196,61 @@ def test_server_memory_pending_pins_destination_before_execution(tmp_path, monke
     assert CONTENT in target.read_text()
     assert "Save memory" not in target.read_text()
     assert not (tmp_path / "different-config/gptme/memory/preference.md").exists()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"name": "fact", "content": 42},
+        {"name": 42, "content": "Summary."},
+        {"name": "fact", "content": "Summary.", "scope": []},
+    ],
+)
+def test_pending_memory_malformed_native_call_does_not_abort(kwargs):
+    pytest.importorskip("flask")
+    from gptme.server.session_models import ToolExecution
+
+    call = ToolUse("memory", None, None, kwargs=kwargs, call_id="malformed")
+    pending = ToolExecution(tool_id="bad", tooluse=call)
+    assert pending.tooluse is call
+    assert pending.tooluse.confirmation_header is None
+    assert pending.tooluse._memory_root is None
+    messages = list(pending.tooluse.execute())
+    assert any("error" in message.content.lower() for message in messages)
+
+
+def test_pending_memory_reads_workspace_dotenv_without_mutating_environment(
+    tmp_path, monkeypatch
+):
+    import os
+
+    from gptme.tools.memory import prepare_pending_memory
+
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / ".env").write_text("GPTME_MEMORY_DIRS=./configured-memory\n")
+    monkeypatch.chdir(tmp_path)
+    call = ToolUse("memory", None, None, kwargs={"name": "fact", "content": CONTENT})
+    pending = prepare_pending_memory(call, workspace=workspace)
+    target = workspace / "configured-memory/fact.md"
+    assert pending._memory_root == ("explicit", target.parent)
+    assert str(target) in (pending.confirmation_header or "")
+    assert "GPTME_MEMORY_DIRS" not in os.environ
+    assert not target.parent.exists()
+    register_hook(
+        "approve", HookType.TOOL_CONFIRM, lambda *_: ConfirmationResult.confirm()
+    )
+    messages = list(pending.execute(workspace=workspace))
+    assert target.exists(), [m.content for m in messages]
+
+
+def test_pending_memory_environment_overrides_dotenv(tmp_path, monkeypatch):
+    from gptme.tools.memory import prepare_pending_memory
+
+    (tmp_path / ".env").write_text("GPTME_MEMORY_DIRS=./dotenv-memory\n")
+    explicit = tmp_path / "environment-memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(explicit))
+    call = ToolUse("memory", ["fact"], CONTENT)
+    pending = prepare_pending_memory(call, workspace=tmp_path)
+    assert pending._memory_root == ("explicit", explicit)

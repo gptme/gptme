@@ -1511,7 +1511,10 @@ class ToolUse:
         wrapper_tag = "tool-use"
         # Use quoteattr for args attribute to handle quotes and special chars safely
         args = " ".join(self.args)
-        if self.tool == "memory" and len(self.args) == 3 and self.args[1] == "--scope":
+        if self.tool == "memory" and (
+            (len(self.args) == 3 and self.args[1] == "--scope")
+            or (len(self.args) == 1 and "--scope" in self.args[0].split())
+        ):
             # Memory's scoped XML attribute is parsed as shell arguments; quote
             # names without changing legacy tools' single-attribute semantics.
             args = shlex.join(self.args)
@@ -1538,8 +1541,16 @@ class ToolUse:
             # match positional args with kwargs
             if tool := get_tool(self.tool):
                 args = list(self.args) if self.args else []
-                if self.tool == "memory" and len(args) == 3 and args[1] == "--scope":
-                    return {"name": args[0], "content": self.content, "scope": args[2]}
+                if self.tool == "memory":
+                    from .memory import _parse_memory_call
+
+                    name, content, scope, _ = _parse_memory_call(
+                        self.content, args, None, self._format == "xml"
+                    )
+                    params = {"name": name, "content": content}
+                    if scope is not None:
+                        params["scope"] = scope
+                    return params
                 # Only append content as a positional parameter if the next
                 # parameter slot is *required*. This prevents display-only
                 # content from leaking into optional parameters (e.g. read's

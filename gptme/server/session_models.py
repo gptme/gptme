@@ -87,12 +87,15 @@ class ToolExecution:
     max_tokens: int | None = None
     temperature: float | None = None
     top_p: float | None = None
+    workspace: Path | None = None
 
     def __post_init__(self) -> None:
         if self.tooluse.tool == "memory":
             from ..tools.memory import prepare_pending_memory
 
-            self.tooluse = prepare_pending_memory(self.tooluse)
+            self.tooluse = prepare_pending_memory(
+                self.tooluse, workspace=self.workspace
+            )
 
     def to_pending_dict(self) -> dict:
         """One approval payload for initial detection, rerun and reconnect."""
