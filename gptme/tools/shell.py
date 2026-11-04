@@ -3780,7 +3780,10 @@ def _shorten_stdout(
         model_name = model.model if model else "gpt-4"
         tokenizer = get_tokenizer(model_name)
         if tokenizer is not None:
-            tokens = tokenizer.encode(stdout)
+            # Count special token strings (e.g. "<|endoftext|>") as plain text,
+            # matching len_tokens(); default encode() raises ValueError on them,
+            # which would fail the whole tool call.
+            tokens = tokenizer.encode(stdout, disallowed_special=[])
             will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
         else:
             # Char-based approximation (~4 chars/token) when tokenizer unavailable
@@ -3871,7 +3874,7 @@ def _shorten_stdout(
             model = get_default_model()
             tokenizer = get_tokenizer(model.model if model else "gpt-4")
             if tokenizer is not None:
-                tokens = tokenizer.encode(stdout)
+                tokens = tokenizer.encode(stdout, disallowed_special=[])
         if tokenizer is not None and len(tokens) > pre_tokens + post_tokens:
             truncation_msg = "... (output truncated"
             if saved_path:

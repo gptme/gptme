@@ -675,6 +675,101 @@ def test_shorten_stdout_records_context_savings(tmp_path):
     assert rows[0]["saved_tokens"] > 0
 
 
+@pytest.fixture
+def real_tokenizer():
+    """A checked real tiktoken encoding, skipping if it cannot be loaded."""
+    from gptme.util.tokens import get_tokenizer
+
+    tokenizer = get_tokenizer("gpt-4o")
+    if tokenizer is None:
+        pytest.skip("tiktoken encoding unavailable")
+    return tokenizer
+
+
+def test_shorten_stdout_special_tokens_are_plain_text(monkeypatch, real_tokenizer):
+    """Special tokens in shell output truncate as text instead of crashing.
+
+    Regression: ``_shorten_stdout`` encoded stdout without
+    ``disallowed_special=[]``, so any command whose output contained a tiktoken
+    special token string such as ``<|endoftext|>`` (common in LLM training
+    data, chat templates, and tokenizer configs) made ``encode()`` raise
+    ValueError and fail the whole shell tool call. ``len_tokens()`` already
+    counts special tokens as plain text; the shell truncation path must treat
+    them the same way.
+    """
+    # The tokenizer is checked for real above, then injected: _shorten_stdout()
+    # otherwise looks up the default model's tokenizer, which may be missing
+    # (offline, or only partially cached) and silently fall back to the
+    # character-based estimate, hiding the encode() path this test covers.
+    monkeypatch.setattr(shell_module, "get_tokenizer", lambda _model: real_tokenizer)
+
+    def line(i: int) -> str:
+        return f"training sample {i} <|endoftext|>"
+
+    # Short output: encoded, but below both budgets, so it passes through.
+    short = "\n".join(line(i) for i in range(3))
+    assert _shorten_stdout(short, pre_tokens=2000, post_tokens=8000) == short
+
+    # Long output: truncated using tokenizer decodes, not character slices.
+    stdout = "\n".join(line(i) for i in range(3000))
+    tokens = real_tokenizer.encode(stdout, disallowed_special=[])
+    assert len(tokens) > 2000 + 8000
+
+    # Default budgets from _get_truncation_budget: 2000 pre + 8000 post tokens.
+    shortened = _shorten_stdout(stdout, pre_tokens=2000, post_tokens=8000)
+
+    assert "output truncated" in shortened
+    assert shortened.startswith("training sample 0")
+    assert shortened.endswith("training sample 2999 <|endoftext|>")
+    assert "<|endoftext|>" in shortened
+    # The kept slices are tokenizer decodes, not character slices: anchoring on
+    # the truncation notice pins the exact token boundary, so these fail too if
+    # truncation ever falls back to the character-based estimate.
+    assert shortened.startswith(
+        real_tokenizer.decode(tokens[:2000]) + "\n... (output truncated"
+    )
+    assert shortened.endswith(") ...\n" + real_tokenizer.decode(tokens[-8000:]))
+
+
+def test_shorten_stdout_special_tokens_when_tokenizer_initially_unavailable(
+    monkeypatch, real_tokenizer
+):
+    """Both encode() sites treat special tokens as plain text.
+
+    ``_shorten_stdout()`` looks up the tokenizer twice: once for the initial
+    truncation check and again before truncating, in case the first lookup was
+    unavailable (offline/partially cached). Cover the second site with an
+    initial ``None`` followed by the checked tokenizer.
+    """
+    lookups: list[str] = []
+
+    def get_tokenizer_unavailable_at_first(model: str):
+        lookups.append(model)
+        return None if len(lookups) == 1 else real_tokenizer
+
+    monkeypatch.setattr(
+        shell_module, "get_tokenizer", get_tokenizer_unavailable_at_first
+    )
+
+    # Dense tokenizer input, so only the tokenizer-based check can truncate:
+    # it stays under the ~4 chars/token character-based budget while exceeding
+    # the token budget.
+    stdout = "<|endoftext|>\n" + "\n".join("x" for _ in range(12000))
+    tokens = real_tokenizer.encode(stdout, disallowed_special=[])
+    assert len(tokens) > 2000 + 8000
+    assert len(stdout) <= (2000 + 8000) * 4
+
+    shortened = _shorten_stdout(stdout, pre_tokens=2000, post_tokens=8000)
+
+    assert len(lookups) == 2  # initial lookup, then the pre-truncation re-check
+    assert "output truncated" in shortened
+    assert "<|endoftext|>" in shortened
+    assert shortened.startswith(
+        real_tokenizer.decode(tokens[:2000]) + "\n... (output truncated"
+    )
+    assert shortened.endswith(") ...\n" + real_tokenizer.decode(tokens[-8000:]))
+
+
 def test_get_path_fn_uses_current_logdir(tmp_path):
     manager = MagicMock()
     manager.logdir = tmp_path
