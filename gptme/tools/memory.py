@@ -21,19 +21,14 @@ from .base import Parameter, ToolSpec, ToolUse, get_current_tool_use
 instructions = """
 Save preferences, feedback, decisions or project facts for future sessions.
 
-Scopes:
-- user: cross-project preferences and feedback.
-- project: workspace facts; requires an existing memory/ directory.
-- cc: this workspace's Claude Code memory directory.
-- agent: configured agent workspace.
-- explicit: GPTME_MEMORY_DIRS.
-Unavailable scopes error without fallback. Omit scope for the default: explicit,
-existing project memory/, else CC (NOT user-wide).
+Scopes: user = cross-project; project = existing workspace memory/;
+cc = workspace Claude Code directory; agent = configured agent workspace;
+explicit = GPTME_MEMORY_DIRS. Unavailable scopes error without fallback.
+Default: explicit, existing project memory/, else CC (NOT user-wide).
 
-First content line: index summary. Remaining lines: detail body.
-Scope and destination appear before approval and in the result.
+First line: index summary; rest: details. Destination shown before approval.
 
-gptme loads layered MEMORY.md indexes within its startup budget; recall retrieves
+gptme loads budgeted MEMORY.md indexes; recall retrieves
 full entries. Claude Code natively loads only its project CC root; other roots
 need configured recall hooks or explicit recall. Codex needs recall instructions
 or an exported AGENTS.md index. Saving does not configure other harnesses.

@@ -1511,12 +1511,16 @@ class ToolUse:
         wrapper_tag = "tool-use"
         # Use quoteattr for args attribute to handle quotes and special chars safely
         args = " ".join(self.args)
-        if self.tool == "memory" and (
-            (len(self.args) == 3 and self.args[1] == "--scope")
-            or (len(self.args) == 1 and "--scope" in self.args[0].split())
+        if (
+            self.tool == "memory"
+            and self._format != "xml"
+            and (
+                (len(self.args) == 3 and self.args[1] == "--scope")
+                or (len(self.args) == 1 and "--scope" in self.args[0].split())
+            )
         ):
-            # Memory's scoped XML attribute is parsed as shell arguments; quote
-            # names without changing legacy tools' single-attribute semantics.
+            # Parsed XML already contains the complete quoted attribute. Quote
+            # only tokenized calls, not that attribute again on each round trip.
             args = shlex.join(self.args)
         args_str = "" if not args else f" args={quoteattr(args)}"
         # Use xml_escape for content to handle <, >, & characters

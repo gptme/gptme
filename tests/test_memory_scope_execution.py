@@ -248,3 +248,50 @@ def test_xml_literal_scope_token_can_be_quoted(tmp_path, monkeypatch):
     assert (tmp_path / "deployment-scope-user.md").exists(), [
         m.content for m in messages
     ]
+
+
+@pytest.mark.parametrize("parser", ["_iter_from_xml_lxml", "_iter_from_xml_etree"])
+@pytest.mark.parametrize(
+    ("name", "scope"),
+    [
+        ("fact", "user"),
+        ("My Cool Fact", "user"),
+        ("Erik's preference", "user"),
+        ("deployment --scope user", None),
+    ],
+)
+def test_parsed_xml_round_trip_preserves_write(
+    tmp_path, monkeypatch, parser, name, scope
+):
+    """Re-emitting a parsed attribute must not turn scope flags into a name."""
+    from gptme.memory import slugify
+
+    if parser.endswith("_lxml"):
+        pytest.importorskip("lxml")
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.delenv("GPTME_AGENT_WORKSPACE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(memory_mod, "get_workspace", lambda: tmp_path)
+    (tmp_path / "memory").mkdir()
+    args = [name, "--scope", scope] if scope else [name]
+    xml = ToolUse("memory", args, "Summary.\nDetail.").to_output("xml")
+    for _ in range(3):
+        call = list(getattr(ToolUse, parser)(xml))[0]
+        xml = call.to_output("xml")
+    reparsed = list(getattr(ToolUse, parser)(xml))[0]
+    expected = {"name": name, "content": "Summary.\nDetail."}
+    if scope:
+        expected["scope"] = scope
+    assert reparsed._to_params() == expected
+    with patch(
+        "gptme.hooks.get_confirmation", return_value=ConfirmationResult.confirm()
+    ):
+        messages = list(reparsed.execute())
+    root = tmp_path / "config" / "gptme" / "memory" if scope else tmp_path / "memory"
+    target = root / f"{slugify(name)}.md"
+    assert target.is_file(), [m.content for m in messages]
+    assert parse_entry(target).description == "Summary."
+    assert parse_entry(target).body == "Detail."
+    if scope:
+        assert not list((tmp_path / "memory").iterdir())
