@@ -109,6 +109,7 @@ from ..util.interrupt import (
     stop_tracking,
 )
 from ..util.notification_ready import subscribe as subscribe_notifications
+from ..util.program_status import Kind, State, encode_report
 from ..util.tokens import len_tokens
 from .statusline import LogStats, build_payload, run_statusline
 
@@ -2140,6 +2141,13 @@ class UrlConfirmScreen(ModalScreen):
             with VerticalScroll(id="confirm-preview"):
                 yield Static(body)
 
+    def on_mount(self) -> None:
+        cast("GptmeApp", self.app)._report_program_status("blocked", "permission")
+
+    def on_unmount(self) -> None:
+        app = cast("GptmeApp", self.app)
+        app.call_later(app._sync_program_status)
+
     def action_confirm(self) -> None:
         self.dismiss(self.urls)
 
@@ -2504,6 +2512,8 @@ class GptmeApp(App):
         self._delivered_widget: Widget | None = None
         self.generating = False
         self.state = "idle"
+        self._terminal_outcome: State = "idle"
+        self._last_program_status: tuple[State, Kind | None] | None = None
         self._interrupt_event = threading.Event()
         # see _interrupt_step()
         self._generation_thread: int | None = None
@@ -2611,6 +2621,7 @@ class GptmeApp(App):
         except Exception:
             self._term_attrs = None
 
+        self._report_program_status("idle")
         self._model = get_default_model()
         self.sub_title = self.manager.logdir.name
         # confirmation dialog for tool execution; takes precedence over the
@@ -2827,6 +2838,7 @@ class GptmeApp(App):
         await super().on_event(event)
 
     def on_unmount(self) -> None:
+        self._report_program_status("clear")
         self._quitting = True
         self._unsubscribe_notifications()
         self._restore_inline_resize_handler()
@@ -3328,8 +3340,34 @@ class GptmeApp(App):
             self._statusline_pending = None
             self._request_statusline(payload)
 
+    def _report_program_status(self, state: State, kind: Kind | None = None) -> None:
+        """Write on the UI thread through Textual, never the captured stdout."""
+        if (self._quitting and state != "clear") or self._driver is None:
+            return
+        if os.environ.get("GPTME_PROGRAM_STATUS") == "0":
+            return
+        report = (state, kind)
+        if report == self._last_program_status:
+            return
+        try:
+            self._driver.write(encode_report(state, kind))
+        except OSError:
+            return  # optional metadata must not break the UI
+        self._last_program_status = report
+
+    def _sync_program_status(self) -> None:
+        if isinstance(self.screen, (ConfirmScreen, UrlConfirmScreen)):
+            self._report_program_status("blocked", "permission")
+        elif self.state == "awaiting confirmation":
+            self._report_program_status("blocked", "permission")
+        elif self.generating:
+            self._report_program_status("working")
+        else:
+            self._report_program_status(self._terminal_outcome)
+
     def _set_state(self, state: str) -> None:
         self.state = state
+        self._sync_program_status()
         self._update_status()
 
     # -------------------------------------------------------------- input
@@ -3488,6 +3526,7 @@ class GptmeApp(App):
         # freeze the UI. Input queues meanwhile, as during generation.
         self.generating = True
         self._interrupt_event.clear()  # only a Ctrl+C during this command counts
+        self._terminal_outcome = "done"
         self._set_state(f"running /{cmd}…")
         self.run_worker(
             functools.partial(self._command_worker, msg, cmd, before),
@@ -3515,6 +3554,7 @@ class GptmeApp(App):
             return
         if self._rebuild_pending:
             self._rebuild_chat()
+        self._terminal_outcome = "error" if result.error else "done"
         self._set_state("idle")
         self._finish_command(cmd, before, result)
         if not self.generating and not self._quitting:
@@ -3758,6 +3798,7 @@ class GptmeApp(App):
         if self.generating or self._quitting:
             return
         logger.debug("starting generation worker")
+        self._terminal_outcome = "done"
         # Snapshot the submitted prompt before hooks or generation mutate the log.
         prompt = next((m for m in reversed(self.manager.log) if m.role == "user"), None)
         self._active_skill_invocation_id = (
@@ -3997,6 +4038,7 @@ class GptmeApp(App):
         except Exception as e:
             outcome = "failed"
             error_type = type(e).__name__
+            self.call_from_thread(self._generation_failed)
             logger.exception("Error in generation worker")
             self.call_from_thread(self._show_info, f"Error: {e}", True)
         finally:
@@ -4291,7 +4333,14 @@ class GptmeApp(App):
             WorkerState.ERROR,
             WorkerState.CANCELLED,
         ):
+            if event.state == WorkerState.ERROR:
+                self._generation_failed()
+            elif event.state == WorkerState.CANCELLED:
+                self._terminal_outcome = "idle"
             await self._generation_done()
+
+    def _generation_failed(self) -> None:
+        self._terminal_outcome = "error"
 
     async def _generation_done(self) -> None:
         # Cancellation can prevent the worker body from running at all. Successful
@@ -4301,6 +4350,8 @@ class GptmeApp(App):
         )
         self._active_skill_invocation_id = None
         self.generating = False
+        if self._interrupt_event.is_set():
+            self._terminal_outcome = "idle"
         # stream may have ended without a final message (interrupt mid-stream)
         self._clear_stream_view()
         running = self._running_tool

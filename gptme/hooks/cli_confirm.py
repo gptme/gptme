@@ -122,8 +122,8 @@ def cli_confirm_hook(
         prompt = f"{question} {choicestr}"
         answer = prompt_alert(prompt)
 
-    # Handle the response
-    return _handle_response(answer, content, editable, copiable, tool_use)
+        # Editing still waits on the user; keep the permission scope active.
+        return _handle_response(answer, content, editable, copiable, tool_use)
 
 
 def _handle_response(

@@ -428,7 +428,7 @@ For further usage examples, see the :doc:`examples` page.
 Terminal agent status
 ---------------------
 
-The interactive CLI reports lifecycle state using OSC 7501 (Program Status
+The classic CLI and Textual TUI (fullscreen and inline) report lifecycle state using OSC 7501 (Program Status
 Protocol), as supported by `herdr-core <https://github.com/herdrdev/herdr-core>`_.
 A supporting terminal consumer can distinguish working, completed, and
 waiting-for-permission or waiting-for-answer states without scraping output.
@@ -439,7 +439,10 @@ Reports are cleared when the chat exits.
 Reports contain only the state, agent name, and blocking kind, not prompts or
 tool arguments. They are disabled for redirected output, JSON output, and
 quiet mode. Set ``GPTME_PROGRAM_STATUS=0`` to disable them explicitly.
-This integration covers the classic CLI, not the Textual TUI or server UI.
+The TUI sends reports through its terminal driver, including tool and URL
+approval dialogs, background commands, errors, and interruptions. Server UI
+reporting is not included. Background CLI threads cannot overwrite the parent
+terminal status.
 
 Standard tmux does not interpret OSC 7501. It needs an output consumer
 (for example, one connected with ``pipe-pane``) to update pane options and

@@ -127,3 +127,57 @@ def test_cli_question_restores_working(output, monkeypatch):
         response = cli_elicit(ElicitationRequest(type="text", prompt="Question?"))
         assert response.value == "yes"
         assert output.getvalue().endswith("\033]7501;state=working:app=gptme\033\\")
+
+
+def test_thread_cannot_overwrite_parent_terminal(output):
+    import contextvars
+    import threading
+
+    def child():
+        with (
+            status.program_status("idle"),
+            status.program_status("working", after="done"),
+        ):
+            pass
+
+    with status.program_status("working"):
+        before = output.getvalue()
+        thread = threading.Thread(target=lambda: contextvars.Context().run(child))
+        thread.start()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert output.getvalue() == before
+
+
+def test_successful_completion_is_not_error(output):
+    from gptme.tools.complete import SessionCompleteException
+
+    with (
+        pytest.raises(SessionCompleteException),
+        status.program_status(
+            "working", after="done", success_exceptions=(SessionCompleteException,)
+        ),
+    ):
+        raise SessionCompleteException("finished")
+    assert output.getvalue().endswith(status.encode_report("done"))
+    assert "state=error" not in output.getvalue()
+
+
+def test_confirmation_editor_stays_blocked(output, monkeypatch):
+    from gptme.hooks import cli_confirm
+    from gptme.tools.base import ToolUse
+
+    monkeypatch.setattr(cli_confirm, "check_auto_confirm", lambda: (False, None))
+    monkeypatch.setattr(cli_confirm, "print_preview", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_confirm, "print_bell", lambda: None)
+    monkeypatch.setattr(cli_confirm, "flush_stdin", lambda: None)
+    monkeypatch.setattr(cli_confirm, "prompt_alert", lambda prompt: "e")
+
+    def edit(content, ext):
+        assert output.getvalue().endswith(status.encode_report("blocked", "permission"))
+        return content + " edited"
+
+    monkeypatch.setattr(cli_confirm, "edit_text_with_editor", edit)
+    with status.program_status("working"):
+        cli_confirm.cli_confirm_hook(ToolUse("save", ["example.txt"], "original"))
+        assert output.getvalue().endswith(status.encode_report("working"))
