@@ -731,7 +731,7 @@ def _drain_external_prompt_queue(
     logger.info("Loaded %d queued prompt(s) for %s", len(drained), manager.logdir.name)
 
 
-@program_status("working", after="done")
+@program_status("working", after="done", success_exceptions=(SessionCompleteException,))
 def _process_message_conversation(
     manager: LogManager,
     stream: bool,
