@@ -113,10 +113,16 @@ def execute_memory(
         if content_from_kwargs and not code:
             code = content_from_kwargs
 
-    # XML carries the shell-style argument string in one attribute. Normalize
-    # only XML calls; native/Markdown names retain their existing semantics.
+    # XML carries scoped arguments in one attribute. Legacy unscoped XML treats
+    # the whole attribute as a name (including spaces or apostrophes).
     current_call = get_current_tool_use()
-    if current_call and current_call._format == "xml" and args and len(args) == 1:
+    if (
+        current_call
+        and current_call._format == "xml"
+        and args
+        and len(args) == 1
+        and "--scope" in args[0].split()
+    ):
         try:
             args = shlex.split(args[0])
         except ValueError as e:

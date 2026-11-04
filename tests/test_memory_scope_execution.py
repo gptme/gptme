@@ -160,3 +160,17 @@ def test_native_confirmation_hook_sees_frozen_destination_on_edit(
     assert parse_entry(target).description == "Edited summary."
     assert parse_entry(target).body == "Edited body."
     assert any(str(target) in m.content and "saved" in m.content for m in messages)
+
+
+@pytest.mark.parametrize("name", ["My Cool Fact", "Erik's preference"])
+def test_legacy_xml_name_round_trip(tmp_path, monkeypatch, name):
+    from gptme.memory import slugify
+
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path))
+    xml = ToolUse("memory", [name], "Summary.").to_output("xml")
+    call = list(ToolUse._iter_from_xml_etree(xml))[0]
+    with patch(
+        "gptme.hooks.get_confirmation", return_value=ConfirmationResult.confirm()
+    ):
+        messages = list(call.execute())
+    assert (tmp_path / f"{slugify(name)}.md").is_file(), [m.content for m in messages]
