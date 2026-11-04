@@ -75,7 +75,12 @@ def cli_confirm_hook(
     # Show preview if we have content (always, even in auto-confirm mode)
     # This ensures rich diffs are visible for monitoring what's being executed
     if content:
-        print_preview(content, lang, copy=copiable)
+        if tool_use.confirmation_header is None:
+            print_preview(content, lang, copy=copiable)
+        else:
+            print_preview(
+                content, lang, copy=copiable, header=tool_use.confirmation_header
+            )
 
     # Auto-confirm read-only builtin tools — they can't modify state.
     # MCP tools set their own annotations remotely; never trust those as a

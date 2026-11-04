@@ -158,11 +158,20 @@ def server_confirm_hook(
 
     try:
         # Import SessionManager and event types for SSE events
-        from ..server.api_v2_common import ToolPendingEvent
+        from ..server.api_v2_common import ToolPendingEvent, ToolUseDict
         from ..server.api_v2_sessions import SessionManager
 
         # Create pending confirmation
         pending = register_pending(tool_id, tool_use, preview)
+
+        tooluse: ToolUseDict = {
+            "tool": tool_use.tool,
+            "args": tool_use.args or [],
+            # The resolved preview (e.g. shell's command) takes precedence.
+            "content": preview or tool_use.preview_content or "",
+        }
+        if tool_use.confirmation_header is not None:
+            tooluse["confirmation_header"] = tool_use.confirmation_header
 
         # Emit SSE event to notify client
         SessionManager.add_event(
@@ -170,12 +179,7 @@ def server_confirm_hook(
             ToolPendingEvent(
                 type="tool_pending",
                 tool_id=tool_id,
-                tooluse={
-                    "tool": tool_use.tool,
-                    "args": tool_use.args or [],
-                    # the tool's resolved preview (e.g. shell's command) first
-                    "content": preview or tool_use.preview_content or "",
-                },
+                tooluse=tooluse,
                 auto_confirm=False,
             ),
         )

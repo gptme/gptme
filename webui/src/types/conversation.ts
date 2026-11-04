@@ -53,6 +53,8 @@ export interface ToolUse {
   content: string | null;
   // Native tool-call arguments; sent alongside args/content when present
   kwargs?: Record<string, unknown> | null;
+  // Non-editable confirmation metadata, not part of the execution content
+  confirmation_header?: string | null;
 }
 
 export interface ConversationSummary {

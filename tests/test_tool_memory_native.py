@@ -70,6 +70,8 @@ def test_native_user_scope_from_temporary_worktree(tmp_path, monkeypatch):
     from gptme.dirs import get_cc_memory_dir
     from gptme.memory import MemoryStore
 
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("GPTME_AGENT_WORKSPACE", raising=False)
     workspace = tmp_path / "temporary-feature-worktree"
     workspace.mkdir()
     monkeypatch.setattr(memory_mod, "get_workspace", lambda: workspace)

@@ -173,6 +173,17 @@ workspace's Claude Code memory directory. The native tool accepts ``name``,
    This preference applies across projects.
    ```
 
+XML format carries the same shell-quoted arguments in its ``args`` attribute:
+
+.. code-block:: xml
+
+   <tool-use>
+   <memory args="review-in-parallel --scope user">
+   Check review feedback concurrently with CI rather than blocking on CI alone.
+   This preference applies across projects.
+   </memory>
+   </tool-use>
+
 Available scopes are ``project``, ``cc``, ``agent``, ``user``, and ``explicit``.
 ``project`` requires an existing workspace ``memory/`` directory; ``agent``
 requires an existing configured agent memory directory. ``user`` writes under
@@ -183,8 +194,11 @@ invalid scope fails without falling back or creating another root.
 Without a scope, the tool follows the CLI default: first explicit root, else
 existing project ``memory/``, else the workspace's CC root. This is not a
 user-wide default, and no text classifier chooses a scope for you. Confirmation
-and success show the actual selected scope and destination; the selected root
-is retained throughout confirmation and saving. The shared writer updates the
+and success show the actual selected scope and destination. Interactive tool
+confirmation hooks receive destination metadata separately from editable memory
+text; editing the memory does not add that metadata to the saved entry. The
+selected root is made absolute before confirmation and retained throughout
+confirmation and saving, even if the process directory changes. The shared writer updates the
 index under its existing policy and budget.
 
 Temporary Git worktrees retain their own project/CC identity under the existing

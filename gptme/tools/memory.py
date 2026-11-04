@@ -4,6 +4,7 @@ Use explicit user scope for cross-project preferences; project and CC scopes
 remain workspace-local. Startup loading depends on the harness configuration.
 """
 
+import shlex
 from collections.abc import Generator
 from pathlib import Path
 
@@ -13,32 +14,32 @@ from ..memory.roots import SCOPES
 from ..memory.schema import MemoryParseError
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
-from .base import Parameter, ToolSpec, ToolUse
+from .base import Parameter, ToolSpec, ToolUse, get_current_tool_use
 
 instructions = """
-Save a persistent memory to recall important context across future sessions.
+Save preferences, feedback, decisions or project facts for future sessions.
 
-Use this tool for user preferences, feedback, decisions and project facts:
-- Set scope="user" for preferences or feedback that should follow the user across projects.
-- Use scope="project" for workspace-local facts (requires an existing memory/ directory),
-  or scope="cc" for this workspace's Claude Code memory directory.
-- Use scope="agent" for a configured agent workspace, or scope="explicit" for
-  GPTME_MEMORY_DIRS. Unavailable scopes are errors, never silent fallbacks.
-- Omit scope to use the shared store's default: explicit directories, project memory/
-  when it exists, otherwise this workspace's CC directory. This is NOT user-wide.
+Scopes:
+- user: cross-project preferences and feedback.
+- project: workspace facts; requires an existing memory/ directory.
+- cc: this workspace's Claude Code memory directory.
+- agent: configured agent workspace.
+- explicit: GPTME_MEMORY_DIRS.
+Unavailable scopes error without fallback. Omit scope for the default: explicit,
+existing project memory/, else CC (NOT user-wide).
 
-The first content line is the index summary; subsequent lines are the detail body.
-The selected scope and destination are shown before saving and in the result.
+First content line: index summary. Remaining lines: detail body.
+Scope and destination appear before approval and in the result.
 
-gptme loads layered MEMORY.md indexes at startup within its prompt budget; full
-entries are available through recall. Claude Code's native auto-load covers its
-project CC root, not arbitrary user roots. Other roots require configured recall
-hooks or explicit recall. Codex needs recall instructions or an exported index
-in AGENTS.md; saving a memory does not configure another harness's startup.
+gptme loads layered MEMORY.md indexes within its startup budget; recall retrieves
+full entries. Claude Code natively loads only its project CC root; other roots
+need configured recall hooks or explicit recall. Codex needs recall instructions
+or an exported AGENTS.md index. Saving does not configure other harnesses.
 """.strip()
 
 instructions_format = {
     "markdown": "Use a code block tagged `memory <name> [--scope <scope>]`. The first line is the description; the rest is the body.",
+    "xml": 'Use <tool-use><memory args="name --scope user">Summary and body</memory></tool-use>. The args attribute uses shell quoting.',
 }
 
 
@@ -112,6 +113,16 @@ def execute_memory(
         if content_from_kwargs and not code:
             code = content_from_kwargs
 
+    # XML carries the shell-style argument string in one attribute. Normalize
+    # only XML calls; native/Markdown names retain their existing semantics.
+    current_call = get_current_tool_use()
+    if current_call and current_call._format == "xml" and args and len(args) == 1:
+        try:
+            args = shlex.split(args[0])
+        except ValueError as e:
+            yield Message("system", f"Error parsing memory arguments: {e}")
+            return
+
     if not args:
         yield Message(
             "system",
@@ -140,7 +151,8 @@ def execute_memory(
     try:
         # Resolve once: environment/workspace changes during confirmation must not
         # redirect the approved write to another root.
-        root = MemoryStore.from_workspace(get_workspace()).root(scope)
+        selected = MemoryStore.from_workspace(get_workspace()).root(scope)
+        root = MemoryRoot(selected.scope, selected.path.resolve())
         target_path = root.path / f"{slugify(name)}.md"
     except (KeyError, OSError, ValueError) as e:
         yield Message("system", f"Error selecting memory scope: {e}")
@@ -153,8 +165,8 @@ def execute_memory(
     ) -> Path:
         return target_path
 
-    # Confirmation previews are also the editable text. Keep destination
-    # metadata separate so editing a memory cannot save that header as a fact.
+    # Retain the destination in the transcript as well as confirmation metadata.
+    # Native calls buffer this message, so it cannot substitute for preview_header.
     yield Message(
         "system", f"Save memory '{name}' (scope: {root.scope}) to `{target_path}`?"
     )
@@ -177,6 +189,7 @@ def execute_memory(
         kwargs,
         execute_fn=_do_save,
         get_path_fn=_get_path,
+        preview_header=f"Save memory '{name}' (scope: {root.scope}) to `{target_path}`?",
         preview_lang="markdown",
     )
 

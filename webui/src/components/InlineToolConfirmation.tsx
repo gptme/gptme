@@ -257,6 +257,12 @@ export function InlineToolConfirmation({
               </div>
 
               <div className="space-y-3 p-3">
+                {pendingTool.tooluse.confirmation_header && (
+                  <div className="whitespace-pre-wrap break-words text-sm text-amber-800 dark:text-amber-200">
+                    {pendingTool.tooluse.confirmation_header}
+                  </div>
+                )}
+
                 {/* Arguments */}
                 {(pendingTool.tooluse.args?.length ?? 0) > 0 && (
                   <div className="space-y-1">

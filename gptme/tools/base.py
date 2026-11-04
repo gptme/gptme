@@ -927,6 +927,8 @@ class ToolUse:
     # Parser provenance, not command equality: identical independent calls
     # must not be mistaken for a pending call in a persisted message.
     _source_content: str | None = field(default=None, compare=False, repr=False)
+    # Confirmation-only metadata, separate from editable execution content.
+    confirmation_header: str | None = field(default=None, compare=False)
 
     def execute(
         self,

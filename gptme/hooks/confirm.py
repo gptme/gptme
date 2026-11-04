@@ -14,7 +14,7 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -188,6 +188,7 @@ def get_confirmation(
     preview: str | None = None,
     workspace: Path | None = None,
     default_confirm: bool = True,
+    preview_header: str | None = None,
 ) -> ConfirmationResult:
     """Get confirmation for a tool execution via hooks.
 
@@ -199,6 +200,7 @@ def get_confirmation(
         preview: Optional preview content
         workspace: Workspace directory
         default_confirm: Whether to auto-confirm if no hook is registered
+        preview_header: Non-editable metadata displayed separately from preview
 
     Returns:
         ConfirmationResult indicating the action to take
@@ -220,6 +222,11 @@ def get_confirmation(
     if _preconfirmed_tool_use.get() is tool_use:
         logger.debug("ToolUse already confirmed, skipping TOOL_CONFIRM re-dispatch")
         return ConfirmationResult.confirm()
+
+    # Preserve the original ToolUse identity for preconfirmed checks above and
+    # keep hook signatures unchanged: carry display metadata on a local copy.
+    if preview_header is not None:
+        tool_use = replace(tool_use, confirmation_header=preview_header)
 
     # Get registered TOOL_CONFIRM hooks
     hooks = get_hooks(HookType.TOOL_CONFIRM)
