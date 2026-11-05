@@ -8,6 +8,7 @@ import socket
 import stat
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
@@ -632,6 +633,59 @@ class TestDocumentToTextConverter:
 
         assert result.success, result.error
         assert dest.read_text().strip() == "Body text."
+
+    @pytest.mark.parametrize("suffix", [".bin", ".doc", ""])
+    def test_renamed_docx_cannot_bypass_expanded_size_limit(
+        self, avail_all, tmp_path, monkeypatch, suffix
+    ) -> None:
+        src = tmp_path / f"renamed{suffix}"
+        with zipfile.ZipFile(src, "w") as archive:
+            archive.writestr("word/document.xml", b"x" * 17)
+        dest = tmp_path / "out.txt"
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_XML_BYTES", 16)
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch(
+                "gptme.tools.convert._detect_mime",
+                return_value="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            patch("gptme.tools.convert.subprocess.run") as run,
+        ):
+            result = convert_file(src, dest)
+        assert not result.success
+        assert result.error is not None
+        assert "conversion limit" in result.error
+        run.assert_not_called()
+        assert not dest.exists()
+
+    @pytest.mark.parametrize("damage", ["version", "filename"])
+    def test_malformed_zip_returns_conversion_result(
+        self, avail_none, tmp_path, damage
+    ) -> None:
+        src = tmp_path / "broken.docx"
+        with zipfile.ZipFile(src, "w") as archive:
+            archive.writestr("x", b"body")
+        data = bytearray(src.read_bytes())
+        central = data.index(b"PK\x01\x02")
+        error: type[Exception]
+        if damage == "version":
+            # Central directory's version needed to extract exceeds ZIP support.
+            data[central + 6 : central + 8] = (255).to_bytes(2, "little")
+            error = NotImplementedError
+        else:
+            # Set the UTF-8 flag, then supply an invalid UTF-8 entry name.
+            data[central + 8 : central + 10] = (0x800).to_bytes(2, "little")
+            data[central + 46] = 0xFF
+            error = UnicodeDecodeError
+        src.write_bytes(data)
+        with pytest.raises(error), zipfile.ZipFile(src):
+            pass
+        dest = tmp_path / "out.txt"
+        with patch("gptme.tools.convert.get_availability", return_value=avail_none):
+            result = self.conv.convert(src, dest)
+        assert not result.success
+        assert result.error is not None
+        assert not dest.exists()
 
     def test_expanded_size_check_ignores_non_docx_archives(self, tmp_path):
         """Malformed or non-DOCX inputs fall through to the backends' own errors."""

@@ -781,7 +781,13 @@ def _docx_expanded_size_error(src: Path) -> str | None:
     try:
         with zipfile.ZipFile(src) as archive:
             declared = archive.getinfo("word/document.xml").file_size
-    except (KeyError, OSError, zipfile.BadZipFile):
+    except (
+        KeyError,
+        OSError,
+        zipfile.BadZipFile,
+        NotImplementedError,
+        UnicodeDecodeError,
+    ):
         return None
     if declared <= MAX_DOCX_XML_BYTES:
         return None
@@ -827,9 +833,8 @@ class DocumentToTextConverter(Converter):
 
         if error := _source_error(src):
             return ConversionResult(False, None, self.name, error=error)
-        if src.suffix.lower() == ".docx":
-            if error := _docx_expanded_size_error(src):
-                return ConversionResult(False, None, self.name, error=error)
+        if error := _docx_expanded_size_error(src):
+            return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         warnings: list[str] = []
 
