@@ -602,7 +602,7 @@ class TestDocumentToTextConverter:
     def test_refuses_docx_above_expanded_size_limit(
         self, avail_all, tmp_path, monkeypatch
     ):
-        """The bound is on expanded body XML, enforced before any backend parses."""
+        """The expanded package budget is enforced before any backend parses."""
         docx = pytest.importorskip("docx")
         src = tmp_path / "doc.docx"
         dest = tmp_path / "out.txt"
@@ -610,9 +610,9 @@ class TestDocumentToTextConverter:
         document.add_paragraph("Body text.")
         document.save(src)
 
-        # A tiny document with a limit below its declared body size: the same
+        # A tiny document with a limit below its declared expanded size: the same
         # shape as a small attachment that expands into a large working set.
-        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_XML_BYTES", 16)
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_EXPANDED_BYTES", 16)
 
         with (
             patch("gptme.tools.convert.get_availability", return_value=avail_all),
@@ -627,12 +627,67 @@ class TestDocumentToTextConverter:
 
         # Same file, ordinary limit: converts, so the refusal is the bound and
         # not a broken fixture.
-        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_XML_BYTES", 16 * 1024 * 1024)
+        monkeypatch.setattr(
+            "gptme.tools.convert.MAX_DOCX_EXPANDED_BYTES", 16 * 1024 * 1024
+        )
         with patch("gptme.tools.convert.get_availability", return_value=avail_all):
             result = self.conv.convert(src, dest)
 
         assert result.success, result.error
         assert dest.read_text().strip() == "Body text."
+
+    @pytest.mark.parametrize("relocated", [False, True])
+    def test_package_budget_covers_relocated_body_and_other_parts(
+        self,
+        avail_all: ToolAvailability,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        relocated: bool,
+    ) -> None:
+        """Bound the whole package without assuming where its main part lives."""
+        docx = pytest.importorskip("docx")
+        src = tmp_path / "doc.docx"
+        dest = tmp_path / "out.txt"
+        document = docx.Document()
+        document.add_paragraph("Relocated body.")
+        document.save(src)
+        with zipfile.ZipFile(src) as archive:
+            members = {info.filename: archive.read(info) for info in archive.infolist()}
+        if relocated:
+            members["word/large.xml"] = members.pop("word/document.xml")
+            for name in ("_rels/.rels", "[Content_Types].xml"):
+                members[name] = members[name].replace(b"document.xml", b"large.xml")
+            members["word/_rels/large.xml.rels"] = members.pop(
+                "word/_rels/document.xml.rels"
+            )
+        with zipfile.ZipFile(src, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, content in members.items():
+                archive.writestr(name, content)
+
+        # Real python-docx follows the changed relationship: this is a valid
+        # package, not a malformed archive that the backend would reject.
+        assert docx.Document(src).paragraphs[0].text == "Relocated body."
+        expanded = sum(map(len, members.values()))
+        assert max(map(len, members.values())) < expanded - 1
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_EXPANDED_BYTES", expanded - 1)
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("docx.Document") as parse,
+            patch("gptme.tools.convert.subprocess.run") as run,
+        ):
+            result = self.conv.convert(src, dest)
+        assert not result.success
+        assert "conversion limit" in (result.error or "")
+        assert not dest.exists()
+        parse.assert_not_called()
+        run.assert_not_called()
+
+        # Exact-boundary acceptance also proves the fixture still converts.
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_EXPANDED_BYTES", expanded)
+        with patch("gptme.tools.convert.get_availability", return_value=avail_all):
+            result = self.conv.convert(src, dest)
+        assert result.success, result.error
+        assert dest.read_text().strip() == "Relocated body."
 
     @pytest.mark.parametrize("suffix", [".bin", ".doc", ""])
     def test_renamed_docx_cannot_bypass_expanded_size_limit(
@@ -642,7 +697,7 @@ class TestDocumentToTextConverter:
         with zipfile.ZipFile(src, "w") as archive:
             archive.writestr("word/document.xml", b"x" * 17)
         dest = tmp_path / "out.txt"
-        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_XML_BYTES", 16)
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_EXPANDED_BYTES", 16)
         with (
             patch("gptme.tools.convert.get_availability", return_value=avail_all),
             patch(

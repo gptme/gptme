@@ -760,19 +760,21 @@ def _markdown_table_row(cells: list[str]) -> str:
     return "| " + " | ".join(escaped) + " |"
 
 
-#: Largest ``word/document.xml`` a DOCX may declare before conversion refuses it.
+#: Maximum total expanded package size before document conversion refuses it.
 #: A DOCX is a zip, so a small attachment can expand into a large working set:
 #: measured 2026-11-05, 110 KB of input declaring 25 MB of body XML cost 421 MB
 #: peak RSS and 9.2 s, while an ordinary 37 KB document cost 44 MB and 0.09 s.
 #: The bound is on *expanded* work, because input bytes do not predict it: the
 #: same expanded XML compressed into 46 KB or stored as 4 MB costs the same.
-#: 16 MiB is about 250k paragraphs — roughly 250 MB peak and 2 MB of text, well
-#: past any context an agent can consume, so legitimate documents stay under it.
-MAX_DOCX_XML_BYTES = 16 * 1024 * 1024
+#: Use the whole package, not a fixed body path: DOCX relationships can relocate
+#: the body, and backends also load styles, headers, media and other parts.
+#: This deliberately counts embedded media too; a small body is not proof that
+#: the package is cheap to load. Non-ZIP documents retain backend-owned handling.
+MAX_DOCX_EXPANDED_BYTES = 16 * 1024 * 1024
 
 
 def _docx_expanded_size_error(src: Path) -> str | None:
-    """Refuse a DOCX whose body XML declares more than the conversion bound.
+    """Refuse a document package declaring more than the expanded-size budget.
 
     Reads only the zip central directory, so the check costs no inflation and
     runs before any backend spends memory on the document. Malformed archives
@@ -780,20 +782,19 @@ def _docx_expanded_size_error(src: Path) -> str | None:
     """
     try:
         with zipfile.ZipFile(src) as archive:
-            declared = archive.getinfo("word/document.xml").file_size
+            declared = sum(info.file_size for info in archive.infolist())
     except (
-        KeyError,
         OSError,
         zipfile.BadZipFile,
         NotImplementedError,
         UnicodeDecodeError,
     ):
         return None
-    if declared <= MAX_DOCX_XML_BYTES:
+    if declared <= MAX_DOCX_EXPANDED_BYTES:
         return None
     return (
-        f"Document body expands to {declared / (1024 * 1024):.1f} MB of XML, "
-        f"above the {MAX_DOCX_XML_BYTES // (1024 * 1024)} MB conversion limit"
+        f"Document package expands to {declared / (1024 * 1024):.1f} MB, "
+        f"above the {MAX_DOCX_EXPANDED_BYTES // (1024 * 1024)} MB conversion limit"
     )
 
 
