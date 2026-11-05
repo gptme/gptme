@@ -200,6 +200,8 @@ If no model is configured, gptme will scan your API keys and pick the first avai
      - ``DEEPSEEK_API_KEY``
    * - ``moonshot``
      - ``MOONSHOT_API_KEY``
+   * - ``nvidia``
+     - ``NVIDIA_API_KEY``
    * - ``azure``
      - ``AZURE_OPENAI_API_KEY``
 

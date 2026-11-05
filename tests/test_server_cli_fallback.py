@@ -67,11 +67,12 @@ def test_pick_fallback_skips_unknown_providers():
 
 def test_provider_fallback_models_includes_all_api_key_providers():
     """PROVIDER_FALLBACK_MODELS should cover every API-key provider gptme
-    supports (except azure, which requires a tenant-specific deployment name).
+    supports (except azure, which requires a tenant-specific deployment name,
+    and nvidia, which has no built-in recommended model).
     """
     from gptme.llm import PROVIDER_API_KEYS
 
-    expected = set(PROVIDER_API_KEYS.keys()) - {"azure"}
+    expected = set(PROVIDER_API_KEYS.keys()) - {"azure", "nvidia"}
     missing = expected - set(PROVIDER_FALLBACK_MODELS.keys())
     assert not missing, f"Missing fallback models for providers: {missing}"
 
