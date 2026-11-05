@@ -598,6 +598,49 @@ class TestDocumentToTextConverter:
         assert content.startswith("# Introduction"), repr(content)
         assert r"Body text\." in content
 
+    def test_refuses_docx_above_expanded_size_limit(
+        self, avail_all, tmp_path, monkeypatch
+    ):
+        """The bound is on expanded body XML, enforced before any backend parses."""
+        docx = pytest.importorskip("docx")
+        src = tmp_path / "doc.docx"
+        dest = tmp_path / "out.txt"
+        document = docx.Document()
+        document.add_paragraph("Body text.")
+        document.save(src)
+
+        # A tiny document with a limit below its declared body size: the same
+        # shape as a small attachment that expands into a large working set.
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_XML_BYTES", 16)
+
+        with (
+            patch("gptme.tools.convert.get_availability", return_value=avail_all),
+            patch("docx.Document", side_effect=AssertionError("parsed anyway")),
+        ):
+            result = self.conv.convert(src, dest)
+
+        assert not result.success
+        assert result.error is not None
+        assert "conversion limit" in result.error
+        assert not dest.exists()
+
+        # Same file, ordinary limit: converts, so the refusal is the bound and
+        # not a broken fixture.
+        monkeypatch.setattr("gptme.tools.convert.MAX_DOCX_XML_BYTES", 16 * 1024 * 1024)
+        with patch("gptme.tools.convert.get_availability", return_value=avail_all):
+            result = self.conv.convert(src, dest)
+
+        assert result.success, result.error
+        assert dest.read_text().strip() == "Body text."
+
+    def test_expanded_size_check_ignores_non_docx_archives(self, tmp_path):
+        """Malformed or non-DOCX inputs fall through to the backends' own errors."""
+        from gptme.tools.convert import _docx_expanded_size_error
+
+        src = tmp_path / "broken.docx"
+        src.write_bytes(b"PK")
+        assert _docx_expanded_size_error(src) is None
+
 
 # ---------------------------------------------------------------------------
 # VideoThumbnailConverter

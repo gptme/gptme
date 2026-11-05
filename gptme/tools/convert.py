@@ -26,6 +26,7 @@ import stat
 import string
 import subprocess
 import tempfile
+import zipfile
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -759,6 +760,37 @@ def _markdown_table_row(cells: list[str]) -> str:
     return "| " + " | ".join(escaped) + " |"
 
 
+#: Largest ``word/document.xml`` a DOCX may declare before conversion refuses it.
+#: A DOCX is a zip, so a small attachment can expand into a large working set:
+#: measured 2026-11-05, 110 KB of input declaring 25 MB of body XML cost 421 MB
+#: peak RSS and 9.2 s, while an ordinary 37 KB document cost 44 MB and 0.09 s.
+#: The bound is on *expanded* work, because input bytes do not predict it: the
+#: same expanded XML compressed into 46 KB or stored as 4 MB costs the same.
+#: 16 MiB is about 250k paragraphs — roughly 250 MB peak and 2 MB of text, well
+#: past any context an agent can consume, so legitimate documents stay under it.
+MAX_DOCX_XML_BYTES = 16 * 1024 * 1024
+
+
+def _docx_expanded_size_error(src: Path) -> str | None:
+    """Refuse a DOCX whose body XML declares more than the conversion bound.
+
+    Reads only the zip central directory, so the check costs no inflation and
+    runs before any backend spends memory on the document. Malformed archives
+    are left to the backends, which report them with their own errors.
+    """
+    try:
+        with zipfile.ZipFile(src) as archive:
+            declared = archive.getinfo("word/document.xml").file_size
+    except (KeyError, OSError, zipfile.BadZipFile):
+        return None
+    if declared <= MAX_DOCX_XML_BYTES:
+        return None
+    return (
+        f"Document body expands to {declared / (1024 * 1024):.1f} MB of XML, "
+        f"above the {MAX_DOCX_XML_BYTES // (1024 * 1024)} MB conversion limit"
+    )
+
+
 class DocumentToTextConverter(Converter):
     """DOCX/ODT/etc. → plain text or markdown via python-docx or LibreOffice."""
 
@@ -795,6 +827,9 @@ class DocumentToTextConverter(Converter):
 
         if error := _source_error(src):
             return ConversionResult(False, None, self.name, error=error)
+        if src.suffix.lower() == ".docx":
+            if error := _docx_expanded_size_error(src):
+                return ConversionResult(False, None, self.name, error=error)
         avail = get_availability()
         warnings: list[str] = []
 
