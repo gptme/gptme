@@ -748,6 +748,8 @@ def _cli_reference_index(args: list[str]) -> int | None:
         "-t",
         "--interval",
         "-i",
+        "--author",
+        "--assignee",
     }
     rest = iter(range(2, len(args)))
     for index in rest:
@@ -827,6 +829,19 @@ def execute_gh(
                 args = [*args[:2], kwargs["url"], *args[2:]]
                 ref_index = 2
             if ref_index is not None:
+                if args[:2] in (["pr", "status"], ["pr", "checks"]) and (
+                    _cli_reference_index([*args[:2], *args[ref_index + 1 :]])
+                    is not None
+                ):
+                    # CLI reads cannot select an arbitrary commit. Never drop
+                    # the SHA and silently return checks for the current head.
+                    yield Message(
+                        "system",
+                        "Error: A commit SHA cannot be combined with CLI read flags. "
+                        "Remove the extra flags to use native commit-specific checks, "
+                        "or use `gh api repos/OWNER/REPO/commits/SHA/check-runs`.",
+                    )
+                    return
                 # Native status is PR-specific, but CLI status is a repository
                 # overview with no positional target. Use view for flagged
                 # PR-specific reads rather than dropping the requested target.

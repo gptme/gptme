@@ -1555,6 +1555,27 @@ class TestUnsupportedFlagsPassThrough:
         )
         assert messages[0].content == "requested status"
 
+    @pytest.mark.parametrize("command", ["status", "checks"])
+    @pytest.mark.parametrize("suffix", ["deadbeef --json name", "--json name deadbeef"])
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_flagged_commit_specific_read_fails_explicitly(self, run, command, suffix):
+        messages = list(
+            execute_gh(None, ["pr", command, "o/r#42", *suffix.split()], None)
+        )
+        run.assert_not_called()
+        assert "commit SHA" in messages[0].content
+        assert "Remove the extra flags" in messages[0].content
+
+    @pytest.mark.parametrize("flag", ["--author", "--assignee"])
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_status_filter_values_are_not_pr_targets(self, run, flag):
+        run.return_value = _mock_subprocess_run("CLI response")
+        args = ["pr", "status", flag, "octocat", "--json", "title"]
+        list(execute_gh(None, args, None))
+        run.assert_called_once_with(
+            ["gh", *args], capture_output=True, text=True, timeout=60, check=False
+        )
+
     @pytest.mark.parametrize("kind", ["issue", "pr"])
     @pytest.mark.parametrize("ref", ["owner/repo#42", "#42"])
     @patch("gptme.tools.gh.subprocess.run")
