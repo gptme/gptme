@@ -280,6 +280,7 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
         return False
     depth = 1
     escaped = False
+    has_escape = False
     for pos in range(3, len(line)):
         char = line[pos]
         if escaped:
@@ -287,6 +288,7 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
             continue
         if char == "\\":
             escaped = True
+            has_escape = True
             continue
         if char == "[":
             depth += 1
@@ -294,7 +296,7 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
             depth -= 1
             if depth == 0:
                 # Stop at the outer title boundary; description links are not keys.
-                if line.startswith("(", pos + 1):
+                if not has_escape and line.startswith("(", pos + 1):
                     return line.startswith(f"({filename})", pos + 1)
                 break
     # index_line() writes raw titles, including unmatched or mixed escaped

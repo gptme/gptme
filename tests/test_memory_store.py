@@ -1103,6 +1103,7 @@ class TestStore:
             "# Hand-curated memory\n\n"
             "- [Current [cache] advice](current.md) — See [Old](old.md)\n"
             "- [See [Old](old.md) — [cache](current.md) — Keep\n"
+            "- [See \\[Old](old.md) — [cache](current.md) — Keep\n"
             "\nKeep this footer with [Old](old.md).\n"
         )
         index_path.write_text(
