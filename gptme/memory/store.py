@@ -6,7 +6,6 @@ import errno
 import importlib
 import logging
 import os
-import re
 import stat
 import sys
 from contextlib import contextmanager
@@ -303,8 +302,12 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
     # brackets. Recover only an unambiguous destination at a record boundary.
     # A separator in the title/description can create multiple candidates; leave
     # those lines alone rather than overwrite another memory's pointer.
-    candidates = list(re.finditer(r"\]\([^()]*\)(?= — )", line))
-    return len(candidates) == 1 and candidates[0].group() == f"]({filename})"
+    candidates = []
+    for fragment in line.split("](")[1:]:
+        destination, separator, _ = fragment.partition(") — ")
+        if separator:
+            candidates.append(destination)
+    return candidates == [filename]
 
 
 class MemoryStore:

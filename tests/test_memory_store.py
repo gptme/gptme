@@ -1122,6 +1122,32 @@ class TestStore:
         assert index_path.read_text() == expected
 
     @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
+    @pytest.mark.parametrize("filename", ["cache(v2).md", "cache((v2)).md"])
+    def test_update_legacy_index_raw_title_parenthesized_filename(
+        self, tmp_path: Path, status: str, filename: str
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original", title="Use [cache")
+        entry = parse_entry(path, strict=True)
+        entry.path = path.with_name(filename)
+        index_path = path.parent / "MEMORY.md"
+        unrelated = (
+            "# Hand-curated memory\n\n"
+            f"- [See [Old]({filename}) — [cache](current.md) — Keep\n"
+            f"- [Current](current.md) — See [Old]({filename})\n"
+            "\nKeep this footer.\n"
+        )
+        index_path.write_text(unrelated + entry.index_line() + "\n")
+        entry.title = "Updated"
+        entry.description = "Updated"
+        entry.status = status
+
+        update_index_line(path.parent, entry)
+
+        expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
+        assert index_path.read_text() == expected
+
+    @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
     @pytest.mark.parametrize("field", ["title", "description"])
     def test_update_legacy_index_unicode_separator_is_not_a_newline(
         self, tmp_path: Path, status: str, field: str
