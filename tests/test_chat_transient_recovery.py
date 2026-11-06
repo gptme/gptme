@@ -167,7 +167,8 @@ def test_overflow_budget_exhaustion_returns_to_interactive_prompt(
 
     monkeypatch.setattr(llm, "_chat_complete", complete)
 
-    def process(*args):
+    def process(*args, subagent_drain: bool = False):
+        assert not subagent_drain
         # Equivalent to the overflow policy's second, smaller request view:
         # both calls share the budget, and only the first can physically send.
         with recovery.recovery_scope():
