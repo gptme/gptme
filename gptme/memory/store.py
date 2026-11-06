@@ -6,7 +6,6 @@ import errno
 import importlib
 import logging
 import os
-import re
 import stat
 import sys
 from contextlib import contextmanager
@@ -256,19 +255,39 @@ def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
             return None
         content = ""
     line = entry.index_line()
-    # Titles may hold plain brackets and nested links ("Read [cache](cache.md)"), but
-    # the match must end at this entry's own leading link, never inside a description.
-    title = r"(?:[^\[\]\n]|\[[^\[\]\n]*\](?:\([^)\n]*\))?)*"
-    pattern = rf"^- \[{title}\]\({re.escape(entry.filename)}\).*$"
-    if not entry.is_living:
-        return re.sub(pattern + r"\n?", "", content, flags=re.MULTILINE)
-    if not content:
+    if not content and entry.is_living:
         return f"{INDEX_HEADER}\n\n{line}\n"
-    if re.search(pattern, content, re.MULTILINE):
-        return re.sub(pattern, lambda _: line, content, flags=re.MULTILINE)
+    matched = False
+    updated = []
+    for old_line in content.splitlines(keepends=True):
+        if _is_legacy_pointer(old_line, entry.filename):
+            matched = True
+            if entry.is_living:
+                updated.append(line + ("\n" if old_line.endswith("\n") else ""))
+        else:
+            updated.append(old_line)
+    if matched or not entry.is_living:
+        return "".join(updated)
     if not content.endswith("\n"):
         content += "\n"
     return content + line + "\n"
+
+
+def _is_legacy_pointer(line: str, filename: str) -> bool:
+    """Match the leading pointer in linear time, including nested title brackets."""
+    if not line.startswith("- ["):
+        return False
+    depth = 1
+    for pos in range(3, len(line)):
+        char = line[pos]
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                # Stop at the outer title boundary; description links are not keys.
+                return line.startswith(f"({filename})", pos + 1)
+    return False
 
 
 class MemoryStore:
