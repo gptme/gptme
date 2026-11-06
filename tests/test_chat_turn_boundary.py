@@ -57,3 +57,29 @@ def test_turn_result_and_post_hooks(
     assert manager.log[-1].content == "post-turn output"
     reloaded = LogManager.load(tmp_path, lock=False)
     assert reloaded.log[-1].content == "post-turn output"
+
+
+def test_turn_post_failure_preserves_session_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing TURN_POST hook must not replace the budget-stop signal."""
+    manager = LogManager([Message("user", "work")], logdir=tmp_path, lock=False)
+    completion = SessionCompleteException("policy block budget exhausted: 6 blocks")
+    post_error = RuntimeError("post-turn hook failed")
+
+    def hooks(hook_type: HookType, **kwargs: object) -> list[Message]:
+        if hook_type == HookType.STEP_PRE:
+            raise completion
+        if hook_type == HookType.TURN_POST:
+            raise post_error
+        return []
+
+    monkeypatch.setattr(chat, "trigger_hook", hooks)
+    monkeypatch.setattr(chat, "step", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_args: False)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+
+    with pytest.raises(SessionCompleteException) as raised:
+        chat._process_message_conversation(manager, False, "markdown", None)
+    assert raised.value is completion

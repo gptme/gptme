@@ -797,8 +797,13 @@ def _process_message_conversation(
         except SessionCompleteException:
             # A completion signal raised inside step() or by a STEP_PRE hook
             # must still run post-turn hooks (pre-commit checks, autocommit)
-            # before the session ends.
-            _trigger_turn_post(manager)
+            # before the session ends. A failing hook must not replace the
+            # completion signal — chat() would skip SESSION_END and report a
+            # failed run instead of the intended budget stop.
+            try:
+                _trigger_turn_post(manager)
+            except Exception:
+                logger.exception("TURN_POST during session-complete failed")
             raise
         except KeyboardInterrupt:
             if not is_output_json() and not is_output_quiet():

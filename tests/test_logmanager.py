@@ -1398,3 +1398,35 @@ def test_history_log_ignores_the_active_view(tmp_path: Path):
 
     assert [m.content for m in manager.log.messages] == ["summary"]
     assert [m.content for m in manager.history_log.messages] == ["original question"]
+
+
+def test_history_log_reads_branch_lossless_archive(tmp_path: Path):
+    """A branch created from a compacted view must still expose inherited history.
+
+    ``branch()`` stores the view as the new branch log and the pre-compaction
+    transcript in ``_branch_lossless_logs``. ``history_log`` has to read that
+    archive (via ``full_log``); otherwise a later append on the branch hides
+    the inherited ``[policy-block]`` markers from the budget counter.
+    """
+    from gptme.message import Message
+
+    inherited = [
+        Message("user", "do the task"),
+        Message("system", "[policy-block] one"),
+        Message("system", "[policy-block] two"),
+        Message("system", "[policy-block] three"),
+        Message("system", "[policy-block] four"),
+        Message("system", "[policy-block] five"),
+    ]
+    manager = LogManager(inherited, logdir=tmp_path, lock=False)
+    manager._views["compacted-001"] = Log([Message("system", "summary")])
+    manager.current_view = "compacted-001"
+    manager.branch("dev")
+    extra = Message("system", "[policy-block] six")
+    manager.append(extra)
+
+    assert [m.content for m in manager.log.messages] == ["summary", extra.content]
+    assert [m.content for m in manager.history_log.messages] == [
+        *(m.content for m in inherited),
+        extra.content,
+    ]
