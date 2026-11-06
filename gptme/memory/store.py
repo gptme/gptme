@@ -6,6 +6,7 @@ import errno
 import importlib
 import logging
 import os
+import re
 import stat
 import sys
 from contextlib import contextmanager
@@ -293,13 +294,15 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
             depth -= 1
             if depth == 0:
                 # Stop at the outer title boundary; description links are not keys.
-                return line.startswith(f"({filename})", pos + 1)
-    # index_line() writes raw titles, including unmatched opening brackets.
-    # For those malformed labels, the final link before the generated description
-    # separator is the pointer, not a nested link or a link in the description.
-    label = line.partition(" — ")[0]
-    boundary = label.rfind("](")
-    return boundary >= 3 and label[boundary + 1 :] == f"({filename})"
+                if line.startswith("(", pos + 1):
+                    return line.startswith(f"({filename})", pos + 1)
+                break
+    # index_line() writes raw titles, including unmatched or mixed escaped
+    # brackets. Recover only an unambiguous destination at a record boundary.
+    # A separator in the title/description can create multiple candidates; leave
+    # those lines alone rather than overwrite another memory's pointer.
+    candidates = list(re.finditer(r"\]\([^()]*\)(?= — |$)", line))
+    return len(candidates) == 1 and candidates[0].group() == f"]({filename})"
 
 
 class MemoryStore:

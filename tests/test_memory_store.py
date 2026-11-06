@@ -1082,6 +1082,7 @@ class TestStore:
             "Use [cache",
             "Read [nested [cache](cache.md)](guide.md)",
             r"Use \[cache",
+            r"Use \[cache] carefully",
             r"Use cache\] carefully",
             r"Use \\[cache] carefully",
         ],
@@ -1101,6 +1102,7 @@ class TestStore:
         unrelated = (
             "# Hand-curated memory\n\n"
             "- [Current [cache] advice](current.md) — See [Old](old.md)\n"
+            "- [See [Old](old.md) — [cache](current.md) — Keep\n"
             "\nKeep this footer with [Old](old.md).\n"
         )
         index_path.write_text(
