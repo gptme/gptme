@@ -1406,6 +1406,89 @@ class TestUnsupportedFlagsPassThrough:
         native_run.assert_not_called()
         resolve.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("command", "url", "expected"),
+        [
+            (
+                "pr view --json title",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/other/repo/pull/42",
+                    "--json",
+                    "title",
+                ],
+            ),
+            (
+                "pr checks --json name,state",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "checks",
+                    "https://github.com/other/repo/pull/42",
+                    "--json",
+                    "name,state",
+                ],
+            ),
+            (
+                "issue view --comments -R other/repo",
+                "https://github.com/other/repo/issues/7",
+                [
+                    "issue",
+                    "view",
+                    "https://github.com/other/repo/issues/7",
+                    "--comments",
+                    "-R",
+                    "other/repo",
+                ],
+            ),
+        ],
+    )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_structured_url_survives_passthrough(self, run, command, url, expected):
+        run.return_value = _mock_subprocess_run("requested target")
+        messages = list(execute_gh(None, None, {"command": command, "url": url}))
+        run.assert_called_once_with(
+            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+        )
+        assert messages[0].content == "requested target"
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            (
+                "pr view https://github.com/explicit/repo/pull/5 --json title",
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/explicit/repo/pull/5",
+                    "--json",
+                    "title",
+                ],
+            ),
+            (
+                "run view 123 --log-failed",
+                ["run", "view", "123", "--log-failed"],
+            ),
+        ],
+    )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_keeps_explicit_target_or_ignores_unrelated_url(
+        self, run, command, expected
+    ):
+        run.return_value = _mock_subprocess_run("explicit target")
+        list(
+            execute_gh(
+                None,
+                None,
+                {"command": command, "url": "https://github.com/other/repo/pull/42"},
+            )
+        )
+        run.assert_called_once_with(
+            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+        )
+
     def test_run_view_with_only_repo_flag_stays_native(self):
         with (
             patch("gptme.tools.gh._passthrough_gh") as passthrough,

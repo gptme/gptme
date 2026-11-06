@@ -793,6 +793,16 @@ def execute_gh(
         and tuple(args[:2]) in _NATIVE_REPO_FLAG_ONLY
         and _has_unsupported_flags(args)
     ):
+        # The CLI cannot see the separate structured-call URL. Preserve it as
+        # the reference when the command has only flags, keeping an explicit
+        # positional reference authoritative as in the native handlers.
+        if (
+            tuple(args[:2]) in _NATIVE_REF_COMMANDS
+            and kwargs
+            and kwargs.get("url")
+            and (len(args) == 2 or args[2].startswith("-"))
+        ):
+            args = [*args[:2], kwargs["url"], *args[2:]]
         yield from _passthrough_gh(args, code)
         return
 
