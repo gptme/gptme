@@ -263,7 +263,8 @@ def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
         if _is_legacy_pointer(old_line, entry.filename):
             matched = True
             if entry.is_living:
-                updated.append(line + ("\n" if old_line.endswith("\n") else ""))
+                body = old_line.splitlines()[0]
+                updated.append(line + old_line[len(body) :])
         else:
             updated.append(old_line)
     if matched or not entry.is_living:
@@ -294,7 +295,12 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
             if depth == 0:
                 # Stop at the outer title boundary; description links are not keys.
                 return line.startswith(f"({filename})", pos + 1)
-    return False
+    # index_line() writes raw titles, including unmatched opening brackets.
+    # For those malformed labels, the final link before the generated description
+    # separator is the pointer, not a nested link or a link in the description.
+    label = line.partition(" — ")[0]
+    boundary = label.rfind("](")
+    return boundary >= 3 and label[boundary + 1 :] == f"({filename})"
 
 
 class MemoryStore:

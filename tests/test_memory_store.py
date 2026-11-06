@@ -1079,6 +1079,7 @@ class TestStore:
             "Use [cache] carefully",
             "Read [cache](cache.md)",
             "Use [[cache]] carefully",
+            "Use [cache",
             "Read [nested [cache](cache.md)](guide.md)",
             r"Use \[cache",
             r"Use cache\] carefully",
@@ -1113,6 +1114,22 @@ class TestStore:
 
         expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
         assert index_path.read_text() == expected
+
+    def test_update_legacy_index_preserves_unicode_separator(
+        self, tmp_path: Path
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original")
+        entry = parse_entry(path)
+        index_path = path.parent / "MEMORY.md"
+        index_path.write_text(entry.index_line() + "\u2028Keep this footer.\n")
+        entry.description = "Updated"
+
+        update_index_line(path.parent, entry)
+
+        assert (
+            index_path.read_text() == entry.index_line() + "\u2028Keep this footer.\n"
+        )
 
     def test_update_legacy_index_many_links_does_not_backtrack(
         self, tmp_path: Path
