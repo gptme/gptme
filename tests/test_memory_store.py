@@ -1083,6 +1083,7 @@ class TestStore:
             "Read [nested [cache](cache.md)](guide.md)",
             r"Use \[cache",
             r"Use \[cache] carefully",
+            r"See \[Old](old.md)",
             r"Use cache\] carefully",
             r"Use \\[cache] carefully",
         ],
@@ -1104,6 +1105,7 @@ class TestStore:
             "- [Current [cache] advice](current.md) — See [Old](old.md)\n"
             "- [See [Old](old.md) — [cache](current.md) — Keep\n"
             "- [See \\[Old](old.md) — [cache](current.md) — Keep\n"
+            "- [See \\[Old](old.md)](current.md) — Keep\n"
             "\nKeep this footer with [Old](old.md).\n"
         )
         index_path.write_text(
