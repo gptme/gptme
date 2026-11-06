@@ -1084,6 +1084,7 @@ class TestStore:
             r"Use \[cache",
             r"Use \[cache] carefully",
             r"See \[Old](old.md)",
+            r"Use C:\cache",
             r"Use cache\] carefully",
             r"Use \\[cache] carefully",
         ],
@@ -1096,7 +1097,7 @@ class TestStore:
         title: str,
     ) -> None:
         store = self._store(tmp_path)
-        path = store.save("old", "Original", title=title)
+        path = store.save("old", "See [Guide](guide.md)", title=title)
         entry = parse_entry(path, strict=True)
         entry.status = status
         index_path = path.parent / "MEMORY.md"
