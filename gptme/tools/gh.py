@@ -918,13 +918,10 @@ def execute_gh(
 
 instructions = """### When to use
 
-Use `gh` instead of shell for GitHub issues, PRs, CI runs, and merges.
-Native paths collapse API calls, keep CI state structured, and add merge
-safety guards easy to miss with raw shell commands.
+Use `gh` for GitHub issues, PRs, CI runs, and merges.
+Refs: URLs, `owner/repo#N`, `#N`, or bare `N`.
 
-Refs: full URLs, `owner/repo#N`, `#N`, or bare `N`.
-
-Native paths help avoid hallucination:
+Native commands:
 - `gh issue view <ref>` gets issue body and comments in one result
 - `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
 - `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
@@ -932,11 +929,8 @@ Native paths help avoid hallucination:
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
 
-Native read commands (`issue view`, `pr view/status/checks`, `run view`) understand
-only `--repo`/`-R`. Adding any other flag (`--json`, `--jq`, `--log-failed`, `--job`)
-sends the whole command to the real gh CLI unchanged.
-
-All other `gh` subcommands pass through unchanged.
+Read flags beyond `--repo`/`-R` (e.g. `--json`, `--log-failed`) and other
+subcommands pass through to the gh CLI. A separate `url` supplies the read target.
 
 Structured tool calls pass the whole command as `command`, e.g.
 `{"command": "issue view owner/repo#42"}`."""
