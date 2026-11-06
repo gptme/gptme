@@ -259,16 +259,15 @@ def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
         return f"{INDEX_HEADER}\n\n{line}\n"
     matched = False
     updated = []
-    for old_line in content.splitlines(keepends=True):
+    for old_line in content.split("\n"):
         if _is_legacy_pointer(old_line, entry.filename):
             matched = True
             if entry.is_living:
-                body = old_line.splitlines()[0]
-                updated.append(line + old_line[len(body) :])
+                updated.append(line)
         else:
             updated.append(old_line)
     if matched or not entry.is_living:
-        return "".join(updated)
+        return "\n".join(updated)
     if not content.endswith("\n"):
         content += "\n"
     return content + line + "\n"

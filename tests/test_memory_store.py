@@ -1115,21 +1115,26 @@ class TestStore:
         expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
         assert index_path.read_text() == expected
 
-    def test_update_legacy_index_preserves_unicode_separator(
-        self, tmp_path: Path
+    @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
+    @pytest.mark.parametrize("field", ["title", "description"])
+    def test_update_legacy_index_unicode_separator_is_not_a_newline(
+        self, tmp_path: Path, status: str, field: str
     ) -> None:
         store = self._store(tmp_path)
         path = store.save("old", "Original")
         entry = parse_entry(path)
+        setattr(entry, field, "Before\u2028after")
         index_path = path.parent / "MEMORY.md"
-        index_path.write_text(entry.index_line() + "\u2028Keep this footer.\n")
+        footer = "\nKeep this footer.\n"
+        index_path.write_text(entry.index_line() + "\n" + footer)
+        entry.title = "Updated"
         entry.description = "Updated"
+        entry.status = status
 
         update_index_line(path.parent, entry)
 
-        assert (
-            index_path.read_text() == entry.index_line() + "\u2028Keep this footer.\n"
-        )
+        expected = (entry.index_line() + "\n" if entry.is_living else "") + footer
+        assert index_path.read_text() == expected
 
     def test_update_legacy_index_many_links_does_not_backtrack(
         self, tmp_path: Path
