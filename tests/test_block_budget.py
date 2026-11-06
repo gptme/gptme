@@ -299,9 +299,14 @@ class TestHardStop:
         # human-driven conversation must not be force-ended.
         monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
         (tmp_path / "config.toml").write_text("[chat]\ninteractive = true\n")
+        messages = [PROMPT, *_blocks(6)]
         manager = MagicMock()
         manager.logdir = tmp_path
-        manager.log.messages = [PROMPT, *_blocks(6)]
+        manager.log.messages = messages
+        # The hook counts ``history_log``, not the possibly-compacted view.
+        # Leaving it as an empty MagicMock would make a from_logdir regression
+        # (interactive=False) still return [] because the block count is zero.
+        manager.history_log.messages = messages
         with patch("gptme.config.get_config", return_value=SimpleNamespace(chat=None)):
             assert list(block_budget_hook(manager)) == []
 
@@ -349,3 +354,24 @@ class TestCompactionDoesNotResetBudget:
         out = _replies(_manager(view, history), interactive=False, prompt_queue=[])
         assert len(out) == 1
         assert "blocked by policy" in out[0].content
+
+    def test_branch_from_compacted_view_does_not_replenish_hard_stop(
+        self, monkeypatch, tmp_path
+    ):
+        # Branching from a compacted view copies the view as the branch log
+        # and the inherited full history into the branch lossless archive.
+        # The budget must count that archive, or one extra block on the branch
+        # looks like the whole episode.
+        from gptme.logmanager import Log, LogManager
+
+        monkeypatch.delenv("GPTME_BLOCK_BUDGET", raising=False)
+        manager = LogManager([PROMPT, *_blocks(5)], logdir=tmp_path, lock=False)
+        manager._views["compacted-001"] = Log(
+            [Message("system", "Summary of earlier work.")]
+        )
+        manager.current_view = "compacted-001"
+        manager.branch("dev")
+        manager.append(_block(5))
+        with _chat(interactive=False), pytest.raises(SessionCompleteException) as e:
+            list(block_budget_hook(manager))
+        assert "policy block budget exhausted: 6 blocks" in str(e.value)
