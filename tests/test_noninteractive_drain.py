@@ -43,6 +43,7 @@ chat = pytest.importorskip("gptme.chat")
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("GPTME_USER_CONFIG", str(tmp_path / "no-config.toml"))
     monkeypatch.delenv(DRAIN_TIMEOUT_ENV, raising=False)
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
     for queue in (_completion_queue, _progress_queue):
         with queue.mutex:
             queue.queue.clear()
