@@ -595,6 +595,77 @@ def test_project_mcp_partial_layer_inherits_user_toggles(tmp_path: Path):
     assert set(project.mcp.to_dict()) == {"enabled", "auto_start", "servers"}
 
 
+@pytest.mark.parametrize(
+    "toggles",
+    [{}, {"enabled": False}, {"auto_start": False}, {"enabled": True}],
+)
+def test_partial_chat_mcp_save_reload_preserves_inheritance(
+    tmp_path: Path, toggles: dict[str, bool]
+) -> None:
+    """Saving unrelated chat settings must not freeze inherited MCP toggles."""
+    logdir = tmp_path / "chat"
+    logdir.mkdir()
+    mcp_data = {
+        **toggles,
+        "servers": [{"name": "chat-server", "command": "server-command"}],
+    }
+    (logdir / "config.toml").write_text(tomlkit.dumps({"mcp": mcp_data}))
+    chat = ChatConfig.from_logdir(logdir)
+    config = Config(user=UserConfig(mcp=MCPConfig(enabled=True, auto_start=True)))
+    config.chat = chat
+    expected = (toggles.get("enabled", True), toggles.get("auto_start", True))
+    assert (config.mcp.enabled, config.mcp.auto_start) == expected
+
+    chat.name = "Renamed conversation"
+    chat.save()
+    config.chat = ChatConfig.from_logdir(logdir)
+    assert (config.mcp.enabled, config.mcp.auto_start) == expected
+    assert [s.name for s in config.mcp.servers] == ["chat-server"]
+    saved_mcp = tomlkit.loads((logdir / "config.toml").read_text())["mcp"]
+    assert {k: v for k, v in saved_mcp.items() if k != "servers"} == toggles
+
+    # Inheritance must remain live, rather than freezing the current user values.
+    config.user.mcp = MCPConfig(enabled=False, auto_start=False)
+    assert (config.mcp.enabled, config.mcp.auto_start) == (
+        toggles.get("enabled", False),
+        toggles.get("auto_start", False),
+    )
+
+
+@pytest.mark.parametrize("layer_type", [ChatConfig, ProjectConfig])
+@pytest.mark.parametrize("toggles", [{}, {"enabled": False}, {"auto_start": True}])
+def test_mcp_layer_serialization_preserves_declared_keys(
+    layer_type: type[ChatConfig] | type[ProjectConfig], toggles: dict[str, bool]
+) -> None:
+    layer = layer_type.from_dict(
+        {"mcp": {**toggles, "servers": [{"name": "server", "command": "cmd"}]}}
+    )
+    serialized = layer.to_dict()["mcp"]
+    assert {k: v for k, v in serialized.items() if k != "servers"} == toggles
+    reloaded = layer_type.from_dict(
+        tomlkit.loads(tomlkit.dumps({"mcp": serialized})).unwrap()
+    )
+    assert reloaded.mcp is not None
+    assert reloaded.mcp.to_dict() == serialized
+
+
+def test_programmatic_mcp_toggles_survive_serialization() -> None:
+    """Programmatic and effective configs have explicit values, not omissions."""
+    mcp = MCPConfig(enabled=True, auto_start=True)
+    assert mcp.to_dict() == {"enabled": True, "auto_start": True, "servers": []}
+    config = Config(user=UserConfig(mcp=mcp))
+    chat = ChatConfig.from_dict({"mcp": config.mcp.to_dict()})
+    config.chat = chat
+    config.user.mcp = MCPConfig()
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+    assert MCPConfig().to_dict() == {
+        "enabled": False,
+        "auto_start": False,
+        "servers": [],
+    }
+
+
 def test_malformed_mcp_server_entries_skipped_not_fatal():
     """A malformed [[mcp.servers]] entry must not crash config loading.
 

@@ -147,11 +147,11 @@ class MCPConfig:
     enabled: bool = False
     auto_start: bool = False
     servers: list[MCPServerConfig] = field(default_factory=list)
-    # Set by from_dict() when the layer declares the key. Merging uses it to tell
-    # an absent key (inherit) from an explicit ``false`` (override). Programmatic
-    # construction leaves them False and is treated as "not declared".
-    enabled_declared: bool = field(default=False, repr=False, compare=False)
-    auto_start_declared: bool = field(default=False, repr=False, compare=False)
+    # from_dict() records which keys the layer declares, so merging and saving
+    # distinguish inheritance from explicit ``false`` overrides. Programmatic
+    # configs are explicit, including merged configs returned by Config.mcp.
+    enabled_declared: bool = field(default=True, repr=False, compare=False)
+    auto_start_declared: bool = field(default=True, repr=False, compare=False)
 
     def to_dict(self) -> dict:
         """Serialize only the on-disk ``[mcp]`` schema.
@@ -160,11 +160,12 @@ class MCPConfig:
         they must not reach a written config file (where they would come back
         as unknown keys).
         """
-        return {
-            "enabled": self.enabled,
-            "auto_start": self.auto_start,
-            "servers": [asdict(server) for server in self.servers],
-        }
+        result: dict = {"servers": [asdict(server) for server in self.servers]}
+        if self.enabled_declared:
+            result["enabled"] = self.enabled
+        if self.auto_start_declared:
+            result["auto_start"] = self.auto_start
+        return result
 
     @classmethod
     def from_dict(cls, doc: dict) -> Self:
