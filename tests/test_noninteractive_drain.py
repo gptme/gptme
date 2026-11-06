@@ -26,6 +26,7 @@ from gptme.tools.subagent.drain import (
 )
 from gptme.tools.subagent.hooks import notify_completion, notify_progress
 from gptme.tools.subagent.types import (
+    ReturnType,
     Subagent,
     _completion_queue,
     _progress_queue,
@@ -444,7 +445,9 @@ def test_loop_hook_defaults_to_active_branch(tmp_path):
     parent = manager.logdir.resolve()
     notify_completion("m", "success", "x", parent_logdir=parent, parent_branch="main")
     notify_completion("s", "success", "y", parent_logdir=parent, parent_branch="side")
-    delivered = [m.content for m in _subagent_loop_completion_hook(manager)]
+    delivered = [
+        m.content for m in _subagent_loop_completion_hook(manager, interactive=True)
+    ]
     assert len(delivered) == 1 and "'m'" in delivered[0]
     assert has_owned_completion(parent, "side")
 
@@ -534,3 +537,83 @@ def test_queued_redelegation_after_deadline_does_not_restart(tmp_path, monkeypat
     assert generations == [1]
     assert completions_in(manager, "first") == 1
     assert has_owned_completion(manager.logdir)
+
+
+def test_initial_queued_completion_enters_drain_before_hook(tmp_path, monkeypatch):
+    from gptme.tools.subagent import drain
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "10")
+    manager = manager_at(tmp_path)
+    child = Child("initial", manager)
+    calls = []
+    windows = []
+    original_wait = drain.wait_for_owned_completion
+
+    def step(*_a, **_kw):
+        calls.append(1)
+        if len(calls) == 1:
+            child.finish()
+        yield Message("assistant", "done")
+
+    def wait(logdir, window, **kwargs):
+        windows.append(window)
+        return original_wait(logdir, window, **kwargs)
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+    monkeypatch.setattr(drain, "wait_for_owned_completion", wait)
+    chat._run_chat_loop(
+        manager,
+        [Message("user", "go")],
+        False,
+        interactive=False,
+        logdir=manager.logdir,
+    )
+    assert len(calls) == 2
+    assert len(windows) == 1
+    assert windows[0].deadline is not None
+
+
+def test_cached_result_still_live_waits_for_notification(tmp_path):
+    manager = manager_at(tmp_path)
+    child = Child("cached", manager)
+    with _subagent_results_lock:
+        _subagent_results[child.agent_id] = ReturnType(status="success")
+    timer = later(0.4, child.finish)
+    try:
+        assert wait_for_owned_completion(manager.logdir, DrainWindow(timeout=5))
+    finally:
+        timer.join(5)
+        child.release()
+        with _subagent_results_lock:
+            _subagent_results.pop(child.agent_id, None)
+
+
+def test_progress_queued_during_final_response_does_not_restart(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.1")
+    manager = manager_at(tmp_path)
+    child = Child("progress-only", manager)
+    calls = []
+
+    def step(*_a, **_kw):
+        calls.append(1)
+        assert len(calls) == 1, "queued progress restarted generation"
+        notify_progress("progress-only", "working", parent_logdir=manager.logdir)
+        yield Message("assistant", "done")
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+    try:
+        with patch("gptme.tools.subagent.api.subagent_cancel"):
+            chat._run_chat_loop(
+                manager,
+                [Message("user", "go")],
+                False,
+                interactive=False,
+                logdir=manager.logdir,
+            )
+    finally:
+        child.release()
+    assert calls == [1]

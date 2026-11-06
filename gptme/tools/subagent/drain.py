@@ -175,7 +175,7 @@ def wait_for_owned_completion(
                 return False
             if has_owned_completion(logdir, branch):
                 return True
-            if not unfinished_owned_subagents(logdir):
+            if not has_pending_owned_work(logdir, branch):
                 # Children cache their result just before notifying; give a
                 # just-finished child a moment to enqueue its record.
                 ready.wait(min(remaining, _NOTIFY_GRACE_SECONDS))

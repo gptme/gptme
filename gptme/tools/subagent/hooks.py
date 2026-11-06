@@ -518,6 +518,11 @@ def _subagent_loop_completion_hook(
     Records for another branch stay queued until that branch is current,
     instead of entering whichever branch happens to be active.
     """
+    if not interactive and not prompt_queue:
+        # An exhausted non-interactive parent must enter the bounded drain
+        # before child notifications can become generation prompts. This also
+        # prevents queued progress from restarting a finished parent.
+        return
     if notification_branch is None:
         branch = getattr(manager, "current_branch", None)
         notification_branch = branch if isinstance(branch, str) else None
