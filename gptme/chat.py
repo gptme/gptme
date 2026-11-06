@@ -609,22 +609,31 @@ def _run_chat_loop(
             if not interactive and drain_window.closed:
                 # Explicit stops must not restart generation through any hook.
                 continue
-            if not interactive and drain_window.deadline is not None:
-                # Shell work started by a closing continuation keeps its own
-                # wait policy. Child results still require the fixed deadline
-                # check above; do not consume them through shell wakeups or
-                # STEP_PRE on the shell-result continuation.
+
+            def child_ready_for_drain() -> bool:
+                # Progress/foreign records cannot interrupt shell waiting. A
+                # timely owned result yields back to the bounded admission path.
+                from .tools.subagent.drain import has_owned_completion
+
+                return (
+                    manager.logdir is not None
+                    and has_owned_completion(manager.logdir, manager.current_branch)
+                    and drain_window.remaining() > 0
+                )
+
+            if not interactive and not prompt_queue:
                 from .tools.shell_background import background_job_wait_hook
 
                 for shell_notice in background_job_wait_hook(
                     manager,
                     interactive=False,
                     prompt_queue=prompt_queue,
-                    subagent_notifications=False,
+                    subagent_notifications=child_ready_for_drain,
                 ):
                     if isinstance(shell_notice, Message):
                         prompt_queue.append(shell_notice)
-                continue
+                if prompt_queue:
+                    continue
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
@@ -634,6 +643,11 @@ def _run_chat_loop(
                 interactive=interactive,
                 prompt_queue=prompt_queue,
                 no_confirm=no_confirm,
+                subagent_notifications=(
+                    child_ready_for_drain
+                    if not interactive and not prompt_queue
+                    else True
+                ),
             ):
                 for msg in loop_msgs:
                     # Add hook-generated messages to prompt queue with size limit
@@ -1102,14 +1116,9 @@ def _await_owned_subagents(manager: LogManager, window) -> bool:
     """Event-wait in the closing window; True when an owned result is queued."""
     if window.closed or window.timeout <= 0 or manager.logdir is None:
         return False
-    from .tools.subagent.drain import (
-        has_pending_owned_work,
-        wait_for_owned_completion,
-    )
+    from .tools.subagent.drain import wait_for_owned_completion
 
     branch = manager.current_branch
-    if not has_pending_owned_work(manager.logdir, branch):
-        return False
     if window.deadline is None and not is_output_json() and not is_output_quiet():
         console.log(
             f"Waiting up to {window.timeout:g}s for running subagent(s) before exiting."

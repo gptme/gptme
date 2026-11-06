@@ -626,7 +626,8 @@ def test_initial_queued_completion_enters_drain_before_hook(tmp_path, monkeypatc
         logdir=manager.logdir,
     )
     assert len(calls) == 2
-    assert len(windows) == 1
+    assert windows
+    assert all(window is windows[0] for window in windows)
     assert windows[0].deadline is not None
 
 
@@ -672,3 +673,97 @@ def test_progress_queued_during_final_response_does_not_restart(tmp_path, monkey
     finally:
         child.release()
     assert calls == [1]
+
+
+def test_stopped_child_notification_grace_at_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "2")
+    manager = manager_at(tmp_path)
+    child = Child("notify-after-exit", manager)
+    child.release()
+    timer = later(0.05, child.finish)
+    try:
+        _, generations, _ = run_noninteractive(manager, monkeypatch)
+        assert generations == [1]
+        assert completions_in(manager, child.agent_id) == 1
+    finally:
+        timer.join(5)
+        child.release()
+
+
+@pytest.mark.parametrize("closing", [False, True])
+def test_shell_wait_delivers_only_timely_children(tmp_path, monkeypatch, closing):
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import shell_background
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "1" if closing else "0")
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "false")
+    manager = manager_at(tmp_path)
+    first = Child("first", manager)
+    if closing:
+        first.finish()
+    calls = []
+    jobs = []
+    timers = []
+    other = None
+
+    def step(*_a, **_kw):
+        nonlocal other
+        calls.append(1)
+        assert len(calls) <= (3 if closing else 2)
+        if len(calls) == 1:
+            command = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(1.5); print(987654)'"
+            jobs.append(shell_background.start_background_job(command))
+            notify_progress("first", "working", parent_logdir=manager.logdir)
+            if closing:
+                other = Child("timely", manager)
+                timers.append(later(0.1, other.finish))
+        yield Message("assistant", "done")
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+    token = current_conversation_id.set(manager.chat_id)
+    shell_background.reset_background_jobs()
+    try:
+        with patch("gptme.tools.subagent.api.subagent_cancel"):
+            chat._run_chat_loop(
+                manager,
+                [] if closing else [Message("user", "go")],
+                False,
+                interactive=False,
+                logdir=manager.logdir,
+            )
+        assert jobs[0].process.poll() == 0
+        assert any("987654" in m.content for m in manager.log)
+        assert len(calls) == (3 if closing else 2)
+        if closing:
+            assert completions_in(manager, "timely") == 1
+    finally:
+        for timer in timers:
+            timer.join(5)
+        first.release()
+        if other is not None:
+            other.release()
+        shell_background.reset_background_jobs()
+        current_conversation_id.reset(token)
+
+
+def test_closing_continuation_preserves_unrelated_loop_hooks(tmp_path, monkeypatch):
+    from gptme.hooks import HookType, register_hook
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "1")
+    manager = manager_at(tmp_path)
+    child = Child("hook-first", manager)
+    child.finish()
+    hook_calls = []
+
+    def next_task(manager, **kwargs):
+        hook_calls.append(1)
+        if len(hook_calls) == 1:
+            yield Message("user", "next independent task")
+
+    register_hook("independent-task", HookType.LOOP_CONTINUE, next_task)
+    _, generations, _ = run_noninteractive(manager, monkeypatch)
+    assert generations == [1, 1]
+    assert len(hook_calls) == 2
+    assert any(m.content == "next independent task" for m in manager.log)

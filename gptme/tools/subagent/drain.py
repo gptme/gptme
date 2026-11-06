@@ -27,13 +27,16 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .control import CONTROL_FILENAME, drain_control_ops
 from .hooks import _unpack_completion
 from .types import (
+    ReturnType,
     _completion_queue,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
     _subagents_lock,
+    set_subagent_result_if_absent,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,6 +154,38 @@ class DrainWindow:
         return max(0.0, self.deadline - time.monotonic())
 
 
+def _check_drain_cancellation(logdir: Path) -> None:
+    """Keep the cooperative cancel checkpoint active without another LLM step."""
+    parent = Path(logdir).resolve()
+    with _subagents_lock:
+        agent = next((sa for sa in _subagents if _same(sa.logdir, parent)), None)
+    agent_id = agent.agent_id if agent is not None else parent.name
+    cancelled = agent is not None and agent.cancel_event.is_set()
+    if not cancelled and (parent / CONTROL_FILENAME).exists():
+        try:
+            operations = drain_control_ops(parent)
+        except OSError:
+            # Match the STEP_PRE control hook: an unreadable cancel must not
+            # leave a thread blocked until the entire closing window expires.
+            operations = [{"op": "cancel", "agent_id": agent_id}]
+        for operation in operations:
+            if operation.get("op") == "cancel":
+                cancelled = True
+                candidate = operation.get("agent_id")
+                if isinstance(candidate, str):
+                    agent_id = candidate
+                break
+    if cancelled:
+        from ..complete import SessionCompleteException
+
+        # Preserve the orchestrator's result (or an already completed result),
+        # just as the control hook and background-shell wait do.
+        set_subagent_result_if_absent(
+            agent_id, ReturnType("cancelled", "Cancelled during subagent drain")
+        )
+        raise SessionCompleteException("Subagent cancelled during subagent drain")
+
+
 def wait_for_owned_completion(
     logdir: Path, window: DrainWindow, *, branch: str | None = None
 ) -> bool:
@@ -159,7 +194,8 @@ def wait_for_owned_completion(
     Returns True when a completion is queued for delivery, False when the
     window expired, was disabled, or no owned child is left running. The
     readiness subscription is registered before the first check so a
-    completion racing the check is not lost.
+    completion racing the check is not lost. Cooperative cancellation raises
+    SessionCompleteException, as at a normal step boundary.
     """
     from ...util.notification_ready import subscribe
 
@@ -169,6 +205,7 @@ def wait_for_owned_completion(
         while True:
             # Clear before checking: a signal after the check sets it again.
             ready.clear()
+            _check_drain_cancellation(logdir)
             # Open/check the fixed window before admitting even a queued answer.
             remaining = window.remaining()
             if remaining <= 0:
@@ -179,6 +216,7 @@ def wait_for_owned_completion(
                 # Children cache their result just before notifying; give a
                 # just-finished child a moment to enqueue its record.
                 ready.wait(min(remaining, _NOTIFY_GRACE_SECONDS))
+                _check_drain_cancellation(logdir)
                 return window.remaining() > 0 and has_owned_completion(logdir, branch)
             ready.wait(min(remaining, _LIVENESS_RECHECK_SECONDS))
     finally:

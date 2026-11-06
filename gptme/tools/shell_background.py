@@ -853,7 +853,7 @@ def background_job_completion_hook(
 def _background_wait_input(
     manager: object,
     *,
-    subagent_notifications: bool = True,
+    subagent_notifications: bool | Callable[[], bool] = True,
 ) -> list[Message] | Literal["hook"] | None:
     """Yield to existing file-based input/control, including subagent budgets."""
     from ..constants import MAX_PROMPT_QUEUE_SIZE
@@ -904,7 +904,12 @@ def _background_wait_input(
                 )
         # The existing subagent LOOP_CONTINUE hook still owns these queues.
         # Let it run instead of hiding its events behind a long shell job.
-        if subagent_notifications and (
+        notify = (
+            subagent_notifications()
+            if callable(subagent_notifications)
+            else subagent_notifications
+        )
+        if notify and (
             not subagent_completions.empty() or not subagent_progress.empty()
         ):
             return "hook"
@@ -940,7 +945,7 @@ def background_job_wait_hook(
     prompt_queue: object,
     no_confirm: bool = False,
     *,
-    subagent_notifications: bool = True,
+    subagent_notifications: bool | Callable[[], bool] = True,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Wake an idle CLI on completion, before auto-reply/stuck detection.
 
@@ -971,6 +976,19 @@ def background_job_wait_hook(
         logger.warning("Invalid GPTME_WATCH_IDLE_MAX %r; using 1800 seconds", raw_limit)
         limit = 1800.0
     deadline = time.monotonic() + limit
+    unsubscribe = None
+    logdir = getattr(manager, "logdir", None)
+    if callable(subagent_notifications) and logdir is not None:
+        from ..util.notification_ready import subscribe
+
+        def wake_for_child() -> None:
+            with _job_lock:
+                condition = _job_conditions.setdefault(
+                    conversation_id, threading.Condition(_job_lock)
+                )
+                condition.notify_all()
+
+        unsubscribe = subscribe(logdir, wake_for_child)
     set_interruptible()
     try:
         while True:
@@ -994,6 +1012,10 @@ def background_job_wait_hook(
                 pending = _pending_wait_jobs(conversation_id)
                 if messages or not pending:
                     break
+                # Recheck child readiness under the same lock used by its
+                # wake callback, closing the check-to-condition-wait race.
+                if callable(subagent_notifications) and subagent_notifications():
+                    break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     for job in pending:
@@ -1013,6 +1035,8 @@ def background_job_wait_hook(
                 condition.wait(timeout=min(remaining, 1.0))
     finally:
         clear_interruptible()
+        if unsubscribe is not None:
+            unsubscribe()
     if messages:
         yield from messages
         yield StopPropagation()
