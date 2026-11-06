@@ -432,6 +432,9 @@ def _run_chat_loop(
     # immediately retry parked work under a fresh budget.
     hold_queued_prompts = False
     parked_waiting = False
+    # One bounded closing window per session for owned subagents still
+    # running when a non-interactive prompt queue is exhausted.
+    drain_window = _new_drain_window(interactive)
     while True:
         consume_queue = not hold_queued_prompts
         if consume_queue:
@@ -473,115 +476,131 @@ def _run_chat_loop(
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
-                    # Write sentinel BEFORE the final drain so there is no window
-                    # where a concurrent subagent_steer() can append after the
-                    # top-of-loop drain but before the sentinel is visible. Any
-                    # steer arriving after this touch() sees the sentinel and
-                    # raises ValueError; any steer that arrived before it is
-                    # caught by the drain below.
-                    if logdir is not None:
-                        (logdir / "prompt-queue-closed").touch()
-                    _drain_external_prompt_queue(manager, prompt_queue)
-                    if prompt_queue:
-                        # A steer arrived in the window — keep the loop alive.
+                    if _await_owned_subagents(manager, drain_window):
+                        # A child finished inside the closing window: deliver
+                        # it and permit one budgeted continuation, then fall
+                        # through to LOOP_CONTINUE like any other turn.
+                        if _deliver_idle_notifications(manager) and (
+                            _process_message_conversation(
+                                manager,
+                                stream,
+                                tool_format,
+                                model,
+                                output_schema,
+                            )
+                        ):
+                            drain_window.closed = True
+                    else:
+                        _warn_unfinished_subagents(manager, drain_window)
+                        # Write sentinel BEFORE the final drain so there is no window
+                        # where a concurrent subagent_steer() can append after the
+                        # top-of-loop drain but before the sentinel is visible. Any
+                        # steer arriving after this touch() sees the sentinel and
+                        # raises ValueError; any steer that arrived before it is
+                        # caught by the drain below.
                         if logdir is not None:
-                            (logdir / "prompt-queue-closed").unlink(missing_ok=True)
-                        logger.debug(
-                            "steer arrived at drain boundary, %d prompt(s) queued, continuing",
-                            len(prompt_queue),
-                        )
-                        continue
-                    break
-
-                if not consume_queue:
-                    # Commands can mask the failure marker in the log, but
-                    # they are not permission to restart provider generation.
-                    user_input = _get_user_input(
-                        manager.log,
-                        manager.workspace,
-                        force_prompt=True,
-                        manager=manager,
-                    )
-                else:
-                    user_input = _get_user_input(
-                        manager.log, manager.workspace, manager=manager
-                    )
-                if isinstance(user_input, IdleNotificationWake):
-                    if not consume_queue:
-                        # Held after a provider failure: show notices, wait
-                        # for a real prompt. Autowake is not permission to retry.
-                        continue
-                    interrupted = _process_message_conversation(
-                        manager,
-                        stream,
-                        tool_format,
-                        model,
-                        output_schema,
-                    )
-                    if interrupted:
-                        _idle_autowake_blocked.set(True)
-                    if interrupted and parked_waiting:
-                        hold_queued_prompts = True
-                        continue
-                    if parked_waiting:
+                            (logdir / "prompt-queue-closed").touch()
                         _drain_external_prompt_queue(manager, prompt_queue)
-                    parked_waiting = False
-                elif user_input is None:
-                    # Either user wants to exit OR we should generate response directly
-                    if not consume_queue or _should_prompt_for_input(manager.log):
-                        # User wants to exit
+                        if prompt_queue:
+                            # A steer arrived in the window — keep the loop alive.
+                            if logdir is not None:
+                                (logdir / "prompt-queue-closed").unlink(missing_ok=True)
+                            logger.debug(
+                                "steer arrived at drain boundary, %d prompt(s) queued, continuing",
+                                len(prompt_queue),
+                            )
+                            continue
                         break
-                    # Don't prompt for input, generate response directly (crash recovery, etc.)
-                    # Process existing log without adding new message
-                    _process_message_conversation(
-                        manager,
-                        stream,
-                        tool_format,
-                        model,
-                        output_schema,
-                    )
                 else:
-                    # Normal case: user provided input
-                    msg = user_input
-                    manager.append(msg)
-
-                    # Handle user commands
-                    if msg.role == "user" and execute_cmd(msg, manager):
-                        if parked_waiting:
+                    if not consume_queue:
+                        # Commands can mask the failure marker in the log, but
+                        # they are not permission to restart provider generation.
+                        user_input = _get_user_input(
+                            manager.log,
+                            manager.workspace,
+                            force_prompt=True,
+                            manager=manager,
+                        )
+                    else:
+                        user_input = _get_user_input(
+                            manager.log, manager.workspace, manager=manager
+                        )
+                    if isinstance(user_input, IdleNotificationWake):
+                        if not consume_queue:
+                            # Held after a provider failure: show notices, wait
+                            # for a real prompt. Autowake is not permission to retry.
+                            continue
+                        interrupted = _process_message_conversation(
+                            manager,
+                            stream,
+                            tool_format,
+                            model,
+                            output_schema,
+                        )
+                        if interrupted:
+                            _idle_autowake_blocked.set(True)
+                        if interrupted and parked_waiting:
                             hold_queued_prompts = True
-                        continue
+                            continue
+                        if parked_waiting:
+                            _drain_external_prompt_queue(manager, prompt_queue)
+                        parked_waiting = False
+                    elif user_input is None:
+                        # Either user wants to exit OR we should generate response directly
+                        if not consume_queue or _should_prompt_for_input(manager.log):
+                            # User wants to exit
+                            break
+                        # Don't prompt for input, generate response directly (crash recovery, etc.)
+                        # Process existing log without adding new message
+                        _process_message_conversation(
+                            manager,
+                            stream,
+                            tool_format,
+                            model,
+                            output_schema,
+                        )
+                    else:
+                        # Normal case: user provided input
+                        msg = user_input
+                        manager.append(msg)
 
-                    # A real (non-command) prompt re-enables idle autowake.
-                    _idle_autowake_blocked.set(False)
+                        # Handle user commands
+                        if msg.role == "user" and execute_cmd(msg, manager):
+                            if parked_waiting:
+                                hold_queued_prompts = True
+                            continue
 
-                    # Trigger turn.pre hooks once per submitted user prompt,
-                    # after the prompt is appended and command handling has
-                    # declined to consume it.
-                    if turn_pre_msgs := trigger_hook(
-                        HookType.TURN_PRE,
-                        manager=manager,
-                    ):
-                        for hook_msg in turn_pre_msgs:
-                            manager.append(hook_msg)
+                        # A real (non-command) prompt re-enables idle autowake.
+                        _idle_autowake_blocked.set(False)
 
-                    # Process the message and get response
-                    interrupted = _process_message_conversation(
-                        manager,
-                        stream,
-                        tool_format,
-                        model,
-                        output_schema,
-                    )
-                    if interrupted and parked_waiting:
-                        # Cancelling a resume is not permission to release held
-                        # intent, including the in-memory parking fallback.
-                        hold_queued_prompts = True
-                        continue
-                    # Restore older held work before LOOP_CONTINUE appends new
-                    # messages, preserving the queue's pre-failure FIFO order.
-                    if parked_waiting:
-                        _drain_external_prompt_queue(manager, prompt_queue)
-                    parked_waiting = False
+                        # Trigger turn.pre hooks once per submitted user prompt,
+                        # after the prompt is appended and command handling has
+                        # declined to consume it.
+                        if turn_pre_msgs := trigger_hook(
+                            HookType.TURN_PRE,
+                            manager=manager,
+                        ):
+                            for hook_msg in turn_pre_msgs:
+                                manager.append(hook_msg)
+
+                        # Process the message and get response
+                        interrupted = _process_message_conversation(
+                            manager,
+                            stream,
+                            tool_format,
+                            model,
+                            output_schema,
+                        )
+                        if interrupted and parked_waiting:
+                            # Cancelling a resume is not permission to release held
+                            # intent, including the in-memory parking fallback.
+                            hold_queued_prompts = True
+                            continue
+                        # Restore older held work before LOOP_CONTINUE appends new
+                        # messages, preserving the queue's pre-failure FIFO order.
+                        if parked_waiting:
+                            _drain_external_prompt_queue(manager, prompt_queue)
+                        parked_waiting = False
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
@@ -633,6 +652,8 @@ def _run_chat_loop(
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
             _idle_autowake_blocked.set(True)
+            # Signals end the closing window; teardown stays bounded.
+            drain_window.closed = True
             if parked_waiting:
                 hold_queued_prompts = True
             continue
@@ -1038,6 +1059,63 @@ def _should_prompt_for_input(log: Log) -> bool:
         )
         or not any(role == "user" for role in [m.role for m in log])
     )
+
+
+def _new_drain_window(interactive: bool):
+    """Closing window for owned subagents; interactive sessions never wait."""
+    from .tools.subagent.drain import DrainWindow, drain_timeout
+
+    return DrainWindow(timeout=0.0 if interactive else drain_timeout())
+
+
+def _await_owned_subagents(manager: LogManager, window) -> bool:
+    """Event-wait in the closing window; True when an owned result is queued."""
+    if window.closed or window.timeout <= 0 or manager.logdir is None:
+        return False
+    from .tools.subagent.drain import (
+        unfinished_owned_subagents,
+        wait_for_owned_completion,
+    )
+
+    if not unfinished_owned_subagents(manager.logdir):
+        return False
+    if window.deadline is None and not is_output_json() and not is_output_quiet():
+        console.log(
+            f"Waiting up to {window.timeout:g}s for running subagent(s) before exiting."
+        )
+    return wait_for_owned_completion(
+        manager.logdir, window, branch=manager.current_branch
+    )
+
+
+def _warn_unfinished_subagents(manager: LogManager, window) -> None:
+    """Warn before a non-interactive exit cancels still-running owned children."""
+    if manager.logdir is None:
+        return
+    from .tools.subagent.drain import DRAIN_TIMEOUT_ENV, unfinished_owned_subagents
+
+    unfinished = unfinished_owned_subagents(manager.logdir)
+    if not unfinished:
+        return
+    names = ", ".join(unfinished)
+    if window.timeout > 0 and not window.closed:
+        reason = f"still running after the {window.timeout:g}s closing window"
+    elif window.closed:
+        reason = "still running after interruption"
+    else:
+        reason = (
+            f"still running; set {DRAIN_TIMEOUT_ENV} or [subagent] drain_timeout "
+            "to wait for them"
+        )
+    text = (
+        f"Ending non-interactive session; cancelling {len(unfinished)} "
+        f"subagent(s) {reason}: {names}"
+    )
+    logger.warning(text)
+    if not is_output_json() and not is_output_quiet():
+        from rich.markup import escape
+
+        console.log(f"[yellow]{escape(text)}[/yellow]")
 
 
 def _idle_autowake_enabled() -> bool:

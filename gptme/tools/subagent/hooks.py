@@ -405,6 +405,7 @@ def _session_end_subagent_cleanup(
         if not sa.is_running():
             continue
 
+        logger.warning("SESSION_END: cancelling unfinished subagent '%s'", sa.agent_id)
         try:
             subagent_cancel(sa.agent_id)
         except Exception as e:

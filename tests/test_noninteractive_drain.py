@@ -1,0 +1,344 @@
+"""Non-interactive closing window for still-running owned subagents (#4549).
+
+Children are real gated threads registered in the subagent registry; the
+model call is a fixture. The wait must be event-driven, bounded by one fixed
+deadline, and must never generate on progress.
+"""
+
+import logging
+import threading
+import time
+from unittest.mock import patch
+
+import pytest
+
+from gptme.hooks import clear_hooks
+from gptme.logmanager import LogManager
+from gptme.message import Message
+from gptme.tools import clear_tools, init_tools
+from gptme.tools.subagent.drain import (
+    DRAIN_TIMEOUT_ENV,
+    DrainWindow,
+    drain_timeout,
+    has_owned_completion,
+    unfinished_owned_subagents,
+    wait_for_owned_completion,
+)
+from gptme.tools.subagent.hooks import notify_completion, notify_progress
+from gptme.tools.subagent.types import (
+    Subagent,
+    _completion_queue,
+    _progress_queue,
+    _subagent_results,
+    _subagent_results_lock,
+    _subagents,
+    _subagents_lock,
+)
+
+chat = pytest.importorskip("gptme.chat")
+
+
+@pytest.fixture(autouse=True)
+def isolated(tmp_path, monkeypatch):
+    monkeypatch.setenv("GPTME_USER_CONFIG", str(tmp_path / "no-config.toml"))
+    monkeypatch.delenv(DRAIN_TIMEOUT_ENV, raising=False)
+    for queue in (_completion_queue, _progress_queue):
+        with queue.mutex:
+            queue.queue.clear()
+    with _subagents_lock:
+        saved = list(_subagents)
+    clear_hooks()
+    clear_tools()
+    init_tools(["subagent"], include_mcp=False)
+    with patch("gptme.tools.subagent.hooks._notify_server", return_value=False):
+        yield
+    clear_hooks()
+    clear_tools()
+    with _subagents_lock:
+        _subagents[:] = saved
+    for queue in (_completion_queue, _progress_queue):
+        with queue.mutex:
+            queue.queue.clear()
+    from gptme.util import notification_ready
+
+    notification_ready._listeners.clear()
+
+
+class Child:
+    """A gated thread-mode child owned by ``parent``."""
+
+    def __init__(self, agent_id: str, parent: LogManager):
+        self.agent_id = agent_id
+        self.parent_logdir = parent.logdir.resolve()
+        self.gate = threading.Event()
+        self.thread = threading.Thread(target=self.gate.wait, args=(30,), daemon=True)
+        self.thread.start()
+        with _subagent_results_lock:
+            _subagent_results.pop(agent_id, None)
+        with _subagents_lock:
+            _subagents.append(
+                Subagent(
+                    agent_id=agent_id,
+                    prompt="work",
+                    thread=self.thread,
+                    logdir=parent.logdir / agent_id,
+                    model=None,
+                    parent_logdir=self.parent_logdir,
+                )
+            )
+
+    def finish(self, status="success", summary="child done"):
+        notify_completion(
+            self.agent_id, status, summary, parent_logdir=self.parent_logdir
+        )
+        self.gate.set()
+        self.thread.join(5)
+
+    def release(self):
+        self.gate.set()
+        self.thread.join(5)
+
+
+def manager_at(tmp_path, name="parent"):
+    return LogManager(
+        [Message("user", "delegate"), Message("assistant", "Final parent text.")],
+        logdir=tmp_path / name,
+        lock=False,
+    )
+
+
+def run_noninteractive(manager, monkeypatch, process=None):
+    """Run the real chat loop headless; return (elapsed, generations, cancelled)."""
+    generations: list[int] = []
+    cancelled: list[str] = []
+
+    def fake_process(*_a, **_kw):
+        generations.append(1)
+        if process is not None:
+            process(len(generations))
+        manager.append(Message("assistant", f"follow-up {len(generations)}"))
+        return False
+
+    monkeypatch.setattr(chat, "_process_message_conversation", fake_process)
+    start = time.monotonic()
+    with patch(
+        "gptme.tools.subagent.api.subagent_cancel",
+        side_effect=lambda aid: cancelled.append(aid),
+    ):
+        chat._run_chat_loop(
+            manager, [], False, interactive=False, logdir=manager.logdir
+        )
+    return time.monotonic() - start, generations, cancelled
+
+
+def later(delay, fn):
+    timer = threading.Timer(delay, fn)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def completions_in(manager, agent_id):
+    return sum(f"Subagent '{agent_id}'" in m.content for m in manager.log)
+
+
+def test_default_exits_immediately_and_warns(tmp_path, monkeypatch, caplog, capsys):
+    manager = manager_at(tmp_path)
+    child = Child("slow", manager)
+    try:
+        with caplog.at_level(logging.WARNING):
+            elapsed, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    finally:
+        child.release()
+    assert elapsed < 1.0
+    assert generations == []
+    assert cancelled == ["slow"]
+    assert "[subagent]" in capsys.readouterr().out.replace("\n", " ")
+    assert any(
+        "cancelling 1 subagent(s)" in r.getMessage()
+        and DRAIN_TIMEOUT_ENV in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.parametrize("status", ["success", "failure", "timeout"])
+def test_window_delivers_terminal_event_once_and_continues(
+    tmp_path, monkeypatch, status
+):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "10")
+    manager = manager_at(tmp_path)
+    child = Child("worker", manager)
+    later(0.2, lambda: child.finish(status, "result payload"))
+    elapsed, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    assert generations == [1]
+    assert completions_in(manager, "worker") == 1
+    assert cancelled == []
+    assert not has_owned_completion(manager.logdir)
+    # Child is gone, so the loop exits without spending the rest of the window.
+    assert elapsed < 3.0
+
+
+def test_multiple_children_each_delivered(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "10")
+    manager = manager_at(tmp_path)
+    first, second = Child("a", manager), Child("b", manager)
+    later(0.1, first.finish)
+    later(0.4, second.finish)
+    _, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    assert completions_in(manager, "a") == 1
+    assert completions_in(manager, "b") == 1
+    assert 1 <= len(generations) <= 2
+    assert cancelled == []
+
+
+def test_progress_neither_generates_nor_extends_window(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.6")
+    manager = manager_at(tmp_path)
+    child = Child("chatty", manager)
+    stop = threading.Event()
+
+    def chatter():
+        while not stop.wait(0.05):
+            notify_progress(
+                "chatty", "still working", parent_logdir=child.parent_logdir
+            )
+
+    threading.Thread(target=chatter, daemon=True).start()
+    try:
+        elapsed, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    finally:
+        stop.set()
+        child.release()
+    assert generations == []
+    assert cancelled == ["chatty"]
+    assert 0.5 <= elapsed < 1.6
+
+
+def test_new_delegation_does_not_reset_deadline(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "1.0")
+    manager = manager_at(tmp_path)
+    first = Child("first", manager)
+    spawned: list[Child] = []
+    later(0.6, first.finish)
+
+    def delegate_again(_n):
+        spawned.append(Child("second", manager))
+
+    try:
+        elapsed, generations, cancelled = run_noninteractive(
+            manager, monkeypatch, process=delegate_again
+        )
+    finally:
+        for child in spawned:
+            child.release()
+    assert generations == [1]
+    assert cancelled == ["second"]
+    # A reset window would end near 1.6s; the fixed deadline ends near 1.0s.
+    assert elapsed < 1.45
+
+
+def test_foreign_parent_record_neither_wakes_nor_is_consumed(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.4")
+    manager = manager_at(tmp_path)
+    foreign = (tmp_path / "foreign").resolve()
+    child = Child("mine", manager)
+    later(
+        0.05,
+        lambda: notify_completion("theirs", "success", "x", parent_logdir=foreign),
+    )
+    try:
+        _, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    finally:
+        child.release()
+    assert generations == []
+    assert cancelled == ["mine"]
+    assert has_owned_completion(foreign)
+
+
+def test_explicit_complete_skips_window(tmp_path, monkeypatch):
+    from gptme.tools.complete import SessionCompleteException as Complete
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "30")
+    manager = manager_at(tmp_path)
+    child = Child("slow", manager)
+
+    def complete(*_a, **_kw):
+        raise Complete("done")
+
+    monkeypatch.setattr(chat, "_process_message_conversation", complete)
+    start = time.monotonic()
+    try:
+        with pytest.raises(Complete):
+            chat._run_chat_loop(
+                manager,
+                [Message("user", "finish")],
+                False,
+                interactive=False,
+                logdir=manager.logdir,
+            )
+    finally:
+        child.release()
+    assert time.monotonic() - start < 2.0
+
+
+def test_interactive_never_opens_window(monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "30")
+    assert chat._new_drain_window(interactive=True).timeout == 0
+    assert chat._new_drain_window(interactive=False).timeout == 30
+
+
+def test_wait_returns_on_signal_without_waiting_out_window(tmp_path):
+    manager = manager_at(tmp_path)
+    child = Child("fast", manager)
+    later(0.1, child.finish)
+    start = time.monotonic()
+    assert wait_for_owned_completion(manager.logdir, DrainWindow(timeout=10))
+    assert time.monotonic() - start < 1.0
+    assert unfinished_owned_subagents(manager.logdir) == []
+
+
+def test_wait_skips_completion_for_other_branch(tmp_path):
+    manager = manager_at(tmp_path)
+    child = Child("branchy", manager)
+    notify_completion(
+        "branchy",
+        "success",
+        "x",
+        parent_logdir=child.parent_logdir,
+        parent_branch="other",
+    )
+    try:
+        assert not wait_for_owned_completion(
+            manager.logdir, DrainWindow(timeout=0.2), branch="main"
+        )
+        assert has_owned_completion(manager.logdir, "other")
+    finally:
+        child.release()
+
+
+@pytest.mark.parametrize(
+    ("env", "config", "expected"),
+    [
+        (None, None, 0.0),
+        ("15", None, 15.0),
+        ("bogus", None, 0.0),
+        ("-1", None, 0.0),
+        ("inf", None, 0.0),
+        (None, 7, 7.0),
+        ("3", 7, 3.0),
+        (None, True, 0.0),
+    ],
+)
+def test_drain_timeout_resolution(monkeypatch, env, config, expected):
+    from gptme.config import get_config
+    from gptme.config.models import ProjectConfig, SubagentConfig
+
+    if env is not None:
+        monkeypatch.setenv(DRAIN_TIMEOUT_ENV, env)
+    cfg = get_config()
+    monkeypatch.setattr(
+        cfg,
+        "project",
+        ProjectConfig(subagent=SubagentConfig(drain_timeout=config)),
+    )
+    assert drain_timeout() == expected
