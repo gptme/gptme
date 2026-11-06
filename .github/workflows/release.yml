@@ -340,6 +340,12 @@ jobs:
     # upload (#2644: fail-fast on a bad token). Timeout after publish is
     # not rerunnable (duplicate-version rejection), so do not lower this.
     timeout-minutes: 40
+    # PYPI_TOKEN is read here. Declaring the environment lets it live as an
+    # environment secret (branch/tag-gated) instead of a repo-level secret that
+    # any push collaborator's branch workflow can read. Requires the `release`
+    # environment's deployment policy to allow `v*` tags (release:created runs
+    # on a tag ref) before merge, otherwise the manual-release path is rejected.
+    environment: release
     permissions:
       contents: write
       actions: write
