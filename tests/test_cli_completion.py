@@ -868,7 +868,7 @@ def test_queued_user_resume_reenables_idle_wake(tmp_path, monkeypatch):
     chat._idle_autowake_blocked.set(True)
     decisions: list[bool] = []
 
-    def process(*_args):
+    def process(*_args, **_kwargs):
         notify_completion("child", "success", "done", parent_logdir=manager.logdir)
         decisions.append(chat._deliver_idle_notifications(manager))
         manager.append(Message("assistant", "done"))

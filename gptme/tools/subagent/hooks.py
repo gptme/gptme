@@ -451,6 +451,7 @@ def _subagent_completion_hook(
     prompt_queue: object | None = None,
     no_confirm: bool = False,
     notification_branch: str | None = None,
+    subagent_drain: bool = False,
 ) -> Generator[Message, None, None]:
     """Check for completed subagents and yield notification messages.
 
@@ -462,6 +463,10 @@ def _subagent_completion_hook(
     ⏳ system messages.
     """
 
+    if subagent_drain:
+        # The closing loop admits terminal records through its fixed deadline
+        # and watch_autowake policy, not incidental STEP_PRE boundaries.
+        return
     manager_logdir = getattr(manager, "logdir", None)
 
     # Drain only this parent's records and leave foreign records queued.

@@ -852,6 +852,8 @@ def background_job_completion_hook(
 
 def _background_wait_input(
     manager: object,
+    *,
+    subagent_notifications: bool = True,
 ) -> list[Message] | Literal["hook"] | None:
     """Yield to existing file-based input/control, including subagent budgets."""
     from ..constants import MAX_PROMPT_QUEUE_SIZE
@@ -902,7 +904,9 @@ def _background_wait_input(
                 )
         # The existing subagent LOOP_CONTINUE hook still owns these queues.
         # Let it run instead of hiding its events behind a long shell job.
-        if not subagent_completions.empty() or not subagent_progress.empty():
+        if subagent_notifications and (
+            not subagent_completions.empty() or not subagent_progress.empty()
+        ):
             return "hook"
     # Use the existing locked readers, not file size: an idle CLI has no next
     # STEP_PRE to consume steering unless we actually queue that input here.
@@ -935,6 +939,8 @@ def background_job_wait_hook(
     interactive: bool,
     prompt_queue: object,
     no_confirm: bool = False,
+    *,
+    subagent_notifications: bool = True,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Wake an idle CLI on completion, before auto-reply/stuck detection.
 
@@ -973,7 +979,9 @@ def background_job_wait_hook(
                 pending = _pending_wait_jobs(conversation_id)
                 if messages or not pending:
                     break
-            if incoming := _background_wait_input(manager):
+            if incoming := _background_wait_input(
+                manager, subagent_notifications=subagent_notifications
+            ):
                 if isinstance(incoming, list):
                     messages = incoming
                 break

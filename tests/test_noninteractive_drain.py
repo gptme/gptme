@@ -6,6 +6,8 @@ deadline, and must never generate on progress.
 """
 
 import logging
+import shlex
+import sys
 import threading
 import time
 from unittest.mock import patch
@@ -146,6 +148,58 @@ def later(delay, fn):
 
 def completions_in(manager, agent_id):
     return sum(f"Subagent '{agent_id}'" in m.content for m in manager.log)
+
+
+@pytest.mark.parametrize("late_child", [False, True])
+def test_closing_continuation_waits_for_background_shell(
+    tmp_path, monkeypatch, late_child
+):
+    from gptme.hooks import current_conversation_id
+    from gptme.tools import shell_background
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.1")
+    # The process-wide memory guard is unrelated to this lifecycle fixture.
+    monkeypatch.setenv("GPTME_SHELL_MEMORY_GUARD", "false")
+    manager = manager_at(tmp_path)
+    child = Child("first", manager)
+    child.finish()
+    jobs = []
+    calls = []
+    timers = []
+
+    def step(*_a, **_kw):
+        calls.append(1)
+        assert len(calls) <= 2, "late child bypassed the drain deadline"
+        if len(calls) == 1:
+            command = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(0.3); print(123456)'"
+            jobs.append(shell_background.start_background_job(command))
+            if late_child:
+                other = Child("late", manager)
+                timers.append(later(0.15, other.finish))
+        else:
+            assert any("123456" in m.content for m in manager.log)
+        yield Message("assistant", "done")
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+    token = current_conversation_id.set(manager.chat_id)
+    shell_background.reset_background_jobs()
+    try:
+        chat._run_chat_loop(
+            manager, [], False, interactive=False, logdir=manager.logdir
+        )
+        assert calls == [1, 1]
+        assert jobs[0].process.poll() == 0
+        assert sum("Background shell job #" in m.content for m in manager.log) == 1
+        if late_child:
+            assert has_owned_completion(manager.logdir)
+            assert completions_in(manager, "late") == 0
+    finally:
+        for timer in timers:
+            timer.join(5)
+        shell_background.reset_background_jobs()
+        current_conversation_id.reset(token)
 
 
 def test_default_exits_immediately_and_warns(tmp_path, monkeypatch, caplog, capsys):

@@ -471,6 +471,7 @@ def _run_chat_loop(
                     tool_format,
                     model,
                     output_schema,
+                    subagent_drain=drain_window.deadline is not None,
                 ):
                     # A stopped response is not permission to keep waiting.
                     drain_window.closed = True
@@ -489,6 +490,7 @@ def _run_chat_loop(
                                 tool_format,
                                 model,
                                 output_schema,
+                                subagent_drain=True,
                             )
                         ):
                             drain_window.closed = True
@@ -604,13 +606,24 @@ def _run_chat_loop(
                             _drain_external_prompt_queue(manager, prompt_queue)
                         parked_waiting = False
 
-            if not interactive and (
-                drain_window.closed or drain_window.deadline is not None
-            ):
-                # Once closing, route completions through the deadline check
-                # above, not LOOP_CONTINUE's unbudgeted prompt queue. Explicit
-                # stops also skip hooks that could restart generation. Real
-                # queued prompts are still accepted on the next iteration.
+            if not interactive and drain_window.closed:
+                # Explicit stops must not restart generation through any hook.
+                continue
+            if not interactive and drain_window.deadline is not None:
+                # Shell work started by a closing continuation keeps its own
+                # wait policy. Child results still require the fixed deadline
+                # check above; do not consume them through shell wakeups or
+                # STEP_PRE on the shell-result continuation.
+                from .tools.shell_background import background_job_wait_hook
+
+                for shell_notice in background_job_wait_hook(
+                    manager,
+                    interactive=False,
+                    prompt_queue=prompt_queue,
+                    subagent_notifications=False,
+                ):
+                    if isinstance(shell_notice, Message):
+                        prompt_queue.append(shell_notice)
                 continue
 
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
@@ -767,6 +780,8 @@ def _process_message_conversation(
     tool_format: ToolFormat,
     model: str | None,
     output_schema: type | None = None,
+    *,
+    subagent_drain: bool = False,
 ) -> bool:
     """Process a message until no tools remain; return whether explicitly stopped.
 
@@ -797,6 +812,7 @@ def _process_message_conversation(
                 HookType.STEP_PRE,
                 manager=manager,
                 notification_branch=manager.current_branch,
+                subagent_drain=subagent_drain,
             ):
                 for msg in pre_msgs:
                     manager.append(msg)
