@@ -954,7 +954,6 @@ class TestExecuteGh:
             ["run", "view", "12345", "-R", "other/repo"],
             ["run", "view", "12345", "-Rother/repo"],
             ["run", "view", "12345", "-R=other/repo"],
-            ["run", "view", "12345", "--log-failed", "--repo", "other/repo"],
             ["run", "view", "12345", "--repo", "first/repo", "-R", "other/repo"],
         ],
     )
@@ -974,7 +973,6 @@ class TestExecuteGh:
             "run view 12345 --repo=other/repo",
             "run view 12345 -R other/repo",
             "run view 12345 -Rother/repo",
-            "run view 12345 --json jobs -R other/repo",
         ],
     )
     @patch("gptme.tools.gh.get_github_run_logs")
@@ -1016,7 +1014,7 @@ class TestExecuteGh:
     def test_run_view_without_repo_keeps_old_call(self, mock_logs):
         """No repo flag: the utility is called exactly as before."""
         mock_logs.return_value = "## Run 12345: Test"
-        list(execute_gh(None, None, {"command": "run view 12345 --log-failed"}))
+        list(execute_gh(None, None, {"command": "run view 12345"}))
         mock_logs.assert_called_once_with("12345")
 
     @patch("gptme.tools.gh.get_github_run_logs")
@@ -1380,3 +1378,53 @@ class TestNativeRefRepoFlag:
         messages = list(execute_gh(None, argv, None))
         assert len(messages) == 1
         assert "Invalid or missing repository" in messages[0].content
+
+
+class TestUnsupportedFlagsPassThrough:
+    """Native read handlers implement only --repo/-R; other flags go to the gh CLI."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["run", "view", "123", "--log-failed"],
+            ["run", "view", "123", "--repo", "o/r", "--job", "9", "--json", "jobs"],
+            ["pr", "view", "5", "--json", "title", "--jq", ".title"],
+            ["pr", "checks", "5", "--json", "name,state"],
+            ["pr", "status", "--json", "currentBranch"],
+            ["issue", "view", "7", "--comments"],
+        ],
+    )
+    def test_unsupported_flag_reaches_gh_cli(self, args):
+        with (
+            patch("gptme.tools.gh._passthrough_gh") as passthrough,
+            patch("gptme.tools.gh.get_github_run_logs") as native_run,
+            patch("gptme.tools.gh._resolve_ref") as resolve,
+        ):
+            passthrough.return_value = iter([])
+            list(execute_gh(None, args, None))
+        passthrough.assert_called_once_with(args, None)
+        native_run.assert_not_called()
+        resolve.assert_not_called()
+
+    def test_run_view_with_only_repo_flag_stays_native(self):
+        with (
+            patch("gptme.tools.gh._passthrough_gh") as passthrough,
+            patch("gptme.tools.gh.get_github_run_logs", return_value="logs") as native,
+        ):
+            messages = list(execute_gh(None, ["run", "view", "123", "-R", "o/r"], None))
+        passthrough.assert_not_called()
+        native.assert_called_once_with("123", repo="o/r")
+        assert messages[0].content == "logs"
+
+    @pytest.mark.parametrize(
+        "repo_flag", [["--repo=o/r"], ["-Ro/r"], ["--repo", "o/r"]]
+    )
+    def test_repo_flag_forms_are_not_unsupported(self, repo_flag):
+        from gptme.tools.gh import _has_unsupported_flags
+
+        assert not _has_unsupported_flags(["pr", "view", "5", *repo_flag])
+
+    def test_pr_merge_keeps_its_own_flag_handling(self):
+        from gptme.tools.gh import _NATIVE_REPO_FLAG_ONLY
+
+        assert ("pr", "merge") not in _NATIVE_REPO_FLAG_ONLY

@@ -707,6 +707,35 @@ _NATIVE_REF_COMMANDS = {
 }
 
 
+# Native read handlers that implement no flags beyond ``--repo``/``-R``.
+_NATIVE_REPO_FLAG_ONLY = _NATIVE_REF_COMMANDS - {("pr", "merge")} | {("run", "view")}
+
+
+def _has_unsupported_flags(args: list[str]) -> bool:
+    """True when a native read command carries a flag its handler does not implement.
+
+    The native handlers understand only ``--repo``/``-R``.  Any other flag
+    (``--json``, ``--jq``, ``--log-failed``, ``--job``, ...) was previously
+    discarded, or read as a positional value (``pr checks --json`` became the
+    commit SHA), so the caller got the native summary instead of what it asked
+    for.  Such calls must reach the real gh CLI.
+    """
+    rest = args[2:]
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token in ("--repo", "-R"):
+            i += 2
+            continue
+        if token.startswith("--repo=") or (token.startswith("-R") and len(token) > 2):
+            i += 1
+            continue
+        if token.startswith("-"):
+            return True
+        i += 1
+    return False
+
+
 def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
     """Strip ``--repo``/``-R`` from a native ref command and fold it into the ref.
 
@@ -758,6 +787,14 @@ def execute_gh(
         except ValueError as e:
             yield Message("system", f"Error parsing command: {e}")
             return
+
+    if (
+        args
+        and tuple(args[:2]) in _NATIVE_REPO_FLAG_ONLY
+        and _has_unsupported_flags(args)
+    ):
+        yield from _passthrough_gh(args, code)
+        return
 
     if args and tuple(args[:2]) in _NATIVE_REF_COMMANDS:
         args, repo_err = _apply_repo_flag(args)
@@ -884,6 +921,10 @@ Native paths help avoid hallucination:
 - `gh pr checks <ref> [commit_sha]` waits until a check fails, all checks complete, or the 60s foreground wait budget is reached
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
+
+Native read commands (`issue view`, `pr view/status/checks`, `run view`) understand
+only `--repo`/`-R`. Adding any other flag (`--json`, `--jq`, `--log-failed`, `--job`)
+sends the whole command to the real gh CLI unchanged.
 
 All other `gh` subcommands pass through unchanged.
 
