@@ -408,17 +408,24 @@ def test_auth_logout_removes_legacy_fleet_token(tmp_path: Path):
     )
 
 
-def _mock_device_flow_responses(auth_uri: str = "https://gptme.ai/activate"):
+def _mock_device_flow_responses(
+    auth_uri: str = "https://gptme.ai/device",
+    *,
+    complete_uri: str | None = "https://gptme.ai/device?code=UC-123",
+):
     """Return (authorize_resp, token_resp) mocks for device_flow_authenticate."""
     auth_resp = MagicMock()
     auth_resp.status_code = 200
-    auth_resp.json.return_value = {
+    payload = {
         "device_code": "dc123",
         "user_code": "UC-123",
         "verification_uri": auth_uri,
         "interval": 1,
         "expires_in": 300,
     }
+    if complete_uri is not None:
+        payload["verification_uri_complete"] = complete_uri
+    auth_resp.json.return_value = payload
     tok_resp = MagicMock()
     tok_resp.status_code = 200
     tok_resp.json.return_value = {"access_token": "test-token", "expires_in": 3600}
@@ -462,6 +469,47 @@ def test_device_flow_authenticate_default_server_has_base_url():
 
     assert result.get("base_url") == DEFAULT_BASE_URL
     assert result["server_url"] == DEFAULT_SERVICE_URL
+
+
+def test_device_flow_prints_complete_uri(capsys):
+    """Production authorize returns verification_uri_complete; print that Visit URL."""
+    from gptme.llm.llm_gptme import device_flow_authenticate
+
+    complete = "https://gptme.ai/device?code=UC-123"
+    auth_resp, tok_resp = _mock_device_flow_responses(complete_uri=complete)
+
+    with (
+        patch("requests.post", side_effect=[auth_resp, tok_resp]),
+        patch("gptme.llm.llm_gptme._save_token"),
+        patch("gptme.llm.llm_gptme.time.sleep"),
+    ):
+        device_flow_authenticate()
+
+    out = capsys.readouterr().out
+    assert f"Visit: {complete}" in out
+    assert "Enter code: UC-123" in out
+    assert "Waiting for you to authorize in the browser..." in out
+    assert "Visit: https://gptme.ai/device\n" not in out
+
+
+def test_device_flow_falls_back_to_verification_uri(capsys):
+    """Custom/old authorize payloads without complete URI still print verification_uri."""
+    from gptme.llm.llm_gptme import device_flow_authenticate
+
+    auth_uri = "https://custom.example.com/activate"
+    auth_resp, tok_resp = _mock_device_flow_responses(auth_uri, complete_uri=None)
+
+    with (
+        patch("requests.post", side_effect=[auth_resp, tok_resp]),
+        patch("gptme.llm.llm_gptme._save_token"),
+        patch("gptme.llm.llm_gptme.time.sleep"),
+    ):
+        device_flow_authenticate(server_url="https://custom.example.com")
+
+    out = capsys.readouterr().out
+    assert f"Visit: {auth_uri}" in out
+    assert "Enter code: UC-123" in out
+    assert "verification_uri_complete" not in out
 
 
 def test_get_models_url_custom_token():
