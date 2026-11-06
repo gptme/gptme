@@ -506,6 +506,30 @@ def _subagent_completion_hook(
         yield message
 
 
+def _subagent_loop_completion_hook(
+    manager: "LogManager",
+    interactive: bool = False,
+    prompt_queue: object | None = None,
+    no_confirm: bool = False,
+    notification_branch: str | None = None,
+) -> Generator[Message, None, None]:
+    """LOOP_CONTINUE delivery scoped to the active branch, like STEP_PRE.
+
+    Records for another branch stay queued until that branch is current,
+    instead of entering whichever branch happens to be active.
+    """
+    if notification_branch is None:
+        branch = getattr(manager, "current_branch", None)
+        notification_branch = branch if isinstance(branch, str) else None
+    yield from _subagent_completion_hook(
+        manager,
+        interactive=interactive,
+        prompt_queue=prompt_queue,
+        no_confirm=no_confirm,
+        notification_branch=notification_branch,
+    )
+
+
 def progress_message(agent_id: str, message: str) -> Message:
     """Format a progress update identically for CLI hooks and server wakeups."""
     return Message("system", f"⏳ Subagent '{agent_id}' progress: {message}")

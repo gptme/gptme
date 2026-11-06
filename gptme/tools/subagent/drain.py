@@ -121,6 +121,20 @@ def has_owned_completion(logdir: Path, branch: str | None = None) -> bool:
     return False
 
 
+def has_pending_owned_work(logdir: Path, branch: str | None = None) -> bool:
+    """True while an owned result is queued or an owned child may still send one.
+
+    A child caches its result just before enqueueing it, so a still-alive
+    owned thread/process counts as pending even when its result is cached.
+    """
+    if has_owned_completion(logdir, branch) or unfinished_owned_subagents(logdir):
+        return True
+    parent = Path(logdir).resolve()
+    with _subagents_lock:
+        snapshot = list(_subagents)
+    return any(_same(sa.parent_logdir, parent) and sa.is_running() for sa in snapshot)
+
+
 @dataclass
 class DrainWindow:
     """One session's closing window. The deadline never moves once opened."""

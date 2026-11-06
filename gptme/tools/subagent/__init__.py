@@ -34,6 +34,7 @@ from .hooks import (
     _subagent_cancel_checkpoint,
     _subagent_completion_hook,
     _subagent_control_hook,
+    _subagent_loop_completion_hook,
     notify_completion,
     notify_progress,
 )
@@ -554,7 +555,7 @@ tool = ToolSpec(
     hooks={
         "completion": (
             "loop.continue",  # HookType.LOOP_CONTINUE.value
-            _subagent_completion_hook,
+            _subagent_loop_completion_hook,
             50,  # High priority to ensure timely delivery
         ),
         "completion_step_pre": (

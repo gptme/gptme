@@ -342,3 +342,101 @@ def test_drain_timeout_resolution(monkeypatch, env, config, expected):
         ProjectConfig(subagent=SubagentConfig(drain_timeout=config)),
     )
     assert drain_timeout() == expected
+
+
+def test_wait_is_interruptible_and_ctrl_c_closes_window(tmp_path, monkeypatch):
+    """SIGINT only raises while interruptible; an interrupt ends the window."""
+    from gptme.tools.subagent import drain
+    from gptme.util.interrupt import _interruptible_var
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "30")
+    manager = manager_at(tmp_path)
+    child = Child("slow", manager)
+    seen: list[bool] = []
+
+    def interrupted_wait(*_a, **_kw):
+        seen.append(_interruptible_var.get())
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(drain, "wait_for_owned_completion", interrupted_wait)
+    try:
+        elapsed, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    finally:
+        child.release()
+    assert seen == [True]
+    assert _interruptible_var.get() is False
+    assert generations == []
+    assert cancelled == ["slow"]
+    assert elapsed < 2.0
+
+
+def test_interrupted_queued_response_skips_window(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "30")
+    manager = manager_at(tmp_path)
+    child = Child("slow", manager)
+    calls: list[int] = []
+
+    def stopped(*_a, **_kw):
+        calls.append(1)
+        return True  # _process_message_conversation reports an interrupt
+
+    monkeypatch.setattr(chat, "_process_message_conversation", stopped)
+    start = time.monotonic()
+    try:
+        with patch("gptme.tools.subagent.api.subagent_cancel"):
+            chat._run_chat_loop(
+                manager,
+                [Message("user", "go")],
+                False,
+                interactive=False,
+                logdir=manager.logdir,
+            )
+    finally:
+        child.release()
+    assert calls == [1]
+    assert time.monotonic() - start < 2.0
+
+
+def test_last_answer_queued_before_exit_check_is_delivered(tmp_path, monkeypatch):
+    """A child that already exited still has its queued answer delivered."""
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "10")
+    manager = manager_at(tmp_path)
+    child = Child("quick", manager)
+    child.finish()
+    assert unfinished_owned_subagents(manager.logdir) == []
+    elapsed, generations, cancelled = run_noninteractive(manager, monkeypatch)
+    assert generations == [1]
+    assert completions_in(manager, "quick") == 1
+    assert cancelled == []
+    assert elapsed < 3.0
+
+
+def test_other_branch_record_stays_queued_through_continuation(tmp_path, monkeypatch):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "10")
+    manager = manager_at(tmp_path)
+    child = Child("main-child", manager)
+    notify_completion(
+        "side-child",
+        "success",
+        "belongs elsewhere",
+        parent_logdir=child.parent_logdir,
+        parent_branch="side",
+    )
+    later(0.1, child.finish)
+    _, generations, _ = run_noninteractive(manager, monkeypatch)
+    assert generations == [1]
+    assert completions_in(manager, "main-child") == 1
+    assert completions_in(manager, "side-child") == 0
+    assert has_owned_completion(manager.logdir, "side")
+
+
+def test_loop_hook_defaults_to_active_branch(tmp_path):
+    from gptme.tools.subagent.hooks import _subagent_loop_completion_hook
+
+    manager = manager_at(tmp_path)
+    parent = manager.logdir.resolve()
+    notify_completion("m", "success", "x", parent_logdir=parent, parent_branch="main")
+    notify_completion("s", "success", "y", parent_logdir=parent, parent_branch="side")
+    delivered = [m.content for m in _subagent_loop_completion_hook(manager)]
+    assert len(delivered) == 1 and "'m'" in delivered[0]
+    assert has_owned_completion(parent, "side")

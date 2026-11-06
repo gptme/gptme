@@ -465,13 +465,15 @@ def _run_chat_loop(
                             manager.append(hook_msg)
 
                 # Process the message and get response
-                _process_message_conversation(
+                if _process_message_conversation(
                     manager,
                     stream,
                     tool_format,
                     model,
                     output_schema,
-                )
+                ):
+                    # A stopped response is not permission to keep waiting.
+                    drain_window.closed = True
             else:
                 # Get user input or exit if non-interactive
                 if not interactive:
@@ -785,6 +787,7 @@ def _process_message_conversation(
             if pre_msgs := trigger_hook(
                 HookType.STEP_PRE,
                 manager=manager,
+                notification_branch=manager.current_branch,
             ):
                 for msg in pre_msgs:
                     manager.append(msg)
@@ -1073,19 +1076,24 @@ def _await_owned_subagents(manager: LogManager, window) -> bool:
     if window.closed or window.timeout <= 0 or manager.logdir is None:
         return False
     from .tools.subagent.drain import (
-        unfinished_owned_subagents,
+        has_pending_owned_work,
         wait_for_owned_completion,
     )
 
-    if not unfinished_owned_subagents(manager.logdir):
+    branch = manager.current_branch
+    if not has_pending_owned_work(manager.logdir, branch):
         return False
     if window.deadline is None and not is_output_json() and not is_output_quiet():
         console.log(
             f"Waiting up to {window.timeout:g}s for running subagent(s) before exiting."
         )
-    return wait_for_owned_completion(
-        manager.logdir, window, branch=manager.current_branch
-    )
+    # No prompt is active here, so SIGINT must raise instead of printing the
+    # input-safeguard hint; the loop's KeyboardInterrupt handler closes the window.
+    set_interruptible()
+    try:
+        return wait_for_owned_completion(manager.logdir, window, branch=branch)
+    finally:
+        clear_interruptible()
 
 
 def _warn_unfinished_subagents(manager: LogManager, window) -> None:
