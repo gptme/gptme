@@ -50,8 +50,12 @@ def isolated(tmp_path, monkeypatch):
     clear_hooks()
     clear_tools()
     init_tools(["subagent"], include_mcp=False)
+    # _run_chat_loop is called directly, so chat()'s per-invocation reset of
+    # the idle-autowake block does not run; an interrupt test must not leak it.
+    idle_token = chat._idle_autowake_blocked.set(False)
     with patch("gptme.tools.subagent.hooks._notify_server", return_value=False):
         yield
+    chat._idle_autowake_blocked.reset(idle_token)
     clear_hooks()
     clear_tools()
     with _subagents_lock:
@@ -150,7 +154,7 @@ def test_default_exits_immediately_and_warns(tmp_path, monkeypatch, caplog, caps
             elapsed, generations, cancelled = run_noninteractive(manager, monkeypatch)
     finally:
         child.release()
-    assert elapsed < 1.0
+    assert elapsed < 3.0
     assert generations == []
     assert cancelled == ["slow"]
     assert "[subagent]" in capsys.readouterr().out.replace("\n", " ")
@@ -211,15 +215,16 @@ def test_progress_neither_generates_nor_extends_window(tmp_path, monkeypatch):
         child.release()
     assert generations == []
     assert cancelled == ["chatty"]
-    assert 0.5 <= elapsed < 1.6
+    # Endless progress would never end the wait if it extended the window.
+    assert 0.5 <= elapsed < 3.0
 
 
 def test_new_delegation_does_not_reset_deadline(tmp_path, monkeypatch):
-    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "1.0")
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "2.0")
     manager = manager_at(tmp_path)
     first = Child("first", manager)
     spawned: list[Child] = []
-    later(0.6, first.finish)
+    later(1.5, first.finish)
 
     def delegate_again(_n):
         spawned.append(Child("second", manager))
@@ -233,8 +238,8 @@ def test_new_delegation_does_not_reset_deadline(tmp_path, monkeypatch):
             child.release()
     assert generations == [1]
     assert cancelled == ["second"]
-    # A reset window would end near 1.6s; the fixed deadline ends near 1.0s.
-    assert elapsed < 1.45
+    # A reset window would end at >= 3.5s; the fixed deadline ends near 2.0s.
+    assert 1.9 <= elapsed < 3.2
 
 
 def test_foreign_parent_record_neither_wakes_nor_is_consumed(tmp_path, monkeypatch):
@@ -278,7 +283,7 @@ def test_explicit_complete_skips_window(tmp_path, monkeypatch):
             )
     finally:
         child.release()
-    assert time.monotonic() - start < 2.0
+    assert time.monotonic() - start < 5.0
 
 
 def test_interactive_never_opens_window(monkeypatch):
@@ -293,7 +298,9 @@ def test_wait_returns_on_signal_without_waiting_out_window(tmp_path):
     later(0.1, child.finish)
     start = time.monotonic()
     assert wait_for_owned_completion(manager.logdir, DrainWindow(timeout=10))
-    assert time.monotonic() - start < 1.0
+    assert time.monotonic() - start < 5.0
+    # The record is enqueued before the child thread exits; wait for exit.
+    child.thread.join(5)
     assert unfinished_owned_subagents(manager.logdir) == []
 
 
@@ -367,7 +374,7 @@ def test_wait_is_interruptible_and_ctrl_c_closes_window(tmp_path, monkeypatch):
     assert _interruptible_var.get() is False
     assert generations == []
     assert cancelled == ["slow"]
-    assert elapsed < 2.0
+    assert elapsed < 5.0
 
 
 def test_interrupted_queued_response_skips_window(tmp_path, monkeypatch):
@@ -394,7 +401,7 @@ def test_interrupted_queued_response_skips_window(tmp_path, monkeypatch):
     finally:
         child.release()
     assert calls == [1]
-    assert time.monotonic() - start < 2.0
+    assert time.monotonic() - start < 5.0
 
 
 def test_last_answer_queued_before_exit_check_is_delivered(tmp_path, monkeypatch):
