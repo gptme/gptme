@@ -169,16 +169,17 @@ def wait_for_owned_completion(
         while True:
             # Clear before checking: a signal after the check sets it again.
             ready.clear()
+            # Open/check the fixed window before admitting even a queued answer.
+            remaining = window.remaining()
+            if remaining <= 0:
+                return False
             if has_owned_completion(logdir, branch):
                 return True
-            remaining = window.remaining()
             if not unfinished_owned_subagents(logdir):
                 # Children cache their result just before notifying; give a
                 # just-finished child a moment to enqueue its record.
                 ready.wait(min(remaining, _NOTIFY_GRACE_SECONDS))
-                return has_owned_completion(logdir, branch)
-            if remaining <= 0:
-                return False
+                return window.remaining() > 0 and has_owned_completion(logdir, branch)
             ready.wait(min(remaining, _LIVENESS_RECHECK_SECONDS))
     finally:
         unsubscribe()

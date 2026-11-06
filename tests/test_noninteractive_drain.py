@@ -447,3 +447,90 @@ def test_loop_hook_defaults_to_active_branch(tmp_path):
     delivered = [m.content for m in _subagent_loop_completion_hook(manager)]
     assert len(delivered) == 1 and "'m'" in delivered[0]
     assert has_owned_completion(parent, "side")
+
+
+def test_queued_answer_opens_fixed_window_before_return(tmp_path, monkeypatch):
+    from gptme.tools.subagent import drain
+
+    manager = manager_at(tmp_path)
+    now = [100.0]
+    monkeypatch.setattr(drain.time, "monotonic", lambda: now[0])
+    notify_completion("first", "success", "ready", parent_logdir=manager.logdir)
+    window = DrainWindow(timeout=10)
+    assert wait_for_owned_completion(manager.logdir, window)
+    assert window.deadline == 110.0
+    now[0] = 111.0
+    # A continuation/re-delegation cannot admit even a queued answer after expiry.
+    assert not wait_for_owned_completion(manager.logdir, window)
+    assert has_owned_completion(manager.logdir)
+    assert window.deadline == 110.0
+
+
+@pytest.mark.parametrize(
+    "window", [DrainWindow(timeout=0), DrainWindow(timeout=10, closed=True)]
+)
+def test_queued_answer_cannot_bypass_closed_window(tmp_path, window):
+    manager = manager_at(tmp_path)
+    notify_completion("ready", "success", "result", parent_logdir=manager.logdir)
+    assert not wait_for_owned_completion(manager.logdir, window)
+    assert has_owned_completion(manager.logdir)
+
+
+@pytest.mark.parametrize("queued", [False, True])
+def test_max_steps_stop_does_not_drain_or_restart(tmp_path, monkeypatch, queued):
+    from gptme.tools.subagent import drain
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "30")
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    manager = manager_at(tmp_path)
+    child = Child("limited", manager)
+    calls = []
+
+    def step(*_a, **_kw):
+        calls.append(1)
+        assert len(calls) == 1, "child completion restarted generation after step limit"
+        if queued:
+            child.finish()
+        yield Message("assistant", "step complete")
+
+    def unexpected_wait(*_a, **_kw):
+        pytest.fail("explicit step-limit stop must not enter the drain")
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+    monkeypatch.setattr(drain, "wait_for_owned_completion", unexpected_wait)
+    try:
+        chat._run_chat_loop(
+            manager,
+            [Message("user", "go")],
+            False,
+            interactive=False,
+            logdir=manager.logdir,
+        )
+    finally:
+        child.release()
+    assert calls == [1]
+    assert any((m.metadata or {}).get("max_steps_stop") for m in manager.log)
+
+
+def test_queued_redelegation_after_deadline_does_not_restart(tmp_path, monkeypatch):
+    from gptme.tools.subagent import drain
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "10")
+    manager = manager_at(tmp_path)
+    first = Child("first", manager)
+    first.finish()
+    now = [100.0]
+    monkeypatch.setattr(drain.time, "monotonic", lambda: now[0])
+
+    def delegate_again(n):
+        assert n == 1, "LOOP_CONTINUE bypassed the expired closing window"
+        second = Child("second", manager)
+        now[0] = 111.0
+        second.finish()
+
+    _, generations, _ = run_noninteractive(manager, monkeypatch, process=delegate_again)
+    assert generations == [1]
+    assert completions_in(manager, "first") == 1
+    assert has_owned_completion(manager.logdir)

@@ -604,6 +604,15 @@ def _run_chat_loop(
                             _drain_external_prompt_queue(manager, prompt_queue)
                         parked_waiting = False
 
+            if not interactive and (
+                drain_window.closed or drain_window.deadline is not None
+            ):
+                # Once closing, route completions through the deadline check
+                # above, not LOOP_CONTINUE's unbudgeted prompt queue. Explicit
+                # stops also skip hooks that could restart generation. Real
+                # queued prompts are still accepted on the next iteration.
+                continue
+
             # Trigger LOOP_CONTINUE hooks to check if we should continue/exit
             # This handles auto-reply mechanism and other loop control logic
             if loop_msgs := trigger_hook(
@@ -759,7 +768,7 @@ def _process_message_conversation(
     model: str | None,
     output_schema: type | None = None,
 ) -> bool:
-    """Process a message until no tools remain; return whether cancelled or declined.
+    """Process a message until no tools remain; return whether explicitly stopped.
 
     Note: Confirmation is now handled within ToolUse.execute() using the hook system.
     """
@@ -892,6 +901,8 @@ def _process_message_conversation(
                     metadata={"max_steps_stop": True},
                 )
             )
+            interrupted = True
+            _idle_autowake_blocked.set(True)
             break
 
         # Check if there are any runnable tools left. After a mid-turn
