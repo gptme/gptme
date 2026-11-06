@@ -12,12 +12,14 @@ Writer safety (see ``docs/design/file-backed-output.md``, slice 1):
 - Where the platform supports it, traversal and creation are descriptor-relative
   and refuse symlinked or non-directory ``tool-outputs`` components.
 - Content is written to a private temporary file and then published under its
-  final name without overwriting any existing file; a failed write leaves no
-  final file behind.
+  final name via hard link, without overwriting any existing file; a failed
+  write leaves no final file behind. Filesystems that reject hard links fall
+  back to exclusive creation of the final name (no-clobber, not atomic).
 - Distinct calls keep distinct files: a same-second, same-content collision gets
   a numeric suffix instead of silently reusing (or clobbering) the earlier file.
 """
 
+import codecs
 import errno
 import hashlib
 import logging
@@ -63,16 +65,32 @@ def _safe_output_type(output_type: str) -> str:
     return cleaned or "tool"
 
 
+def _surrogateescape_or_replace(exc: UnicodeError) -> tuple[bytes, int]:
+    """Codec error handler: restore surrogateescaped bytes, replace the rest.
+
+    Applied per offending character, so one unrelated lone surrogate does not
+    downgrade recoverable ``surrogateescape`` bytes elsewhere in the output.
+    """
+    if not isinstance(exc, UnicodeEncodeError):
+        raise exc
+    out = bytearray()
+    for ch in exc.object[exc.start : exc.end]:
+        cp = ord(ch)
+        out += bytes([cp - 0xDC00]) if 0xDC80 <= cp <= 0xDCFF else b"?"
+    return bytes(out), exc.end
+
+
+_ENCODE_ERRORS = "gptme-output-storage-surrogates"
+codecs.register_error(_ENCODE_ERRORS, _surrogateescape_or_replace)
+
+
 def _encode(content: str) -> bytes:
     """UTF-8 bytes for ``content``; never depends on the locale encoding.
 
-    ``surrogateescape`` restores bytes that were decoded with that handler; any
-    other lone surrogate falls back to replacement rather than failing the save.
+    Surrogateescaped characters (U+DC80..U+DCFF) are restored to their original
+    bytes; any other lone surrogate is replaced with ``?`` individually.
     """
-    try:
-        return content.encode("utf-8", errors="surrogateescape")
-    except UnicodeEncodeError:
-        return content.encode("utf-8", errors="replace")
+    return content.encode("utf-8", errors=_ENCODE_ERRORS)
 
 
 def large_output_path(
@@ -129,6 +147,74 @@ def _open_private_subdir(parent_fd: int, name: str) -> int:
         raise
 
 
+def _exclusive_write(path: str, data: bytes, dir_fd: int | None) -> bool:
+    """Create ``path`` exclusively and write ``data``; False if it already exists.
+
+    Used when the filesystem rejects hard links. Never overwrites or follows an
+    existing entry, but the final name is visible while it is being written; a
+    failed write removes the partial file.
+    """
+    try:
+        fd = os.open(path, _FILE_CREATE_FLAGS, 0o600, dir_fd=dir_fd)
+    except FileExistsError:
+        return False
+    try:
+        try:
+            _write_all(fd, data)
+        finally:
+            os.close(fd)
+    except BaseException:
+        try:
+            os.unlink(path, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        raise
+    return True
+
+
+def _publish(base: Path, data: bytes, dir_fd: int | None) -> Path:
+    """Write ``data`` privately and publish it under a fresh name next to ``base``.
+
+    With ``dir_fd`` set, names are resolved relative to that directory descriptor;
+    otherwise they are resolved by path under ``base.parent``.
+    """
+
+    def ref(name: str) -> str:
+        return name if dir_fd is not None else str(base.parent / name)
+
+    tmp = ref(f".{base.stem}.{secrets.token_hex(8)}.tmp")
+    fd = os.open(tmp, _FILE_CREATE_FLAGS, 0o600, dir_fd=dir_fd)
+    use_link = hasattr(os, "link")
+    try:
+        try:
+            _write_all(fd, data)
+        finally:
+            os.close(fd)
+        for name in _candidate_names(base):
+            if use_link:
+                try:
+                    os.link(tmp, ref(name), src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+                    return base.parent / name
+                except FileExistsError:
+                    continue
+                except OSError as e:
+                    # os.link existing does not mean the filesystem supports hard
+                    # links (exFAT/FAT, some network/FUSE mounts): fall back to
+                    # exclusive creation of the final name.
+                    logger.debug("hard-link publish unavailable (%s); falling back", e)
+                    use_link = False
+            if _exclusive_write(ref(name), data, dir_fd):
+                return base.parent / name
+        raise FileExistsError(
+            errno.EEXIST, f"too many tool-output collisions for {base.name}"
+        )
+    finally:
+        try:
+            os.unlink(tmp, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+
+
 def _publish_dir_fd(logdir: Path, base: Path, data: bytes) -> Path:
     """Descriptor-relative private write + no-clobber publish (POSIX)."""
     logdir.mkdir(parents=True, exist_ok=True)
@@ -137,34 +223,7 @@ def _publish_dir_fd(logdir: Path, base: Path, data: bytes) -> Path:
         fds.append(os.open(logdir, os.O_RDONLY | _O_DIRECTORY | _O_CLOEXEC))
         fds.append(_open_private_subdir(fds[-1], TOOL_OUTPUTS_DIRNAME))
         fds.append(_open_private_subdir(fds[-1], base.parent.name))
-        dir_fd = fds[-1]
-
-        tmp_name = f".{base.stem}.{secrets.token_hex(8)}.tmp"
-        fd = os.open(tmp_name, _FILE_CREATE_FLAGS, 0o600, dir_fd=dir_fd)
-        try:
-            try:
-                _write_all(fd, data)
-            finally:
-                os.close(fd)
-            for name in _candidate_names(base):
-                try:
-                    os.link(
-                        tmp_name,
-                        name,
-                        src_dir_fd=dir_fd,
-                        dst_dir_fd=dir_fd,
-                    )
-                except FileExistsError:
-                    continue
-                return base.parent / name
-            raise FileExistsError(
-                errno.EEXIST, f"too many tool-output collisions for {base.name}"
-            )
-        finally:
-            try:
-                os.unlink(tmp_name, dir_fd=dir_fd)
-            except FileNotFoundError:
-                pass
+        return _publish(base, data, fds[-1])
     finally:
         for fd in reversed(fds):
             os.close(fd)
@@ -186,35 +245,7 @@ def _publish_by_path(logdir: Path, base: Path, data: bytes) -> Path:
     logdir.mkdir(parents=True, exist_ok=True)
     _ensure_private_dir_by_path(base.parent.parent)
     _ensure_private_dir_by_path(base.parent)
-
-    tmp_path = base.parent / f".{base.stem}.{secrets.token_hex(8)}.tmp"
-    fd = os.open(tmp_path, _FILE_CREATE_FLAGS, 0o600)
-    try:
-        try:
-            _write_all(fd, data)
-        finally:
-            os.close(fd)
-        for name in _candidate_names(base):
-            final = base.parent / name
-            try:
-                if hasattr(os, "link"):
-                    os.link(tmp_path, final)
-                else:  # pragma: no cover - platforms without hard links
-                    if os.path.lexists(final):
-                        continue
-                    # Windows rename refuses to replace an existing target.
-                    os.rename(tmp_path, final)
-            except FileExistsError:
-                continue
-            return final
-        raise FileExistsError(
-            errno.EEXIST, f"too many tool-output collisions for {base.name}"
-        )
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except FileNotFoundError:
-            pass
+    return _publish(base, data, None)
 
 
 def _write_private_output(logdir: Path, base: Path, data: bytes) -> Path:

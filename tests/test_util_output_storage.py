@@ -1,5 +1,6 @@
 """Tests for the output_storage utility module."""
 
+import errno
 import json
 import os
 import stat
@@ -295,12 +296,48 @@ def test_write_failure_leaves_no_partial_or_temp_file(
     assert list((tmp_path / "tool-outputs" / "shell").iterdir()) == []
 
 
-def test_publish_failure_leaves_no_temp_file(tmp_path: Path, monkeypatch, writer_mode):
-    def fail_link(*args, **kwargs):
-        raise PermissionError(13, "link denied")
+@pytest.mark.parametrize("err", [errno.EPERM, errno.EXDEV, errno.ENOTSUP])
+def test_filesystem_without_hard_links_falls_back(
+    tmp_path: Path, monkeypatch, writer_mode, err: int
+):
+    """os.link existing does not mean the filesystem supports hard links."""
+    _freeze_time(monkeypatch)
 
-    monkeypatch.setattr(output_storage.os, "link", fail_link)
-    with pytest.raises(PermissionError):
+    def no_links(*args, **kwargs):
+        raise OSError(err, os.strerror(err))
+
+    monkeypatch.setattr(output_storage.os, "link", no_links)
+    _, first = save_large_output(content="data", logdir=tmp_path, output_type="shell")
+    _, second = save_large_output(content="data", logdir=tmp_path, output_type="shell")
+
+    assert first == large_output_path(tmp_path, "data", "shell")
+    assert second.name == f"{first.stem}-1.txt"
+    assert first.read_text() == second.read_text() == "data"
+    assert sorted(p.name for p in first.parent.iterdir()) == sorted(
+        [first.name, second.name]
+    )
+    if sys.platform != "win32":
+        assert stat.S_IMODE(first.stat().st_mode) == 0o600
+
+
+def test_fallback_write_failure_leaves_nothing(
+    tmp_path: Path, monkeypatch, writer_mode
+):
+    def no_links(*args, **kwargs):
+        raise OSError(errno.EPERM, "no hard links")
+
+    calls = {"n": 0}
+    real_fsync = os.fsync
+
+    def fail_second_fsync(fd):
+        calls["n"] += 1
+        if calls["n"] == 2:  # first fsync is the temp file, second the fallback
+            raise OSError(errno.ENOSPC, "No space left on device")
+        real_fsync(fd)
+
+    monkeypatch.setattr(output_storage.os, "link", no_links)
+    monkeypatch.setattr(output_storage.os, "fsync", fail_second_fsync)
+    with pytest.raises(OSError, match="No space left"):
         save_large_output(content="data", logdir=tmp_path, output_type="shell")
     assert list((tmp_path / "tool-outputs" / "shell").iterdir()) == []
 
@@ -314,6 +351,12 @@ def test_content_is_utf8_regardless_of_locale(tmp_path: Path, writer_mode):
 def test_lone_surrogate_is_saved_with_replacement(tmp_path: Path):
     _, saved = save_large_output(content="a\ud800b", logdir=tmp_path)
     assert saved.read_bytes() == b"a?b"
+
+
+def test_unrelated_lone_surrogate_keeps_escaped_bytes(tmp_path: Path):
+    """Replacement applies per character, not to the whole output."""
+    _, saved = save_large_output(content="a\udcff\ud800b\udc80", logdir=tmp_path)
+    assert saved.read_bytes() == b"a\xff?b\x80"
 
 
 def test_concurrent_same_content_saves_are_distinct(tmp_path: Path, monkeypatch):
