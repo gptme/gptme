@@ -218,9 +218,12 @@ def wait_for_owned_completion(
             _check_drain_cancellation(logdir)
             # Open/check the fixed window before admitting even a queued answer
             # or yielding to accepted steering. Neither can reset the deadline.
-            remaining = window.remaining()
+            window.remaining()
             if prompt_ready is not None and prompt_ready():
                 return False
+            # Prompt reads can block on the filesystem. Refresh the budget
+            # afterward before admitting a child answer or sleeping again.
+            remaining = window.remaining()
             if remaining <= 0:
                 return False
             if has_owned_completion(logdir, branch):

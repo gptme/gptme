@@ -1147,6 +1147,10 @@ def _await_owned_subagents(
         from .prompt_queue import drain_steer_prompts
 
         _drain_external_prompt_queue(manager, prompt_queue)
+        if prompt_queue:
+            # Leave steering for STEP_PRE so the first resumed response sees
+            # it, rather than scheduling it after the regular queued turn.
+            return True
         capacity = MAX_PROMPT_QUEUE_SIZE - len(prompt_queue)
         if capacity > 0:
             prompt_queue.extend(drain_steer_prompts(manager.logdir, max_items=capacity))

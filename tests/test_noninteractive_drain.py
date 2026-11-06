@@ -792,6 +792,60 @@ def test_steering_interrupts_drain_without_child_completion(tmp_path, monkeypatc
         child.release()
 
 
+def test_regular_prompt_resumes_with_pending_steering(tmp_path, monkeypatch):
+    from gptme.prompt_queue import queue_prompt
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "3")
+    manager = manager_at(tmp_path)
+    child = Child("steer-with-task", manager)
+    seen = []
+
+    def enqueue():
+        queue_prompt(manager.logdir, "older request")
+        queue_prompt(manager.logdir, "change course", steer=True)
+
+    def step(*args, **kwargs):
+        seen.append([m.content for m in manager.log])
+        child.release()
+        yield Message("assistant", "Followed latest instructions.")
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+    timer = later(0.05, enqueue)
+    try:
+        chat._run_chat_loop(
+            manager, [], False, interactive=False, logdir=manager.logdir
+        )
+        assert len(seen) == 1
+        assert "older request" in seen[0]
+        assert "change course" in seen[0], "first resumed step missed steering"
+        assert seen[0].index("older request") < seen[0].index("change course")
+    finally:
+        timer.join(5)
+        child.release()
+
+
+def test_prompt_read_cannot_admit_completion_after_deadline(tmp_path, monkeypatch):
+    from gptme.tools.subagent import drain
+
+    manager = manager_at(tmp_path)
+    now = [100.0]
+    monkeypatch.setattr(drain.time, "monotonic", lambda: now[0])
+    window = DrainWindow(timeout=10)
+
+    def slow_prompt_read():
+        now[0] = 111.0
+        notify_completion("late", "success", "result", parent_logdir=manager.logdir)
+        return False
+
+    assert not wait_for_owned_completion(
+        manager.logdir, window, prompt_ready=slow_prompt_read
+    )
+    assert window.deadline == 110.0
+    assert has_owned_completion(manager.logdir), "late result must remain queued"
+
+
 def test_queued_turns_cannot_admit_late_child_through_loop_hook(tmp_path, monkeypatch):
     from gptme.hooks import HookType, register_hook
 
