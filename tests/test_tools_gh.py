@@ -1497,6 +1497,64 @@ class TestUnsupportedFlagsPassThrough:
             ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
         )
 
+    @pytest.mark.parametrize(
+        ("command", "url", "expected"),
+        [
+            (
+                "pr status --json title,statusCheckRollup",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/other/repo/pull/42",
+                    "--json",
+                    "title,statusCheckRollup",
+                ],
+            ),
+            (
+                "pr status -R explicit/repo 5 --json statusCheckRollup",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "view",
+                    "-R",
+                    "explicit/repo",
+                    "5",
+                    "--json",
+                    "statusCheckRollup",
+                ],
+            ),
+            (
+                "pr status owner/repo#42 --json=statusCheckRollup",
+                None,
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/owner/repo/pull/42",
+                    "--json=statusCheckRollup",
+                ],
+            ),
+            (
+                "pr status --json title -R explicit/repo",
+                None,
+                ["pr", "status", "--json", "title", "-R", "explicit/repo"],
+            ),
+        ],
+    )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_flagged_status_uses_view_only_with_a_pr_target(
+        self, run, command, url, expected
+    ):
+        run.return_value = _mock_subprocess_run("requested status")
+        kwargs = {"command": command}
+        if url:
+            kwargs["url"] = url
+        messages = list(execute_gh(None, None, kwargs))
+        run.assert_called_once_with(
+            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+        )
+        assert messages[0].content == "requested status"
+
     @pytest.mark.parametrize("kind", ["issue", "pr"])
     @pytest.mark.parametrize("ref", ["owner/repo#42", "#42"])
     @patch("gptme.tools.gh.subprocess.run")

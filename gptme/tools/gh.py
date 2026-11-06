@@ -827,6 +827,11 @@ def execute_gh(
                 args = [*args[:2], kwargs["url"], *args[2:]]
                 ref_index = 2
             if ref_index is not None:
+                # Native status is PR-specific, but CLI status is a repository
+                # overview with no positional target. Use view for flagged
+                # PR-specific reads rather than dropping the requested target.
+                if args[:2] == ["pr", "status"]:
+                    args = ["pr", "view", *args[2:]]
                 # owner/repo#N and #N are tool shorthand, not CLI references.
                 ref = args[ref_index]
                 qualified = re.fullmatch(r"([\w.-]+/[\w.-]+)#(\d+)", ref)
@@ -963,7 +968,8 @@ Native commands:
 - `gh run view <run-id>` extracts failed-job logs
 
 Read flags beyond `--repo`/`-R` (e.g. `--json`, `--log-failed`) and other
-subcommands pass through to the gh CLI. A separate `url` supplies the read target.
+subcommands use the CLI. A separate `url` supplies the target; flagged PR-specific
+`pr status` uses `pr view` (CLI `pr status` has no target).
 
 Structured tool calls pass the whole command as `command`, e.g.
 `{"command": "issue view owner/repo#42"}`."""
