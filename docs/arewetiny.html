@@ -682,20 +682,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory '/home/runner/work/gptme/gptme'
 Benchmarking import time for gptme
 time uv run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep "import time" | cut -d'|' -f 2- | sort -n | tail -n 10
-     246395 |                   anthropic.resources.beta.beta
-     246608 |                 anthropic.resources.beta
-     282790 |               anthropic.resources
-     282808 |             anthropic.resources.beta
-     282957 |           anthropic.lib.vertex._beta_messages
-     283199 |         anthropic.lib.vertex._beta
-     284059 |       anthropic.lib.vertex._client
-     284164 |     anthropic.lib.vertex
-     830299 |   anthropic
-     830314 | anthropic._types
+     148705 |     anthropic.types
+     150543 |     gptme.lessons
+     150705 |   gptme.lessons.selector
+     150964 | gptme
+     204392 |           anthropic.types.beta
+     204412 |         anthropic.types.beta.beta_message
+     205851 |       anthropic.lib.middleware._fallbacks
+     205930 |     anthropic.lib.middleware
+     599036 |   anthropic
+     599053 | anthropic._types
 
-real	0m1.838s
-user	0m1.333s
-sys	0m0.219s
+real	0m1.401s
+user	0m1.204s
+sys	0m0.188s
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
 </div>
@@ -703,21 +703,23 @@ make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 make[2]: Entering directory '/home/runner/work/gptme/gptme'
 Benchmarking startup time for gptme
 Benchmark 1: import gptme.cli.main
-  Time (mean ± σ):     219.4 ms ±  13.2 ms    [User: 192.1 ms, System: 27.1 ms]
-  Range (min … max):   206.8 ms … 253.0 ms    10 runs
+  Time (mean ± σ):     234.9 ms ±  37.9 ms    [User: 205.2 ms, System: 29.7 ms]
+  Range (min … max):   203.5 ms … 301.5 ms    10 runs
  
 Benchmark 2: gptme --help
-  Time (mean ± σ):      1.308 s ±  0.038 s    [User: 1.173 s, System: 0.135 s]
-  Range (min … max):    1.235 s …  1.382 s    10 runs
+  Time (mean ± σ):      1.203 s ±  0.040 s    [User: 1.066 s, System: 0.137 s]
+  Range (min … max):    1.131 s …  1.252 s    10 runs
  
 Benchmark 3: full start/exit cycle
-  Time (mean ± σ):      2.502 s ±  0.049 s    [User: 2.321 s, System: 1.354 s]
-  Range (min … max):    2.440 s …  2.618 s    10 runs
+  Time (mean ± σ):      2.384 s ±  0.120 s    [User: 2.187 s, System: 1.289 s]
+  Range (min … max):    2.314 s …  2.722 s    10 runs
+ 
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the '--warmup' or '--prepare' options.
  
 Summary
   import gptme.cli.main ran
-    5.97 ± 0.40 times faster than gptme --help
-   11.41 ± 0.72 times faster than full start/exit cycle
+    5.12 ± 0.84 times faster than gptme --help
+   10.15 ± 1.72 times faster than full start/exit cycle
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
 </div>
@@ -4237,7 +4239,7 @@ Clone found (python)
 │ Total:     │ 610            │ 246262      │ 1264345      │ 211          │ 2755 (1.12%)     │ 14811 (1.17%)     │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 211 clones.
-time: 433.725ms
+time: 455.023ms
 make[3]: Leaving directory '/home/runner/work/gptme/gptme'
 make[2]: Leaving directory '/home/runner/work/gptme/gptme'
 </pre></div>
