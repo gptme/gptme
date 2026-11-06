@@ -535,6 +535,8 @@ class ChatConfig:
             for k, v in asdict(self, dict_factory=_dict_factory).items()
             if v is not None and not k.startswith("_")
         }
+        if self.mcp is not None:
+            config_dict["mcp"] = self.mcp.to_dict()
 
         # Save chat-specific settings into [chat] table
         for k in list(config_dict):

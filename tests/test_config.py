@@ -552,6 +552,49 @@ def test_mcp_config_loaded_in_correct_priority(tmp_path):
     assert my_server_4.env == {"API_KEY": "your-key-4"}
 
 
+def test_project_mcp_partial_layer_inherits_user_toggles(tmp_path: Path):
+    """A project [mcp] layer that only adds servers must not reset the toggles.
+
+    Regression for https://github.com/gptme/gptme/issues/4775: a project
+    ``[mcp]`` table without ``enabled``/``auto_start`` parsed to
+    ``MCPConfig(enabled=False)``, which silently disabled a globally enabled
+    MCP setup instead of inheriting it.
+    """
+    user_config = tmp_path / "config.toml"
+    user_config.write_text(
+        default_user_config
+        + "\n"
+        + default_mcp_config
+        + "\n"
+        + test_mcp_server_1_enabled
+    )
+    project_config = tmp_path / "gptme.toml"
+    project_config.write_text("[mcp]\n\n" + test_mcp_server_3)
+
+    config = Config.from_workspace(tmp_path)
+    config = replace(config, user=load_user_config(str(user_config)))
+
+    # Undeclared keys inherit from the user layer, servers still merge.
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+    assert [s.name for s in config.mcp.servers] == ["my-server-3", "my-server"]
+
+    # An explicit project override still wins.
+    project_config.write_text(
+        "[mcp]\nenabled = false\nauto_start = false\n\n" + test_mcp_server_3
+    )
+    config = Config.from_workspace(tmp_path)
+    config = replace(config, user=load_user_config(str(user_config)))
+
+    assert config.mcp.enabled is False
+    assert config.mcp.auto_start is False
+
+    # The merge bookkeeping must never reach a written config file.
+    project = Config.from_workspace(tmp_path).project
+    assert project is not None and project.mcp is not None
+    assert set(project.mcp.to_dict()) == {"enabled", "auto_start", "servers"}
+
+
 def test_malformed_mcp_server_entries_skipped_not_fatal():
     """A malformed [[mcp.servers]] entry must not crash config loading.
 
