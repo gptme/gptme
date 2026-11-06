@@ -736,7 +736,7 @@ def _has_unsupported_flags(args: list[str]) -> bool:
     return False
 
 
-def _has_cli_reference(args: list[str]) -> bool:
+def _cli_reference_index(args: list[str]) -> int | None:
     """Find a positional target without mistaking read-option values for one."""
     value_flags = {
         "--repo",
@@ -749,15 +749,16 @@ def _has_cli_reference(args: list[str]) -> bool:
         "--interval",
         "-i",
     }
-    rest = iter(args[2:])
-    for token in rest:
+    rest = iter(range(2, len(args)))
+    for index in rest:
+        token = args[index]
         if token == "--":
-            return next(rest, None) is not None
+            return next(rest, None)
         if token in value_flags:
             next(rest, None)
         elif not token.startswith("-"):
-            return True
-    return False
+            return index
+    return None
 
 
 def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
@@ -820,13 +821,21 @@ def execute_gh(
         # The CLI cannot see the separate structured-call URL. Preserve it as
         # the reference when the command has only flags, keeping an explicit
         # positional reference authoritative as in the native handlers.
-        if (
-            tuple(args[:2]) in _NATIVE_REF_COMMANDS
-            and kwargs
-            and kwargs.get("url")
-            and not _has_cli_reference(args)
-        ):
-            args = [*args[:2], kwargs["url"], *args[2:]]
+        if tuple(args[:2]) in _NATIVE_REF_COMMANDS:
+            ref_index = _cli_reference_index(args)
+            if ref_index is None and kwargs and kwargs.get("url"):
+                args = [*args[:2], kwargs["url"], *args[2:]]
+                ref_index = 2
+            if ref_index is not None:
+                # owner/repo#N and #N are tool shorthand, not CLI references.
+                ref = args[ref_index]
+                qualified = re.fullmatch(r"([\w.-]+/[\w.-]+)#(\d+)", ref)
+                if qualified:
+                    kind = "issues" if args[0] == "issue" else "pull"
+                    ref = f"https://github.com/{qualified[1]}/{kind}/{qualified[2]}"
+                elif re.fullmatch(r"#\d+", ref):
+                    ref = ref[1:]
+                args = [*args[:ref_index], ref, *args[ref_index + 1 :]]
         yield from _passthrough_gh(args, code)
         return
 

@@ -1497,6 +1497,26 @@ class TestUnsupportedFlagsPassThrough:
             ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
         )
 
+    @pytest.mark.parametrize("kind", ["issue", "pr"])
+    @pytest.mark.parametrize("ref", ["owner/repo#42", "#42"])
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_flagged_read_translates_native_shorthand(self, run, kind, ref):
+        run.return_value = _mock_subprocess_run("requested target")
+        flag = "--comments" if kind == "issue" else "--json=title"
+        list(execute_gh(None, [kind, "view", flag, ref], None))
+        target = (
+            f"https://github.com/owner/repo/{'issues' if kind == 'issue' else 'pull'}/42"
+            if ref.startswith("owner/")
+            else "42"
+        )
+        run.assert_called_once_with(
+            ["gh", kind, "view", flag, target],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+
     def test_run_view_with_only_repo_flag_stays_native(self):
         with (
             patch("gptme.tools.gh._passthrough_gh") as passthrough,
