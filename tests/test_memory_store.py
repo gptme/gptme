@@ -1080,6 +1080,9 @@ class TestStore:
             "Read [cache](cache.md)",
             "Use [[cache]] carefully",
             "Read [nested [cache](cache.md)](guide.md)",
+            r"Use \[cache",
+            r"Use cache\] carefully",
+            r"Use \\[cache] carefully",
         ],
     )
     def test_update_legacy_index_matches_only_leading_pointer(

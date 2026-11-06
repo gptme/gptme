@@ -278,8 +278,15 @@ def _is_legacy_pointer(line: str, filename: str) -> bool:
     if not line.startswith("- ["):
         return False
     depth = 1
+    escaped = False
     for pos in range(3, len(line)):
         char = line[pos]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
         if char == "[":
             depth += 1
         elif char == "]":
