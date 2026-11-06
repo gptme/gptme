@@ -140,6 +140,36 @@ def _reset_session_stats() -> None:
     _session_stats_var.set(LessonSessionStats())
 
 
+_memory_lessons_var: ContextVar[tuple[Path, list[Lesson]] | None] = ContextVar(
+    "memory_lessons", default=None
+)
+
+
+def _get_memory_lessons(workspace: Path | None) -> list[Lesson]:
+    """Keyworded memory entries as lesson candidates, cached per workspace.
+
+    A memory with ``keywords`` is a triggered rule (gptme#3734), so lesson
+    auto-inclusion matches it alongside lessons. Opt out with
+    ``GPTME_LESSONS_INCLUDE_MEMORIES=false``. Failures never break lessons.
+    """
+    if not get_config().get_env_bool("GPTME_LESSONS_INCLUDE_MEMORIES", True):
+        return []
+    key = (workspace or Path.cwd()).resolve()
+    cached = _memory_lessons_var.get()
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    try:
+        from ..memory import MemoryStore
+        from ..memory.match import memory_lessons
+
+        lessons = memory_lessons(MemoryStore.from_workspace(key))
+    except Exception as e:
+        logger.debug(f"Skipping memory lessons: {e}")
+        lessons = []
+    _memory_lessons_var.set((key, lessons))
+    return lessons
+
+
 def _get_lesson_index() -> LessonIndex:
     """Get context-local lesson index, creating it if needed."""
     index = _lesson_index_var.get()
@@ -501,8 +531,6 @@ def _auto_include_lessons(
         if LessonEmbedder is not None and GptmeHybridMatcher is not None:
             logger.info("Using ACE hybrid lesson matching")
             # Initialize embedder with lesson directories from LessonIndex
-            from pathlib import Path
-
             lesson_dirs = index.lesson_dirs
 
             # Use first lesson directory for embedder (typically workspace lessons)
@@ -536,8 +564,12 @@ def _auto_include_lessons(
         logger.debug("Using keyword-only lesson matcher")
         matcher = LessonMatcher()
 
-    # Match lessons against context
-    match_results = matcher.match(index.lessons, context)
+    # Match lessons, plus keyworded memories, against context
+    workspace = getattr(manager, "workspace", None)
+    if not isinstance(workspace, Path):
+        workspace = None
+    candidates = index.lessons + _get_memory_lessons(workspace)
+    match_results = matcher.match(candidates, context)
 
     # Holdouts remain ineligible even for explicitly protected guards.
     eligible_matches = [

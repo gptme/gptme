@@ -468,6 +468,16 @@ def isolate_user_config(
 
 
 @pytest.fixture(autouse=True)
+def no_memory_lessons(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep lesson auto-inclusion off real memory dirs (CC project dir, user dir).
+
+    Tests that exercise memory lessons re-enable it with their own
+    GPTME_MEMORY_DIRS.
+    """
+    monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "false")
+
+
+@pytest.fixture(autouse=True)
 def clear_tools_before(isolate_user_config):
     # Clear all tools and cache to prevent test conflicts
     clear_tools()

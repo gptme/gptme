@@ -79,13 +79,13 @@ about a user or project, save a memory.
 
 Memory is not facts-only: the Claude Code format includes a ``feedback`` type
 for guidance a harness learns from the user ("stage explicit paths", "don't
-steal window focus"). Give such an entry ``keywords`` and harnesses that run
-``memory match`` (for example a Claude Code hook) inject it when a keyword
-appears (see :ref:`memory-triggered-matching`). gptme's own chat loop does not:
-its automatic inclusion reads lesson directories only. Prefer a lesson when the
-rule is curated, shared across workspaces, or must reach gptme sessions; a
-keyworded ``feedback`` entry suits rules learned at runtime that live with a
-harness's memory directory.
+steal window focus"). Give such an entry ``keywords`` and it is injected when a
+keyword appears: gptme's lesson auto-inclusion matches keyworded memories
+alongside lessons, and other harnesses get the same behaviour by running
+``memory match`` (for example from a Claude Code hook; see
+:ref:`memory-triggered-matching`). Prefer a lesson when the rule is curated and
+shared across workspaces; a keyworded ``feedback`` entry suits rules learned at
+runtime that live with a harness's memory directory.
 
 .. _migrating-from-the-knowledge-base:
 
@@ -144,14 +144,14 @@ loader reads the other's directories:
 
 Keep them in separate directories. A memory entry with ``keywords`` covers the
 same ground as a lesson with ``match.keywords``, in the memory format, so either
-can hold a behavioural rule, but delivery differs: gptme automatically includes
-matching *lessons* in chat, while keyworded *memories* arrive only where a
-harness calls ``memory match``. There is no automatic converter: to move a
-lesson into memory, copy its body into an entry (typically ``type: feedback``)
-and turn ``match.keywords`` into ``keywords``; to promote a memory into a
-curated lesson, do the reverse. Remove the original either way, so the rule has
-one home, and only move a lesson out of a lesson directory if no gptme session
-depends on receiving it.
+can hold a behavioural rule. gptme's lesson auto-inclusion matches both, with
+one shared session budget and dedup; set ``GPTME_LESSONS_INCLUDE_MEMORIES=false``
+to match lessons only. Memory candidates match on ``keywords`` alone (no
+``match.tools`` or ``match.patterns``). There is no automatic converter: to
+move a lesson into memory, copy its body into an entry (typically
+``type: feedback``) and turn ``match.keywords`` into ``keywords``; to promote a
+memory into a curated lesson, do the reverse. Remove the original either way,
+so the rule has one home.
 
 Cross-harness memory
 --------------------

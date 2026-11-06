@@ -860,3 +860,78 @@ class TestToolSpec:
         # Hooks are tuples of (hook_type, function, priority)
         assert auto_hook[0] == "step.pre"
         assert end_hook[0] == "session.end"
+
+
+# --- Keyworded memories as lesson candidates ---
+
+
+class TestMemoryLessonsAutoInclude:
+    @pytest.fixture
+    def env(self, tmp_path, monkeypatch):
+        from gptme.memory import MemoryEntry
+        from gptme.tools.lessons import _memory_lessons_var
+
+        mem = tmp_path / "mem"
+        mem.mkdir()
+        (mem / "release-rule.md").write_text(
+            MemoryEntry(
+                name="release-rule",
+                type="feedback",
+                keywords=["stable release"],
+                body="Verify the tag before announcing.",
+            ).to_markdown()
+        )
+        (mem / "ambient.md").write_text(
+            MemoryEntry(name="ambient", body="stable release facts").to_markdown()
+        )
+        monkeypatch.setenv("GPTME_MEMORY_DIRS", str(mem))
+        monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "true")
+        _memory_lessons_var.set(None)
+        index = MagicMock()
+        index.lessons = [
+            _lesson(path="/lessons/deploy.md", title="Deploy", keywords=["deploy"])
+        ]
+        with patch("gptme.tools.lessons._get_lesson_index", return_value=index):
+            yield tmp_path
+        _memory_lessons_var.set(None)
+
+    def _manager(self, workspace, messages):
+        manager = MagicMock()
+        manager.log.messages = messages
+        manager.workspace = workspace
+        return manager
+
+    def test_keyworded_memory_is_included_with_lessons(self, env):
+        manager = self._manager(env, [_msg("user", "deploy the stable release")])
+        (msg,) = list(auto_include_lessons_hook(manager))
+        assert isinstance(msg, Message)
+        assert "## Deploy" in msg.content
+        assert "*Category: memory*" in msg.content
+        assert "Verify the tag before announcing." in msg.content
+        assert "release-rule.md" in msg.content
+        # Entries without keywords never trigger, even if their body matches.
+        assert "ambient" not in msg.content
+
+    def test_memory_not_repeated_once_in_log(self, env):
+        first = list(
+            auto_include_lessons_hook(
+                self._manager(env, [_msg("user", "cut the stable release")])
+            )
+        )
+        assert len(first) == 1
+        log = [_msg("user", "cut the stable release"), first[0]]
+        log.append(_msg("user", "stable release again"))
+        assert list(auto_include_lessons_hook(self._manager(env, log))) == []
+
+    def test_opt_out(self, env, monkeypatch):
+        monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "false")
+        manager = self._manager(env, [_msg("user", "cut the stable release")])
+        assert list(auto_include_lessons_hook(manager)) == []
+
+    def test_memory_store_failure_keeps_lessons(self, env):
+        manager = self._manager(env, [_msg("user", "deploy the stable release")])
+        with patch("gptme.memory.MemoryStore.from_workspace", side_effect=OSError):
+            (msg,) = list(auto_include_lessons_hook(manager))
+            assert isinstance(msg, Message)
+        assert "## Deploy" in msg.content
+        assert "release-rule" not in msg.content
