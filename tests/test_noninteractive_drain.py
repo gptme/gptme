@@ -767,3 +767,120 @@ def test_closing_continuation_preserves_unrelated_loop_hooks(tmp_path, monkeypat
     assert generations == [1, 1]
     assert len(hook_calls) == 2
     assert any(m.content == "next independent task" for m in manager.log)
+
+
+def test_steering_interrupts_drain_without_child_completion(tmp_path, monkeypatch):
+    from gptme.prompt_queue import queue_prompt
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "3")
+    manager = manager_at(tmp_path)
+    child = Child("steer-grandchild", manager)
+    timer = later(
+        0.05, lambda: queue_prompt(manager.logdir, "change course", steer=True)
+    )
+
+    def process(_n):
+        child.release()
+
+    try:
+        elapsed, generations, _ = run_noninteractive(manager, monkeypatch, process)
+        assert generations == [1]
+        assert any(m.content == "change course" for m in manager.log)
+        assert elapsed < 2, "accepted steering waited for the entire drain timeout"
+    finally:
+        timer.join(5)
+        child.release()
+
+
+def test_queued_turns_cannot_admit_late_child_through_loop_hook(tmp_path, monkeypatch):
+    from gptme.hooks import HookType, register_hook
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.05")
+    manager = manager_at(tmp_path)
+    first = Child("queue-first", manager)
+    first.finish()
+    late_child = Child("queue-late", manager)
+    hook_calls = []
+
+    def next_tasks(manager, **kwargs):
+        hook_calls.append(1)
+        if len(hook_calls) == 1:
+            yield Message("user", "independent one")
+            yield Message("user", "independent two")
+
+    def process(n):
+        if n == 2:
+            time.sleep(0.08)
+            late_child.finish()
+
+    register_hook("independent-tasks", HookType.LOOP_CONTINUE, next_tasks)
+    try:
+        _, generations, _ = run_noninteractive(manager, monkeypatch, process)
+        assert generations == [1, 1, 1], "late child triggered an unbudgeted turn"
+        assert completions_in(manager, "queue-late") == 0
+        assert has_owned_completion(manager.logdir)
+    finally:
+        late_child.release()
+
+
+@pytest.mark.parametrize("file_unavailable", [False, True])
+@pytest.mark.parametrize("steer", [False, True])
+def test_cancel_during_drain_does_not_run_queued_steering(
+    tmp_path, monkeypatch, file_unavailable, steer
+):
+    from gptme.prompt_queue import queue_prompt
+    from gptme.tools.complete import SessionCompleteException
+    from gptme.tools.subagent import api, drain
+
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "3")
+    manager = manager_at(tmp_path)
+    grandchild = Child("cancel-queued-grandchild", manager)
+    agent = Subagent(
+        agent_id="cancel-queued-agent",
+        prompt="delegate",
+        thread=threading.current_thread(),
+        logdir=manager.logdir,
+        model=None,
+        parent_logdir=tmp_path,
+    )
+    with _subagents_lock:
+        _subagents.append(agent)
+    if file_unavailable:
+
+        def fail_write(*args, **kwargs):
+            raise OSError("control file unavailable")
+
+        monkeypatch.setattr(api, "append_control_op", fail_write)
+
+    original_check = drain._check_drain_cancellation
+    checks = []
+
+    def cancel_at_checkpoint(logdir):
+        checks.append(1)
+        if len(checks) == 1:
+            queue_prompt(manager.logdir, "must not execute", steer=steer)
+            api.subagent_cancel(agent.agent_id)
+        original_check(logdir)
+
+    monkeypatch.setattr(drain, "_check_drain_cancellation", cancel_at_checkpoint)
+    calls = []
+
+    def process(*args, **kwargs):
+        calls.append(1)
+        # Avoid waiting again on the broken path; the assertion checks that
+        # cancellation reaches teardown without ANY additional model call.
+        raise SessionCompleteException("unexpected queued generation")
+
+    monkeypatch.setattr(chat, "_process_message_conversation", process)
+    try:
+        with pytest.raises(SessionCompleteException):
+            chat._run_chat_loop(
+                manager, [], False, interactive=False, logdir=manager.logdir
+            )
+        assert not calls, "cancelled drain resumed queued steering"
+        with _subagent_results_lock:
+            assert _subagent_results[agent.agent_id].status == "cancelled"
+    finally:
+        grandchild.release()
+        with _subagent_results_lock:
+            _subagent_results.pop(agent.agent_id, None)

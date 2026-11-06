@@ -479,7 +479,7 @@ def _run_chat_loop(
                 # Get user input or exit if non-interactive
                 if not interactive:
                     logger.debug("Non-interactive and exhausted prompts")
-                    if _await_owned_subagents(manager, drain_window):
+                    if _await_owned_subagents(manager, drain_window, prompt_queue):
                         # A child finished inside the closing window: deliver
                         # it and permit one budgeted continuation, then fall
                         # through to LOOP_CONTINUE like any other turn.
@@ -495,6 +495,10 @@ def _run_chat_loop(
                         ):
                             drain_window.closed = True
                     else:
+                        if prompt_queue:
+                            # Accepted steering interrupts the wait without
+                            # closing or extending the fixed child window.
+                            continue
                         _warn_unfinished_subagents(manager, drain_window)
                         # Write sentinel BEFORE the final drain so there is no window
                         # where a concurrent subagent_steer() can append after the
@@ -643,6 +647,7 @@ def _run_chat_loop(
                 interactive=interactive,
                 prompt_queue=prompt_queue,
                 no_confirm=no_confirm,
+                subagent_drain=not interactive and drain_window.deadline is not None,
                 subagent_notifications=(
                     child_ready_for_drain
                     if not interactive and not prompt_queue
@@ -662,7 +667,15 @@ def _run_chat_loop(
                         console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 
-        except SessionCompleteException:
+        except SessionCompleteException as exc:
+            from .tools.subagent.drain import DrainCancelled
+
+            if isinstance(exc, DrainCancelled):
+                # A consumed cancel control record must not be mistaken for
+                # ordinary complete(), which permits chained prompts to run.
+                if logdir is not None:
+                    (logdir / "prompt-queue-closed").touch()
+                raise
             # Queued turns and explicit user resumes share the same completion
             # boundary: complete finishes this prompt, not pending intent.
             # Write sentinel BEFORE draining so there is no window
@@ -1112,7 +1125,9 @@ def _new_drain_window(interactive: bool):
     return DrainWindow(timeout=0.0 if interactive else drain_timeout())
 
 
-def _await_owned_subagents(manager: LogManager, window) -> bool:
+def _await_owned_subagents(
+    manager: LogManager, window, prompt_queue: list[Message] | None = None
+) -> bool:
     """Event-wait in the closing window; True when an owned result is queued."""
     if window.closed or window.timeout <= 0 or manager.logdir is None:
         return False
@@ -1123,11 +1138,25 @@ def _await_owned_subagents(manager: LogManager, window) -> bool:
         console.log(
             f"Waiting up to {window.timeout:g}s for running subagent(s) before exiting."
         )
+
     # No prompt is active here, so SIGINT must raise instead of printing the
     # input-safeguard hint; the loop's KeyboardInterrupt handler closes the window.
+    def prompt_ready() -> bool:
+        if prompt_queue is None:
+            return False
+        from .prompt_queue import drain_steer_prompts
+
+        _drain_external_prompt_queue(manager, prompt_queue)
+        capacity = MAX_PROMPT_QUEUE_SIZE - len(prompt_queue)
+        if capacity > 0:
+            prompt_queue.extend(drain_steer_prompts(manager.logdir, max_items=capacity))
+        return bool(prompt_queue)
+
     set_interruptible()
     try:
-        return wait_for_owned_completion(manager.logdir, window, branch=branch)
+        return wait_for_owned_completion(
+            manager.logdir, window, branch=branch, prompt_ready=prompt_ready
+        )
     finally:
         clear_interruptible()
 

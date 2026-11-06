@@ -24,9 +24,11 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..complete import SessionCompleteException
 from .control import CONTROL_FILENAME, drain_control_ops
 from .hooks import _unpack_completion
 from .types import (
@@ -154,6 +156,10 @@ class DrainWindow:
         return max(0.0, self.deadline - time.monotonic())
 
 
+class DrainCancelled(SessionCompleteException):
+    """Cancellation ends the session, not just the current queued prompt."""
+
+
 def _check_drain_cancellation(logdir: Path) -> None:
     """Keep the cooperative cancel checkpoint active without another LLM step."""
     parent = Path(logdir).resolve()
@@ -176,23 +182,27 @@ def _check_drain_cancellation(logdir: Path) -> None:
                     agent_id = candidate
                 break
     if cancelled:
-        from ..complete import SessionCompleteException
-
         # Preserve the orchestrator's result (or an already completed result),
         # just as the control hook and background-shell wait do.
         set_subagent_result_if_absent(
             agent_id, ReturnType("cancelled", "Cancelled during subagent drain")
         )
-        raise SessionCompleteException("Subagent cancelled during subagent drain")
+        raise DrainCancelled("Subagent cancelled during subagent drain")
 
 
 def wait_for_owned_completion(
-    logdir: Path, window: DrainWindow, *, branch: str | None = None
+    logdir: Path,
+    window: DrainWindow,
+    *,
+    branch: str | None = None,
+    prompt_ready: Callable[[], bool] | None = None,
 ) -> bool:
     """Block until an owned terminal record is queued or the window closes.
 
-    Returns True when a completion is queued for delivery, False when the
-    window expired, was disabled, or no owned child is left running. The
+    Returns True when a completion is queued for delivery, False when a
+    prompt is ready, the window expired, was disabled, or no owned child is
+    left running. ``prompt_ready`` may drain accepted steering for the caller;
+    it is checked at the liveness interval without extending the deadline. The
     readiness subscription is registered before the first check so a
     completion racing the check is not lost. Cooperative cancellation raises
     SessionCompleteException, as at a normal step boundary.
@@ -206,8 +216,11 @@ def wait_for_owned_completion(
             # Clear before checking: a signal after the check sets it again.
             ready.clear()
             _check_drain_cancellation(logdir)
-            # Open/check the fixed window before admitting even a queued answer.
+            # Open/check the fixed window before admitting even a queued answer
+            # or yielding to accepted steering. Neither can reset the deadline.
             remaining = window.remaining()
+            if prompt_ready is not None and prompt_ready():
+                return False
             if remaining <= 0:
                 return False
             if has_owned_completion(logdir, branch):
@@ -217,6 +230,8 @@ def wait_for_owned_completion(
                 # just-finished child a moment to enqueue its record.
                 ready.wait(min(remaining, _NOTIFY_GRACE_SECONDS))
                 _check_drain_cancellation(logdir)
+                if prompt_ready is not None and prompt_ready():
+                    return False
                 return window.remaining() > 0 and has_owned_completion(logdir, branch)
             ready.wait(min(remaining, _LIVENESS_RECHECK_SECONDS))
     finally:

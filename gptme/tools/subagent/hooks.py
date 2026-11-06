@@ -517,13 +517,14 @@ def _subagent_loop_completion_hook(
     prompt_queue: object | None = None,
     no_confirm: bool = False,
     notification_branch: str | None = None,
+    subagent_drain: bool = False,
 ) -> Generator[Message, None, None]:
     """LOOP_CONTINUE delivery scoped to the active branch, like STEP_PRE.
 
     Records for another branch stay queued until that branch is current,
     instead of entering whichever branch happens to be active.
     """
-    if not interactive and not prompt_queue:
+    if subagent_drain or (not interactive and not prompt_queue):
         # An exhausted non-interactive parent must enter the bounded drain
         # before child notifications can become generation prompts. This also
         # prevents queued progress from restarting a finished parent.
