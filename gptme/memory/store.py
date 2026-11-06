@@ -256,8 +256,10 @@ def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
             return None
         content = ""
     line = entry.index_line()
-    # Allow brackets in titles, but never cross the leading link's destination.
-    pattern = rf"^- \[(?:(?!\]\().)*\]\({re.escape(entry.filename)}\).*$"
+    # Titles may hold plain brackets and nested links ("Read [cache](cache.md)"), but
+    # the match must end at this entry's own leading link, never inside a description.
+    title = r"(?:[^\[\]\n]|\[[^\[\]\n]*\](?:\([^)\n]*\))?)*"
+    pattern = rf"^- \[{title}\]\({re.escape(entry.filename)}\).*$"
     if not entry.is_living:
         return re.sub(pattern + r"\n?", "", content, flags=re.MULTILINE)
     if not content:

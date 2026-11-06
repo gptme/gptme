@@ -1071,7 +1071,9 @@ class TestStore:
 
     @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
     @pytest.mark.parametrize("existing_pointer", [True, False])
-    @pytest.mark.parametrize("title", ["Old", "Use [cache] carefully"])
+    @pytest.mark.parametrize(
+        "title", ["Old", "Use [cache] carefully", "Read [cache](cache.md)"]
+    )
     def test_update_legacy_index_matches_only_leading_pointer(
         self,
         tmp_path: Path,
