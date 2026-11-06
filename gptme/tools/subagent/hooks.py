@@ -524,14 +524,26 @@ def _subagent_loop_completion_hook(
     Records for another branch stay queued until that branch is current,
     instead of entering whichever branch happens to be active.
     """
-    if subagent_drain or (not interactive and not prompt_queue):
-        # An exhausted non-interactive parent must enter the bounded drain
-        # before child notifications can become generation prompts. This also
-        # prevents queued progress from restarting a finished parent.
+    if subagent_drain:
         return
     if notification_branch is None:
         branch = getattr(manager, "current_branch", None)
         notification_branch = branch if isinstance(branch, str) else None
+    if not interactive and not prompt_queue:
+        from .drain import drain_timeout
+
+        if drain_timeout() > 0:
+            # Opt-in closing windows admit results through their fixed deadline.
+            return
+        # Disabled draining avoids waiting for running children, not delivery
+        # of terminal results already queued by the final response. Progress
+        # alone must not restart generation at this boundary.
+        if manager.logdir is not None:
+            for agent_id, status, summary, _ in take_queued_completions(
+                manager.logdir, branch=notification_branch
+            ):
+                yield _completion_message(agent_id, status, summary)
+        return
     yield from _subagent_completion_hook(
         manager,
         interactive=interactive,

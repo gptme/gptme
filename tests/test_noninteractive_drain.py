@@ -631,6 +631,50 @@ def test_initial_queued_completion_enters_drain_before_hook(tmp_path, monkeypatc
     assert windows[0].deadline is not None
 
 
+@pytest.mark.parametrize("timeout", [None, "0"])
+def test_default_exit_delivers_already_finished_child(tmp_path, monkeypatch, timeout):
+    if timeout is not None:
+        monkeypatch.setenv(DRAIN_TIMEOUT_ENV, timeout)
+    manager = manager_at(tmp_path)
+    child = Child("already-finished", manager)
+    calls = []
+
+    def step(*_a, **_kw):
+        calls.append(1)
+        assert len(calls) <= 2, "completion was delivered more than once"
+        if len(calls) == 1:
+            child.finish()
+        else:
+            assert completions_in(manager, child.agent_id) == 1
+        yield Message("assistant", "done")
+
+    monkeypatch.setattr(chat, "step", step)
+    monkeypatch.setattr(chat, "get_default_model", lambda: None)
+    monkeypatch.setattr(chat, "_run_post_tool_compaction", lambda *_a: False)
+
+    from gptme.tools.subagent import drain
+
+    monkeypatch.setattr(
+        drain,
+        "wait_for_owned_completion",
+        lambda *_a, **_kw: pytest.fail("disabled drain must not wait"),
+    )
+
+    try:
+        chat._run_chat_loop(
+            manager,
+            [Message("user", "go")],
+            False,
+            interactive=False,
+            logdir=manager.logdir,
+        )
+    finally:
+        child.release()
+    assert calls == [1, 1]
+    assert completions_in(manager, child.agent_id) == 1
+    assert not has_owned_completion(manager.logdir)
+
+
 def test_cached_result_still_live_waits_for_notification(tmp_path):
     manager = manager_at(tmp_path)
     child = Child("cached", manager)
@@ -646,8 +690,11 @@ def test_cached_result_still_live_waits_for_notification(tmp_path):
             _subagent_results.pop(child.agent_id, None)
 
 
-def test_progress_queued_during_final_response_does_not_restart(tmp_path, monkeypatch):
-    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, "0.1")
+@pytest.mark.parametrize("timeout", ["0", "0.1"])
+def test_progress_queued_during_final_response_does_not_restart(
+    tmp_path, monkeypatch, timeout
+):
+    monkeypatch.setenv(DRAIN_TIMEOUT_ENV, timeout)
     manager = manager_at(tmp_path)
     child = Child("progress-only", manager)
     calls = []
@@ -673,6 +720,61 @@ def test_progress_queued_during_final_response_does_not_restart(tmp_path, monkey
     finally:
         child.release()
     assert calls == [1]
+
+
+@pytest.mark.parametrize("noise", ["progress", "other-branch"])
+def test_stopped_child_grace_ignores_nonterminal_wakes(tmp_path, noise):
+    manager = manager_at(tmp_path)
+    child = Child("grace-noise", manager)
+    child.release()
+
+    def send_noise():
+        if noise == "progress":
+            notify_progress(child.agent_id, "working", parent_logdir=manager.logdir)
+        else:
+            notify_completion(
+                "other-branch",
+                "success",
+                "not for this branch",
+                parent_logdir=manager.logdir,
+                parent_branch="other",
+            )
+
+    noise_timer = later(0.01, send_noise)
+    terminal_timer = later(0.05, child.finish)
+    try:
+        assert wait_for_owned_completion(
+            manager.logdir, DrainWindow(timeout=2), branch="main"
+        )
+        assert has_owned_completion(manager.logdir, "main")
+    finally:
+        noise_timer.join(5)
+        terminal_timer.join(5)
+        child.release()
+
+
+def test_stopped_child_grace_is_not_extended_by_progress(tmp_path, monkeypatch):
+    from gptme.tools.subagent import drain
+
+    manager = manager_at(tmp_path)
+    clock = [100.0]
+    monkeypatch.setattr(drain.time, "monotonic", lambda: clock[0])
+
+    class ProgressWake:
+        def clear(self):
+            pass
+
+        def set(self):
+            pass
+
+        def wait(self, timeout):
+            # Repeated progress wakes consume time without a terminal record.
+            clock[0] += min(timeout, 0.01)
+            return True
+
+    monkeypatch.setattr(drain.threading, "Event", ProgressWake)
+    assert not wait_for_owned_completion(manager.logdir, DrainWindow(timeout=2))
+    assert clock[0] == pytest.approx(100.25)
 
 
 def test_stopped_child_notification_grace_at_exit(tmp_path, monkeypatch):

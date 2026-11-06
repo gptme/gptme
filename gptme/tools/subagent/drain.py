@@ -211,6 +211,7 @@ def wait_for_owned_completion(
 
     ready = threading.Event()
     unsubscribe = subscribe(Path(logdir), ready.set)
+    grace_deadline: float | None = None
     try:
         while True:
             # Clear before checking: a signal after the check sets it again.
@@ -229,13 +230,16 @@ def wait_for_owned_completion(
             if has_owned_completion(logdir, branch):
                 return True
             if not has_pending_owned_work(logdir, branch):
-                # Children cache their result just before notifying; give a
-                # just-finished child a moment to enqueue its record.
-                ready.wait(min(remaining, _NOTIFY_GRACE_SECONDS))
-                _check_drain_cancellation(logdir)
-                if prompt_ready is not None and prompt_ready():
+                # A readiness signal may be progress or another branch's answer.
+                # Recheck admission after every wake, but never renew this grace.
+                if grace_deadline is None:
+                    grace_deadline = time.monotonic() + _NOTIFY_GRACE_SECONDS
+                grace_remaining = grace_deadline - time.monotonic()
+                if grace_remaining <= 0:
                     return False
-                return window.remaining() > 0 and has_owned_completion(logdir, branch)
+                ready.wait(min(remaining, grace_remaining))
+                continue
+            grace_deadline = None
             ready.wait(min(remaining, _LIVENESS_RECHECK_SECONDS))
     finally:
         unsubscribe()
