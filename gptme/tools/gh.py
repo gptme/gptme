@@ -736,6 +736,30 @@ def _has_unsupported_flags(args: list[str]) -> bool:
     return False
 
 
+def _has_cli_reference(args: list[str]) -> bool:
+    """Find a positional target without mistaking read-option values for one."""
+    value_flags = {
+        "--repo",
+        "-R",
+        "--json",
+        "--jq",
+        "-q",
+        "--template",
+        "-t",
+        "--interval",
+        "-i",
+    }
+    rest = iter(args[2:])
+    for token in rest:
+        if token == "--":
+            return next(rest, None) is not None
+        if token in value_flags:
+            next(rest, None)
+        elif not token.startswith("-"):
+            return True
+    return False
+
+
 def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
     """Strip ``--repo``/``-R`` from a native ref command and fold it into the ref.
 
@@ -800,7 +824,7 @@ def execute_gh(
             tuple(args[:2]) in _NATIVE_REF_COMMANDS
             and kwargs
             and kwargs.get("url")
-            and (len(args) == 2 or args[2].startswith("-"))
+            and not _has_cli_reference(args)
         ):
             args = [*args[:2], kwargs["url"], *args[2:]]
         yield from _passthrough_gh(args, code)

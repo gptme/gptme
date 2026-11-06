@@ -1468,6 +1468,14 @@ class TestUnsupportedFlagsPassThrough:
                 ],
             ),
             (
+                "pr view -R explicit/repo 5 --json title",
+                ["pr", "view", "-R", "explicit/repo", "5", "--json", "title"],
+            ),
+            (
+                "pr view --json title feature/branch",
+                ["pr", "view", "--json", "title", "feature/branch"],
+            ),
+            (
                 "run view 123 --log-failed",
                 ["run", "view", "123", "--log-failed"],
             ),
