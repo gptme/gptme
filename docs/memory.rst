@@ -355,10 +355,14 @@ included). Outer envelope fields (``session_id``, ``transcript_path``,
 reuse those names are tool arguments and do. ``--format hook-json`` returns
 empty ``additionalContext`` on no match so the hook stays silent.
 
-**Dedup and budget belong to the wrapper.** The CLI does not remember what it
-already injected. Call ``gptme.memory.match.match_memories`` from the harness
-and apply your own session dedup and injection budget to the returned entries,
-scores, and ``matched_by`` reasons. ``-k`` (default 5) and ``--body-chars``
+**Dedup.** By default the CLI does not remember what it already injected.
+Pass ``--dedup-session`` to deliver each entry at most once per session: the
+``session_id`` comes from the hook payload (or ``--session-id`` for plain text),
+and delivered entry paths are kept in the gptme state directory, keyed by a hash
+of the id and pruned after a week. Wrappers that need a different policy can
+call ``gptme.memory.match.match_memories`` and ``filter_unseen`` themselves and
+apply their own injection budget to the returned entries, scores, and
+``matched_by`` reasons. ``-k`` (default 5) and ``--body-chars``
 (default 1200 Unicode code points) are hard caps, not a substitute for that.
 
 Matching uses the same layered-root precedence as the rest of the store:
@@ -395,7 +399,7 @@ returns a valid ``additionalContext`` response:
            "hooks": [
              {
                "type": "command",
-               "command": "gptme-util memory match --prompt - --format hook-json",
+               "command": "gptme-util memory match --prompt - --format hook-json --dedup-session",
                "timeout": 20
              }
            ]
@@ -405,10 +409,9 @@ returns a valid ``additionalContext`` response:
    }
 
 The hook is read-only and returns empty ``additionalContext`` when there is no
-relevant memory. ``PreToolUse`` fires on every tool call and the CLI keeps no
-session dedup, so an entry whose keyword keeps matching is re-injected each
-time. Without a dedup wrapper, wire ``memory match`` on ``UserPromptSubmit``
-instead (once per user turn). Keep the executable on Claude Code's hook ``PATH``; if the
+relevant memory. ``PreToolUse`` fires on every tool call, so keep
+``--dedup-session`` on it; without the flag an entry whose keyword keeps
+matching is re-injected each time. Keep the executable on Claude Code's hook ``PATH``; if the
 workspace uses an isolated environment, call its absolute ``gptme-util`` path.
 
 Codex / AGENTS.md integration

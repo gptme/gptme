@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import tempfile
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -71,6 +77,69 @@ def match_memories(
         MemoryMatch(entries[result.lesson.path], result.score, result.matched_by)
         for result in LessonMatcher().match(lessons, MatchContext(message=text))[:limit]
     ]
+
+
+#: Session dedup state older than this is pruned on the next dedup call.
+SEEN_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _seen_file(session_id: str, state_dir: Path | None) -> Path:
+    if state_dir is None:
+        from ..dirs import get_state_dir
+
+        state_dir = get_state_dir()
+    # Hash the harness-supplied id so it can never act as a path component.
+    digest = hashlib.sha256(session_id.encode()).hexdigest()[:32]
+    return state_dir / "memory-match" / f"{digest}.json"
+
+
+def filter_unseen(
+    matches: list[MemoryMatch],
+    session_id: str,
+    *,
+    limit: int | None = None,
+    state_dir: Path | None = None,
+) -> list[MemoryMatch]:
+    """Drop matches already delivered in this session, and record the rest.
+
+    Hooks such as Claude Code's ``PreToolUse`` fire on every tool call, so a
+    keyword that keeps matching would re-inject the same entry each time. This
+    keeps a per-session set of delivered entry paths in the gptme state dir
+    (keyed by a hash of ``session_id``) and returns only new matches, capped at
+    ``limit``. Only returned matches are recorded, so entries cut by the cap
+    stay eligible for a later call.
+
+    Best effort by design: concurrent hook processes may both deliver an entry
+    once (last writer wins), and an unreadable state file counts as empty.
+    State files untouched for :data:`SEEN_TTL_SECONDS` are pruned.
+    """
+    if not session_id:
+        return matches[:limit]
+    path = _seen_file(session_id, state_dir)
+    try:
+        seen = set(json.loads(path.read_text()).get("seen", []))
+    except (OSError, ValueError, AttributeError):
+        seen = set()
+    fresh = [m for m in matches if str(m.entry.path) not in seen][:limit]
+    if not fresh:
+        return []
+    seen.update(str(m.entry.path) for m in fresh)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".seen-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump({"seen": sorted(seen)}, f)
+        os.replace(tmp, path)
+    except OSError:
+        Path(tmp).unlink(missing_ok=True)
+    cutoff = time.time() - SEEN_TTL_SECONDS
+    for old in path.parent.glob("*.json"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
+    return fresh
 
 
 def render_matches(matches: list[MemoryMatch], *, body_chars: int = 1200) -> str:
