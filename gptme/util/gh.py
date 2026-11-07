@@ -1065,8 +1065,10 @@ def _extract_failure_sections(log_text: str) -> str:
     # they matched nearly every line, so the selector degenerated to identity.
     # ``FAILED`` is matched case-sensitively because pytest prints it uppercase
     # in the summary and test ids carry it lowercase across underscores.
+    # Colon-delimited diagnostics remain useful even when written lowercase.
     error_patterns = [
         r"\bFAILED\b",
+        r"(?i)\b(?:failed|failure):",
         r"={5,}\s*FAILURES\s*={5,}",
         r"(?i)error[:\[\s]",
         r"(?i)assert(ion)?error",

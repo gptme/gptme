@@ -726,6 +726,14 @@ class TestExtractFailureSections:
         assert "test_real_breakage" in result
         assert len(result.splitlines()) < 20
 
+    def test_lowercase_failure_diagnostic_survives_distant_exit_trailer(self):
+        diagnostic = "Migration failed: relation users does not exist"
+        lines = [diagnostic] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert diagnostic in result
+        assert "exit code 1" in result
+
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
         prose = "db migration failed gracefully and rolled back"
         lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
