@@ -59,8 +59,7 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
-from .util.program_status import program_status, turn_status
-from .util.program_status import report as report_status
+from .util.program_status import session_status, turn_start, turn_status
 from .util.reduce import ContextLimitError
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
@@ -284,7 +283,7 @@ def chat(
         # _prev_tokens if any setup code above raises before reaching this point.
         _reset_token_accumulator()
         set_output_format(output_format)
-        skill_lifecycle.enter_context(program_status("idle"))
+        skill_lifecycle.enter_context(session_status())
         if interactive:
             from .util.prompt import idle_prompt_scope
 
@@ -712,15 +711,8 @@ def _trigger_turn_pre(manager: LogManager) -> None:
     The turn is already being processed, so terminal consumers see it working
     while slow hooks run; _process_message_conversation reports its outcome.
     """
-    report_status("working")
-    try:
+    with turn_start():
         turn_pre_msgs = trigger_hook(HookType.TURN_PRE, manager=manager)
-    except KeyboardInterrupt:
-        report_status("idle")
-        raise
-    except BaseException:
-        report_status("error")
-        raise
     for hook_msg in turn_pre_msgs or []:
         manager.append(hook_msg)
 

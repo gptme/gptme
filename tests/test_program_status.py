@@ -291,3 +291,31 @@ def test_cli_turn_pre_hooks_run_while_working(output, tmp_path, failure):
     }
     assert output.getvalue().endswith(expected[failure])
     assert (manager.log.messages[-1].content == "pre") is (failure is None)
+
+
+def test_nested_chat_session_keeps_parent_working(output):
+    """An inline subagent chat inside a parent's tool call stays silent,
+    except for blocking prompts the user must answer."""
+
+    @status.turn_status()
+    def nested_turn() -> bool:
+        with status.turn_start():
+            pass
+        with status.program_status("blocked", "permission"):
+            pass
+        return False
+
+    with status.session_status():
+        assert output.getvalue().endswith(status.encode_report("idle"))
+        with status.program_status("working", after="done"):
+            before = output.getvalue()
+            with status.session_status():  # nested chat()
+                nested_turn()
+            assert output.getvalue() == before + "".join(
+                [
+                    status.encode_report("blocked", "permission"),
+                    status.encode_report("working"),
+                ]
+            )
+        assert output.getvalue().endswith(status.encode_report("done"))
+    assert output.getvalue().endswith(status.encode_report("clear"))
