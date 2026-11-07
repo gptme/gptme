@@ -1068,7 +1068,7 @@ def _extract_failure_sections(log_text: str) -> str:
     # Colon-delimited diagnostics remain useful even when written lowercase.
     error_patterns = [
         r"\bFAILED\b",
-        r"(?i)\b(?:failed|failure):",
+        r"(?i)\b(?:failed|failure|fatal):",
         r"={5,}\s*FAILURES\s*={5,}",
         r"(?i)error[:\[\s]",
         r"(?i)assert(ion)?error",
