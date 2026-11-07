@@ -935,3 +935,76 @@ class TestMemoryLessonsAutoInclude:
             assert isinstance(msg, Message)
         assert "## Deploy" in msg.content
         assert "release-rule" not in msg.content
+
+    def test_memory_changes_mid_conversation_refresh_candidates(self, env):
+        from gptme.memory import MemoryEntry
+        from gptme.tools.lessons import _get_memory_lessons
+
+        mem = env / "mem"
+        assert [lesson.path.name for lesson in _get_memory_lessons(env)] == [
+            "release-rule.md"
+        ]
+        # A memory saved during the conversation becomes a candidate...
+        (mem / "hotfix-rule.md").write_text(
+            MemoryEntry(
+                name="hotfix-rule",
+                type="feedback",
+                keywords=["hotfix"],
+                body="Backport hotfixes to the stable branch.",
+            ).to_markdown()
+        )
+        manager = self._manager(env, [_msg("user", "ship the hotfix")])
+        (msg,) = list(auto_include_lessons_hook(manager))
+        assert isinstance(msg, Message)
+        assert "Backport hotfixes to the stable branch." in msg.content
+        # ...and one retired mid-conversation stops being one.
+        (mem / "release-rule.md").write_text(
+            MemoryEntry(
+                name="release-rule",
+                type="feedback",
+                status="historical",
+                keywords=["stable release"],
+                body="Verify the tag before announcing.",
+            ).to_markdown()
+        )
+        assert [lesson.path.name for lesson in _get_memory_lessons(env)] == [
+            "hotfix-rule.md"
+        ]
+
+    def test_failed_memory_load_is_retried(self, env):
+        from gptme.tools.lessons import _get_memory_lessons
+
+        with patch("gptme.memory.MemoryStore.from_workspace", side_effect=OSError):
+            assert _get_memory_lessons(env) == []
+        assert [lesson.path.name for lesson in _get_memory_lessons(env)] == [
+            "release-rule.md"
+        ]
+
+    def test_description_only_memory_delivers_description(self, env):
+        from gptme.memory import MemoryEntry
+
+        (env / "mem" / "rollback-rule.md").write_text(
+            MemoryEntry(
+                name="rollback-rule",
+                type="feedback",
+                keywords=["rollback"],
+                description="Snapshot the database before any rollback.",
+            ).to_markdown()
+        )
+        manager = self._manager(env, [_msg("user", "do the rollback")])
+        (msg,) = list(auto_include_lessons_hook(manager))
+        assert isinstance(msg, Message)
+        body = msg.content.split("## rollback-rule", 1)[-1]
+        assert "Snapshot the database before any rollback." in body
+
+
+def test_autouse_fixture_isolates_memory_roots_from_mocked_config():
+    """Mocking get_config defeats the env opt-out; roots must still be empty."""
+    from gptme.memory.roots import resolve_roots
+    from gptme.tools.lessons import _get_memory_lessons
+
+    roots = resolve_roots()
+    assert [r.scope for r in roots] == ["explicit"]
+    assert not any(roots[0].path.iterdir())
+    with patch("gptme.tools.lessons.get_config", return_value=MagicMock()):
+        assert _get_memory_lessons(None) == []

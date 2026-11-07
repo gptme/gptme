@@ -48,7 +48,8 @@ def _entries_as_lessons(entries: dict[Path, MemoryEntry]) -> list[Lesson]:
             title=entry.index_title,
             description=entry.description,
             category="memory",
-            body=entry.body,
+            # Description-only rules must still deliver their text.
+            body=entry.body.strip() or entry.description,
         )
         for path, entry in entries.items()
     ]
