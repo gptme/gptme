@@ -608,6 +608,19 @@ class TestBuiltinCommands:
         list(handle_cmd("/undo 3", mock_manager))
         mock_manager.undo.assert_any_call(3)
 
+    def test_undo_command_non_ascii_superscript(self, mock_manager):
+        """A non-ASCII digit must fall back to 1 instead of raising ValueError."""
+        list(handle_cmd("/undo \u00b2", mock_manager))
+        # auto_undo(1, quiet=True) first, then the handler's fallback of 1
+        mock_manager.undo.assert_called_with(1)
+
+    def test_undo_command_non_ascii_decimal(self, mock_manager):
+        """A non-ASCII decimal must not be read as its numeric value."""
+        list(handle_cmd("/undo \u0969", mock_manager))
+        counts = [call.args[0] for call in mock_manager.undo.call_args_list]
+        assert 3 not in counts, f"/undo '\u0969' undid 3 messages: {counts}"
+        mock_manager.undo.assert_called_with(1)
+
     def test_clear_command(self, mock_manager, capsys):
         """The /clear command should print ANSI clear sequence."""
         list(handle_cmd("/clear", mock_manager))
