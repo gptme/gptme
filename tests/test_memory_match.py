@@ -354,3 +354,70 @@ def test_match_dedup_explicit_session_id_for_plain_text(tmp_path, monkeypatch):
     args = ["--dedup-session", "--session-id", "manual"]
     assert _match_names("stable release", *args) == ["release-policy"]
     assert _match_names("stable release", *args) == []
+
+
+def test_match_dedup_state_write_failure_still_delivers(tmp_path, monkeypatch):
+    """An unwritable state dir or full disk loses dedup, never the memories."""
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "mem"))
+    write_entry(tmp_path / "mem", "release-policy", keywords=["stable release"])
+    hook = _hook("cut the stable release", "s1")
+
+    # State dir path is occupied by a regular file: mkdir() fails.
+    (tmp_path / "state").write_text("")
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    assert _match_names(hook, "--dedup-session") == ["release-policy"]
+
+    # Directory exists but creating the temp file fails (e.g. ENOSPC).
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state2"))
+
+    def full_disk(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("gptme.memory.match.tempfile.mkstemp", full_disk)
+    assert _match_names(hook, "--dedup-session") == ["release-policy"]
+    assert _match_names(hook, "--dedup-session") == ["release-policy"]
+
+
+@pytest.mark.parametrize(
+    "state",
+    ['{"seen": null}', '{"seen": [1]}', '{"seen": "abc"}', "[]", "null", '"x"'],
+)
+def test_match_dedup_malformed_state_counts_as_empty(tmp_path, monkeypatch, state):
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "mem"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    write_entry(tmp_path / "mem", "release-policy", keywords=["stable release"])
+    from gptme.memory.match import _seen_file
+
+    bad = _seen_file("s1", tmp_path / "state" / "gptme")
+    bad.parent.mkdir(parents=True)
+    bad.write_text(state)
+    hook = _hook("stable release", "s1")
+    assert _match_names(hook, "--dedup-session") == ["release-policy"]
+    # Replaced with valid state, so the next call dedups normally.
+    assert json.loads(bad.read_text())["seen"] == [
+        str(tmp_path / "mem" / "release-policy.md")
+    ]
+    assert _match_names(hook, "--dedup-session") == []
+
+
+def test_match_dedup_filters_full_match_set_before_cap(tmp_path, monkeypatch):
+    """Seen entries must not crowd out unseen ones, however many match."""
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "mem"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    for i in range(1001):
+        write_entry(tmp_path / "mem", f"rule-{i:04d}", keywords=["deploy"])
+    from gptme.memory import MemoryStore
+    from gptme.memory.match import _seen_file, match_memories
+
+    ordered = [
+        str(m.entry.path)
+        for m in match_memories(MemoryStore.from_workspace(), "deploy", limit=5000)
+    ]
+    assert len(ordered) == 1001
+    seen = _seen_file("s1", tmp_path / "state" / "gptme")
+    seen.parent.mkdir(parents=True)
+    seen.write_text(json.dumps({"seen": ordered[:1000]}))
+    hook = _hook("deploy now", "s1")
+    assert _match_names(hook, "--dedup-session", "-k", "1") == [
+        Path(ordered[1000]).stem
+    ]

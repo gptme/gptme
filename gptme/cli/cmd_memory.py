@@ -415,10 +415,10 @@ def memory_match(
     )
     session_key = session_id or payload_session
     if dedup_session and session_key:
-        # Filter before the -k cap so already-delivered entries don't crowd
-        # out unseen ones.
+        # Filter the full match set before the -k cap so already-delivered
+        # entries never crowd out unseen ones.
         hits = filter_unseen(
-            match_memories(_store(), text, limit=1000), session_key, limit=limit
+            match_memories(_store(), text, limit=None), session_key, limit=limit
         )
     else:
         hits = match_memories(_store(), text, limit=limit)
