@@ -292,6 +292,50 @@ def test_read_multiple_files_partial_failure(tmp_path: Path):
     assert "world" in messages[2].content
 
 
+def test_read_unresolvable_path_reports_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, requires_symlinks
+):
+    """An unresolvable path yields a per-path diagnostic; later batch paths still read.
+
+    Python <=3.12 raises RuntimeError from ``Path.resolve()`` on a symlink loop
+    (3.13 no longer does), so simulate that for the loop path on every version.
+    """
+    loop = tmp_path / "loop.txt"
+    loop.symlink_to(loop)
+    good = tmp_path / "ok.txt"
+    good.write_text("KNOWN_GOOD\n")
+
+    real_resolve = Path.resolve
+
+    def resolve(self: Path, strict: bool = False) -> Path:
+        if self.name == "loop.txt":
+            raise RuntimeError(f"Symlink loop from '{self}'")
+        return real_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+
+    single = list(execute_read(None, [str(loop)], None))
+    assert len(single) == 1
+    assert "Cannot resolve path" in single[0].content
+    assert str(loop) in single[0].content
+
+    messages = list(execute_read(f"{loop}\n{good}\n", None, None))
+    assert len(messages) == 2
+    assert "Cannot resolve path" in messages[0].content
+    assert "KNOWN_GOOD" in messages[1].content
+    assert good.read_text() == "KNOWN_GOOD\n"
+
+
+def test_read_ordinary_symlink_still_reads(tmp_path: Path, requires_symlinks):
+    target = tmp_path / "target.txt"
+    target.write_text("via link\n")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+
+    messages = list(execute_read(None, [str(link)], None))
+    assert "via link" in messages[0].content
+
+
 def test_read_multiple_files_ignores_line_range(tmp_path: Path):
     """Test that start_line/end_line is ignored when reading multiple files."""
     p1 = tmp_path / "a.txt"
