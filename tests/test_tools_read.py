@@ -293,7 +293,7 @@ def test_read_multiple_files_partial_failure(tmp_path: Path):
 
 
 def test_read_unresolvable_path_reports_and_continues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, requires_symlinks
 ):
     """An unresolvable path yields a per-path diagnostic; later batch paths still read.
 
@@ -326,7 +326,7 @@ def test_read_unresolvable_path_reports_and_continues(
     assert good.read_text() == "KNOWN_GOOD\n"
 
 
-def test_read_ordinary_symlink_still_reads(tmp_path: Path):
+def test_read_ordinary_symlink_still_reads(tmp_path: Path, requires_symlinks):
     target = tmp_path / "target.txt"
     target.write_text("via link\n")
     link = tmp_path / "link.txt"
