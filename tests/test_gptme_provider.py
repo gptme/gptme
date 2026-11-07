@@ -819,6 +819,13 @@ _MALFORMED_CACHE_BODIES = {
     "infinity-expiry": b'{"access_token": "x", "expires_at": Infinity}',
     "overflow-expiry": b'{"access_token": "x", "expires_at": 1e309}',
     "huge-finite-expiry": b'{"access_token": "x", "expires_at": 1e100}',
+    "huge-integer-expiry": b'{"access_token": "x", "expires_at": ' + b"9" * 400 + b"}",
+    "huge-negative-integer-expiry": (
+        b'{"access_token": "x", "expires_at": -' + b"9" * 400 + b"}"
+    ),
+    "secret-bearing-invalid-expiry": json.dumps(
+        _valid_cache(access_token=_MALFORMED_SECRET, expires_at="invalid")
+    ).encode(),
     "missing-token": b'{"expires_at": 99999999999}',
     "non-string-token": b'{"access_token": 5, "expires_at": 99999999999}',
     "empty-token": b'{"access_token": "", "expires_at": 99999999999}',

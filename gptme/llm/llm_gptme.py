@@ -147,9 +147,9 @@ def _is_usable_token_shape(data: object) -> bool:
         return True
     if isinstance(expires_at, bool) or not isinstance(expires_at, int | float):
         return False
-    if not math.isfinite(expires_at):
-        return False
     try:
+        if not math.isfinite(expires_at):
+            return False
         datetime.fromtimestamp(expires_at, tz=timezone.utc)
     except (OverflowError, OSError, ValueError):
         return False
