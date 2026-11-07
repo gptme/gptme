@@ -1181,3 +1181,53 @@ class TestStartupEvidenceReviewFindings:
 
         assert any("Alice source rules" in m.content for m in _injected(msgs))
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_retargeted_symlink_after_startup_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Evidence is what startup loaded, not what an alias points to now."""
+        shared = tmp_path / "shared" / "rules.md"
+        shared.parent.mkdir()
+        shared.write_text("# Shared rules")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(bob / "AGENTS.md")
+        _loaded_agent_files_var.set(None)
+        sub = bob / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Bob source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_alias_of_symlinked_context_file_target_is_kept(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """plain/README.md -> plain/rules.md loads first; Alice's alias survives."""
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "rules.md").write_text("# Shared rules")
+        (workspace / "README.md").symlink_to(workspace / "rules.md")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(workspace / "rules.md")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)

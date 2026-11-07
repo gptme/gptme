@@ -242,7 +242,8 @@ def _prompt_file_roots(log: Log | None) -> set[Path]:
     file from an agent workspace is not sufficient. For a symlinked file, the
     configured location and the target are judged separately, so an
     instruction-named alias pointing at another workspace's README does not
-    admit that workspace.
+    admit that workspace. Locations are used as recorded at startup and never
+    re-resolved, so retargeting a symlink later cannot change the evidence.
     """
     roots: set[Path] = set()
     if log is None:
@@ -251,15 +252,12 @@ def _prompt_file_roots(log: Log | None) -> set[Path]:
         origins = msg.metadata.get("startup_prompt_files", []) if msg.metadata else []
         files = [file for file in msg.files if isinstance(file, Path)]
         files.extend(Path(origin) for origin in origins)
-        for file in files:
-            # Resolve directory symlinks and '..' in the parent while keeping
-            # a final file symlink's own location, then its target separately.
-            for location in (file.parent.resolve() / file.name, file.resolve()):
-                if not _is_agent_instruction_file(location):
-                    continue
-                found = _nearest_agent_root(location.parent)
-                if found is not None:
-                    roots.add(found[0])
+        for location in files:
+            if not _is_agent_instruction_file(location):
+                continue
+            found = _nearest_agent_root(location.parent)
+            if found is not None:
+                roots.add(found[0])
     return roots
 
 

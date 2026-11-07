@@ -444,19 +444,27 @@ def prompt_workspace(
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
+    def _startup_origins(files: "list[FilePath]") -> list[str]:
+        """Locations each loaded file represents, recorded as of startup.
+
+        A file's target and every configured alias of it (including aliases
+        deduplicated against an earlier agent or context file) are recorded,
+        so the agents_md_inject hook never re-resolves symlinks later.
+        """
+        origins: list[str] = []
+        for f in files:
+            if not isinstance(f, Path):
+                continue
+            target = f.resolve()
+            for location in (*configured_paths.get(target, []), target):
+                if str(location) not in origins:
+                    origins.append(str(location))
+        return origins
+
     # Yield agent instruction files first with explicit framing
     valid_agent_files: list[FilePath] = [f for f in agent_files if f.exists()]
     if valid_agent_files:
         agent_file_list = "\n".join(f"- {file}" for file in valid_agent_files)
-        # A configured alias whose target was already loaded here as an agent
-        # instruction file is deduplicated out of the context files, so record
-        # its origin on this message instead.
-        agent_aliases = [
-            str(alias)
-            for f in valid_agent_files
-            if isinstance(f, Path)
-            for alias in configured_paths.get(f.resolve(), [])
-        ]
         yield Message(
             "system",
             "## Agent Instructions\n\n"
@@ -464,7 +472,7 @@ def prompt_workspace(
             "**You MUST follow these instructions** - they take precedence over default behaviors.\n\n"
             f"{agent_file_list}",
             files=valid_agent_files,
-            metadata={"startup_prompt_files": agent_aliases} if agent_aliases else None,
+            metadata={"startup_prompt_files": _startup_origins(valid_agent_files)},
         )
 
     # Yield context files separately (informational, not directives)
@@ -475,14 +483,7 @@ def prompt_workspace(
             "system",
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
-            metadata={
-                "startup_prompt_files": [
-                    str(alias)
-                    for f in valid_context_files
-                    if isinstance(f, Path)
-                    for alias in configured_paths.get(f, [f])
-                ]
-            },
+            metadata={"startup_prompt_files": _startup_origins(valid_context_files)},
         )
 
     # Load persistent memories from all layered roots (project, CC, agent, user).
