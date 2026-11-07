@@ -170,6 +170,15 @@ def test_embedded_google_oauth_access_token_is_redacted(template):
     assert n == 1
 
 
+@pytest.mark.parametrize("template", ["Authorization: Bearer {}\n", "E   -{}\n"])
+def test_jwt_with_short_payload_is_redacted(template):
+    value = "eyJhbGciOiJIUzI1NiJ9" + ".e30." + "aB3_dE-fG4hI5jK6"
+    assert redact_secret_values_from_output(template.format(value)) == (
+        template.format("[REDACTED]"),
+        1,
+    )
+
+
 @pytest.mark.parametrize("prefix", ["-", "E         -", "    -", "E         --"])
 def test_removed_jwt_line_is_redacted(prefix):
     value = "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12
