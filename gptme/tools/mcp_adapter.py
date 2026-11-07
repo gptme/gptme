@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 from gptme.config import Config, MCPServerConfig, get_config, set_config
 
+from ..mcp.display import display_target
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
@@ -779,7 +780,7 @@ def list_loaded_servers() -> str:
         if server.command:
             output.append(f"  Command: `{server.command}`")
         elif server.url:
-            output.append(f"  URL: `{server.url}`")
+            output.append(f"  URL: `{display_target(server)}`")
         output.append("")
 
     return "\n".join(output)

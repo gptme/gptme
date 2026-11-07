@@ -21,6 +21,7 @@ from logging import getLogger
 from typing import cast
 
 from ..hooks import confirm
+from ..mcp.display import display_target
 from ..message import Message
 from .base import (
     Parameter,
@@ -68,7 +69,7 @@ def _get_local_server_info(name: str) -> str | None:
     result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
 
     if local_server.is_http:
-        result += f"**URL:** {local_server.url}\n"
+        result += f"**URL:** {display_target(local_server)}\n"
         if local_server.headers:
             result += f"**Headers:** {len(local_server.headers)} configured\n"
     else:
