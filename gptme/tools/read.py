@@ -300,11 +300,17 @@ def _read_one(
     if read_root_error is not None:
         yield Message("system", f"Read denied: {read_root_error}")
         return
-    expanded_path = path.expanduser()
-    if read_root is not None and not expanded_path.is_absolute():
-        path = (read_root / expanded_path).resolve()
-    else:
-        path = expanded_path.resolve()
+    try:
+        expanded_path = path.expanduser()
+        if read_root is not None and not expanded_path.is_absolute():
+            path = (read_root / expanded_path).resolve()
+        else:
+            path = expanded_path.resolve()
+    except (RuntimeError, OSError) as exc:
+        # e.g. a symlink loop: report it for this path only, so later paths in
+        # a batch are still read.
+        yield Message("system", f"Cannot resolve path {path_display}: {exc}")
+        return
     containment_root = read_root or (
         Path.cwd().resolve() if not path_display.is_absolute() else None
     )
