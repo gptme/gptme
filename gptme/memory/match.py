@@ -72,7 +72,7 @@ def memory_lessons(store: MemoryStore) -> list[Lesson]:
 
 
 def match_memories(
-    store: MemoryStore, text: str, *, limit: int = 5
+    store: MemoryStore, text: str, *, limit: int | None = 5
 ) -> list[MemoryMatch]:
     """Match living entries by explicit keywords, using lesson wildcard semantics.
 
@@ -82,8 +82,9 @@ def match_memories(
 
     Memory names are identifiers, not skill names: only ``keywords`` participate
     in matching. No description/body similarity or tool-name bonus is added.
+    ``limit=None`` returns every match (session dedup filters before capping).
     """
-    if limit <= 0:
+    if limit is not None and limit <= 0:
         raise ValueError("limit must be positive")
     if not text.strip():
         return []
@@ -133,36 +134,67 @@ def filter_unseen(
     stay eligible for a later call.
 
     Best effort by design: concurrent hook processes may both deliver an entry
-    once (last writer wins), and an unreadable state file counts as empty.
+    once (last writer wins), an unreadable or misshapen state file counts as
+    empty, and a state write failure (unwritable dir, full disk) only loses
+    dedup: the matches are still returned.
     State files untouched for :data:`SEEN_TTL_SECONDS` are pruned.
     """
     if not session_id:
         return matches[:limit]
     path = _seen_file(session_id, state_dir)
-    try:
-        seen = set(json.loads(path.read_text()).get("seen", []))
-    except (OSError, ValueError, AttributeError):
-        seen = set()
+    seen = _load_seen(path)
     fresh = [m for m in matches if str(m.entry.path) not in seen][:limit]
     if not fresh:
         return []
     seen.update(str(m.entry.path) for m in fresh)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".seen-", suffix=".tmp")
+    _save_seen(path, seen)
+    return fresh
+
+
+def _load_seen(path: Path) -> set[str]:
+    """Read delivered paths; anything unreadable or misshapen counts as empty."""
     try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return set()
+    seen = data.get("seen") if isinstance(data, dict) else None
+    if not isinstance(seen, list) or not all(isinstance(s, str) for s in seen):
+        return set()
+    return set(seen)
+
+
+def _save_seen(path: Path, seen: set[str]) -> None:
+    """Persist delivered paths and prune stale state, best effort.
+
+    Any filesystem failure (unwritable state dir, full disk) only loses dedup;
+    the caller still delivers the matches.
+    """
+    tmp: str | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".seen-", suffix=".tmp")
         with os.fdopen(fd, "w") as f:
             json.dump({"seen": sorted(seen)}, f)
         os.replace(tmp, path)
+        tmp = None
     except OSError:
-        Path(tmp).unlink(missing_ok=True)
+        if tmp is not None:
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except OSError:
+                pass
+        return
     cutoff = time.time() - SEEN_TTL_SECONDS
-    for old in path.parent.glob("*.json"):
+    try:
+        olds = list(path.parent.glob("*.json"))
+    except OSError:
+        return
+    for old in olds:
         try:
             if old.stat().st_mtime < cutoff:
                 old.unlink()
         except OSError:
             pass
-    return fresh
 
 
 def render_matches(matches: list[MemoryMatch], *, body_chars: int = 1200) -> str:
