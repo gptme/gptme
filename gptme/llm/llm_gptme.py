@@ -42,8 +42,10 @@ URL architecture:
 import hashlib
 import json
 import logging
+import math
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Config
@@ -124,6 +126,36 @@ def _get_token_path(service_url: str | None = None) -> Path:
     return _TOKEN_DIR / f"gptme-cloud-{url_hash}.json"
 
 
+def _is_usable_token_shape(data: object) -> bool:
+    """True if a decoded token cache has the types every consumer relies on.
+
+    Checks types only (no refresh or schema invention): a JSON object whose
+    ``access_token`` is a non-empty string, ``expires_at`` (when set) a finite
+    number that is a representable timestamp, and optional ``base_url`` /
+    ``server_url`` strings. Never includes cache values in diagnostics.
+    """
+    if not isinstance(data, dict):
+        return False
+    token = data.get("access_token")
+    if not isinstance(token, str) or not token:
+        return False
+    for key in ("base_url", "server_url"):
+        if data.get(key) is not None and not isinstance(data[key], str):
+            return False
+    expires_at = data.get("expires_at", 0)
+    if expires_at is None:
+        return True
+    if isinstance(expires_at, bool) or not isinstance(expires_at, int | float):
+        return False
+    if not math.isfinite(expires_at):
+        return False
+    try:
+        datetime.fromtimestamp(expires_at, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return False
+    return True
+
+
 def _load_token(service_url: str | None = None) -> dict | None:
     """Load Device Flow token from disk.
 
@@ -147,9 +179,17 @@ def _load_token(service_url: str | None = None) -> dict | None:
             return None
 
     try:
+        # JSONDecodeError and UnicodeDecodeError are both ValueErrors.
         data = json.loads(token_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning(f"Failed to read gptme token: {e}")
+    except (ValueError, OSError) as e:
+        logger.warning(f"Failed to read gptme token: {type(e).__name__}")
+        return None
+
+    if not _is_usable_token_shape(data):
+        logger.warning(
+            "Ignoring malformed gptme token cache, "
+            "run `gptme-auth login` to re-authenticate"
+        )
         return None
 
     # Check expiration (with 60s buffer)

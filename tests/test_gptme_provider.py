@@ -790,3 +790,124 @@ def test_reinit_invalidates_gptme_gateway_client():
         llm_anthropic._anthropic = orig_anthropic
         llm_anthropic._anthropic_gptme = orig_gptme
         llm_anthropic._anthropic_gptme_key = orig_gptme_key
+
+
+# --- Malformed cached login (gptme/gptme#4797) -------------------------------
+
+_MALFORMED_SECRET = "SECRET-TOKEN-MARKER"
+
+
+def _valid_cache(**overrides):
+    data = {
+        "access_token": "test-token-123",
+        "expires_at": time.time() + 3600,
+        "server_url": "https://fleet.gptme.ai",
+    }
+    data.update(overrides)
+    return data
+
+
+# Raw file bodies that are not a usable login. Strings avoid json.dumps so
+# non-finite values can be written exactly as a hostile/corrupt file would.
+_MALFORMED_CACHE_BODIES = {
+    "list-root": b"[1, 2]",
+    "null-root": b"null",
+    "string-root": b'"token"',
+    "string-expiry": b'{"access_token": "x", "expires_at": "9999999999"}',
+    "bool-expiry": b'{"access_token": "x", "expires_at": true}',
+    "nan-expiry": b'{"access_token": "x", "expires_at": NaN}',
+    "infinity-expiry": b'{"access_token": "x", "expires_at": Infinity}',
+    "overflow-expiry": b'{"access_token": "x", "expires_at": 1e309}',
+    "huge-finite-expiry": b'{"access_token": "x", "expires_at": 1e100}',
+    "missing-token": b'{"expires_at": 99999999999}',
+    "non-string-token": b'{"access_token": 5, "expires_at": 99999999999}',
+    "empty-token": b'{"access_token": "", "expires_at": 99999999999}',
+    "object-base-url": (
+        b'{"access_token": "x", "expires_at": 99999999999, "base_url": {"a": 1}}'
+    ),
+    "object-server-url": (
+        b'{"access_token": "x", "expires_at": 99999999999, "server_url": ["a"]}'
+    ),
+    "invalid-utf8": b'{"access_token": "\xff\xfe", "expires_at": 99999999999}',
+}
+
+
+@pytest.mark.parametrize(
+    "body", _MALFORMED_CACHE_BODIES.values(), ids=list(_MALFORMED_CACHE_BODIES)
+)
+def test_load_token_rejects_malformed_cache(tmp_path: Path, body: bytes, caplog):
+    """A malformed cache is treated like a missing one, never raised."""
+    from gptme.llm.llm_gptme import _load_token
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_bytes(body)
+
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        assert _load_token() is None
+    assert _MALFORMED_SECRET not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "body", _MALFORMED_CACHE_BODIES.values(), ids=list(_MALFORMED_CACHE_BODIES)
+)
+def test_malformed_cache_falls_back_to_configured_key(tmp_path: Path, body: bytes):
+    """Provider lookup falls back to the configured key and default URLs."""
+    from gptme.llm.llm_gptme import (
+        DEFAULT_BASE_URL,
+        DEFAULT_MODELS_BASE_URL,
+        get_api_key,
+        get_base_url,
+        get_models_url,
+    )
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_bytes(body)
+    config = _mock_config(env={"GPTME_CLOUD_API_KEY": "configured-key"})
+
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        assert get_api_key(config) == "configured-key"
+        assert get_base_url(config) == DEFAULT_BASE_URL
+        assert get_models_url(config) == DEFAULT_MODELS_BASE_URL
+
+
+@pytest.mark.parametrize(
+    "body", _MALFORMED_CACHE_BODIES.values(), ids=list(_MALFORMED_CACHE_BODIES)
+)
+def test_auth_status_reports_not_logged_in_for_malformed_cache(
+    tmp_path: Path, body: bytes
+):
+    from click.testing import CliRunner
+
+    from gptme.cli.auth import main
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_bytes(body)
+
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        result = CliRunner().invoke(main, ["status"])
+    assert result.exit_code == 0, result.output
+    assert result.exception is None
+    assert "Not logged in" in result.output
+
+
+def test_valid_cache_controls_unchanged(tmp_path: Path):
+    """Valid login, optional fields absent or string, and expiry skew still work."""
+    from gptme.llm.llm_gptme import _load_token
+
+    token_path = tmp_path / "gptme-cloud.json"
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        # Optional URL fields may be absent or strings (integer expiry too).
+        token_path.write_text(
+            json.dumps(
+                _valid_cache(
+                    expires_at=int(time.time()) + 3600, base_url="https://x/v1", sub="u"
+                )
+            )
+        )
+        assert _load_token() is not None
+        # Inside the 60s skew window is treated as expired, as before.
+        token_path.write_text(json.dumps(_valid_cache(expires_at=time.time() + 30)))
+        assert _load_token() is None
+        # Missing/zero expiry stays expired without being malformed.
+        token_path.write_text(json.dumps({"access_token": "x"}))
+        assert _load_token() is None
