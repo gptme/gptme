@@ -1065,7 +1065,7 @@ def _extract_failure_sections(log_text: str) -> str:
     # when written lowercase; word boundaries exclude underscored test ids.
     error_patterns = [
         r"\bFAILED\b",
-        r"(?i)\b(?:failed|failure|fatal):",
+        r"(?i)\b(?:failed|failures?|fatal):",
         r"(?i)\bfailed\s+to\b",
         r"={5,}\s*FAILURES\s*={5,}",
         r"(?i)error[:\[\s]",

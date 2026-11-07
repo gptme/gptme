@@ -756,6 +756,15 @@ class TestExtractFailureSections:
         assert diagnostic in result
         assert "exit code 1" in result
 
+    def test_rust_failures_heading_keeps_panic_location(self):
+        panic = "thread 'tests::check' panicked at src/lib.rs:10:5:"
+        lines = ["failures:", "", "---- tests::check stdout ----", panic]
+        lines += ["cleanup"] * 20
+        lines.append("test result: FAILED. 0 passed; 1 failed;")
+        result = _extract_failure_sections("\n".join(lines))
+        assert panic in result
+        assert "test result: FAILED" in result
+
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
         prose = "db migration failed gracefully and rolled back"
         lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
