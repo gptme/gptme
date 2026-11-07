@@ -252,3 +252,42 @@ def test_cli_turn_interrupt_outside_step_is_idle(output, tmp_path):
 
     assert output.getvalue().endswith(status.encode_report("idle"))
     assert "state=error" not in output.getvalue()
+
+
+@pytest.mark.parametrize("failure", [None, KeyboardInterrupt, ValueError])
+def test_cli_turn_pre_hooks_run_while_working(output, tmp_path, failure):
+    """The working state spans TURN_PRE hooks, which run before generation."""
+    import importlib
+    from unittest.mock import patch
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "System"), Message("user", "Do work")],
+        logdir=tmp_path / "conversation",
+    )
+    status.report("done")  # the previous turn's outcome
+
+    def hook(hook_type, **kwargs):
+        assert hook_type == chat.HookType.TURN_PRE
+        assert output.getvalue().endswith(status.encode_report("working"))
+        if failure is not None:
+            raise failure
+        return [Message("system", "pre")]
+
+    with patch.object(chat, "trigger_hook", side_effect=hook):
+        if failure is None:
+            chat._trigger_turn_pre(manager)
+        else:
+            with pytest.raises(failure):
+                chat._trigger_turn_pre(manager)
+
+    expected = {
+        None: status.encode_report("working"),
+        KeyboardInterrupt: status.encode_report("idle"),
+        ValueError: status.encode_report("error"),
+    }
+    assert output.getvalue().endswith(expected[failure])
+    assert (manager.log.messages[-1].content == "pre") is (failure is None)

@@ -87,7 +87,12 @@ async def test_tui_opt_out(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     ("mode", "expected"),
-    [("declined", "idle"), ("interrupt", "idle"), ("reply", "done")],
+    [
+        ("declined", "idle"),
+        ("interrupt", "idle"),
+        ("error", "error"),
+        ("reply", "done"),
+    ],
 )
 def test_tui_turn_outcome(tmp_path, monkeypatch, mode, expected):
     """A declined (``n``) or interrupted TUI turn ends idle, like the CLI."""
@@ -100,13 +105,16 @@ def test_tui_turn_outcome(tmp_path, monkeypatch, mode, expected):
     app._terminal_outcome = "done"  # as set by _start_generation
 
     def call_from_thread(callback, *args, **kwargs):
-        if callback == app._take_steer_prompts:
+        # Run the callbacks that decide the outcome; skip widget updates.
+        if callback in (app._take_steer_prompts, app._generation_failed):
             return callback(*args, **kwargs)
         return None
 
     def reply(*args, **kwargs):
         if mode == "interrupt":
             raise KeyboardInterrupt
+        if mode == "error":
+            raise ValueError("provider unavailable")
         if mode == "declined":
             yield Message("system", DECLINED_CONTENT)
         else:
@@ -119,3 +127,5 @@ def test_tui_turn_outcome(tmp_path, monkeypatch, mode, expected):
     monkeypatch.setattr("gptme.tui.app.step", reply)
     app._generation_body()
     assert app._terminal_outcome == expected
+    if mode == "reply":
+        assert manager.log.messages[-1].content == "Done."

@@ -60,6 +60,7 @@ from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.program_status import program_status, turn_status
+from .util.program_status import report as report_status
 from .util.reduce import ContextLimitError
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
@@ -459,12 +460,7 @@ def _run_chat_loop(
 
                 if msg.role == "user":
                     _idle_autowake_blocked.set(False)
-                    if turn_pre_msgs := trigger_hook(
-                        HookType.TURN_PRE,
-                        manager=manager,
-                    ):
-                        for hook_msg in turn_pre_msgs:
-                            manager.append(hook_msg)
+                    _trigger_turn_pre(manager)
 
                 # Process the message and get response
                 if _process_message_conversation(
@@ -582,16 +578,7 @@ def _run_chat_loop(
 
                         # A real (non-command) prompt re-enables idle autowake.
                         _idle_autowake_blocked.set(False)
-
-                        # Trigger turn.pre hooks once per submitted user prompt,
-                        # after the prompt is appended and command handling has
-                        # declined to consume it.
-                        if turn_pre_msgs := trigger_hook(
-                            HookType.TURN_PRE,
-                            manager=manager,
-                        ):
-                            for hook_msg in turn_pre_msgs:
-                                manager.append(hook_msg)
+                        _trigger_turn_pre(manager)
 
                         # Process the message and get response
                         interrupted = _process_message_conversation(
@@ -785,6 +772,25 @@ def _park_remaining_prompts(
             target,
         )
     return parked
+
+
+def _trigger_turn_pre(manager: LogManager) -> None:
+    """Run turn.pre hooks as the start of the turn's working state.
+
+    The turn is already being processed, so terminal consumers see it working
+    while slow hooks run; _process_message_conversation reports its outcome.
+    """
+    report_status("working")
+    try:
+        turn_pre_msgs = trigger_hook(HookType.TURN_PRE, manager=manager)
+    except KeyboardInterrupt:
+        report_status("idle")
+        raise
+    except BaseException:
+        report_status("error")
+        raise
+    for hook_msg in turn_pre_msgs or []:
+        manager.append(hook_msg)
 
 
 def _drain_external_prompt_queue(
