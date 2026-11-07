@@ -6,7 +6,6 @@ import errno
 import importlib
 import logging
 import os
-import re
 import stat
 import sys
 from contextlib import contextmanager
@@ -256,17 +255,59 @@ def _legacy_index_text(index_path: Path, entry: MemoryEntry) -> str | None:
             return None
         content = ""
     line = entry.index_line()
-    # Allow brackets in titles, but never cross the leading link's destination.
-    pattern = rf"^- \[(?:(?!\]\().)*\]\({re.escape(entry.filename)}\).*$"
-    if not entry.is_living:
-        return re.sub(pattern + r"\n?", "", content, flags=re.MULTILINE)
-    if not content:
+    if not content and entry.is_living:
         return f"{INDEX_HEADER}\n\n{line}\n"
-    if re.search(pattern, content, re.MULTILINE):
-        return re.sub(pattern, lambda _: line, content, flags=re.MULTILINE)
+    matched = False
+    updated = []
+    for old_line in content.split("\n"):
+        if _is_legacy_pointer(old_line, entry.filename):
+            matched = True
+            if entry.is_living:
+                updated.append(line)
+        else:
+            updated.append(old_line)
+    if matched or not entry.is_living:
+        return "\n".join(updated)
     if not content.endswith("\n"):
         content += "\n"
     return content + line + "\n"
+
+
+def _is_legacy_pointer(line: str, filename: str) -> bool:
+    """Match the leading pointer in linear time, including nested title brackets."""
+    if not line.startswith("- ["):
+        return False
+    depth = 1
+    escaped = False
+    has_escape = False
+    for pos in range(3, len(line)):
+        char = line[pos]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            has_escape = True
+            continue
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                # Stop at the outer title boundary; description links are not keys.
+                if not has_escape and line.startswith("(", pos + 1):
+                    return line.startswith(f"({filename})", pos + 1)
+                break
+    # index_line() writes raw titles, including unmatched or mixed escaped
+    # brackets. Recover only an unambiguous destination at a record boundary.
+    # A separator in the title/description can create multiple candidates; leave
+    # those lines alone rather than overwrite another memory's pointer.
+    candidates = []
+    for fragment in line.split("](")[1:]:
+        destination, separator, _ = fragment.partition(") — ")
+        if separator:
+            candidates.append(destination)
+    return candidates == [filename]
 
 
 class MemoryStore:

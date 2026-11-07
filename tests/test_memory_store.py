@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import stat
 import struct
+import subprocess
 import sys
 import threading
 from collections.abc import Iterator
@@ -1071,7 +1072,23 @@ class TestStore:
 
     @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
     @pytest.mark.parametrize("existing_pointer", [True, False])
-    @pytest.mark.parametrize("title", ["Old", "Use [cache] carefully"])
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Old",
+            "Use [cache] carefully",
+            "Read [cache](cache.md)",
+            "Use [[cache]] carefully",
+            "Use [cache",
+            "Read [nested [cache](cache.md)](guide.md)",
+            r"Use \[cache",
+            r"Use \[cache] carefully",
+            r"See \[Old](old.md)",
+            r"Use C:\cache",
+            r"Use cache\] carefully",
+            r"Use \\[cache] carefully",
+        ],
+    )
     def test_update_legacy_index_matches_only_leading_pointer(
         self,
         tmp_path: Path,
@@ -1080,13 +1097,16 @@ class TestStore:
         title: str,
     ) -> None:
         store = self._store(tmp_path)
-        path = store.save("old", "Original", title=title)
+        path = store.save("old", "See [Guide](guide.md)", title=title)
         entry = parse_entry(path, strict=True)
         entry.status = status
         index_path = path.parent / "MEMORY.md"
         unrelated = (
             "# Hand-curated memory\n\n"
             "- [Current [cache] advice](current.md) — See [Old](old.md)\n"
+            "- [See [Old](old.md) — [cache](current.md) — Keep\n"
+            "- [See \\[Old](old.md) — [cache](current.md) — Keep\n"
+            "- [See \\[Old](old.md)](current.md) — Keep\n"
             "\nKeep this footer with [Old](old.md).\n"
         )
         index_path.write_text(
@@ -1100,6 +1120,84 @@ class TestStore:
 
         expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
         assert index_path.read_text() == expected
+
+    @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
+    @pytest.mark.parametrize("filename", ["cache(v2).md", "cache((v2)).md"])
+    def test_update_legacy_index_raw_title_parenthesized_filename(
+        self, tmp_path: Path, status: str, filename: str
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original", title="Use [cache")
+        entry = parse_entry(path, strict=True)
+        entry.path = path.with_name(filename)
+        index_path = path.parent / "MEMORY.md"
+        unrelated = (
+            "# Hand-curated memory\n\n"
+            f"- [See [Old]({filename}) — [cache](current.md) — Keep\n"
+            f"- [Current](current.md) — See [Old]({filename})\n"
+            "\nKeep this footer.\n"
+        )
+        index_path.write_text(unrelated + entry.index_line() + "\n")
+        entry.title = "Updated"
+        entry.description = "Updated"
+        entry.status = status
+
+        update_index_line(path.parent, entry)
+
+        expected = unrelated + (entry.index_line() + "\n" if entry.is_living else "")
+        assert index_path.read_text() == expected
+
+    @pytest.mark.parametrize("status", ["living", "superseded", "historical"])
+    @pytest.mark.parametrize("field", ["title", "description"])
+    def test_update_legacy_index_unicode_separator_is_not_a_newline(
+        self, tmp_path: Path, status: str, field: str
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original")
+        entry = parse_entry(path)
+        setattr(entry, field, "Before\u2028after")
+        index_path = path.parent / "MEMORY.md"
+        footer = "\nKeep this footer.\n"
+        index_path.write_text(entry.index_line() + "\n" + footer)
+        entry.title = "Updated"
+        entry.description = "Updated"
+        entry.status = status
+
+        update_index_line(path.parent, entry)
+
+        expected = (entry.index_line() + "\n" if entry.is_living else "") + footer
+        assert index_path.read_text() == expected
+
+    def test_update_legacy_index_many_links_does_not_backtrack(
+        self, tmp_path: Path
+    ) -> None:
+        store = self._store(tmp_path)
+        path = store.save("old", "Original")
+        index_path = path.parent / "MEMORY.md"
+        unrelated = "- [" + "[x](u)" * 40 + "](other.md) — Keep this pointer.\n"
+        index_path.write_text(unrelated, encoding="utf-8")
+
+        # Run outside pytest so a backtracking regression can be killed without
+        # leaving a thread holding the root/index locks indefinitely.
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; from pathlib import Path; "
+                    "from gptme.memory import parse_entry; "
+                    "from gptme.memory.store import update_index_line; "
+                    "p = Path(sys.argv[1]); update_index_line(p.parent, parse_entry(p))"
+                ),
+                str(path),
+            ],
+            check=True,
+            timeout=5,
+        )
+
+        assert (
+            index_path.read_text() == unrelated + parse_entry(path).index_line() + "\n"
+        )
 
     def test_save_to_scope_and_unknown_scope(self, tmp_path):
         store = self._store(tmp_path)
