@@ -844,16 +844,22 @@ gptme<span class="w"> </span><span class="s1">'hello'</span><span class="w"> </s
 <p><strong>Tokenizer in airgapped environments</strong></p>
 <p>gptme may fetch the OpenAI <code class="docutils literal notranslate"><span class="pre">cl100k_base</span></code> tokenizer to count tokens. Offline, that
 can time out with errors mentioning <code class="docutils literal notranslate"><span class="pre">openaipublic.blob.core.windows.net</span></code>.</p>
-<p>Pre-cache tiktoken once while online to avoid this:</p>
+<p>When the fetch fails, gptme falls back to a character-based estimate
+(~4 chars/token) in both source and PyPI installs. The fetch is bounded by
+<code class="docutils literal notranslate"><span class="pre">GPTME_TIKTOKEN_TIMEOUT</span></code> (default 5 seconds); set it to <code class="docutils literal notranslate"><span class="pre">0</span></code> to skip
+tiktoken entirely and always use the estimate.</p>
+<p>Pre-caching tiktoken while online is an optimisation, not a requirement: it
+avoids the first-use stall and the character-based fallback. Counts can still
+be approximate for local models without a matching tiktoken encoding.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>tiktoken
 python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">"import tiktoken; tiktoken.get_encoding('cl100k_base')"</span>
 </pre></div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Source installs newer than v0.31.0 gracefully fall back to a character-based
-estimate (~4 chars/token) when the download fails. PyPI releases do not yet
-include this fallback, so the pre-cache step is recommended regardless.</p>
+<p>The fallback keeps gptme working offline, but the character-based estimate is
+approximate — it can be noticeably off near context limits or when comparing
+token costs.</p>
 </div>
 </section>
 <section id="configuration">
