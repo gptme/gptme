@@ -142,6 +142,7 @@ def test_non_credential_mid_line_text_is_kept(line):
         "github_" + "pat_" + "a" * 40,
         "sk-" + "A" * 32,
         "sk-" + "proj-" + "a" * 32,
+        "sk-" + "svcacct-" + "A" * 32,
         "xox" + "b-" + "a" * 32,
         "glpat-" + "a" * 32,
         "AIza" + "a" * 32,

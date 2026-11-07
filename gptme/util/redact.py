@@ -255,7 +255,7 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:"
     r"gh[pousr]_[A-Za-z0-9]{20,}"
     r"|github_pat_[A-Za-z0-9_]{20,}"
-    r"|sk-(?:(?:ant-|or-|proj-)[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]{20,}[A-Za-z0-9_-]*)"
+    r"|sk-(?:(?:ant-|or-|proj-|svcacct-)[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]{20,}[A-Za-z0-9_-]*)"
     r"|xox[baprs]-[A-Za-z0-9-]{10,}"
     r"|(?:AKIA|ASIA)[0-9A-Z]{16}"
     r"|glpat-[A-Za-z0-9_-]{16,}"
