@@ -129,3 +129,40 @@ def test_tui_turn_outcome(tmp_path, monkeypatch, mode, expected):
     assert app._terminal_outcome == expected
     if mode == "reply":
         assert manager.log.messages[-1].content == "Done."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("interrupted", "error", "expected"),
+    [(False, None, "done"), (False, "boom", "error"), (True, None, "idle")],
+)
+async def test_tui_background_command_outcome(
+    tmp_path, monkeypatch, interrupted, error, expected
+):
+    """An interrupted background command (e.g. /compact + Esc) ends idle."""
+    from gptme.tui.app import _CommandResult
+
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    app = GptmeApp(manager, workspace=tmp_path)
+    app._statusline_cmd = None
+    reports = []
+    monkeypatch.delenv("GPTME_PROGRAM_STATUS", raising=False)
+    from textual.drivers.headless_driver import HeadlessDriver
+
+    monkeypatch.setattr(
+        HeadlessDriver,
+        "write",
+        lambda self, data: reports.append(data) if "7501;" in data else None,
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.generating = True
+        app._terminal_outcome = "done"
+        if interrupted:
+            app._interrupt_event.set()
+        app._background_command_done(
+            "compact", [], _CommandResult(handled=True, error=error)
+        )
+        await pilot.pause()
+        assert app._terminal_outcome == expected
+        assert reports[-1] == encode_report(expected)
