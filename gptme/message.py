@@ -216,6 +216,10 @@ class MessageMetadata(TypedDict, total=False):
         }
     """
 
+    # Resolved agent workspace roots whose instruction files this prompt
+    # message loaded, recorded when the prompt was built (see
+    # prompt_workspace and the agents_md_inject foreign-workspace guard).
+    startup_agent_roots: list[str]
     model: str
     # Parser active when the assistant message was generated. Replay must not
     # infer executable syntax from examples in another tool format.
