@@ -12370,6 +12370,16 @@ Rule of thumb: if it tells the agent *how to behave*, write a lesson; if it is
 a *procedure* to run on request, write a skill; if it records *what is true*
 about a user or project, save a memory.
 
+Memory is not facts-only: the Claude Code format includes a ``feedback`` type
+for guidance a harness learns from the user ("stage explicit paths", "don't
+steal window focus"). Give such an entry ``keywords`` and harnesses that run
+``memory match`` (for example a Claude Code hook) inject it when a keyword
+appears (see :ref:`memory-triggered-matching`). gptme's own chat loop does not:
+its automatic inclusion reads lesson directories only. Prefer a lesson when the
+rule is curated, shared across workspaces, or must reach gptme sessions; a
+keyworded ``feedback`` entry suits rules learned at runtime that live with a
+harness's memory directory.
+
 .. _migrating-from-the-knowledge-base:
 
 Migrating from the knowledge base
@@ -12410,7 +12420,8 @@ After migrating, use ``gptme-util memory recall QUERY`` in place of knowledge
 search, and ``gptme-util memory save NAME DESCRIPTION`` in place of
 ``knowledge save``.
 
-Lessons and memory are separate stores, and neither reads the other:
+Lessons and memory are separate stores with separate formats, and neither
+loader reads the other's directories:
 
 - Lessons are read recursively from lesson directories (``./lessons/``,
   ``./.gptme/lessons/``, ``~/.config/gptme/lessons/``, ``~/.agents/lessons/``,
@@ -12420,11 +12431,20 @@ Lessons and memory are separate stores, and neither reads the other:
   (``./memory/``, the Claude Code project memory directory,
   ``$GPTME_AGENT_WORKSPACE/memory/``, and ``~/.config/gptme/memory/``, or only
   ``GPTME_MEMORY_DIRS`` when it is set) and use Claude Code-style frontmatter.
-  An entry's optional ``keywords`` field only affects ``recall`` ranking.
+  An entry's optional ``keywords`` make it a triggered rule for
+  ``memory match`` (see :ref:`memory-triggered-matching`); ``recall`` also uses
+  them for ranking.
 
-Keep them in separate directories. There is no tooling that converts between
-them; if a memory turns out to be lasting guidance, rewrite it as a lesson and
-remove the memory entry.
+Keep them in separate directories. A memory entry with ``keywords`` covers the
+same ground as a lesson with ``match.keywords``, in the memory format, so either
+can hold a behavioural rule, but delivery differs: gptme automatically includes
+matching *lessons* in chat, while keyworded *memories* arrive only where a
+harness calls ``memory match``. There is no automatic converter: to move a
+lesson into memory, copy its body into an entry (typically ``type: feedback``)
+and turn ``match.keywords`` into ``keywords``; to promote a memory into a
+curated lesson, do the reverse. Remove the original either way, so the rule has
+one home, and only move a lesson out of a lesson directory if no gptme session
+depends on receiving it.
 
 Cross-harness memory
 --------------------
@@ -12588,6 +12608,8 @@ the standard recall instruction, ready to paste into an ``AGENTS.md`` file
 when bootstrapping a new Codex workspace.  Both views respect ``--scope`` and
 ``--budget``.
 
+.. _memory-triggered-matching:
+
 Triggered matching
 ------------------
 
@@ -12597,8 +12619,11 @@ matching is for the smaller set of facts that should interrupt the current
 action (a release checklist, a private-review rule, a recurring failure mode).
 
 **When to save a trigger phrase.** Attach ``--keyword`` as you write the memory,
-using the phrase you will actually see in a prompt or tool call. Prefer short,
-distinctive phrases and lesson-style wildcards (``deploy*``). Names,
+using the phrase you will actually see in a prompt or tool call. Prefer
+distinctive multi-word phrases and lesson-style wildcards (``deploy*``).
+Keywords match as substrings, so short single words fire inside unrelated
+words: ``ci`` matches "decide", ``pr`` matches "prompt", ``gate`` matches
+"navigate". Names,
 descriptions, and bodies never trigger, so a memory named ``release-rule`` will
 stay silent until you give it keywords. Skip keywords on ambient facts that
 already belong in the index.
@@ -12673,7 +12698,10 @@ returns a valid ``additionalContext`` response:
    }
 
 The hook is read-only and returns empty ``additionalContext`` when there is no
-relevant memory. Keep the executable on Claude Code's hook ``PATH``; if the
+relevant memory. ``PreToolUse`` fires on every tool call and the CLI keeps no
+session dedup, so an entry whose keyword keeps matching is re-injected each
+time. Without a dedup wrapper, wire ``memory match`` on ``UserPromptSubmit``
+instead (once per user turn). Keep the executable on Claude Code's hook ``PATH``; if the
 workspace uses an isolated environment, call its absolute ``gptme-util`` path.
 
 Codex / AGENTS.md integration

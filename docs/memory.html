@@ -747,6 +747,15 @@ entries are found with <code class="docutils literal notranslate"><span class="p
 <p>Rule of thumb: if it tells the agent <em>how to behave</em>, write a lesson; if it is
 a <em>procedure</em> to run on request, write a skill; if it records <em>what is true</em>
 about a user or project, save a memory.</p>
+<p>Memory is not facts-only: the Claude Code format includes a <code class="docutils literal notranslate"><span class="pre">feedback</span></code> type
+for guidance a harness learns from the user (“stage explicit paths”, “don’t
+steal window focus”). Give such an entry <code class="docutils literal notranslate"><span class="pre">keywords</span></code> and harnesses that run
+<code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> (for example a Claude Code hook) inject it when a keyword
+appears (see <a class="reference internal" href="#memory-triggered-matching"><span class="std std-ref">Triggered matching</span></a>). gptme’s own chat loop does not:
+its automatic inclusion reads lesson directories only. Prefer a lesson when the
+rule is curated, shared across workspaces, or must reach gptme sessions; a
+keyworded <code class="docutils literal notranslate"><span class="pre">feedback</span></code> entry suits rules learned at runtime that live with a
+harness’s memory directory.</p>
 </section>
 <section id="migrating-from-the-knowledge-base">
 <span id="id1"></span><h2>Migrating from the knowledge base<a class="headerlink" href="#migrating-from-the-knowledge-base" title="Link to this heading">#</a></h2>
@@ -777,7 +786,8 @@ memory toolkit below.</p>
 <p>After migrating, use <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span> <span class="pre">recall</span> <span class="pre">QUERY</span></code> in place of knowledge
 search, and <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">memory</span> <span class="pre">save</span> <span class="pre">NAME</span> <span class="pre">DESCRIPTION</span></code> in place of
 <code class="docutils literal notranslate"><span class="pre">knowledge</span> <span class="pre">save</span></code>.</p>
-<p>Lessons and memory are separate stores, and neither reads the other:</p>
+<p>Lessons and memory are separate stores with separate formats, and neither
+loader reads the other’s directories:</p>
 <ul class="simple">
 <li><p>Lessons are read recursively from lesson directories (<code class="docutils literal notranslate"><span class="pre">./lessons/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">./.gptme/lessons/</span></code>, <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/lessons/</span></code>, <code class="docutils literal notranslate"><span class="pre">~/.agents/lessons/</span></code>,
@@ -786,11 +796,20 @@ and <code class="docutils literal notranslate"><span class="pre">[lessons]</span
 (<code class="docutils literal notranslate"><span class="pre">./memory/</span></code>, the Claude Code project memory directory,
 <code class="docutils literal notranslate"><span class="pre">$GPTME_AGENT_WORKSPACE/memory/</span></code>, and <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/memory/</span></code>, or only
 <code class="docutils literal notranslate"><span class="pre">GPTME_MEMORY_DIRS</span></code> when it is set) and use Claude Code-style frontmatter.
-An entry’s optional <code class="docutils literal notranslate"><span class="pre">keywords</span></code> field only affects <code class="docutils literal notranslate"><span class="pre">recall</span></code> ranking.</p></li>
+An entry’s optional <code class="docutils literal notranslate"><span class="pre">keywords</span></code> make it a triggered rule for
+<code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> (see <a class="reference internal" href="#memory-triggered-matching"><span class="std std-ref">Triggered matching</span></a>); <code class="docutils literal notranslate"><span class="pre">recall</span></code> also uses
+them for ranking.</p></li>
 </ul>
-<p>Keep them in separate directories. There is no tooling that converts between
-them; if a memory turns out to be lasting guidance, rewrite it as a lesson and
-remove the memory entry.</p>
+<p>Keep them in separate directories. A memory entry with <code class="docutils literal notranslate"><span class="pre">keywords</span></code> covers the
+same ground as a lesson with <code class="docutils literal notranslate"><span class="pre">match.keywords</span></code>, in the memory format, so either
+can hold a behavioural rule, but delivery differs: gptme automatically includes
+matching <em>lessons</em> in chat, while keyworded <em>memories</em> arrive only where a
+harness calls <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code>. There is no automatic converter: to move a
+lesson into memory, copy its body into an entry (typically <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">feedback</span></code>)
+and turn <code class="docutils literal notranslate"><span class="pre">match.keywords</span></code> into <code class="docutils literal notranslate"><span class="pre">keywords</span></code>; to promote a memory into a
+curated lesson, do the reverse. Remove the original either way, so the rule has
+one home, and only move a lesson out of a lesson directory if no gptme session
+depends on receiving it.</p>
 </section>
 <section id="cross-harness-memory">
 <h2>Cross-harness memory<a class="headerlink" href="#cross-harness-memory" title="Link to this heading">#</a></h2>
@@ -932,14 +951,17 @@ when bootstrapping a new Codex workspace.  Both views respect <code class="docut
 </section>
 </section>
 <section id="triggered-matching">
-<h2>Triggered matching<a class="headerlink" href="#triggered-matching" title="Link to this heading">#</a></h2>
+<span id="memory-triggered-matching"></span><h2>Triggered matching<a class="headerlink" href="#triggered-matching" title="Link to this heading">#</a></h2>
 <p>Use keyword triggers when a memory must arrive <em>on this turn</em>, not only in the
 session-start index. <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> is a budgeted always-on view; triggered
 matching is for the smaller set of facts that should interrupt the current
 action (a release checklist, a private-review rule, a recurring failure mode).</p>
 <p><strong>When to save a trigger phrase.</strong> Attach <code class="docutils literal notranslate"><span class="pre">--keyword</span></code> as you write the memory,
-using the phrase you will actually see in a prompt or tool call. Prefer short,
-distinctive phrases and lesson-style wildcards (<code class="docutils literal notranslate"><span class="pre">deploy*</span></code>). Names,
+using the phrase you will actually see in a prompt or tool call. Prefer
+distinctive multi-word phrases and lesson-style wildcards (<code class="docutils literal notranslate"><span class="pre">deploy*</span></code>).
+Keywords match as substrings, so short single words fire inside unrelated
+words: <code class="docutils literal notranslate"><span class="pre">ci</span></code> matches “decide”, <code class="docutils literal notranslate"><span class="pre">pr</span></code> matches “prompt”, <code class="docutils literal notranslate"><span class="pre">gate</span></code> matches
+“navigate”. Names,
 descriptions, and bodies never trigger, so a memory named <code class="docutils literal notranslate"><span class="pre">release-rule</span></code> will
 stay silent until you give it keywords. Skip keywords on ambient facts that
 already belong in the index.</p>
@@ -1005,7 +1027,10 @@ returns a valid <code class="docutils literal notranslate"><span class="pre">add
 </pre></div>
 </div>
 <p>The hook is read-only and returns empty <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> when there is no
-relevant memory. Keep the executable on Claude Code’s hook <code class="docutils literal notranslate"><span class="pre">PATH</span></code>; if the
+relevant memory. <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> fires on every tool call and the CLI keeps no
+session dedup, so an entry whose keyword keeps matching is re-injected each
+time. Without a dedup wrapper, wire <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> on <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code>
+instead (once per user turn). Keep the executable on Claude Code’s hook <code class="docutils literal notranslate"><span class="pre">PATH</span></code>; if the
 workspace uses an isolated environment, call its absolute <code class="docutils literal notranslate"><span class="pre">gptme-util</span></code> path.</p>
 </section>
 <section id="codex-agents-md-integration">
