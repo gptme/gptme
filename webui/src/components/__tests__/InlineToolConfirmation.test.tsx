@@ -55,16 +55,19 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
     expect(screen.queryByText(/execute/i)).toBeNull();
   });
 
-  it.each([null, []])('renders content and confirms with args=%j', async (args) => {
-    const { onConfirm } = renderConfirmation({
-      pendingTool: makePendingTool({ args, content: 'regression-content' }),
-    });
+  it.each([{ args: null }, { args: [] as string[] }])(
+    'renders content and confirms with args=$args',
+    async ({ args }) => {
+      const { onConfirm } = renderConfirmation({
+        pendingTool: makePendingTool({ args, content: 'regression-content' }),
+      });
 
-    expect(screen.getByText('regression-content')).toBeVisible();
-    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /execute/i }));
-    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
-  });
+      expect(screen.getByText('regression-content')).toBeVisible();
+      expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    }
+  );
 
   it('keeps non-empty arguments and content visible', () => {
     renderConfirmation({
@@ -74,6 +77,23 @@ describe('InlineToolConfirmation — Accept All UX (gptme#3440)', () => {
     expect(screen.getByText('Arguments:')).toBeVisible();
     expect(screen.getByText('--verbose')).toBeVisible();
     expect(screen.getByText('regression-content')).toBeVisible();
+  });
+
+  it('keeps the confirmation header visible outside the editor and edit payload', async () => {
+    const header = 'Memory scope: user — /home/user/memory/preference.md <b>plain text</b>';
+    const { onEdit } = renderConfirmation({
+      pendingTool: makePendingTool({ confirmation_header: header, content: 'Original preference' }),
+    });
+    expect(screen.getByText(header)).toBeVisible();
+    expect(screen.getByText(header).querySelector('b')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    expect(screen.getByText(header)).toBeVisible();
+    const editor = screen.getByRole('textbox');
+    expect(editor).toHaveValue('Original preference');
+    expect(editor).not.toContainElement(screen.getByText(header));
+    fireEvent.change(editor, { target: { value: 'Edited preference' } });
+    fireEvent.click(screen.getByRole('button', { name: /save & execute/i }));
+    await waitFor(() => expect(onEdit).toHaveBeenCalledWith('Edited preference'));
   });
 
   it('shows the tool name in the header', () => {

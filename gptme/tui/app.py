@@ -2073,6 +2073,7 @@ class ConfirmScreen(ModalScreen[ConfirmationResult]):
     def __init__(self, tool_use: ToolUseType | None, preview: str | None):
         super().__init__()
         self.tool_name = tool_use.tool if tool_use else "tool"
+        self.confirmation_header = tool_use.confirmation_header if tool_use else None
         content = preview or (tool_use.preview_content if tool_use else "") or ""
         self.preview_content = content
         self.lang = _get_lang_for_tool(self.tool_name, content)
@@ -2088,6 +2089,8 @@ class ConfirmScreen(ModalScreen[ConfirmationResult]):
                 Text("[y] execute   [n] skip   [a] auto-confirm session"),
                 id="confirm-help",
             )
+            if self.confirmation_header:
+                yield Static(Text(self.confirmation_header), id="confirm-header")
             with VerticalScroll(id="confirm-preview"):
                 yield Static(
                     Syntax(

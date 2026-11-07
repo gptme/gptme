@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import re
+import shlex
 import types
 import xml.etree.ElementTree as _ElementTree
 from collections.abc import Callable, Collection, Generator, Sequence
@@ -927,6 +928,13 @@ class ToolUse:
     # Parser provenance, not command equality: identical independent calls
     # must not be mistaken for a pending call in a persisted message.
     _source_content: str | None = field(default=None, compare=False, repr=False)
+    # Confirmation-only metadata, separate from editable execution content.
+    confirmation_header: str | None = field(default=None, compare=False)
+    # Runtime-only destination selected before a server approval, never serialized
+    # into model arguments or persisted assistant messages.
+    _memory_root: tuple[str, Path] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def execute(
         self,
@@ -1503,6 +1511,17 @@ class ToolUse:
         wrapper_tag = "tool-use"
         # Use quoteattr for args attribute to handle quotes and special chars safely
         args = " ".join(self.args)
+        if (
+            self.tool == "memory"
+            and self._format != "xml"
+            and (
+                (len(self.args) == 3 and self.args[1] == "--scope")
+                or (len(self.args) == 1 and "--scope" in self.args[0].split())
+            )
+        ):
+            # Parsed XML already contains the complete quoted attribute. Quote
+            # only tokenized calls, not that attribute again on each round trip.
+            args = shlex.join(self.args)
         args_str = "" if not args else f" args={quoteattr(args)}"
         # Use xml_escape for content to handle <, >, & characters
         escaped_content = xml_escape(self.content) if self.content else ""
@@ -1526,6 +1545,16 @@ class ToolUse:
             # match positional args with kwargs
             if tool := get_tool(self.tool):
                 args = list(self.args) if self.args else []
+                if self.tool == "memory":
+                    from .memory import _parse_memory_call
+
+                    name, content, scope, _ = _parse_memory_call(
+                        self.content, args, None, self._format == "xml"
+                    )
+                    params = {"name": name, "content": content}
+                    if scope is not None:
+                        params["scope"] = scope
+                    return params
                 # Only append content as a positional parameter if the next
                 # parameter slot is *required*. This prevents display-only
                 # content from leaking into optional parameters (e.g. read's

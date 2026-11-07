@@ -1234,6 +1234,7 @@ def step(
             tool_exec = ToolExecution(
                 tool_id=tool_id,
                 tooluse=tooluse,
+                workspace=workspace,
                 auto_confirm=session.auto_confirm_count > 0 or auto_confirm,
                 branch=branch,
                 assistant_msg_timestamp=msg.timestamp,
@@ -1248,14 +1249,7 @@ def step(
                 conversation_id,
                 {
                     "type": "tool_pending",
-                    "tool_id": tool_id,
-                    "tooluse": {
-                        "tool": tooluse.tool,
-                        "args": tooluse.args,
-                        "content": tooluse.content,
-                        "kwargs": tooluse.kwargs,
-                    },
-                    "auto_confirm": tool_exec.auto_confirm,
+                    **tool_exec.to_pending_dict(),
                 },
             )
 
