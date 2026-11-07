@@ -81,6 +81,57 @@ def test_output_specific_credentials(value, quote):
     assert out == "SERVICE_TOKEN=[REDACTED]\n"
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        # pytest assertion introspection of an env mapping (one line)
+        "E       assert 'FOO' in {{'PATH': '/usr/bin', 'OPENROUTER_API_KEY': '{key}'}}\n",
+        # pytest locals section
+        "env       = {{'HOME': '/home/bob', 'SERVICE_API_TOKEN': '{opaque}'}}\n",
+        # mock call repr
+        "call('cmd', env={{'ANTHROPIC_API_KEY': '{key}'}})\n",
+        # assertion diff rows, quoted and unquoted
+        "E         - 'OPENROUTER_API_KEY': '{key}',\n",
+        "E         OPENROUTER_API_KEY: '{key}'\n",
+        # one-line JSON
+        '{{"token": "{opaque}", "x": 1}}\n',
+        # name-less vendor-prefixed value
+        "E       AssertionError: {key} != None\n",
+        # header
+        "Authorization: Bearer {key}\n",
+    ],
+)
+def test_credentials_in_non_line_anchored_output_are_redacted(line):
+    """Failing-test output prints credentials mid-line, not as ``NAME=value``."""
+    text = line.format(key=OR_KEY, opaque=OPAQUE)
+    out, n = redact_secret_values_from_output(text)
+    assert n == 1
+    assert OR_KEY not in out and OPAQUE not in out
+    assert "[REDACTED]" in out
+    # Surrounding context is kept so the failure stays debuggable.
+    assert out.count("\n") == text.count("\n")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "E       assert {'PATH': '/usr/bin', 'MAX_TOKENS': '4096'} == {}\n",
+        "env = {'HOME': '/home/bob', 'GITHUB_TOKEN': 'ghp_'}\n",
+        "pip install scikit-learn sk-learn-pipeline-run-with-many-parts\n",
+        "task-run-20261107-sk-learn-benchmark-results\n",
+        "commit 0123456789abcdef0123456789abcdef01234567\n",
+        "token=parser.py\n",
+        "E   AssertionError: expected the password field to be empty\n",
+        "config = {'api_key': os.environ['X']}\n",
+        "call(api_key='placeholder')\n",
+    ],
+)
+def test_non_credential_mid_line_text_is_kept(line):
+    out, n = redact_secret_values_from_output(line)
+    assert n == 0
+    assert out == line
+
+
 @pytest.mark.parametrize("final", [False, True])
 def test_background_display_and_logs_are_redacted(tmp_path, final):
     from unittest.mock import Mock
