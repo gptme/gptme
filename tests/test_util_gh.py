@@ -776,6 +776,16 @@ class TestExtractFailureSections:
         assert "node scripts/build.js" in result
         assert "exit code 1" in result
 
+    def test_ctest_failed_marker_keeps_diagnostic(self):
+        lines = [
+            "1/1 Test #1: widget ...***Failed 0.01 sec",
+            "expected 42, got 41",
+        ] + ["cleanup"] * 20
+        lines.append("The following tests FAILED:")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "expected 42, got 41" in result
+        assert "The following tests FAILED:" in result
+
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
         prose = "db migration failed gracefully and rolled back"
         lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
