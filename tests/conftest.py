@@ -468,6 +468,30 @@ def isolate_user_config(
 
 
 @pytest.fixture(autouse=True)
+def no_memory_lessons(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[None]:
+    """Keep tests off the developer's real memory dirs (CC project dir, user dir).
+
+    Lesson auto-inclusion of memories is disabled, and memory roots point at an
+    empty per-test dir, so tests that mock ``get_config`` (which defeats the
+    env opt-out) still cannot read personal memories. Tests that exercise
+    memories set their own ``GPTME_MEMORY_DIRS``; tests of default root
+    resolution unset it. The memory-lesson cache is reset around each test.
+    """
+    from gptme.tools.lessons import _memory_lessons_var
+
+    monkeypatch.setenv("GPTME_LESSONS_INCLUDE_MEMORIES", "false")
+    # Outside tmp_path: some tests audit every entry there.
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path_factory.mktemp("no-memories")))
+    token = _memory_lessons_var.set(None)
+    try:
+        yield
+    finally:
+        _memory_lessons_var.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def clear_tools_before(isolate_user_config):
     # Clear all tools and cache to prevent test conflicts
     clear_tools()

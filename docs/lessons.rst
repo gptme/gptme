@@ -236,6 +236,9 @@ Control lesson behavior with these variables:
     # Use hybrid keyword + semantic matching (default: false)
     export GPTME_LESSONS_USE_HYBRID=true
 
+    # Also match keyworded memory entries (default: true); see :doc:`memory`
+    export GPTME_LESSONS_INCLUDE_MEMORIES=false
+
     # Hold out specific lessons, e.g. when measuring their effect
     export GPTME_LESSONS_HOLDOUT="lesson-name,another-lesson"
 
