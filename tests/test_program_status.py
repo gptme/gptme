@@ -181,3 +181,42 @@ def test_confirmation_editor_stays_blocked(output, monkeypatch):
     with status.program_status("working"):
         cli_confirm.cli_confirm_hook(ToolUse("save", ["example.txt"], "original"))
         assert output.getvalue().endswith(status.encode_report("working"))
+
+
+@pytest.mark.parametrize("outcome", ["interrupt", "decline", "complete"])
+def test_cli_turn_end_state(output, tmp_path, outcome):
+    """A cancelled or declined CLI turn waits for the user (idle), not done."""
+    import importlib
+    from unittest.mock import patch
+
+    from gptme.constants import DECLINED_CONTENT
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "System"), Message("user", "Do work")],
+        logdir=tmp_path / "conversation",
+    )
+
+    def fake_step(*args, **kwargs):
+        if outcome == "interrupt":
+            raise KeyboardInterrupt
+        if outcome == "decline":
+            return [Message("system", DECLINED_CONTENT)]
+        return [Message("assistant", "Done")]
+
+    with (
+        patch.object(chat, "step", side_effect=fake_step),
+        patch.object(chat, "get_default_model", return_value=None),
+        patch.object(chat, "trigger_hook", return_value=[]),
+        patch.object(chat, "_run_post_tool_compaction", return_value=False),
+    ):
+        interrupted = chat._process_message_conversation(
+            manager, False, "markdown", None
+        )
+
+    assert interrupted is (outcome != "complete")
+    expected = status.encode_report("done" if outcome == "complete" else "idle")
+    assert output.getvalue().endswith(expected)
+    assert output.getvalue().count("state=done") == (outcome == "complete")
