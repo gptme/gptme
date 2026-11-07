@@ -433,7 +433,8 @@ Protocol), as supported by `herdr-core <https://github.com/herdrdev/herdr-core>`
 A supporting terminal consumer can distinguish working, completed, and
 waiting-for-permission or waiting-for-answer states without scraping output.
 The working state spans the whole turn, including tool execution. Normal chat
-input after a completed turn keeps the completed state; startup reports idle.
+input after a completed turn keeps the completed state; startup reports idle,
+as does a turn that was interrupted or whose tool execution was declined.
 Reports are cleared when the chat exits.
 
 Reports contain only the state, agent name, and blocking kind, not prompts or

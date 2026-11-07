@@ -5,18 +5,21 @@ The wire format is supported by herdr-core. tmux needs an output consumer
 Only fixed state/kind tokens are emitted, never prompts or tool arguments.
 """
 
+import functools
 import os
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Literal
+from dataclasses import dataclass
+from typing import Literal, ParamSpec
 
 from ..message import get_output_format
 
 State = Literal["idle", "working", "done", "blocked", "error", "clear"]
 Kind = Literal["permission", "question", "auth"]
+P = ParamSpec("P")
 _current: ContextVar[tuple[State, Kind | None]] = ContextVar(
     "program_status", default=("clear", None)
 )
@@ -48,6 +51,13 @@ def report(state: State, kind: Kind | None = None) -> None:
         pass
 
 
+@dataclass
+class Scope:
+    """A reporting scope; ``after`` may be changed before a normal exit."""
+
+    after: State | None
+
+
 @contextmanager
 def program_status(
     state: State,
@@ -55,24 +65,50 @@ def program_status(
     *,
     after: State | None = None,
     success_exceptions: tuple[type[BaseException], ...] = (),
-) -> Iterator[None]:
+) -> Iterator[Scope]:
     """Report a scope, restoring the enclosing state (or an explicit end state).
 
     Exceptions in a turn scope leave an error report; session scopes still
     restore their caller, including clear on exit from the outermost chat.
     """
     previous = _current.get()
+    scope = Scope(after)
     report(state, kind)
     try:
-        yield
+        yield scope
     except BaseException as exc:
-        if after is not None:
-            report(after if isinstance(exc, success_exceptions) else "error")
+        if scope.after is not None:
+            report(scope.after if isinstance(exc, success_exceptions) else "error")
         else:
             report(*previous)
         raise
     else:
-        if after is not None:
-            report(after)
+        if scope.after is not None:
+            report(scope.after)
         else:
             report(*previous)
+
+
+def turn_status(
+    *, success_exceptions: tuple[type[BaseException], ...] = ()
+) -> Callable[[Callable[P, bool]], Callable[P, bool]]:
+    """Report a turn whose function returns whether it was cancelled or declined.
+
+    A completed turn ends ``done``; a cancelled or declined one is back at the
+    prompt waiting for the user, so it ends ``idle`` (as in the TUI).
+    """
+
+    def decorator(func: Callable[P, bool]) -> Callable[P, bool]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> bool:
+            with program_status(
+                "working", after="done", success_exceptions=success_exceptions
+            ) as scope:
+                interrupted = func(*args, **kwargs)
+                if interrupted:
+                    scope.after = "idle"
+                return interrupted
+
+        return wrapper
+
+    return decorator
