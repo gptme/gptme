@@ -325,33 +325,41 @@ def _string_values(root: object) -> list[str]:
     return values
 
 
-def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
-    """Accept plain text or the relevant fields of a Claude Code hook payload."""
+def _read_match_prompt(
+    prompt: str | None, pre_tool: bool
+) -> tuple[str, str, str | None]:
+    """Accept plain text or the relevant fields of a Claude Code hook payload.
+
+    Returns ``(text, event, session_id)``; ``session_id`` comes from the hook
+    envelope and is only used for opt-in dedup, never for matching.
+    """
     event = "PreToolUse" if pre_tool else "UserPromptSubmit"
     if prompt != "-":
-        return _read_recall_prompt(prompt), event
+        return _read_recall_prompt(prompt), event, None
     raw = sys.stdin.read()
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        return raw, event
+        return raw, event, None
     if not isinstance(payload, dict):
-        return "", event
+        return "", event, None
+    session = payload.get("session_id")
+    session_id = session if isinstance(session, str) and session else None
     event = payload.get("hook_event_name", event)
     if event == "PreToolUse":
         tool_input = payload.get("tool_input")
         if not isinstance(tool_input, dict):
-            return "", event
+            return "", event, session_id
 
         # All string values under tool_input describe the pending action,
         # including nested keys that reuse envelope names (cwd, session_id,
         # transcript_path). Outer envelope fields never participate because
         # traversal starts at tool_input, not the payload root.
-        return "\n".join(_string_values(tool_input)), event
+        return "\n".join(_string_values(tool_input)), event, session_id
     if event == "UserPromptSubmit":
         value = payload.get("prompt")
-        return value if isinstance(value, str) else "", event
-    return "", event
+        return (value if isinstance(value, str) else ""), event, session_id
+    return "", event, session_id
 
 
 @memory.command("match")
@@ -371,6 +379,15 @@ def _read_match_prompt(prompt: str | None, pre_tool: bool) -> tuple[str, str]:
 @click.option(
     "--body-chars", type=click.IntRange(min=1), default=1200, show_default=True
 )
+@click.option(
+    "--dedup-session",
+    is_flag=True,
+    help="Deliver each entry once per session (session_id from the hook payload, "
+    "or --session-id). Recommended for PreToolUse hooks.",
+)
+@click.option(
+    "--session-id", help="Session key for --dedup-session without a hook payload."
+)
 def memory_match(
     query: str | None,
     prompt: str | None,
@@ -378,20 +395,33 @@ def memory_match(
     limit: int,
     format_: str,
     body_chars: int,
+    dedup_session: bool,
+    session_id: str | None,
 ) -> None:
     """Inject living memories whose keywords match this turn's prompt or tool call.
 
     Use this instead of recall when a specific phrase should surface a rule
     before you act. Names and body similarity never trigger. The CLI stores no
-    session dedup; wrappers apply their own injection budget. Hook input
-    supports UserPromptSubmit and PreToolUse.
+    session dedup unless ``--dedup-session`` is given; wrappers may still
+    apply their own injection budget. Hook input supports UserPromptSubmit and
+    PreToolUse.
     """
-    from ..memory.match import match_memories, render_matches
+    from ..memory.match import filter_unseen, match_memories, render_matches
 
     if query is not None and prompt is not None:
         raise click.UsageError("use either QUERY or --prompt, not both")
-    text, event = _read_match_prompt(prompt if prompt is not None else query, pre_tool)
-    hits = match_memories(_store(), text, limit=limit)
+    text, event, payload_session = _read_match_prompt(
+        prompt if prompt is not None else query, pre_tool
+    )
+    session_key = session_id or payload_session
+    if dedup_session and session_key:
+        # Filter the full match set before the -k cap so already-delivered
+        # entries never crowd out unseen ones.
+        hits = filter_unseen(
+            match_memories(_store(), text, limit=None), session_key, limit=limit
+        )
+    else:
+        hits = match_memories(_store(), text, limit=limit)
     if format_ == "json":
         click.echo(
             json.dumps({"hits": [hit.to_dict() for hit in hits]}, indent=2, default=str)
