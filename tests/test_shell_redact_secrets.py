@@ -136,7 +136,32 @@ def test_non_credential_mid_line_text_is_kept(line):
 
 
 @pytest.mark.parametrize(
-    "word", ["x" * 32000, "token" * 6400], ids=["plain-word", "repeated-keyword"]
+    "value",
+    [
+        "gh" + "p_" + "A" * 36,
+        "github_" + "pat_" + "a" * 40,
+        "sk-" + "A" * 32,
+        "sk-" + "proj-" + "a" * 32,
+        "xox" + "b-" + "a" * 32,
+        "glpat-" + "a" * 32,
+        "AIza" + "a" * 32,
+        "npm_" + "a" * 32,
+        "dckr_" + "pat_" + "a" * 32,
+        "rk_" + "live_" + "a" * 32,
+        "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12,
+    ],
+)
+def test_alphabetic_credential_bodies_are_redacted(value):
+    text = f"Authorization: Bearer {value}\n"
+    out, n = redact_secret_values_from_output(text)
+    assert out == "Authorization: Bearer [REDACTED]\n"
+    assert n == 1
+
+
+@pytest.mark.parametrize(
+    "word",
+    ["x" * 32000, "token" * 6400, "eyJ_" * 64000, "eyJ-" * 64000],
+    ids=["plain-word", "repeated-keyword", "jwt-underscore", "jwt-hyphen"],
 )
 def test_long_non_matching_output_does_not_stall(word):
     """A generous subprocess deadline bounds regex hangs, not normal latency."""

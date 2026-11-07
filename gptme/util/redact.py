@@ -255,7 +255,7 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:"
     r"gh[pousr]_[A-Za-z0-9]{20,}"
     r"|github_pat_[A-Za-z0-9_]{20,}"
-    r"|sk-(?:ant-|or-|proj-)?[A-Za-z0-9_-]{20,}"
+    r"|sk-(?:(?:ant-|or-|proj-)[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]{20,}[A-Za-z0-9_-]*)"
     r"|xox[baprs]-[A-Za-z0-9-]{10,}"
     r"|(?:AKIA|ASIA)[0-9A-Z]{16}"
     r"|glpat-[A-Za-z0-9_-]{16,}"
@@ -263,7 +263,9 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"|npm_[A-Za-z0-9]{30,}"
     r"|dckr_pat_[A-Za-z0-9_-]{16,}"
     r"|[rsp]k_(?:live|test)_[A-Za-z0-9]{16,}"
-    r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    # JWT segments include '_' and '-': neither can allow another start inside
+    # a segment, or repeated 'eyJ_' prefixes retry every remaining suffix.
+    r"|(?<![_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
     r")(?![A-Za-z0-9])"
 )
 
@@ -308,9 +310,8 @@ def _redact_embedded_secrets(line: str) -> tuple[str, bool]:
 
     def _literal(match: re.Match[str]) -> str:
         nonlocal changed
-        # Prose such as ``sk-learn-pipeline`` has no digit; real keys do.
-        if not any(c.isdigit() for c in match.group(0)):
-            return match.group(0)
+        # Vendor shapes already enforce a prefix and minimum body length;
+        # legitimate credentials do not necessarily contain decimal digits.
         changed = True
         return _REDACTED
 
