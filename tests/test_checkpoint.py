@@ -309,6 +309,21 @@ def test_resolve_index_above_999(clean_repo):
         restore_checkpoint(clean_repo, "10")
 
 
+def test_resolve_non_ascii_digit_treated_as_label(clean_repo):
+    """Non-ASCII digits like ² must not be passed to int(); they fall through to label matching."""
+    create_checkpoint(clean_repo)
+    # ² passes isdigit() but isascii() is False — must raise CheckpointError (not ValueError)
+    with pytest.raises(CheckpointError, match="not found"):
+        restore_checkpoint(clean_repo, "²")
+
+
+def test_resolve_devanagari_digit_treated_as_label(clean_repo):
+    """Devanagari digit ३ must not be accepted as index 3."""
+    create_checkpoint(clean_repo)
+    with pytest.raises(CheckpointError, match="not found"):
+        restore_checkpoint(clean_repo, "३")
+
+
 # --- diff_checkpoint ---
 
 

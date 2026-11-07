@@ -1944,6 +1944,17 @@ def test_context_journal_rejects_nonpositive_days(tmp_path):
         assert "days" in result.output.lower()
 
 
+@pytest.mark.parametrize("days", ["36501", "99999999"])
+def test_context_journal_rejects_oversized_days(tmp_path: Path, days: str) -> None:
+    """Reject excessive lookbacks as CLI usage errors before scanning entries."""
+    result = CliRunner().invoke(
+        main, ["context", "journal", "--path", str(tmp_path), "--days", days]
+    )
+    assert result.exit_code == 2, result.output
+    assert "Invalid value for '--days'" in result.output
+    assert "36500" in result.output
+
+
 def test_context_journal_rejects_file_path(tmp_path):
     """context journal should reject a file passed to --path."""
     runner = CliRunner()

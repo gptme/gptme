@@ -111,7 +111,9 @@ def resolve_conv_checkpoint(
     """
     records = list_conv_checkpoints(logdir)
 
-    if identifier.lstrip("-").isdigit():
+    # isdigit() accepts non-ASCII digits like ² and ३; restrict to [0-9].
+    _stripped = identifier.lstrip("-")
+    if _stripped.isascii() and _stripped.isdecimal():
         msg_idx = int(identifier)
         return ConvCheckpoint(
             index=msg_idx,

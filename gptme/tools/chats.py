@@ -786,9 +786,16 @@ def _parse_since(since: str | None) -> float | None:
         return None
 
     # Try "Nd" format (days ago)
-    if since.endswith("d") and since[:-1].isdigit():
-        days = int(since[:-1])
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    # isdigit() accepts non-ASCII digits like ²; restrict to [0-9].
+    _days_str = since[:-1]
+    if since.endswith("d") and _days_str.isascii() and _days_str.isdecimal():
+        days = int(_days_str)
+        try:
+            cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
+        except OverflowError as e:
+            raise ValueError(
+                f"Invalid --since format: '{since}'. Day count is too large."
+            ) from e
         return cutoff.timestamp()
 
     # Try YYYY-MM-DD format

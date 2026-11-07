@@ -117,7 +117,7 @@ def test_label_starting_at_is_still_checked(tmp_path, capsys):
     assert "re-mark" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("target", ["-1", "999"])
+@pytest.mark.parametrize("target", ["-1", "999", "²", "३", "-²"])
 def test_invalid_indices_do_not_edit(tmp_path, target):
     manager = manager_at(tmp_path)
     before = list(manager.log.messages)
