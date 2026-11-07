@@ -633,14 +633,17 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         has_command = bool(config_override.get("command"))
         has_url = bool(config_override.get("url"))
         if has_command or has_url:
-            server_config = MCPServerConfig(
-                name=name,
-                enabled=True,
-                command=str(config_override.get("command") or ""),
-                args=list(config_override.get("args") or []),
-                url=str(config_override.get("url") or ""),
-                env=dict(config_override.get("env") or {}),
-            )
+            try:
+                server_config = MCPServerConfig(
+                    name=name,
+                    enabled=True,
+                    command=str(config_override.get("command") or ""),
+                    args=list(config_override.get("args") or []),
+                    url=str(config_override.get("url") or ""),
+                    env=dict(config_override.get("env") or {}),
+                )
+            except (TypeError, ValueError) as e:
+                return f"Failed to load server '{name}': invalid config override: {e}"
 
     # If not in config and not fully specified by override, try the registry
     if not server_config:
