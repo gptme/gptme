@@ -1380,6 +1380,22 @@ class LogManager:
             return self._lossless_log
         return self._branches.get("main", self._branches[self.current_branch])
 
+    @property
+    def history_log(self) -> Log:
+        """The current branch's full history, ignoring a compacted view.
+
+        ``log`` returns the active view once compaction has replaced what the
+        model sees. A view is a summary plus a retained tail, so messages it
+        summarised are gone. Hooks whose state must survive compaction (the
+        policy-block budget counts ``[policy-block]`` markers) have to read this
+        instead, or compaction silently resets their counter mid-episode.
+
+        A non-main branch created from a compacted view stores that view as
+        the branch log and the inherited full history in
+        ``_branch_lossless_logs``. ``full_log`` already reads that archive.
+        """
+        return self.full_log
+
     def fork(self, name: str) -> None:
         """
         Copy the conversation folder to a new name.
