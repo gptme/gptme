@@ -743,6 +743,13 @@ class TestTruncateLogTail:
         assert "setup line 0" not in result
         assert "chars omitted" in result
 
+    @pytest.mark.parametrize("ending", ["", "\n"])
+    def test_oversized_final_line_keeps_diagnostic_tail(self, ending):
+        text = "setup\n" + "x" * 500 + " AssertionError: diagnostic tail" + ending
+        result = _truncate_log_tail(text, 100)
+        assert result.endswith(text[-100:])
+        assert result.startswith(f"[... {len(text) - 100} chars omitted]\n")
+
     def test_hint_is_surfaced_once(self):
         result = _truncate_log_tail("x" * 500, 100, hint="use --log-failed")
         assert result.count("use --log-failed") == 1
