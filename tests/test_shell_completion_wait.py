@@ -210,7 +210,10 @@ def test_wait_keeps_remaining_jobs_after_concurrent_drain(
     slow = start_owned("sleep 30")
     manager = SimpleNamespace(chat_id="owner")
 
-    def steal_fast_completion(_mgr: object) -> None:
+    def steal_fast_completion(
+        _mgr: object, *, subagent_notifications: bool = True
+    ) -> None:
+        assert subagent_notifications
         fast.kill()
         assert fast._reader_thread is not None
         fast._reader_thread.join(timeout=3)

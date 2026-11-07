@@ -405,6 +405,7 @@ def _session_end_subagent_cleanup(
         if not sa.is_running():
             continue
 
+        logger.warning("SESSION_END: cancelling unfinished subagent '%s'", sa.agent_id)
         try:
             subagent_cancel(sa.agent_id)
         except Exception as e:
@@ -450,6 +451,7 @@ def _subagent_completion_hook(
     prompt_queue: object | None = None,
     no_confirm: bool = False,
     notification_branch: str | None = None,
+    subagent_drain: bool = False,
 ) -> Generator[Message, None, None]:
     """Check for completed subagents and yield notification messages.
 
@@ -461,6 +463,10 @@ def _subagent_completion_hook(
     ⏳ system messages.
     """
 
+    if subagent_drain:
+        # The closing loop admits terminal records through its fixed deadline
+        # and watch_autowake policy, not incidental STEP_PRE boundaries.
+        return
     manager_logdir = getattr(manager, "logdir", None)
 
     # Drain only this parent's records and leave foreign records queued.
@@ -503,6 +509,48 @@ def _subagent_completion_hook(
         message = _completion_message(agent_id, status, summary)
         logger.debug("Delivering subagent notification: %s", message.content)
         yield message
+
+
+def _subagent_loop_completion_hook(
+    manager: "LogManager",
+    interactive: bool = False,
+    prompt_queue: object | None = None,
+    no_confirm: bool = False,
+    notification_branch: str | None = None,
+    subagent_drain: bool = False,
+) -> Generator[Message, None, None]:
+    """LOOP_CONTINUE delivery scoped to the active branch, like STEP_PRE.
+
+    Records for another branch stay queued until that branch is current,
+    instead of entering whichever branch happens to be active.
+    """
+    if subagent_drain:
+        return
+    if notification_branch is None:
+        branch = getattr(manager, "current_branch", None)
+        notification_branch = branch if isinstance(branch, str) else None
+    if not interactive and not prompt_queue:
+        from .drain import drain_timeout
+
+        if drain_timeout() > 0:
+            # Opt-in closing windows admit results through their fixed deadline.
+            return
+        # Disabled draining avoids waiting for running children, not delivery
+        # of terminal results already queued by the final response. Progress
+        # alone must not restart generation at this boundary.
+        if manager.logdir is not None:
+            for agent_id, status, summary, _ in take_queued_completions(
+                manager.logdir, branch=notification_branch
+            ):
+                yield _completion_message(agent_id, status, summary)
+        return
+    yield from _subagent_completion_hook(
+        manager,
+        interactive=interactive,
+        prompt_queue=prompt_queue,
+        no_confirm=no_confirm,
+        notification_branch=notification_branch,
+    )
 
 
 def progress_message(agent_id: str, message: str) -> Message:

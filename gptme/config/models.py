@@ -363,6 +363,17 @@ class SubagentConfig:
         max_concurrent = 4
     """
 
+    drain_timeout: float | None = None
+    """Seconds a non-interactive parent waits for its running subagents.
+
+    When the prompt queue is exhausted (ordinary final text) while owned
+    subagents are still running, the session waits event-driven, without
+    LLM polling, for at most this many seconds in total, continuing once per
+    terminal result. ``0`` (default) ends immediately and cancels them with a
+    warning. Explicit ``complete`` never waits. Resolution order:
+    ``GPTME_SUBAGENT_DRAIN_TIMEOUT`` env var > this field > ``0``.
+    """
+
 
 @dataclass
 class ProjectConfig:
