@@ -772,6 +772,34 @@ def test_limit_log_no_user_request_fits() -> None:
         _default_model_var.reset(token)
 
 
+def test_limit_log_raises_when_only_checkpoint_user_remains() -> None:
+    """An internal compaction view is not a user request.
+
+    If the log can only be reduced to system instructions plus that view, the
+    result would still be empty Responses input, so fail locally instead.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    token = _default_model_var.set(
+        ModelMeta(provider="openai-subscription", model="gpt-4", context=200)
+    )
+    try:
+        messages = [
+            Message("system", "You are helpful."),
+            Message(
+                "user",
+                "Summarize the conversation.",
+                metadata={"compaction_checkpoint_view": "full"},
+            ),
+            Message("assistant", '@shell(call_ci): {"command":"echo logs"}'),
+            Message("system", "CI log line\n" * 1000, call_id="call_ci"),
+        ]
+        with pytest.raises(ValueError, match="no user request fits"):
+            limit_log(messages)
+    finally:
+        _default_model_var.reset(token)
+
+
 @pytest.mark.parametrize(
     "checkpoint_content",
     ["Summarize the conversation.", "checkpoint " * 1000],

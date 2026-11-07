@@ -21,6 +21,13 @@ class ContextLimitError(ValueError):
     """No usable conversational input fits within the model context budget."""
 
 
+_NO_USABLE_INPUT_MESSAGE = (
+    "Context limiting removed all conversational input and no user "
+    "request fits alongside the system instructions. Shorten the "
+    "request or system prompt, or select a larger-context model."
+)
+
+
 def message_contains_tool_use(msg: Message) -> bool:
     """Return True when an assistant message contains a runnable tool call.
 
@@ -463,10 +470,12 @@ def limit_log(log: list[Message]) -> list[Message]:
     # instructions, which become an empty input on the Responses API. Recover
     # a real user request, never a synthetic prompt or an incomplete tool call.
     if not any(m.role != "system" for m in result):
+        has_user_request = False
         for msg in reversed(log_tail):
-            if msg.role != "user" or "compaction_checkpoint_view" in (
-                msg.metadata or {}
-            ):
+            if msg.role != "user":
+                continue
+            has_user_request = True
+            if "compaction_checkpoint_view" in (msg.metadata or {}):
                 continue
             if len_tokens([*result, msg], model.model) <= model.context:
                 kept_ids = {id(m) for m in result} | {id(msg)}
@@ -476,10 +485,13 @@ def limit_log(log: list[Message]) -> list[Message]:
                 )
                 return [m for m in log if id(m) in kept_ids]
             # Never substitute an older request for a newer one that cannot fit.
-            raise ContextLimitError(
-                "Context limiting removed all conversational input and no user "
-                "request fits alongside the system instructions. Shorten the "
-                "request or system prompt, or select a larger-context model."
-            )
+            raise ContextLimitError(_NO_USABLE_INPUT_MESSAGE)
+
+        # A user request was present but none is usable (for example, the log
+        # keeps only an internal compaction view next to an oversized tool
+        # result). Returning system instructions alone would again produce
+        # empty Responses input, so fail here instead of returning them.
+        if has_user_request:
+            raise ContextLimitError(_NO_USABLE_INPUT_MESSAGE)
 
     return result
