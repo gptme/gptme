@@ -570,6 +570,19 @@ def test_load_mcp_server_from_config_override_without_prior_entry(
         _set_available_tools_cache(None)
 
 
+@pytest.mark.parametrize("override", [{"args": 42}, {"env": "FOO=1"}])
+def test_invalid_override_returns_failure_without_config_changes(
+    override: dict,
+) -> None:
+    cfg = Config()
+    cfg.user.mcp = None
+    with patch("gptme.tools.mcp_adapter.get_config", return_value=cfg):
+        result = load_mcp_server("my-server", {"command": "fixture", **override})
+    assert "Failed to load server 'my-server'" in result
+    assert cfg.user.mcp is None
+    assert "my-server" not in _dynamic_servers
+
+
 def test_load_mcp_server_override_without_command_or_url_still_needs_a_source():
     """An env-only override is not enough to invent a server that is nowhere."""
     empty = Config()
