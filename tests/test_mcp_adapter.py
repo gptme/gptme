@@ -607,6 +607,68 @@ def test_failed_override_load_restores_layer_enabled_flag(mock_mcp_client):
     assert empty.user.mcp.enabled is False
 
 
+@pytest.mark.parametrize("higher_layer", ["chat", "project"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_override_load_enables_effective_layer_and_rolls_back(
+    mock_mcp_client, higher_layer, fails
+):
+    from gptme import tools as tools_mod
+    from gptme.config.chat import ChatConfig
+    from gptme.config.models import ProjectConfig
+    from gptme.tools import _set_available_tools_cache
+
+    cfg = Config()
+    cfg.user.mcp = MCPConfig(enabled=False, servers=[])
+    owner = ChatConfig() if higher_layer == "chat" else ProjectConfig()
+    owner.mcp = MCPConfig(enabled=False, servers=[])
+    setattr(cfg, higher_layer, owner)
+    connected = mock_mcp_client.connect.return_value
+
+    def connect(name):
+        assert cfg.mcp.enabled, "effective MCP layer still disabled"
+        assert name in [s.name for s in cfg.mcp.servers]
+        if fails:
+            raise RuntimeError("connection failed")
+        return connected
+
+    mock_mcp_client.connect.side_effect = connect
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+            patch("gptme.tools.mcp_adapter.set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("my-server", {"command": "fixture"})
+        if fails:
+            assert "connection failed" in result, result
+            assert owner.mcp.enabled is False
+            assert cfg.user.mcp.enabled is False
+            assert cfg.user.mcp.servers == []
+        else:
+            assert "Successfully loaded" in result, result
+            assert cfg.mcp.enabled is True
+        assert owner.mcp.servers == []
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_failed_override_load_restores_absent_user_layer(mock_mcp_client):
+    cfg = Config()
+    cfg.user.mcp = None
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("my-server", {"command": "fixture"})
+    assert "connection failed" in result
+    assert cfg.user.mcp is None
+    assert cfg.mcp.enabled is False
+
+
 def test_load_mcp_server_reenables_disabled_user_server_when_chat_mcp_exists(
     mock_mcp_client,
 ):

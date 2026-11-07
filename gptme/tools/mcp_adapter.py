@@ -675,16 +675,26 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # write a new entry onto user.mcp.
     config_added = False
     was_enabled = server_config.enabled
+    previous_user_mcp = config.user.mcp
     layer, owned = _mcp_layer_for_server(config, server_config.name)
     was_layer_enabled = layer.enabled
+    # The owning layer supplies the server entry, but the highest MCP layer
+    # controls the effective enabled flag checked by MCPClient.connect().
+    effective_layer = (
+        (config.chat.mcp if config.chat is not None else None)
+        or (config.project.mcp if config.project is not None else None)
+        or config.user.mcp
+    )
+    assert effective_layer is not None
+    was_effective_enabled = effective_layer.enabled
+    effective_layer.enabled = True
     if owned is None:
         layer.servers.append(server_config)
         layer.enabled = True
-        set_config(config)
         config_added = True
     elif not owned.enabled:
         owned.enabled = True
-        set_config(config)
+    set_config(config)
 
     client: MCPClient | None = None
     try:
@@ -742,13 +752,14 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
                 logger.debug("Failed to close client for '%s' during rollback", name)
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
-            layer, _ = _mcp_layer_for_server(config, name)
             layer.servers = [s for s in layer.servers if s.name != name]
-            layer.enabled = was_layer_enabled
-            set_config(config)
-        elif server_config.enabled != was_enabled:
+        else:
             server_config.enabled = was_enabled
-            set_config(config)
+        layer.enabled = was_layer_enabled
+        effective_layer.enabled = was_effective_enabled
+        if previous_user_mcp is None:
+            config.user.mcp = None
+        set_config(config)
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 
