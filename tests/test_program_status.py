@@ -11,6 +11,14 @@ import pytest
 from gptme.util import program_status as status
 
 
+@pytest.fixture(autouse=True)
+def isolated_status():
+    """Every test starts outside any session; report() always updates state."""
+    token = status._current.set(("clear", None))
+    yield
+    status._current.reset(token)
+
+
 @pytest.fixture
 def output(monkeypatch):
     stream = StringIO()
@@ -68,6 +76,8 @@ def test_no_redirected_output(monkeypatch):
     monkeypatch.setattr(status, "sys", SimpleNamespace(stdout=stream))
     status.report("working")
     assert stream.getvalue() == ""
+    # State is still tracked, so nesting detection works without a TTY.
+    assert status._current.get() == ("working", None)
 
 
 def test_broken_terminal_is_nonfatal(output, monkeypatch):
