@@ -765,6 +765,17 @@ class TestExtractFailureSections:
         assert panic in result
         assert "test result: FAILED" in result
 
+    def test_npm_error_keeps_failed_command_context(self):
+        lines = [
+            "npm ERR! command failed",
+            "npm ERR! command sh -c node scripts/build.js",
+        ] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "npm ERR! command failed" in result
+        assert "node scripts/build.js" in result
+        assert "exit code 1" in result
+
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
         prose = "db migration failed gracefully and rolled back"
         lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]

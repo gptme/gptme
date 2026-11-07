@@ -1069,6 +1069,7 @@ def _extract_failure_sections(log_text: str) -> str:
         r"(?i)\bfailed\s+to\b",
         r"={5,}\s*FAILURES\s*={5,}",
         r"(?i)error[:\[\s]",
+        r"(?i)\bnpm\s+ERR!",
         r"(?i)assert(ion)?error",
         r"(?i)traceback",
         r"(?i)exception",
