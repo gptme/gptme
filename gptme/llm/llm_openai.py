@@ -141,8 +141,16 @@ __all__ = [
 
 def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> str:
     """Resolve a provider key from env/config first, then credentials.toml."""
-    from ..credentials import get_stored_api_key
+    from ..credentials import (
+        get_stored_api_key,
+        read_scoped_openrouter_key,
+        require_scoped_provider,
+        scoped_inference_enabled,
+    )
 
+    if scoped_inference_enabled():
+        require_scoped_provider(str(provider))
+        return read_scoped_openrouter_key()
     api_key = config.get_env(env_var) or get_stored_api_key(str(provider))
     if api_key:
         return api_key
@@ -593,6 +601,12 @@ def reinit(provider: Provider, api_key: str) -> None:
     (e.g. openai, openrouter, deepseek, groq, xai, gemini, custom providers).
     Azure is not supported for runtime reinit.
     """
+    from ..credentials import scoped_inference_enabled
+
+    if scoped_inference_enabled():
+        raise ValueError(
+            "Scoped inference does not support runtime credential switching"
+        )
     if provider not in clients:
         raise ValueError(
             f"Cannot reinit provider {provider!r}: not currently initialized"
@@ -619,8 +633,12 @@ def init(provider: Provider, config: Config):
     ``max_retries=SDK_MAX_RETRIES`` via the lazy factory so SDK retries cannot
     stack on gptme's retry loop.
     """
-    proxy_key = config.get_env("LLM_PROXY_API_KEY")
-    proxy_url = config.get_env("LLM_PROXY_URL")
+    from ..credentials import require_scoped_provider, scoped_inference_enabled
+
+    require_scoped_provider(str(provider))
+    scoped = scoped_inference_enabled()
+    proxy_key = None if scoped else config.get_env("LLM_PROXY_API_KEY")
+    proxy_url = None if scoped else config.get_env("LLM_PROXY_URL")
 
     # Set the proxy URL to the unified messages endpoint if not already set
     if proxy_url and not proxy_url.endswith("/messages"):
@@ -805,6 +823,22 @@ def init(provider: Provider, config: Config):
 
 def get_client(provider: Provider) -> OpenAI:
     """Get client for specific provider, initializing if needed."""
+    from ..credentials import (
+        read_scoped_openrouter_key,
+        require_scoped_provider,
+        scoped_inference_enabled,
+    )
+
+    require_scoped_provider(str(provider))
+    if scoped_inference_enabled():
+        key = read_scoped_openrouter_key()
+        existing = clients.get(provider)
+        if (
+            not isinstance(existing, _LazyClient)
+            or existing._kwargs.get("api_key") != key
+            or existing._kwargs.get("base_url") != "https://openrouter.ai/api/v1"
+        ):
+            init(provider, get_config())
     if provider not in clients:
         init(provider, get_config())
     return clients[provider]
@@ -2931,13 +2965,42 @@ def _spec2tool(spec: ToolSpec, model: ModelMeta) -> ChatCompletionToolParam:
     raise ValueError("Provider doesn't support tools API")
 
 
-@lru_cache(maxsize=1)
 def get_available_models(provider: Provider) -> list[ModelMeta]:
-    """Get available models from a provider."""
-    config = get_config()
+    """Get available models, validating scoped delivery before any cache hit."""
+    from ..credentials import (
+        read_scoped_openrouter_key,
+        require_scoped_provider,
+        scoped_inference_enabled,
+    )
 
-    # Check for custom provider first (e.g., "ollama" with custom base_url)
-    if is_custom_provider(provider):
+    require_scoped_provider(str(provider))
+    if scoped_inference_enabled():
+        read_scoped_openrouter_key()
+        return _get_available_models_cached(provider, scoped=True)
+    return _get_available_models_cached(provider)
+
+
+@lru_cache(maxsize=2)
+def _get_available_models_cached(
+    provider: Provider, *, scoped: bool = False
+) -> list[ModelMeta]:
+    # Separate scoped and legacy results without retaining credentials as cache keys.
+    return _get_available_models(provider)
+
+
+# Preserve the existing catalog cache reset API used by callers and tests.
+get_available_models.cache_clear = _get_available_models_cached.cache_clear  # type: ignore[attr-defined]
+
+
+def _get_available_models(provider: Provider) -> list[ModelMeta]:
+    from ..credentials import scoped_inference_enabled
+
+    config = get_config()
+    scoped = scoped_inference_enabled()
+
+    # Scoped inference and its catalog always use the canonical OpenRouter endpoint.
+    # Otherwise check for custom providers first (e.g., "ollama" with custom base_url).
+    if not scoped and is_custom_provider(provider):
         custom = next((p for p in config.user.providers if p.name == provider), None)
         if custom:
             return _get_openai_compatible_models(config, provider, custom.base_url)
@@ -2960,9 +3023,9 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
     if provider != "openrouter":
         raise ValueError(f"Provider {provider} does not support listing models")
 
-    # Check if we should use the proxy
-    proxy_key = config.get_env("LLM_PROXY_API_KEY")
-    proxy_url = config.get_env("LLM_PROXY_URL")
+    # Scoped mode never sends its key to a configured proxy.
+    proxy_key = None if scoped else config.get_env("LLM_PROXY_API_KEY")
+    proxy_url = None if scoped else config.get_env("LLM_PROXY_URL")
 
     if proxy_key and proxy_url:
         # Use proxy for models endpoint
@@ -2977,7 +3040,11 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         headers = {"x-api-key": api_key}
     else:
         # Direct OpenRouter API call (fallback)
-        api_key = config.get_env_required("OPENROUTER_API_KEY")
+        api_key = (
+            _get_provider_api_key(config, provider, "OPENROUTER_API_KEY")
+            if scoped
+            else config.get_env_required("OPENROUTER_API_KEY")
+        )
         url = "https://openrouter.ai/api/v1/models"
         headers = {"Authorization": f"Bearer {api_key}"}
 

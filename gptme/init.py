@@ -70,7 +70,10 @@ def init(
         set_tool_format(tool_format)
         return
 
-    load_dotenv()
+    from .credentials import scoped_inference_enabled
+
+    if not scoped_inference_enabled():
+        load_dotenv()
     _init_plugins()
     try:
         init_model(model, interactive)
