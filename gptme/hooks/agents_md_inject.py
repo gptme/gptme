@@ -206,8 +206,9 @@ def _session_identity(
     session workspace and the agent path (resolved); an agent workspace at or
     above one of them is part of the session's own context, never foreign.
 
-    Adopted roots are, for a session without an identity of its own, the agent
-    workspaces whose instructions were loaded at startup. Only those exact
+    Adopted roots are, for a session without an identity of its own (not even
+    an enclosing agent workspace's), the agent workspaces whose instructions
+    were loaded at startup. Only those exact
     workspaces are adopted: an enclosing agent workspace's instructions were
     not loaded, so it stays foreign.
     """
@@ -230,8 +231,13 @@ def _session_identity(
     # A session without an identity of its own may adopt the agent
     # workspaces whose instructions it already loaded at startup. A session
     # that *does* have an identity keeps it: entering another agent's
-    # workspace must not hand over the identity.
-    adopted = _prompt_file_roots(log) if name is None else set()
+    # workspace must not hand over the identity. That includes a session
+    # started inside an agent workspace (e.g. bob/projects/x), which carries
+    # the enclosing workspace's identity loaded by the startup tree walk.
+    inside_agent = workspace is not None and (
+        _nearest_agent_root(workspace.resolve()) is not None
+    )
+    adopted = _prompt_file_roots(log) if name is None and not inside_agent else set()
     return name, roots, adopted
 
 

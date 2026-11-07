@@ -1362,3 +1362,25 @@ class TestStartupEvidenceReviewFindings:
         msgs = _cd_messages(empty_log, workspace, alice)
 
         assert any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_session_inside_agent_workspace_does_not_adopt_another(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Starting in bob/projects/x carries Bob's identity; Alice stays foreign."""
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        workspace = bob / "projects" / "x"
+        workspace.mkdir(parents=True)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Alice'" in notices[0].content
