@@ -163,8 +163,11 @@ def cmd_edit(ctx: CommandContext) -> None:
 def cmd_undo(ctx: CommandContext) -> None:
     """Undo the last action(s)."""
     # auto_undo already removed the '/undo' command itself
-    # if int, undo n messages
-    n = int(ctx.args[0]) if ctx.args and ctx.args[0].isdigit() else 1
+    # if int, undo n messages. Restrict to ASCII decimals: str.isdigit() is also
+    # true for non-ASCII digits such as '²' or '३', where int() either raises or
+    # silently reads a different count than the user wrote.
+    arg = ctx.args[0] if ctx.args else ""
+    n = int(arg) if arg.isascii() and arg.isdecimal() else 1
     ctx.manager.undo(n)
 
 
