@@ -1046,3 +1046,138 @@ class TestSymlinkedAliasRetained:
 
         assert _injected(msgs), "Alice's workspace should be admitted via its alias"
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+
+class TestStartupEvidenceReviewFindings:
+    """Regressions for the exemption-evidence review findings on #4465."""
+
+    def test_instruction_alias_to_other_workspace_readme_does_not_admit_it(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """alice/AGENTS.md -> bob/README.md loads Alice's file, not Bob's identity."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        (bob / "README.md").write_text("# Bob project docs")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(bob / "README.md")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == [], "Bob's README is not Bob's instructions"
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+        # Alice's own configured location still admits Alice.
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+
+    def test_instruction_alias_to_other_workspace_instructions_admits_both(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """alice/AGENTS.md -> bob/AGENTS.md really loads Bob's instructions."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(bob / "AGENTS.md")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        sub = bob / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Bob source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert any("Bob source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    @staticmethod
+    def _replace_prompt(log, workspace: Path, generation: str) -> None:
+        from gptme.prompts import get_prompt
+
+        log.messages.extend(
+            get_prompt(
+                [],
+                prompt="short",
+                interactive=False,
+                workspace=workspace,
+                include_examples=False,
+                prompt_generation=generation,
+            )
+        )
+
+    def test_superseded_prompt_generation_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        empty_log.messages.append(Message("user", "Switch model"))
+        _set_prompt_files(monkeypatch, [])
+        self._replace_prompt(empty_log, tmp_path, "v2")
+        assert not any(
+            alice / "AGENTS.md" in m.files
+            for m in empty_log.messages
+            if (m.metadata or {}).get("prompt_generation") == "v2"
+        )
+        _loaded_agent_files_var.set(None)  # a fresh server request
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_active_prompt_generation_admits_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """A replacement generation that still loads Alice keeps her admitted."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        empty_log.messages.append(Message("user", "Switch model"))
+        self._replace_prompt(empty_log, tmp_path, "v2")
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_alias_of_global_agent_file_target_is_kept(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Global AGENTS.md and configured alice/AGENTS.md share one target."""
+        shared = tmp_path / "shared" / "rules.md"
+        shared.parent.mkdir()
+        shared.write_text("# Shared rules")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "AGENTS.md").symlink_to(shared)
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(
+            monkeypatch,
+            [str(alice / "AGENTS.md")],
+            config_path=config_dir / "config.toml",
+        )
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)

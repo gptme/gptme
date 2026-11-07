@@ -196,34 +196,68 @@ def _is_agent_instruction_file(path: Path) -> bool:
     return False
 
 
+def _current_prompt_messages(log: Log) -> list[Message]:
+    """System messages of the prompt generation the provider currently sees.
+
+    Replacement prompts carry a ``prompt_generation`` marker and supersede the
+    startup prompt and earlier generations (see ``_active_prompt_generation``),
+    which stay on disk. Without a marker, the leading system block is the
+    startup prompt.
+    """
+    latest = next(
+        (
+            msg.metadata["prompt_generation"]
+            for msg in reversed(log.messages)
+            if msg.metadata and "prompt_generation" in msg.metadata
+        ),
+        None,
+    )
+    if latest is not None:
+        return [
+            msg
+            for msg in log.messages
+            if msg.role == "system"
+            and msg.metadata
+            and msg.metadata.get("prompt_generation") == latest
+        ]
+    prefix: list[Message] = []
+    for msg in log.messages:
+        if msg.role != "system":
+            break
+        prefix.append(msg)
+    return prefix
+
+
 def _prompt_file_roots(log: Log | None) -> set[Path]:
-    """Agent roots represented by instruction files in the startup system messages.
+    """Agent roots represented by instruction files in the current prompt.
 
     Configuration alone is not evidence of loading: exclusions and selective
-    context can omit a configured file. Read the startup log instead, which also
-    survives fresh server request contexts. Later tool output must not grant an
-    identity exemption.
+    context can omit a configured file. Read the prompt messages in the log
+    instead, which also survives fresh server request contexts. Later tool
+    output and superseded prompt generations must not grant an identity
+    exemption.
 
-    Only files that are themselves known agent instruction files (AGENTS.md,
-    CLAUDE.md, etc.) are counted as evidence of identity adoption — a plain
-    context file from an agent workspace is not sufficient.
+    A file is evidence for a workspace only at a location where it is itself a
+    known agent instruction file (AGENTS.md, CLAUDE.md, etc.): a plain context
+    file from an agent workspace is not sufficient. For a symlinked file, the
+    configured location and the target are judged separately, so an
+    instruction-named alias pointing at another workspace's README does not
+    admit that workspace.
     """
     roots: set[Path] = set()
     if log is None:
         return roots
-    for msg in log.messages:
-        if msg.role != "system":
-            break
+    for msg in _current_prompt_messages(log):
         origins = msg.metadata.get("startup_prompt_files", []) if msg.metadata else []
         files = [file for file in msg.files if isinstance(file, Path)]
         files.extend(Path(origin) for origin in origins)
         for file in files:
-            if not _is_agent_instruction_file(file):
-                continue
-            # Resolve directory symlinks and '..' together, preserving only the
-            # final file symlink's location as well as its target's location.
-            for location in (file.parent.resolve(), file.resolve().parent):
-                found = _nearest_agent_root(location)
+            # Resolve directory symlinks and '..' in the parent while keeping
+            # a final file symlink's own location, then its target separately.
+            for location in (file.parent.resolve() / file.name, file.resolve()):
+                if not _is_agent_instruction_file(location):
+                    continue
+                found = _nearest_agent_root(location.parent)
                 if found is not None:
                     roots.add(found[0])
     return roots

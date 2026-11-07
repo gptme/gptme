@@ -448,6 +448,15 @@ def prompt_workspace(
     valid_agent_files: list[FilePath] = [f for f in agent_files if f.exists()]
     if valid_agent_files:
         agent_file_list = "\n".join(f"- {file}" for file in valid_agent_files)
+        # A configured alias whose target was already loaded here as an agent
+        # instruction file is deduplicated out of the context files, so record
+        # its origin on this message instead.
+        agent_aliases = [
+            str(alias)
+            for f in valid_agent_files
+            if isinstance(f, Path)
+            for alias in configured_paths.get(f.resolve(), [])
+        ]
         yield Message(
             "system",
             "## Agent Instructions\n\n"
@@ -455,6 +464,7 @@ def prompt_workspace(
             "**You MUST follow these instructions** - they take precedence over default behaviors.\n\n"
             f"{agent_file_list}",
             files=valid_agent_files,
+            metadata={"startup_prompt_files": agent_aliases} if agent_aliases else None,
         )
 
     # Yield context files separately (informational, not directives)
