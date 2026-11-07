@@ -70,10 +70,32 @@ def test_todowrite_add():
 
 
 def test_todowrite_add_with_quotes():
-    """Test adding todos with quoted text."""
-    result = _todowrite("add", '"Complete the project"')
-    assert "Added todo 1: Complete the project" in result
+    """Syntax quotes are removed once, by tokenization in the real handler."""
+    from gptme.tools.todo import execute_todo
+
+    list(execute_todo('add "Complete the project"', ["write"], None))
     assert _get_todos()["1"]["text"] == "Complete the project"
+
+
+def test_todowrite_add_keeps_literal_boundary_quotes():
+    """Quote characters that are data (not syntax) are stored verbatim."""
+    from gptme.tools.todo import execute_todo
+
+    list(execute_todo('add "check users\'"', ["write"], None))
+    list(execute_todo("add 'say \"quoted label\"'", ["write"], None))
+    list(execute_todo('add "check user\'s account"', ["write"], None))
+    todos = _get_todos()
+    assert todos["1"]["text"] == "check users'"
+    assert todos["2"]["text"] == 'say "quoted label"'
+    assert todos["3"]["text"] == "check user's account"
+
+
+def test_todowrite_update_text_keeps_literal_boundary_quotes():
+    from gptme.tools.todo import execute_todo
+
+    list(execute_todo("add original", ["write"], None))
+    list(execute_todo('update 1 "check users\'"', ["write"], None))
+    assert _get_todos()["1"]["text"] == "check users'"
 
 
 def test_todowrite_update_state():
