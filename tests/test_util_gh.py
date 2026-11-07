@@ -783,6 +783,17 @@ class TestTruncateLogTail:
         assert result.endswith(text[-100:])
         assert result.startswith(f"[... {len(text) - 100} chars omitted]\n")
 
+    def test_oversized_diagnostic_before_exit_trailer_keeps_its_suffix(self):
+        text = (
+            "AssertionError: "
+            + "x" * 2000
+            + " expected 42\nProcess completed with exit code 1"
+        )
+        result = _truncate_log_tail(text, 2000)
+        assert result.endswith(text[-2000:])
+        assert "expected 42" in result
+        assert "exit code 1" in result
+
     def test_complete_line_at_exact_budget_boundary_is_preserved(self):
         tail = "ERROR: root cause\nok"
         result = _truncate_log_tail("setup\n" + tail, len(tail))

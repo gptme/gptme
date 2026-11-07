@@ -1032,13 +1032,9 @@ def _truncate_log_tail(text: str, max_chars: int, hint: str = "") -> str:
     """
     if len(text) <= max_chars:
         return text
-    tail_start = len(text) - max_chars
-    cut = tail_start
-    if text[tail_start - 1] != "\n":
-        newline = text.find("\n", tail_start)
-        # If no complete trailing line fits, keep a partial line rather than nothing.
-        if 0 <= newline < len(text) - 1:
-            cut = newline + 1
+    # Keep partial lines too: advancing to a newline can discard the diagnostic
+    # suffix while retaining only a short exit-code trailer.
+    cut = len(text) - max_chars
     omitted = cut
     marker = (
         f"[... {omitted} chars omitted — {hint}]"
