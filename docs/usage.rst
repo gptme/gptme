@@ -442,8 +442,9 @@ tool arguments. They are disabled for redirected output, JSON output, and
 quiet mode. Set ``GPTME_PROGRAM_STATUS=0`` to disable them explicitly.
 The TUI sends reports through its terminal driver, including tool and URL
 approval dialogs, background commands, errors, and interruptions. Server UI
-reporting is not included. Background CLI threads cannot overwrite the parent
-terminal status.
+reporting is not included. Background CLI threads and inline subagent
+sessions cannot overwrite the parent terminal status (an inline subagent's
+permission and question prompts are still reported).
 
 Standard tmux does not interpret OSC 7501. It needs an output consumer
 (for example, one connected with ``pipe-pane``) to update pane options and

@@ -23,6 +23,9 @@ P = ParamSpec("P")
 _current: ContextVar[tuple[State, Kind | None]] = ContextVar(
     "program_status", default=("clear", None)
 )
+# Set inside a chat session nested in another (e.g. an inline subagent run by
+# a parent's tool call): the outer session owns the lifecycle reports.
+_nested: ContextVar[bool] = ContextVar("program_status_nested", default=False)
 
 
 def encode_report(state: State, kind: Kind | None = None) -> str:
@@ -89,6 +92,47 @@ def program_status(
             report(*previous)
 
 
+@contextmanager
+def session_status() -> Iterator[None]:
+    """Own the terminal status for a chat session: idle, then clear on exit.
+
+    A session started while another one is reporting (e.g. an inline subagent
+    chat inside a parent's tool call) is nested: its idle and turn reports are
+    skipped, so the parent keeps showing working. Blocking prompts in it are
+    still reported, since the user has to answer them.
+    """
+    if _current.get()[0] == "clear":
+        with program_status("idle"):
+            yield
+        return
+    token = _nested.set(True)
+    try:
+        yield
+    finally:
+        _nested.reset(token)
+
+
+@contextmanager
+def turn_start() -> Iterator[None]:
+    """Report working for work that starts a turn (e.g. turn.pre hooks).
+
+    The turn's own scope (``turn_status``) reports its outcome; this ends
+    idle on Ctrl+C and error on failure.
+    """
+    if _nested.get():
+        yield
+        return
+    report("working")
+    try:
+        yield
+    except KeyboardInterrupt:
+        report("idle")
+        raise
+    except BaseException:
+        report("error")
+        raise
+
+
 def turn_status(
     *, success_exceptions: tuple[type[BaseException], ...] = ()
 ) -> Callable[[Callable[P, bool]], Callable[P, bool]]:
@@ -103,6 +147,8 @@ def turn_status(
     def decorator(func: Callable[P, bool]) -> Callable[P, bool]:
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> bool:
+            if _nested.get():
+                return func(*args, **kwargs)
             with program_status(
                 "working",
                 after="done",
