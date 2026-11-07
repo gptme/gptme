@@ -1054,21 +1054,14 @@ def _extract_failure_sections(log_text: str) -> str:
     if not lines:
         return log_text
 
-    # Structural failure markers only. A bare case-insensitive "failed" or
-    # "failure" was included historically, but those substrings also occur in
-    # passing test names (`test_handles_failed_upload`) and in the pytest
-    # summary line (`0 failed, 4000 passed`). On a real multi-megabyte CI log
-    # they matched nearly every line, so the selector degenerated to identity.
-    # ``FAILED`` is matched case-sensitively because pytest prints it uppercase
-    # in the summary and test ids carry it lowercase across underscores.
-    # Colon-delimited diagnostics and "failed to" messages remain useful even
-    # when written lowercase; word boundaries exclude underscored test ids.
+    # Match failure words, not substrings in passing test ids such as
+    # `test_handles_failed_upload`. Word boundaries keep free-form diagnostics
+    # (including lowercase prose) without selecting thousands of passing tests.
+    # A summary such as `0 failed, 4000 passed` may select a few context lines;
+    # preserving that is safer than guessing whether arbitrary prose is benign.
     error_patterns = [
-        r"\bFAILED\b",
-        r"(?i)\*{3}failed\b",
-        r"(?i)\b(?:failed|failures?|fatal):",
-        r"(?i)\bfailed\s+(?:to|asserting)\b",
-        r"={5,}\s*FAILURES\s*={5,}",
+        r"(?i)\b(?:failed|failures?)\b",
+        r"(?i)\bfatal:",
         r"(?i)error[:\[\s]",
         r"(?i)\bnpm\s+ERR!",
         r"(?i)assert(ion)?error",
