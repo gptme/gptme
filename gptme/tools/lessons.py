@@ -140,6 +140,63 @@ def _reset_session_stats() -> None:
     _session_stats_var.set(LessonSessionStats())
 
 
+_memory_lessons_var: ContextVar[
+    tuple[Path, tuple[object, ...], list[Lesson]] | None
+] = ContextVar("memory_lessons", default=None)
+
+
+def _memory_signature(roots: list[Path]) -> tuple[object, ...]:
+    """Cheap change detector for memory roots: (name, mtime, size) per entry file.
+
+    One ``stat`` per file, no parsing, so the per-step cost stays small while
+    entries added, edited (e.g. marked historical/superseded) or removed
+    mid-conversation invalidate the cached candidates.
+    """
+    sig: list[object] = []
+    for root in roots:
+        try:
+            files: tuple[object, ...] | None = tuple(
+                sorted(
+                    (p.name, st.st_mtime_ns, st.st_size)
+                    for p in root.glob("*.md")
+                    for st in (p.stat(),)
+                )
+            )
+        except OSError:
+            files = None
+        sig.append((str(root), files))
+    return tuple(sig)
+
+
+def _get_memory_lessons(workspace: Path | None) -> list[Lesson]:
+    """Keyworded memory entries as lesson candidates, cached per workspace.
+
+    A memory with ``keywords`` is a triggered rule (gptme#3734), so lesson
+    auto-inclusion matches it alongside lessons. Opt out with
+    ``GPTME_LESSONS_INCLUDE_MEMORIES=false``. The cache is reused only while
+    the memory files are unchanged; failed loads are retried on the next call.
+    Failures never break lessons.
+    """
+    if not get_config().get_env_bool("GPTME_LESSONS_INCLUDE_MEMORIES", True):
+        return []
+    try:
+        from ..memory import MemoryStore
+        from ..memory.match import memory_lessons
+
+        key = (workspace or Path.cwd()).resolve()
+        store = MemoryStore.from_workspace(key)
+        signature = _memory_signature([r.path for r in store.roots])
+        cached = _memory_lessons_var.get()
+        if cached is not None and cached[:2] == (key, signature):
+            return cached[2]
+        lessons = memory_lessons(store)
+    except Exception as e:
+        logger.debug(f"Skipping memory lessons: {e}")
+        return []
+    _memory_lessons_var.set((key, signature, lessons))
+    return lessons
+
+
 def _get_lesson_index() -> LessonIndex:
     """Get context-local lesson index, creating it if needed."""
     index = _lesson_index_var.get()
@@ -501,8 +558,6 @@ def _auto_include_lessons(
         if LessonEmbedder is not None and GptmeHybridMatcher is not None:
             logger.info("Using ACE hybrid lesson matching")
             # Initialize embedder with lesson directories from LessonIndex
-            from pathlib import Path
-
             lesson_dirs = index.lesson_dirs
 
             # Use first lesson directory for embedder (typically workspace lessons)
@@ -536,8 +591,12 @@ def _auto_include_lessons(
         logger.debug("Using keyword-only lesson matcher")
         matcher = LessonMatcher()
 
-    # Match lessons against context
-    match_results = matcher.match(index.lessons, context)
+    # Match lessons, plus keyworded memories, against context
+    workspace = getattr(manager, "workspace", None)
+    if not isinstance(workspace, Path):
+        workspace = None
+    candidates = index.lessons + _get_memory_lessons(workspace)
+    match_results = matcher.match(candidates, context)
 
     # Holdouts remain ineligible even for explicitly protected guards.
     eligible_matches = [

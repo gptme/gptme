@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from ..lessons.parser import Lesson
     from .schema import MemoryEntry
     from .store import MemoryStore
 
@@ -27,6 +30,41 @@ class MemoryMatch:
         }
 
 
+def _keyworded_entries(store: MemoryStore) -> dict[Path, MemoryEntry]:
+    return {
+        entry.path: entry
+        for entry in store.entries(status="living")
+        if entry.keywords and entry.path is not None
+    }
+
+
+def _entries_as_lessons(entries: dict[Path, MemoryEntry]) -> list[Lesson]:
+    from ..lessons.parser import Lesson, LessonMetadata
+
+    return [
+        Lesson(
+            path=path,
+            metadata=LessonMetadata(keywords=entry.keywords),
+            title=entry.index_title,
+            description=entry.description,
+            category="memory",
+            # Description-only rules must still deliver their text.
+            body=entry.body.strip() or entry.description,
+        )
+        for path, entry in entries.items()
+    ]
+
+
+def memory_lessons(store: MemoryStore) -> list[Lesson]:
+    """Keyworded living entries as lessons, for gptme's lesson auto-inclusion.
+
+    Same conversion :func:`match_memories` uses, so a memory triggers in gptme
+    chat exactly when ``memory match`` would report it (keywords only; category
+    ``memory``; path is the entry file, which the hook uses for session dedup).
+    """
+    return _entries_as_lessons(_keyworded_entries(store))
+
+
 def match_memories(
     store: MemoryStore, text: str, *, limit: int = 5
 ) -> list[MemoryMatch]:
@@ -44,29 +82,14 @@ def match_memories(
     if not text.strip():
         return []
 
-    entries = {
-        entry.path: entry
-        for entry in store.entries(status="living")
-        if entry.keywords and entry.path is not None
-    }
+    entries = _keyworded_entries(store)
     if not entries:
         return []
 
     # Keep the lesson subsystem lazy for memory readers/writers that don't match.
     from ..lessons.matcher import LessonMatcher, MatchContext
-    from ..lessons.parser import Lesson, LessonMetadata
 
-    lessons = [
-        Lesson(
-            path=path,
-            metadata=LessonMetadata(keywords=entry.keywords),
-            title=entry.index_title,
-            description=entry.description,
-            category="memory",
-            body=entry.body,
-        )
-        for path, entry in entries.items()
-    ]
+    lessons = _entries_as_lessons(entries)
     return [
         MemoryMatch(entries[result.lesson.path], result.score, result.matched_by)
         for result in LessonMatcher().match(lessons, MatchContext(message=text))[:limit]
