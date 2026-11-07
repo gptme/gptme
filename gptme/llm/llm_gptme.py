@@ -295,14 +295,19 @@ def device_flow_authenticate(
         device_code = data["device_code"]
         user_code = data["user_code"]
         verification_uri = data["verification_uri"]
+        verification_uri_complete = data.get("verification_uri_complete") or ""
         interval = data.get("interval", 5)
         expires_in = data.get("expires_in", 900)
     except (json.JSONDecodeError, KeyError) as e:
         raise RuntimeError(f"Invalid device authorization response: {e}") from e
 
-    # Step 2: Display code to user
-    print(f"\nVisit: {verification_uri}")
-    print(f"Enter code: {user_code}\n")
+    # Step 2: Display code to user. Prefer the RFC 8628 complete URI when the
+    # server sends it so the user does not retype the code (gptme.ai production
+    # returns https://gptme.ai/device?code=XXXX-XXXX).
+    visit_uri = verification_uri_complete.strip() or verification_uri
+    print(f"\nVisit: {visit_uri}")
+    print(f"Enter code: {user_code}")
+    print("Waiting for you to authorize in the browser...\n")
 
     # Step 3: Poll for token
     deadline = time.time() + expires_in
@@ -359,7 +364,11 @@ def device_flow_authenticate(
             continue
         raise RuntimeError(f"Device flow failed: {error}")
 
-    raise RuntimeError("Device flow timed out — code expired")
+    raise RuntimeError(
+        "Device flow timed out — code expired. "
+        "Sign in or create an account at gptme.ai and retry, "
+        "or set an API key (gptme-onboard / provider env vars)."
+    )
 
 
 def _save_token(token_data: dict, service_url: str | None = None) -> None:
