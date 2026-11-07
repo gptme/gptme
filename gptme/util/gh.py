@@ -1067,7 +1067,7 @@ def _extract_failure_sections(log_text: str) -> str:
         r"\bFAILED\b",
         r"(?i)\*{3}failed\b",
         r"(?i)\b(?:failed|failures?|fatal):",
-        r"(?i)\bfailed\s+to\b",
+        r"(?i)\bfailed\s+(?:to|asserting)\b",
         r"={5,}\s*FAILURES\s*={5,}",
         r"(?i)error[:\[\s]",
         r"(?i)\bnpm\s+ERR!",

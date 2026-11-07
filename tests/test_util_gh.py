@@ -786,6 +786,16 @@ class TestExtractFailureSections:
         assert "expected 42, got 41" in result
         assert "The following tests FAILED:" in result
 
+    def test_failed_asserting_keeps_assertion_and_location(self):
+        lines = [
+            "Failed asserting that false is true.",
+            "/app/tests/WidgetTest.php:42",
+        ] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "Failed asserting that false is true." in result
+        assert "/app/tests/WidgetTest.php:42" in result
+
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
         prose = "db migration failed gracefully and rolled back"
         lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
