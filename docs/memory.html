@@ -982,10 +982,14 @@ included). Outer envelope fields (<code class="docutils literal notranslate"><sp
 <code class="docutils literal notranslate"><span class="pre">cwd</span></code>, <code class="docutils literal notranslate"><span class="pre">tool_name</span></code>) never match; nested keys <em>inside</em> <code class="docutils literal notranslate"><span class="pre">tool_input</span></code> that
 reuse those names are tool arguments and do. <code class="docutils literal notranslate"><span class="pre">--format</span> <span class="pre">hook-json</span></code> returns
 empty <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> on no match so the hook stays silent.</p>
-<p><strong>Dedup and budget belong to the wrapper.</strong> The CLI does not remember what it
-already injected. Call <code class="docutils literal notranslate"><span class="pre">gptme.memory.match.match_memories</span></code> from the harness
-and apply your own session dedup and injection budget to the returned entries,
-scores, and <code class="docutils literal notranslate"><span class="pre">matched_by</span></code> reasons. <code class="docutils literal notranslate"><span class="pre">-k</span></code> (default 5) and <code class="docutils literal notranslate"><span class="pre">--body-chars</span></code>
+<p><strong>Dedup.</strong> By default the CLI does not remember what it already injected.
+Pass <code class="docutils literal notranslate"><span class="pre">--dedup-session</span></code> to deliver each entry at most once per session: the
+<code class="docutils literal notranslate"><span class="pre">session_id</span></code> comes from the hook payload (or <code class="docutils literal notranslate"><span class="pre">--session-id</span></code> for plain text),
+and delivered entry paths are kept in the gptme state directory, keyed by a hash
+of the id and pruned after a week. Wrappers that need a different policy can
+call <code class="docutils literal notranslate"><span class="pre">gptme.memory.match.match_memories</span></code> and <code class="docutils literal notranslate"><span class="pre">filter_unseen</span></code> themselves and
+apply their own injection budget to the returned entries, scores, and
+<code class="docutils literal notranslate"><span class="pre">matched_by</span></code> reasons. <code class="docutils literal notranslate"><span class="pre">-k</span></code> (default 5) and <code class="docutils literal notranslate"><span class="pre">--body-chars</span></code>
 (default 1200 Unicode code points) are hard caps, not a substitute for that.</p>
 <p>Matching uses the same layered-root precedence as the rest of the store:
 superseded and historical entries stay excluded, a nearer entry of any status
@@ -1016,7 +1020,7 @@ returns a valid <code class="docutils literal notranslate"><span class="pre">add
 <span class="w">        </span><span class="nt">"hooks"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">          </span><span class="p">{</span>
 <span class="w">            </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"command"</span><span class="p">,</span>
-<span class="w">            </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gptme-util memory match --prompt - --format hook-json"</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gptme-util memory match --prompt - --format hook-json --dedup-session"</span><span class="p">,</span>
 <span class="w">            </span><span class="nt">"timeout"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
 <span class="w">          </span><span class="p">}</span>
 <span class="w">        </span><span class="p">]</span>
@@ -1027,10 +1031,9 @@ returns a valid <code class="docutils literal notranslate"><span class="pre">add
 </pre></div>
 </div>
 <p>The hook is read-only and returns empty <code class="docutils literal notranslate"><span class="pre">additionalContext</span></code> when there is no
-relevant memory. <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> fires on every tool call and the CLI keeps no
-session dedup, so an entry whose keyword keeps matching is re-injected each
-time. Without a dedup wrapper, wire <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> on <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code>
-instead (once per user turn). Keep the executable on Claude Code’s hook <code class="docutils literal notranslate"><span class="pre">PATH</span></code>; if the
+relevant memory. <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> fires on every tool call, so keep
+<code class="docutils literal notranslate"><span class="pre">--dedup-session</span></code> on it; without the flag an entry whose keyword keeps
+matching is re-injected each time. Keep the executable on Claude Code’s hook <code class="docutils literal notranslate"><span class="pre">PATH</span></code>; if the
 workspace uses an isolated environment, call its absolute <code class="docutils literal notranslate"><span class="pre">gptme-util</span></code> path.</p>
 </section>
 <section id="codex-agents-md-integration">
