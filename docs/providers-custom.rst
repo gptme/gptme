@@ -229,7 +229,8 @@ When the fetch fails, gptme falls back to a character-based estimate
 tiktoken entirely and always use the estimate.
 
 Pre-caching tiktoken while online is an optimisation, not a requirement: it
-avoids the first-use stall and keeps counts exact rather than estimated.
+avoids the first-use stall and the character-based fallback. Counts can still
+be approximate for local models without a matching tiktoken encoding.
 
 .. code-block:: sh
 
