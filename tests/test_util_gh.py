@@ -748,6 +748,33 @@ class TestTruncateLogTail:
         assert result.count("use --log-failed") == 1
         assert result.startswith("[... ")
 
+    def test_half_megabyte_log_still_delivers_the_failure_block(self):
+        """End-to-end: extraction plus the token budget must keep the traceback.
+
+        The two defects only bite together. On a real multi-hundred-kilobyte job
+        log a bare-substring pattern selected almost every line, so the caller's
+        budget was the only filter left — and it cut from the head, discarding
+        the failure block the log ends with. Assert the joint behaviour at the
+        scale the field failure was measured at, not just each half separately.
+        """
+        lines = [
+            f"PASSED tests/test_thing.py::test_handles_failed_upload_and_recovery[{i}]"
+            for i in range(8000)
+        ]
+        assert sum(len(line) + 1 for line in lines) > 500_000
+        lines.append("FAILED tests/test_thing.py::test_real_breakage - AssertionError")
+        lines.append("===== 1 failed, 8000 passed in 91.20s =====")
+
+        delivered = _truncate_log_tail(
+            _extract_failure_sections("\n".join(lines)),
+            4000,
+            hint="use `gh run view 123 --log-failed` for full logs",
+        )
+
+        assert "test_real_breakage" in delivered
+        assert "AssertionError" in delivered
+        assert len(delivered) < 4000
+
 
 # --- get_github_run_logs ---
 
