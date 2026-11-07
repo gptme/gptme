@@ -260,6 +260,7 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"|(?:AKIA|ASIA)[0-9A-Z]{16}"
     r"|glpat-[A-Za-z0-9_-]{16,}"
     r"|AIza[0-9A-Za-z_-]{30,}"
+    r"|ya29\.[A-Za-z0-9_-]{20,}"
     r"|npm_[A-Za-z0-9]{30,}"
     r"|dckr_pat_[A-Za-z0-9_-]{16,}"
     r"|[rsp]k_(?:live|test)_[A-Za-z0-9]{16,}"

@@ -159,6 +159,17 @@ def test_alphabetic_credential_bodies_are_redacted(value):
 
 
 @pytest.mark.parametrize(
+    "template",
+    ["Authorization: Bearer {}\n", "E   AssertionError: {} != None\n"],
+)
+def test_embedded_google_oauth_access_token_is_redacted(template):
+    value = "ya" + "29." + "A1B2C3D4_ef-gh" * 3
+    out, n = redact_secret_values_from_output(template.format(value))
+    assert out == template.format("[REDACTED]")
+    assert n == 1
+
+
+@pytest.mark.parametrize(
     "word",
     ["x" * 32000, "token" * 6400, "eyJ_" * 64000, "eyJ-" * 64000],
     ids=["plain-word", "repeated-keyword", "jwt-underscore", "jwt-hyphen"],
