@@ -475,7 +475,7 @@ def _apply_write(todos: dict[str, dict], operation: str, *args: str) -> str:
         if not args:
             return 'Error: add requires todo text. Usage: add "todo text"'
 
-        todo_text = " ".join(args).strip("\"'")
+        todo_text = " ".join(args)
         todo_id = _generate_todo_id(todos)
 
         item = TodoItem(todo_id, todo_text)
@@ -491,7 +491,7 @@ def _apply_write(todos: dict[str, dict], operation: str, *args: str) -> str:
         if todo_id not in todos:
             return f"Error: Todo {todo_id} not found"
 
-        update_value = " ".join(args[1:]).strip("\"'")
+        update_value = " ".join(args[1:])
 
         # Check if it's a state update or text update
         valid_states = ["pending", "in_progress", "completed", "paused"]
