@@ -742,6 +742,20 @@ class TestExtractFailureSections:
         assert diagnostic in result
         assert "exit code 1" in result
 
+    @pytest.mark.parametrize(
+        "diagnostic",
+        [
+            "Failed to connect to database at db:5432",
+            "2026-11-07T00:00:00Z npm ERR! command failed to build",
+        ],
+    )
+    def test_failed_to_diagnostic_survives_distant_exit_trailer(self, diagnostic):
+        lines = [diagnostic] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert diagnostic in result
+        assert "exit code 1" in result
+
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
         prose = "db migration failed gracefully and rolled back"
         lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
