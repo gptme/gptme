@@ -46,6 +46,24 @@ def test_parse_since_zero_days():
     assert abs(result - now) < 2
 
 
+def test_parse_since_non_ascii_digit_rejected():
+    # ² passes isdigit() but not isascii(); must raise ValueError, not ValueError from int()
+    with pytest.raises(ValueError, match="Invalid --since format"):
+        _parse_since("²d")
+
+
+def test_parse_since_devanagari_digit_rejected():
+    # ३ passes isdigit() but not isascii()
+    with pytest.raises(ValueError, match="Invalid --since format"):
+        _parse_since("३d")
+
+
+def test_parse_since_oversized_days():
+    # 99999999 days overflows timedelta; must raise ValueError, not OverflowError
+    with pytest.raises(ValueError, match="too large"):
+        _parse_since("99999999d")
+
+
 # --- conversation_stats tests ---
 
 

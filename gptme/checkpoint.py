@@ -381,8 +381,9 @@ def _resolve_checkpoint(repo_root: Path, identifier: str) -> CheckpointRecord:
     if not records:
         raise CheckpointError("no checkpoints found for this repo")
 
-    # Pure decimal integers are unambiguously 1-based indices (SHA prefixes are hex).
-    if identifier.isdigit():
+    # Pure ASCII decimal integers are unambiguously 1-based indices (SHA prefixes are hex).
+    # isdigit() accepts non-ASCII digits like ² and ३; restrict to [0-9].
+    if identifier.isascii() and identifier.isdecimal():
         idx = int(identifier)
         if 1 <= idx <= len(records):
             return records[idx - 1]
