@@ -1,5 +1,7 @@
 """Conversational MCP diagnostics reuse the CLI's credential-safe URL display."""
 
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -7,6 +9,25 @@ import pytest
 
 from gptme.config import MCPServerConfig
 from gptme.tools import mcp, mcp_adapter
+
+
+@pytest.mark.parametrize("module", ["gptme.tools.mcp_adapter", "gptme.tools.mcp"])
+def test_import_management_tools_does_not_load_mcp_sdk(module: str) -> None:
+    """Tool discovery must not load the optional SDK before MCP is used."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import {module}; import sys; "
+            "assert 'gptme.mcp.client' not in sys.modules; "
+            "assert 'mcp' not in sys.modules",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("command", ["list", "info fixture"])

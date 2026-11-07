@@ -21,7 +21,6 @@ from logging import getLogger
 from typing import cast
 
 from ..hooks import confirm
-from ..mcp.display import display_target
 from ..message import Message
 from .base import (
     Parameter,
@@ -57,6 +56,7 @@ def _get_local_server_info(name: str) -> str | None:
     Returns formatted info string if server is configured locally, None otherwise.
     """
     from ..config import get_config
+    from ..mcp.display import display_target
 
     config = get_config()
     local_server = next((s for s in config.mcp.servers if s.name == name), None)

@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 from gptme.config import Config, MCPServerConfig, get_config, set_config
 
-from ..mcp.display import display_target
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
@@ -766,6 +765,8 @@ def list_loaded_servers() -> str:
     Returns:
         Formatted list of loaded servers
     """
+    from ..mcp.display import display_target
+
     config = get_config()
 
     if not config.mcp.servers:
