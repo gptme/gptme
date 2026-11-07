@@ -43,6 +43,8 @@ import hashlib
 import json
 import logging
 import os
+import stat
+import tempfile
 import time
 from pathlib import Path
 
@@ -361,9 +363,34 @@ def device_flow_authenticate(
 
 
 def _save_token(token_data: dict, service_url: str | None = None) -> None:
-    """Save token data to disk."""
+    """Publish private JSON without truncating a previous usable login on failure.
+
+    Refuse destination aliases rather than replacing only one hard-link name or
+    following a symlink. This is not a concurrent-writer or power-loss guarantee.
+    POSIX mode 0600 does not establish native Windows ACL protection.
+    """
+    content = json.dumps(token_data, indent=2)
     token_path = _get_token_path(service_url)
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(json.dumps(token_data, indent=2))
-    # Restrict permissions (owner read/write only)
-    token_path.chmod(0o600)
+    token_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        info = token_path.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+        raise ValueError("Token destination must be a regular, non-aliased file")
+
+    # mkstemp opens exclusively with mode 0600, before any credential bytes are
+    # written. A sibling keeps os.replace on the same filesystem.
+    fd, name = tempfile.mkstemp(prefix=".gptme-token-", dir=token_path.parent)
+    temporary = Path(name)
+    try:
+        try:
+            stream = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with stream:
+            stream.write(content)
+        os.replace(temporary, token_path)
+    finally:
+        temporary.unlink(missing_ok=True)
