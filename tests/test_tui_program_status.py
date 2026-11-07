@@ -166,3 +166,35 @@ async def test_tui_background_command_outcome(
         await pilot.pause()
         assert app._terminal_outcome == expected
         assert reports[-1] == encode_report(expected)
+
+
+@pytest.mark.asyncio
+async def test_tui_url_fetch_after_approval_reports_working(tmp_path, monkeypatch):
+    """Fetching approved URLs is part of the turn, not a pending approval."""
+    from gptme.message import Message
+
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    app = GptmeApp(manager, workspace=tmp_path)
+    app._statusline_cmd = None
+    reports = []
+    monkeypatch.delenv("GPTME_PROGRAM_STATUS", raising=False)
+    from textual.drivers.headless_driver import HeadlessDriver
+
+    monkeypatch.setattr(
+        HeadlessDriver,
+        "write",
+        lambda self, data: reports.append(data) if "7501;" in data else None,
+    )
+    during_fetch = []
+
+    def slow_include_paths(msg, workspace, pre_confirmed_urls=None):
+        during_fetch.append(reports[-1])
+        return msg
+
+    monkeypatch.setattr("gptme.tui.app.include_paths", slow_include_paths)
+    monkeypatch.setattr(app, "_start_generation", lambda: None)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._report_program_status("blocked", "permission")
+        app._send(Message("user", "read https://example.com"), ["https://example.com"])
+        assert during_fetch == [encode_report("working")]

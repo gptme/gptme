@@ -3792,6 +3792,9 @@ class GptmeApp(App):
             self._send(msg, None)
 
     def _send(self, msg: Message, pre_confirmed_urls: list[str] | None) -> None:
+        # The turn starts here: fetching approved URLs can be slow and runs
+        # before _start_generation sets generating.
+        self._report_program_status("working")
         msg = include_paths(msg, self.workspace, pre_confirmed_urls=pre_confirmed_urls)
         self.manager.append(msg)
         self._show_message(msg)
