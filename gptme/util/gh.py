@@ -1022,6 +1022,27 @@ def get_github_pr_content(url: str) -> str | None:
 DEFAULT_LOG_MAX_TOKENS = 4000
 
 
+def _truncate_log_tail(text: str, max_chars: int, hint: str = "") -> str:
+    """Trim a CI log to ``max_chars`` by dropping the *head*, not the tail.
+
+    CI runners write the failure block last — pytest's FAILURES section and the
+    exit-code trailer are at the end of the job log. Head-truncation therefore
+    discarded the only part the caller wanted, while a multi-megabyte log's
+    opening lines are usually setup output.
+    """
+    if len(text) <= max_chars:
+        return text
+    cut = text.find("\n", len(text) - max_chars)
+    cut = cut + 1 if cut != -1 else len(text) - max_chars
+    omitted = cut
+    marker = (
+        f"[... {omitted} chars omitted — {hint}]"
+        if hint
+        else (f"[... {omitted} chars omitted]")
+    )
+    return f"{marker}\n{text[cut:]}"
+
+
 def _extract_failure_sections(log_text: str) -> str:
     """Extract the most relevant failure sections from CI log output.
 
@@ -1032,12 +1053,17 @@ def _extract_failure_sections(log_text: str) -> str:
     if not lines:
         return log_text
 
-    # Patterns that indicate failure-relevant lines
+    # Structural failure markers only. A bare case-insensitive "failed" or
+    # "failure" was included historically, but those substrings also occur in
+    # passing test names (`test_handles_failed_upload`) and in the pytest
+    # summary line (`0 failed, 4000 passed`). On a real multi-megabyte CI log
+    # they matched nearly every line, so the selector degenerated to identity.
+    # ``FAILED`` is matched case-sensitively because pytest prints it uppercase
+    # in the summary and test ids carry it lowercase across underscores.
     error_patterns = [
+        r"\bFAILED\b",
+        r"={5,}\s*FAILURES\s*={5,}",
         r"(?i)error[:\[\s]",
-        r"(?i)failed",
-        r"(?i)failure",
-        r"(?i)FAILED",
         r"(?i)assert(ion)?error",
         r"(?i)traceback",
         r"(?i)exception",
@@ -1242,16 +1268,13 @@ def get_github_run_logs(
                 # Extract failure sections
                 extracted = _extract_failure_sections(relevant_text)
 
-                # Truncate to budget
-                max_chars = tokens_per_job * 4
-                if len(extracted) > max_chars:
-                    cut = extracted.rfind("\n", 0, max_chars)
-                    cut = cut + 1 if cut != -1 else max_chars
-                    truncated = len(extracted) - cut
-                    extracted = (
-                        extracted[:cut] + f"\n[... {truncated} chars truncated — "
-                        f"use `gh run view {run_id} --log-failed` for full logs]\n"
-                    )
+                # Truncate to budget, keeping the tail: CI runners put the
+                # failure summary and traceback at the end of a job log.
+                extracted = _truncate_log_tail(
+                    extracted,
+                    tokens_per_job * 4,
+                    hint=f"use `gh run view {run_id} --log-failed` for full logs",
+                )
 
                 output += f"\n```\n{extracted}\n```\n"
             else:
@@ -1280,10 +1303,10 @@ def get_github_run_logs(
                     timeout=60,
                 )
                 if api_result.returncode == 0 and api_result.stdout.strip():
-                    extracted = _extract_failure_sections(api_result.stdout)
-                    max_chars = tokens_per_job * 4
-                    if len(extracted) > max_chars:
-                        extracted = extracted[:max_chars] + "\n[... truncated]\n"
+                    extracted = _truncate_log_tail(
+                        _extract_failure_sections(api_result.stdout),
+                        tokens_per_job * 4,
+                    )
                     output += f"\n```\n{extracted}\n```\n"
                 else:
                     output += (

@@ -10,6 +10,7 @@ from gptme.util.gh import (
     _extract_failure_sections,
     _get_github_actions_status,
     _get_repo_from_git_remote,
+    _truncate_log_tail,
     comment_on_github,
     create_github_issue,
     get_github_issue_content,
@@ -705,6 +706,47 @@ class TestExtractFailureSections:
         result = _extract_failure_sections(text)
         assert result.startswith("[... 7 lines omitted ...]\n")
         assert "ERROR: late" in result
+
+    def test_passing_test_names_containing_failed_do_not_select_everything(self):
+        """``failed`` inside passing test ids is not an error signal.
+
+        Regression: the pattern set matched a bare case-insensitive "failed",
+        so on a real CI log (thousands of ``PASSED test_..._failed_...`` lines
+        and a ``0 failed, N passed`` summary) it selected nearly every line and
+        degenerated to identity, which made the caller's budget truncation the
+        only filter and discarding the actual failure block.
+        """
+        lines = [
+            f"PASSED tests/test_thing.py::test_handles_failed_upload[{i}]"
+            for i in range(500)
+        ]
+        lines.append("===== 0 failed, 500 passed in 12.00s =====")
+        lines.append("FAILED tests/test_thing.py::test_real_breakage - AssertionError")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "test_real_breakage" in result
+        assert len(result.splitlines()) < 20
+
+    def test_lowercase_failed_prose_is_not_an_error_signal(self):
+        text = "db migration failed gracefully and rolled back\nstill ok"
+        assert _extract_failure_sections(text) == text
+
+
+class TestTruncateLogTail:
+    def test_within_budget_is_unchanged(self):
+        assert _truncate_log_tail("a\nb\n", 100) == "a\nb\n"
+
+    def test_overflow_keeps_the_tail(self):
+        """CI puts the failure block last, so overflow must drop the head."""
+        text = "\n".join(f"setup line {i}" for i in range(1000)) + "\nTRACEBACK HERE"
+        result = _truncate_log_tail(text, 200)
+        assert result.endswith("TRACEBACK HERE")
+        assert "setup line 0" not in result
+        assert "chars omitted" in result
+
+    def test_hint_is_surfaced_once(self):
+        result = _truncate_log_tail("x" * 500, 100, hint="use --log-failed")
+        assert result.count("use --log-failed") == 1
+        assert result.startswith("[... ")
 
 
 # --- get_github_run_logs ---
