@@ -1231,3 +1231,64 @@ class TestStartupEvidenceReviewFindings:
 
         assert any("Alice source rules" in m.content for m in _injected(msgs))
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_replaced_workspace_directory_does_not_admit_other_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Swapping Alice's directory for a symlink to Bob after startup."""
+        agents = tmp_path / "agents"
+        alice = _make_agent_workspace(agents / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(agents / "bob", "Bob", "# Being Bob")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        alice.rename(agents / "alice-old")
+        alice.symlink_to(bob, target_is_directory=True)
+        _loaded_agent_files_var.set(None)
+        sub = bob / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Bob source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_symlinked_global_agent_file_admits_its_config_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """An auto-loaded config-dir AGENTS.md keeps its own location."""
+        import json
+
+        from gptme.logmanager import Log
+        from gptme.logmanager.manager import _message_from_json_line
+
+        shared = tmp_path / "shared" / "rules.md"
+        shared.parent.mkdir()
+        shared.write_text("# Shared rules")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [], config_path=alice / "config.toml")
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        _load_startup(empty_log, workspace)
+        # JSON serialization resolves Message.files to shared/rules.md.
+        restored = Log(
+            messages=[
+                _message_from_json_line(
+                    json.dumps(m.to_dict()), tmp_path / "log.jsonl", m.timestamp
+                )
+                for m in empty_log.messages
+            ]
+        )
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(restored, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)

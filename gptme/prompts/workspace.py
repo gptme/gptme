@@ -21,6 +21,7 @@ _HASH_PREFIX = "ch:"
 _MEMORY_BUDGET_BYTES = 64 * 1024  # 64 KB cap to avoid consuming excessive prompt budget
 
 if TYPE_CHECKING:
+    from ..message import MessageMetadata
     from ..util.uri import FilePath
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,62 @@ def prompt_workspace_runtime(
         return
     if sections := _workspace_runtime_sections(workspace, include_path=include_path):
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
+
+
+def _agent_name_of(directory: Path) -> str | None:
+    """Return the ``[agent]`` name declared by ``directory``'s gptme.toml, if any.
+
+    Only consults the project config when a ``gptme.toml`` actually exists, so
+    walking many plain directories doesn't churn the project-config cache.
+    """
+    if not (
+        (directory / "gptme.toml").is_file()
+        or (directory / ".github" / "gptme.toml").is_file()
+    ):
+        return None
+    try:
+        config = get_project_config(directory, quiet=True)
+    except Exception as e:  # a malformed config shouldn't break callers
+        logger.debug(f"Could not load project config in {directory}: {e}")
+        return None
+    if config and config.agent and config.agent.name:
+        return config.agent.name
+    return None
+
+
+def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
+    """Walk up from ``start`` to the nearest agent workspace root.
+
+    Returns the resolved root and its declared agent name, or None when no
+    agent workspace is found before reaching the home directory.
+    """
+    home = Path.home().resolve()
+    current = start
+    while True:
+        name = _agent_name_of(current)
+        if name is not None:
+            return current.resolve(), name
+        if current.resolve() == home or current == current.parent:
+            return None
+        current = current.parent
+
+
+# Suffix patterns for known agent instruction files, as Path parts. A loaded
+# file is evidence for an agent workspace only when it is itself an
+# instruction file, not any other file from that workspace.
+_AGENT_INSTRUCTION_PATTERNS: tuple[tuple[str, ...], ...] = tuple(
+    Path(p).parts for p in AGENT_FILES
+)
+
+
+def _is_agent_instruction_file(path: Path) -> bool:
+    """Return True if path is a known agent instruction filename."""
+    parts = path.parts
+    for pattern_parts in _AGENT_INSTRUCTION_PATTERNS:
+        n = len(pattern_parts)
+        if parts[-n:] == pattern_parts:
+            return True
+    return False
 
 
 def resolve_prompt_file_paths(
@@ -444,22 +501,33 @@ def prompt_workspace(
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
-    def _startup_origins(files: "list[FilePath]") -> list[str]:
-        """Locations each loaded file represents, recorded as of startup.
+    def _startup_metadata(files: "list[FilePath]") -> "MessageMetadata | None":
+        roots = _startup_agent_roots(files)
+        return {"startup_agent_roots": roots} if roots else None
 
-        A file's target and every configured alias of it (including aliases
-        deduplicated against an earlier agent or context file) are recorded,
-        so the agents_md_inject hook never re-resolves symlinks later.
+    def _startup_agent_roots(files: "list[FilePath]") -> list[str]:
+        """Agent workspaces whose instruction files these loaded files are.
+
+        Each file counts at the location it was loaded from, at its target,
+        and at every configured alias of that target (including aliases
+        deduplicated against an earlier agent or context file), but only where
+        it is itself an agent instruction file. The resolved roots are
+        recorded now, so the agents_md_inject hook never re-derives them from
+        a filesystem that may have changed since.
         """
-        origins: list[str] = []
+        roots: list[str] = []
         for f in files:
             if not isinstance(f, Path):
                 continue
             target = f.resolve()
-            for location in (*configured_paths.get(target, []), target):
-                if str(location) not in origins:
-                    origins.append(str(location))
-        return origins
+            loaded_at = f.parent.resolve() / f.name
+            for location in (loaded_at, target, *configured_paths.get(target, [])):
+                if not _is_agent_instruction_file(location):
+                    continue
+                found = _nearest_agent_root(location.parent)
+                if found is not None and str(found[0]) not in roots:
+                    roots.append(str(found[0]))
+        return roots
 
     # Yield agent instruction files first with explicit framing
     valid_agent_files: list[FilePath] = [f for f in agent_files if f.exists()]
@@ -472,7 +540,7 @@ def prompt_workspace(
             "**You MUST follow these instructions** - they take precedence over default behaviors.\n\n"
             f"{agent_file_list}",
             files=valid_agent_files,
-            metadata={"startup_prompt_files": _startup_origins(valid_agent_files)},
+            metadata=_startup_metadata(valid_agent_files),
         )
 
     # Yield context files separately (informational, not directives)
@@ -483,7 +551,7 @@ def prompt_workspace(
             "system",
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
-            metadata={"startup_prompt_files": _startup_origins(valid_context_files)},
+            metadata=_startup_metadata(valid_context_files),
         )
 
     # Load persistent memories from all layered roots (project, CC, agent, user).

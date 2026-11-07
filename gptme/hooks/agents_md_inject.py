@@ -42,11 +42,12 @@ from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any
 
-from ..config import get_config, get_project_config
+from ..config import get_config
 from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
-from ..prompts import AGENT_FILES, _loaded_agent_files_var, find_agent_files_in_tree
+from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
+from ..prompts.workspace import _agent_name_of, _nearest_agent_root
 from ..util.context_dedup import _content_hash
 
 # Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
@@ -140,62 +141,6 @@ def _format_display_path(agent_file: Path) -> str:
         return str(agent_file.resolve())
 
 
-def _agent_name_of(directory: Path) -> str | None:
-    """Return the ``[agent]`` name declared by ``directory``'s gptme.toml, if any.
-
-    Only consults the project config when a ``gptme.toml`` actually exists, so
-    walking many plain directories doesn't churn the project-config cache.
-    """
-    if not (
-        (directory / "gptme.toml").is_file()
-        or (directory / ".github" / "gptme.toml").is_file()
-    ):
-        return None
-    try:
-        config = get_project_config(directory, quiet=True)
-    except Exception as e:  # a malformed config shouldn't break the hook
-        logger.debug(f"Could not load project config in {directory}: {e}")
-        return None
-    if config and config.agent and config.agent.name:
-        return config.agent.name
-    return None
-
-
-def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
-    """Walk up from ``start`` to the nearest agent workspace root.
-
-    Returns the resolved root and its declared agent name, or None when no
-    agent workspace is found before reaching the home directory.
-    """
-    home = Path.home().resolve()
-    current = start
-    while True:
-        name = _agent_name_of(current)
-        if name is not None:
-            return current.resolve(), name
-        if current.resolve() == home or current == current.parent:
-            return None
-        current = current.parent
-
-
-# Suffix patterns for known agent instruction files, as Path objects.
-# A startup file grants an identity exemption only when it is itself an
-# instruction file — not when it is any other file from an agent workspace.
-_AGENT_INSTRUCTION_PATTERNS: tuple[tuple[str, ...], ...] = tuple(
-    Path(p).parts for p in AGENT_FILES
-)
-
-
-def _is_agent_instruction_file(path: Path) -> bool:
-    """Return True if path is a known agent instruction filename."""
-    parts = path.parts
-    for pattern_parts in _AGENT_INSTRUCTION_PATTERNS:
-        n = len(pattern_parts)
-        if parts[-n:] == pattern_parts:
-            return True
-    return False
-
-
 def _current_prompt_messages(log: Log) -> list[Message]:
     """System messages of the prompt generation the provider currently sees.
 
@@ -229,7 +174,7 @@ def _current_prompt_messages(log: Log) -> list[Message]:
 
 
 def _prompt_file_roots(log: Log | None) -> set[Path]:
-    """Agent roots represented by instruction files in the current prompt.
+    """Agent roots whose instructions the current prompt generation loaded.
 
     Configuration alone is not evidence of loading: exclusions and selective
     context can omit a configured file. Read the prompt messages in the log
@@ -237,27 +182,17 @@ def _prompt_file_roots(log: Log | None) -> set[Path]:
     output and superseded prompt generations must not grant an identity
     exemption.
 
-    A file is evidence for a workspace only at a location where it is itself a
-    known agent instruction file (AGENTS.md, CLAUDE.md, etc.): a plain context
-    file from an agent workspace is not sufficient. For a symlinked file, the
-    configured location and the target are judged separately, so an
-    instruction-named alias pointing at another workspace's README does not
-    admit that workspace. Locations are used as recorded at startup and never
-    re-resolved, so retargeting a symlink later cannot change the evidence.
+    The roots are recorded when the prompt is built (``startup_agent_roots``,
+    see ``prompt_workspace``) and used as recorded: re-deriving them from
+    file paths now would let symlinks or directories changed since then
+    redirect the exemption to another workspace.
     """
     roots: set[Path] = set()
     if log is None:
         return roots
     for msg in _current_prompt_messages(log):
-        origins = msg.metadata.get("startup_prompt_files", []) if msg.metadata else []
-        files = [file for file in msg.files if isinstance(file, Path)]
-        files.extend(Path(origin) for origin in origins)
-        for location in files:
-            if not _is_agent_instruction_file(location):
-                continue
-            found = _nearest_agent_root(location.parent)
-            if found is not None:
-                roots.add(found[0])
+        recorded = msg.metadata.get("startup_agent_roots", []) if msg.metadata else []
+        roots.update(Path(root) for root in recorded)
     return roots
 
 
