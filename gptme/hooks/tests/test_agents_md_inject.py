@@ -1292,3 +1292,26 @@ class TestStartupEvidenceReviewFindings:
 
         assert any("Alice source rules" in m.content for m in _injected(msgs))
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_startup_root_does_not_admit_enclosing_agent_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Loading nested Alice's instructions must not admit enclosing Bob."""
+        bob = _make_agent_workspace(tmp_path / "agents" / "bob", "Bob", "# Being Bob")
+        alice = _make_agent_workspace(bob / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        _loaded_agent_files_var.set(None)
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+        assert any("Alice source rules" in m.content for m in _injected(msgs))

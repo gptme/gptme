@@ -198,15 +198,18 @@ def _prompt_file_roots(log: Log | None) -> set[Path]:
 
 def _session_identity(
     workspace: Path | None, log: Log | None = None
-) -> tuple[str | None, set[Path]]:
-    """Return the session's agent name and its own workspace roots.
+) -> tuple[str | None, set[Path], set[Path]]:
+    """Return the session's agent name, own workspace roots and adopted roots.
 
     The agent name comes from the chat config's agent workspace when available,
     falling back to the session workspace's ``gptme.toml``. Own roots are the
-    session workspace, the agent path, and - for a session without an identity
-    of its own - any agent workspace whose instructions were loaded at startup
-    (resolved); an agent workspace at or above one of them is part of the
-    session's own context, never foreign.
+    session workspace and the agent path (resolved); an agent workspace at or
+    above one of them is part of the session's own context, never foreign.
+
+    Adopted roots are, for a session without an identity of its own, the agent
+    workspaces whose instructions were loaded at startup. Only those exact
+    workspaces are adopted: an enclosing agent workspace's instructions were
+    not loaded, so it stays foreign.
     """
     roots: set[Path] = set()
     name: str | None = None
@@ -224,17 +227,19 @@ def _session_identity(
         roots.add(ws)
         if name is None:
             name = _agent_name_of(ws)
-    if name is None:
-        # A session without an identity of its own may adopt the agent
-        # workspaces whose instructions it already loaded at startup. A session
-        # that *does* have an identity keeps it: entering another agent's
-        # workspace must not hand over the identity.
-        roots |= _prompt_file_roots(log)
-    return name, roots
+    # A session without an identity of its own may adopt the agent
+    # workspaces whose instructions it already loaded at startup. A session
+    # that *does* have an identity keeps it: entering another agent's
+    # workspace must not hand over the identity.
+    adopted = _prompt_file_roots(log) if name is None else set()
+    return name, roots, adopted
 
 
 def _find_foreign_agent_root(
-    agent_file: Path, session_name: str | None, own_roots: set[Path]
+    agent_file: Path,
+    session_name: str | None,
+    own_roots: set[Path],
+    adopted_roots: set[Path] | None = None,
 ) -> tuple[Path, str] | None:
     """Find the foreign agent workspace that ``agent_file`` belongs to, if any.
 
@@ -243,7 +248,7 @@ def _find_foreign_agent_root(
     workspace is *foreign* when it is not one of the session's own roots (or an
     ancestor of one) and its agent name differs from the session's. A session
     without an agent name treats every other agent workspace as foreign, except
-    those whose instructions it already loaded at startup.
+    the exact ``adopted_roots`` whose instructions it already loaded at startup.
 
     Both the path the file was discovered at and its symlink-resolved target
     are checked, so a symlinked ``AGENTS.md`` is foreign if either location is.
@@ -253,14 +258,17 @@ def _find_foreign_agent_root(
     if resolved_parent != locations[0]:
         locations.append(resolved_parent)
     for start in locations:
-        found = _walk_to_agent_root(start, session_name, own_roots)
+        found = _walk_to_agent_root(start, session_name, own_roots, adopted_roots)
         if found is not None:
             return found
     return None
 
 
 def _walk_to_agent_root(
-    start: Path, session_name: str | None, own_roots: set[Path]
+    start: Path,
+    session_name: str | None,
+    own_roots: set[Path],
+    adopted_roots: set[Path] | None = None,
 ) -> tuple[Path, str] | None:
     """Walk up from ``start`` to the nearest agent root; return it if foreign."""
     found = _nearest_agent_root(start)
@@ -268,6 +276,8 @@ def _walk_to_agent_root(
         return None
     resolved, name = found
     if any(root.is_relative_to(resolved) for root in own_roots):
+        return None
+    if adopted_roots and resolved in adopted_roots:
         return None
     if session_name is not None and name == session_name:
         return None
@@ -328,11 +338,13 @@ def _partition_foreign(
     agent_files: list[Path], workspace: Path | None, log: Log | None = None
 ) -> tuple[list[Path], dict[Path, tuple[str, list[Path]]], str | None]:
     """Split candidates into allowed files and files in foreign agent workspaces."""
-    session_name, own_roots = _session_identity(workspace, log)
+    session_name, own_roots, adopted_roots = _session_identity(workspace, log)
     allowed: list[Path] = []
     foreign: dict[Path, tuple[str, list[Path]]] = {}
     for agent_file in agent_files:
-        found = _find_foreign_agent_root(agent_file, session_name, own_roots)
+        found = _find_foreign_agent_root(
+            agent_file, session_name, own_roots, adopted_roots
+        )
         if found is None:
             allowed.append(agent_file)
         else:

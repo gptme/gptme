@@ -189,20 +189,16 @@ def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
         current = current.parent
 
 
-# Suffix patterns for known agent instruction files, as Path parts. A loaded
-# file is evidence for an agent workspace only when it is itself an
-# instruction file, not any other file from that workspace.
-_AGENT_INSTRUCTION_PATTERNS: tuple[tuple[str, ...], ...] = tuple(
-    Path(p).parts for p in AGENT_FILES
-)
-
-
 def _is_agent_instruction_file(path: Path) -> bool:
-    """Return True if path is a known agent instruction filename."""
+    """Return True if path is a known agent instruction filename.
+
+    A loaded file is evidence for an agent workspace only when it is itself an
+    instruction file, not any other file from that workspace.
+    """
     parts = path.parts
-    for pattern_parts in _AGENT_INSTRUCTION_PATTERNS:
-        n = len(pattern_parts)
-        if parts[-n:] == pattern_parts:
+    for pattern in AGENT_FILES:
+        pattern_parts = Path(pattern).parts
+        if parts[-len(pattern_parts) :] == pattern_parts:
             return True
     return False
 
