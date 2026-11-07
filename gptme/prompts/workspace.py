@@ -490,6 +490,12 @@ def prompt_workspace(
         context_files = [
             f for f in context_files if not _is_excluded(f, project.exclude)
         ]
+        # Recorded aliases are evidence of what startup loaded, so an excluded
+        # alias of a file loaded through another path must not count either.
+        configured_paths = {
+            target: [a for a in aliases if not _is_excluded(a, project.exclude)]
+            for target, aliases in configured_paths.items()
+        }
         excluded_count = before_count - len(context_files)
         if excluded_count:
             logger.debug(
