@@ -83,3 +83,39 @@ async def test_tui_opt_out(tmp_path, monkeypatch):
         app.generating = True
         app._set_state("generating")
     assert not any("7501;" in report for report in reports)
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [("declined", "idle"), ("interrupt", "idle"), ("reply", "done")],
+)
+def test_tui_turn_outcome(tmp_path, monkeypatch, mode, expected):
+    """A declined (``n``) or interrupted TUI turn ends idle, like the CLI."""
+    from gptme.constants import DECLINED_CONTENT
+    from gptme.message import Message
+
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    manager.append(Message("user", "run a tool"))
+    app = GptmeApp(manager, workspace=tmp_path)
+    app._terminal_outcome = "done"  # as set by _start_generation
+
+    def call_from_thread(callback, *args, **kwargs):
+        if callback == app._take_steer_prompts:
+            return callback(*args, **kwargs)
+        return None
+
+    def reply(*args, **kwargs):
+        if mode == "interrupt":
+            raise KeyboardInterrupt
+        if mode == "declined":
+            yield Message("system", DECLINED_CONTENT)
+        else:
+            yield Message("assistant", "Done.")
+
+    monkeypatch.setattr(app, "call_from_thread", call_from_thread)
+    monkeypatch.setattr(app, "_restore_terminal", lambda: None)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
+    monkeypatch.setattr("gptme.tui.app.step", reply)
+    app._generation_body()
+    assert app._terminal_outcome == expected

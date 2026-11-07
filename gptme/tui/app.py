@@ -3996,6 +3996,9 @@ class GptmeApp(App):
                     manager.append(msg)
                     self.call_from_thread(self._on_step_message, msg)
 
+                if interrupted or declined:
+                    # Back at the prompt waiting for the user, not done.
+                    self._terminal_outcome = "idle"
                 if interrupted or declined or self._interrupt_event.is_set():
                     break
                 step_count += 1

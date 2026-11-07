@@ -95,16 +95,24 @@ def turn_status(
     """Report a turn whose function returns whether it was cancelled or declined.
 
     A completed turn ends ``done``; a cancelled or declined one is back at the
-    prompt waiting for the user, so it ends ``idle`` (as in the TUI).
+    prompt waiting for the user, so it ends ``idle`` (as in the TUI). That
+    includes a Ctrl+C escaping the turn (e.g. from a turn-end hook), which the
+    caller handles by returning to the prompt.
     """
 
     def decorator(func: Callable[P, bool]) -> Callable[P, bool]:
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> bool:
             with program_status(
-                "working", after="done", success_exceptions=success_exceptions
+                "working",
+                after="done",
+                success_exceptions=(*success_exceptions, KeyboardInterrupt),
             ) as scope:
-                interrupted = func(*args, **kwargs)
+                try:
+                    interrupted = func(*args, **kwargs)
+                except KeyboardInterrupt:
+                    scope.after = "idle"
+                    raise
                 if interrupted:
                     scope.after = "idle"
                 return interrupted
