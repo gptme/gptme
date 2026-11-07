@@ -266,8 +266,8 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"|[rsp]k_(?:live|test)_[A-Za-z0-9]{16,}"
     # JWT segments include '_' and '-': neither can allow another start inside
     # a segment, or repeated 'eyJ_' prefixes retry every remaining suffix.
-    # A single leading '-' is a diff deletion marker, not a segment character.
-    r"|(?:(?<![_-])|(?<=^-))eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    # Consume diff deletion markers from a boundary, preserving them on output.
+    r"|(?<![_-])(?P<jwt_diff>-*)eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
     r")(?![A-Za-z0-9])"
 )
 
@@ -315,7 +315,7 @@ def _redact_embedded_secrets(line: str) -> tuple[str, bool]:
         # Vendor shapes already enforce a prefix and minimum body length;
         # legitimate credentials do not necessarily contain decimal digits.
         changed = True
-        return _REDACTED
+        return (match.group("jwt_diff") or "") + _REDACTED
 
     line = _EMBEDDED_PAIR_RE.sub(_pair, line)
     line = _EMBEDDED_VENDOR_LITERAL_RE.sub(_literal, line)

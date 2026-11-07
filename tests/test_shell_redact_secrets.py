@@ -170,9 +170,13 @@ def test_embedded_google_oauth_access_token_is_redacted(template):
     assert n == 1
 
 
-def test_removed_jwt_line_is_redacted():
+@pytest.mark.parametrize("prefix", ["-", "E         -", "    -", "E         --"])
+def test_removed_jwt_line_is_redacted(prefix):
     value = "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12
-    assert redact_secret_values_from_output(f"-{value}\n") == ("-[REDACTED]\n", 1)
+    assert redact_secret_values_from_output(f"{prefix}{value}\n") == (
+        f"{prefix}[REDACTED]\n",
+        1,
+    )
 
 
 @pytest.mark.parametrize(
