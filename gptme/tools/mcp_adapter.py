@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..mcp.client import MCPClient
     from ..mcp.registry import MCPRegistry
 
-from gptme.config import Config, MCPServerConfig, get_config, set_config
+from gptme.config import Config, MCPConfig, MCPServerConfig, get_config, set_config
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -572,6 +572,32 @@ def get_mcp_server_info(name: str) -> str:
     return format_server_details(server)
 
 
+def _mcp_layer_for_server(
+    config: Config, name: str
+) -> tuple[MCPConfig, MCPServerConfig | None]:
+    """Return the writable MCP layer that owns ``name``, plus that entry.
+
+    Layers are scanned in merge order (chat, project, user). If none owns the
+    name, user.mcp is created as needed and returned with ``owned=None`` so the
+    caller can append a new session-local server there.
+    """
+    layers: list[MCPConfig | None] = []
+    if config.chat is not None:
+        layers.append(config.chat.mcp)
+    if config.project is not None:
+        layers.append(config.project.mcp)
+    layers.append(config.user.mcp)
+    for layer in layers:
+        if layer is None:
+            continue
+        owned = next((s for s in layer.servers if s.name == name), None)
+        if owned is not None:
+            return layer, owned
+    if config.user.mcp is None:
+        config.user.mcp = MCPConfig(enabled=True, servers=[])
+    return config.user.mcp, None
+
+
 def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     """
     Dynamically load an MCP server during the session.
@@ -598,7 +624,25 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # Check if server is in config
     server_config = next((s for s in config.mcp.servers if s.name == name), None)
 
-    # If not in config, try to find in registry
+    # A fully-specified override (command or url) is enough to invent a
+    # session-local server. Do that before a registry lookup so the documented
+    # ``load my-server\n{"command": "uvx", "args": [...]}`` path works for a
+    # name that is in neither config nor a registry, and so we do not spend a
+    # network round-trip on a local command.
+    if not server_config and config_override:
+        has_command = bool(config_override.get("command"))
+        has_url = bool(config_override.get("url"))
+        if has_command or has_url:
+            server_config = MCPServerConfig(
+                name=name,
+                enabled=True,
+                command=str(config_override.get("command") or ""),
+                args=list(config_override.get("args") or []),
+                url=str(config_override.get("url") or ""),
+                env=dict(config_override.get("env") or {}),
+            )
+
+    # If not in config and not fully specified by override, try the registry
     if not server_config:
         server_info = _get_registry().get_server_details(name)
         if not server_info:
@@ -624,17 +668,22 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         if "env" in config_override:
             server_config.env = config_override["env"]
 
-    # Add to config BEFORE connecting (connect() looks up server by name in config).
-    # A server that was previously unloaded is still in config with
-    # enabled=False; re-enable it so config reflects the loaded state.
+    # Persist onto a writable layer. Config.mcp is a merged copy, so appending
+    # there is a no-op and connect() would later raise "No MCP server config
+    # found". Prefer the layer that already owns this name (so a disabled user
+    # server is re-enabled in place even when chat.mcp exists empty); otherwise
+    # write a new entry onto user.mcp.
     config_added = False
     was_enabled = server_config.enabled
-    if server_config not in config.mcp.servers:
-        config.mcp.servers.append(server_config)
+    layer, owned = _mcp_layer_for_server(config, server_config.name)
+    was_layer_enabled = layer.enabled
+    if owned is None:
+        layer.servers.append(server_config)
+        layer.enabled = True
         set_config(config)
         config_added = True
-    elif not server_config.enabled:
-        server_config.enabled = True
+    elif not owned.enabled:
+        owned.enabled = True
         set_config(config)
 
     client: MCPClient | None = None
@@ -693,7 +742,9 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
                 logger.debug("Failed to close client for '%s' during rollback", name)
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
-            config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
+            layer, _ = _mcp_layer_for_server(config, name)
+            layer.servers = [s for s in layer.servers if s.name != name]
+            layer.enabled = was_layer_enabled
             set_config(config)
         elif server_config.enabled != was_enabled:
             server_config.enabled = was_enabled

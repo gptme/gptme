@@ -524,6 +524,120 @@ def test_load_mcp_server_registers_toolspecs(mock_config, mock_mcp_client):
         _set_available_tools_cache(None)  # restore cold cache for other tests
 
 
+def test_load_mcp_server_from_config_override_without_prior_entry(
+    mock_mcp_client,
+):
+    """A documented /mcp load override must work for a name that is not in config.
+
+    Regression for the dogfood 63a8 probe: load_mcp_server() looked the name
+    up in config, then the registry, and returned "not found" before applying
+    a fully-specified config_override. The advertised example
+    ``load my-server\\n{"command": "uvx", "args": [...]}`` never connected.
+    """
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    empty = Config()
+    empty.user.mcp = MCPConfig(enabled=True, servers=[])
+    mock_registry = MagicMock()
+    mock_registry.get_server_details.return_value = None
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=empty),
+            patch("gptme.tools.mcp_adapter.set_config") as set_cfg,
+            patch("gptme.tools.mcp_adapter._get_registry", return_value=mock_registry),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server(
+                "my-server",
+                {"command": "uvx", "args": ["my-mcp-server", "--option"]},
+            )
+
+        assert "Successfully loaded" in result, result
+        assert "my-server" in result
+        mock_registry.get_server_details.assert_not_called()
+        mock_mcp_client.connect.assert_called_once_with("my-server")
+        names = [s.name for s in empty.user.mcp.servers]
+        assert names == ["my-server"]
+        stored = empty.user.mcp.servers[0]
+        assert stored.command == "uvx"
+        assert stored.args == ["my-mcp-server", "--option"]
+        set_cfg.assert_called()
+        assert tools_mod.get_tool("my-server.test_tool") is not None
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_load_mcp_server_override_without_command_or_url_still_needs_a_source():
+    """An env-only override is not enough to invent a server that is nowhere."""
+    empty = Config()
+    empty.user.mcp = MCPConfig(enabled=True, servers=[])
+    mock_registry = MagicMock()
+    mock_registry.get_server_details.return_value = None
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=empty),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=mock_registry),
+    ):
+        result = load_mcp_server("ghost-server", {"env": {"FOO": "1"}})
+    assert "not found in config or registries" in result
+    assert empty.user.mcp.servers == []
+
+
+def test_failed_override_load_restores_layer_enabled_flag(mock_mcp_client):
+    """A failed new-server load must not leave a previously-disabled layer enabled."""
+    empty = Config()
+    empty.user.mcp = MCPConfig(enabled=False, servers=[])
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    mock_registry = MagicMock()
+    mock_registry.get_server_details.return_value = None
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=empty),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=mock_registry),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server(
+            "my-server",
+            {"command": "uvx", "args": ["my-mcp-server"]},
+        )
+    assert "Failed to load" in result
+    assert empty.user.mcp.servers == []
+    assert empty.user.mcp.enabled is False
+
+
+def test_load_mcp_server_reenables_disabled_user_server_when_chat_mcp_exists(
+    mock_mcp_client,
+):
+    """A disabled user-layer server must be re-enabled in place, not copied into chat.mcp."""
+    from gptme import tools as tools_mod
+    from gptme.config.chat import ChatConfig
+    from gptme.tools import _set_available_tools_cache
+
+    cfg = Config()
+    server = MCPServerConfig(name="test-server", enabled=False, command="test-command")
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[server])
+    cfg.chat = ChatConfig()
+    cfg.chat.mcp = MCPConfig(enabled=True, servers=[])
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+            patch("gptme.tools.mcp_adapter.set_config") as set_cfg,
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+        assert "Successfully loaded" in result
+        assert server.enabled is True
+        assert [s.name for s in cfg.user.mcp.servers] == ["test-server"]
+        assert cfg.chat.mcp.servers == []
+        set_cfg.assert_called()
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
 def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client):
     """After load, the server's tools must be selectable/executable via get_tools()/get_tool(), not just listed in the cache."""
     from gptme import tools as tools_mod
