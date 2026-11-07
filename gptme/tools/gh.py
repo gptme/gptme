@@ -707,6 +707,62 @@ _NATIVE_REF_COMMANDS = {
 }
 
 
+# Native read handlers that implement no flags beyond ``--repo``/``-R``.
+_NATIVE_REPO_FLAG_ONLY = _NATIVE_REF_COMMANDS - {("pr", "merge")} | {("run", "view")}
+
+
+def _has_unsupported_flags(args: list[str]) -> bool:
+    """True when a native read command carries a flag its handler does not implement.
+
+    The native handlers understand only ``--repo``/``-R``.  Any other flag
+    (``--json``, ``--jq``, ``--log-failed``, ``--job``, ...) was previously
+    discarded, or read as a positional value (``pr checks --json`` became the
+    commit SHA), so the caller got the native summary instead of what it asked
+    for.  Such calls must reach the real gh CLI.
+    """
+    rest = args[2:]
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token in ("--repo", "-R"):
+            i += 2
+            continue
+        if token.startswith("--repo=") or (token.startswith("-R") and len(token) > 2):
+            i += 1
+            continue
+        if token.startswith("-"):
+            return True
+        i += 1
+    return False
+
+
+def _cli_reference_index(args: list[str]) -> int | None:
+    """Find a positional target without mistaking read-option values for one."""
+    value_flags = {
+        "--repo",
+        "-R",
+        "--json",
+        "--jq",
+        "-q",
+        "--template",
+        "-t",
+        "--interval",
+        "-i",
+        "--author",
+        "--assignee",
+    }
+    rest = iter(range(2, len(args)))
+    for index in rest:
+        token = args[index]
+        if token == "--":
+            return next(rest, None)
+        if token in value_flags:
+            next(rest, None)
+        elif not token.startswith("-"):
+            return index
+    return None
+
+
 def _apply_repo_flag(args: list[str]) -> tuple[list[str], str | None]:
     """Strip ``--repo``/``-R`` from a native ref command and fold it into the ref.
 
@@ -758,6 +814,50 @@ def execute_gh(
         except ValueError as e:
             yield Message("system", f"Error parsing command: {e}")
             return
+
+    if (
+        args
+        and tuple(args[:2]) in _NATIVE_REPO_FLAG_ONLY
+        and _has_unsupported_flags(args)
+    ):
+        # The CLI cannot see the separate structured-call URL. Preserve it as
+        # the reference when the command has only flags, keeping an explicit
+        # positional reference authoritative as in the native handlers.
+        if tuple(args[:2]) in _NATIVE_REF_COMMANDS:
+            ref_index = _cli_reference_index(args)
+            if ref_index is None and kwargs and kwargs.get("url"):
+                args = [*args[:2], kwargs["url"], *args[2:]]
+                ref_index = 2
+            if ref_index is not None:
+                if args[:2] in (["pr", "status"], ["pr", "checks"]) and (
+                    _cli_reference_index([*args[:2], *args[ref_index + 1 :]])
+                    is not None
+                ):
+                    # CLI reads cannot select an arbitrary commit. Never drop
+                    # the SHA and silently return checks for the current head.
+                    yield Message(
+                        "system",
+                        "Error: A commit SHA cannot be combined with CLI read flags. "
+                        "Remove the extra flags to use native commit-specific checks, "
+                        "or use `gh api repos/OWNER/REPO/commits/SHA/check-runs`.",
+                    )
+                    return
+                # Native status is PR-specific, but CLI status is a repository
+                # overview with no positional target. Use view for flagged
+                # PR-specific reads rather than dropping the requested target.
+                if args[:2] == ["pr", "status"]:
+                    args = ["pr", "view", *args[2:]]
+                # owner/repo#N and #N are tool shorthand, not CLI references.
+                ref = args[ref_index]
+                qualified = re.fullmatch(r"([\w.-]+/[\w.-]+)#(\d+)", ref)
+                if qualified:
+                    kind = "issues" if args[0] == "issue" else "pull"
+                    ref = f"https://github.com/{qualified[1]}/{kind}/{qualified[2]}"
+                elif re.fullmatch(r"#\d+", ref):
+                    ref = ref[1:]
+                args = [*args[:ref_index], ref, *args[ref_index + 1 :]]
+        yield from _passthrough_gh(args, code)
+        return
 
     if args and tuple(args[:2]) in _NATIVE_REF_COMMANDS:
         args, repo_err = _apply_repo_flag(args)
@@ -871,13 +971,10 @@ def execute_gh(
 
 instructions = """### When to use
 
-Use `gh` instead of shell for GitHub issues, PRs, CI runs, and merges.
-Native paths collapse API calls, keep CI state structured, and add merge
-safety guards easy to miss with raw shell commands.
+Use `gh` for GitHub issues, PRs, CI runs, and merges.
+Refs: URLs, `owner/repo#N`, `#N`, or bare `N`.
 
-Refs: full URLs, `owner/repo#N`, `#N`, or bare `N`.
-
-Native paths help avoid hallucination:
+Native commands:
 - `gh issue view <ref>` gets issue body and comments in one result
 - `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
 - `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
@@ -885,7 +982,9 @@ Native paths help avoid hallucination:
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
 
-All other `gh` subcommands pass through unchanged.
+Read flags beyond `--repo`/`-R` (e.g. `--json`, `--log-failed`) and other
+subcommands use the CLI. A separate `url` supplies the target; flagged PR-specific
+`pr status` uses `pr view` (CLI `pr status` has no target).
 
 Structured tool calls pass the whole command as `command`, e.g.
 `{"command": "issue view owner/repo#42"}`."""

@@ -954,7 +954,6 @@ class TestExecuteGh:
             ["run", "view", "12345", "-R", "other/repo"],
             ["run", "view", "12345", "-Rother/repo"],
             ["run", "view", "12345", "-R=other/repo"],
-            ["run", "view", "12345", "--log-failed", "--repo", "other/repo"],
             ["run", "view", "12345", "--repo", "first/repo", "-R", "other/repo"],
         ],
     )
@@ -974,7 +973,6 @@ class TestExecuteGh:
             "run view 12345 --repo=other/repo",
             "run view 12345 -R other/repo",
             "run view 12345 -Rother/repo",
-            "run view 12345 --json jobs -R other/repo",
         ],
     )
     @patch("gptme.tools.gh.get_github_run_logs")
@@ -1016,7 +1014,7 @@ class TestExecuteGh:
     def test_run_view_without_repo_keeps_old_call(self, mock_logs):
         """No repo flag: the utility is called exactly as before."""
         mock_logs.return_value = "## Run 12345: Test"
-        list(execute_gh(None, None, {"command": "run view 12345 --log-failed"}))
+        list(execute_gh(None, None, {"command": "run view 12345"}))
         mock_logs.assert_called_once_with("12345")
 
     @patch("gptme.tools.gh.get_github_run_logs")
@@ -1380,3 +1378,243 @@ class TestNativeRefRepoFlag:
         messages = list(execute_gh(None, argv, None))
         assert len(messages) == 1
         assert "Invalid or missing repository" in messages[0].content
+
+
+class TestUnsupportedFlagsPassThrough:
+    """Native read handlers implement only --repo/-R; other flags go to the gh CLI."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["run", "view", "123", "--log-failed"],
+            ["run", "view", "123", "--repo", "o/r", "--job", "9", "--json", "jobs"],
+            ["pr", "view", "5", "--json", "title", "--jq", ".title"],
+            ["pr", "checks", "5", "--json", "name,state"],
+            ["pr", "status", "--json", "currentBranch"],
+            ["issue", "view", "7", "--comments"],
+        ],
+    )
+    def test_unsupported_flag_reaches_gh_cli(self, args):
+        with (
+            patch("gptme.tools.gh._passthrough_gh") as passthrough,
+            patch("gptme.tools.gh.get_github_run_logs") as native_run,
+            patch("gptme.tools.gh._resolve_ref") as resolve,
+        ):
+            passthrough.return_value = iter([])
+            list(execute_gh(None, args, None))
+        passthrough.assert_called_once_with(args, None)
+        native_run.assert_not_called()
+        resolve.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("command", "url", "expected"),
+        [
+            (
+                "pr view --json title",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/other/repo/pull/42",
+                    "--json",
+                    "title",
+                ],
+            ),
+            (
+                "pr checks --json name,state",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "checks",
+                    "https://github.com/other/repo/pull/42",
+                    "--json",
+                    "name,state",
+                ],
+            ),
+            (
+                "issue view --comments -R other/repo",
+                "https://github.com/other/repo/issues/7",
+                [
+                    "issue",
+                    "view",
+                    "https://github.com/other/repo/issues/7",
+                    "--comments",
+                    "-R",
+                    "other/repo",
+                ],
+            ),
+        ],
+    )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_structured_url_survives_passthrough(self, run, command, url, expected):
+        run.return_value = _mock_subprocess_run("requested target")
+        messages = list(execute_gh(None, None, {"command": command, "url": url}))
+        run.assert_called_once_with(
+            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+        )
+        assert messages[0].content == "requested target"
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            (
+                "pr view https://github.com/explicit/repo/pull/5 --json title",
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/explicit/repo/pull/5",
+                    "--json",
+                    "title",
+                ],
+            ),
+            (
+                "pr view -R explicit/repo 5 --json title",
+                ["pr", "view", "-R", "explicit/repo", "5", "--json", "title"],
+            ),
+            (
+                "pr view --json title feature/branch",
+                ["pr", "view", "--json", "title", "feature/branch"],
+            ),
+            (
+                "run view 123 --log-failed",
+                ["run", "view", "123", "--log-failed"],
+            ),
+        ],
+    )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_keeps_explicit_target_or_ignores_unrelated_url(
+        self, run, command, expected
+    ):
+        run.return_value = _mock_subprocess_run("explicit target")
+        list(
+            execute_gh(
+                None,
+                None,
+                {"command": command, "url": "https://github.com/other/repo/pull/42"},
+            )
+        )
+        run.assert_called_once_with(
+            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+        )
+
+    @pytest.mark.parametrize(
+        ("command", "url", "expected"),
+        [
+            (
+                "pr status --json title,statusCheckRollup",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/other/repo/pull/42",
+                    "--json",
+                    "title,statusCheckRollup",
+                ],
+            ),
+            (
+                "pr status -R explicit/repo 5 --json statusCheckRollup",
+                "https://github.com/other/repo/pull/42",
+                [
+                    "pr",
+                    "view",
+                    "-R",
+                    "explicit/repo",
+                    "5",
+                    "--json",
+                    "statusCheckRollup",
+                ],
+            ),
+            (
+                "pr status owner/repo#42 --json=statusCheckRollup",
+                None,
+                [
+                    "pr",
+                    "view",
+                    "https://github.com/owner/repo/pull/42",
+                    "--json=statusCheckRollup",
+                ],
+            ),
+            (
+                "pr status --json title -R explicit/repo",
+                None,
+                ["pr", "status", "--json", "title", "-R", "explicit/repo"],
+            ),
+        ],
+    )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_flagged_status_uses_view_only_with_a_pr_target(
+        self, run, command, url, expected
+    ):
+        run.return_value = _mock_subprocess_run("requested status")
+        kwargs = {"command": command}
+        if url:
+            kwargs["url"] = url
+        messages = list(execute_gh(None, None, kwargs))
+        run.assert_called_once_with(
+            ["gh", *expected], capture_output=True, text=True, timeout=60, check=False
+        )
+        assert messages[0].content == "requested status"
+
+    @pytest.mark.parametrize("command", ["status", "checks"])
+    @pytest.mark.parametrize("suffix", ["deadbeef --json name", "--json name deadbeef"])
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_flagged_commit_specific_read_fails_explicitly(self, run, command, suffix):
+        messages = list(
+            execute_gh(None, ["pr", command, "o/r#42", *suffix.split()], None)
+        )
+        run.assert_not_called()
+        assert "commit SHA" in messages[0].content
+        assert "Remove the extra flags" in messages[0].content
+
+    @pytest.mark.parametrize("flag", ["--author", "--assignee"])
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_status_filter_values_are_not_pr_targets(self, run, flag):
+        run.return_value = _mock_subprocess_run("CLI response")
+        args = ["pr", "status", flag, "octocat", "--json", "title"]
+        list(execute_gh(None, args, None))
+        run.assert_called_once_with(
+            ["gh", *args], capture_output=True, text=True, timeout=60, check=False
+        )
+
+    @pytest.mark.parametrize("kind", ["issue", "pr"])
+    @pytest.mark.parametrize("ref", ["owner/repo#42", "#42"])
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_flagged_read_translates_native_shorthand(self, run, kind, ref):
+        run.return_value = _mock_subprocess_run("requested target")
+        flag = "--comments" if kind == "issue" else "--json=title"
+        list(execute_gh(None, [kind, "view", flag, ref], None))
+        target = (
+            f"https://github.com/owner/repo/{'issues' if kind == 'issue' else 'pull'}/42"
+            if ref.startswith("owner/")
+            else "42"
+        )
+        run.assert_called_once_with(
+            ["gh", kind, "view", flag, target],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+
+    def test_run_view_with_only_repo_flag_stays_native(self):
+        with (
+            patch("gptme.tools.gh._passthrough_gh") as passthrough,
+            patch("gptme.tools.gh.get_github_run_logs", return_value="logs") as native,
+        ):
+            messages = list(execute_gh(None, ["run", "view", "123", "-R", "o/r"], None))
+        passthrough.assert_not_called()
+        native.assert_called_once_with("123", repo="o/r")
+        assert messages[0].content == "logs"
+
+    @pytest.mark.parametrize(
+        "repo_flag", [["--repo=o/r"], ["-Ro/r"], ["--repo", "o/r"]]
+    )
+    def test_repo_flag_forms_are_not_unsupported(self, repo_flag):
+        from gptme.tools.gh import _has_unsupported_flags
+
+        assert not _has_unsupported_flags(["pr", "view", "5", *repo_flag])
+
+    def test_pr_merge_keeps_its_own_flag_handling(self):
+        from gptme.tools.gh import _NATIVE_REPO_FLAG_ONLY
+
+        assert ("pr", "merge") not in _NATIVE_REPO_FLAG_ONLY
