@@ -3551,7 +3551,12 @@ class GptmeApp(App):
             return
         if self._rebuild_pending:
             self._rebuild_chat()
-        self._terminal_outcome = "error" if result.error else "done"
+        if self._interrupt_event.is_set():
+            # Interrupted (e.g. Esc during /compact): back at the prompt, as
+            # in _generation_done, while _dispatch_queue restores queued input.
+            self._terminal_outcome = "idle"
+        else:
+            self._terminal_outcome = "error" if result.error else "done"
         self._set_state("idle")
         self._finish_command(cmd, before, result)
         if not self.generating and not self._quitting:
