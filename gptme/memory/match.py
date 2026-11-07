@@ -137,7 +137,9 @@ def filter_unseen(
     once (last writer wins), an unreadable or misshapen state file counts as
     empty, and a state write failure (unwritable dir, full disk) only loses
     dedup: the matches are still returned.
-    State files untouched for :data:`SEEN_TTL_SECONDS` are pruned.
+    Every call refreshes the session's state file, so pruning (state idle for
+    :data:`SEEN_TTL_SECONDS`) tracks session activity, not the last new
+    delivery.
     """
     if not session_id:
         return matches[:limit]
@@ -145,6 +147,7 @@ def filter_unseen(
     seen = _load_seen(path)
     fresh = [m for m in matches if str(m.entry.path) not in seen][:limit]
     if not fresh:
+        _touch_seen(path)
         return []
     seen.update(str(m.entry.path) for m in fresh)
     _save_seen(path, seen)
@@ -161,6 +164,14 @@ def _load_seen(path: Path) -> set[str]:
     if not isinstance(seen, list) or not all(isinstance(s, str) for s in seen):
         return set()
     return set(seen)
+
+
+def _touch_seen(path: Path) -> None:
+    """Mark an existing session state as active (keeps it from being pruned)."""
+    try:
+        os.utime(path)
+    except OSError:
+        pass  # no state yet, or not writable: best effort, like _save_seen
 
 
 def _save_seen(path: Path, seen: set[str]) -> None:

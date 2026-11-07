@@ -421,3 +421,31 @@ def test_match_dedup_filters_full_match_set_before_cap(tmp_path, monkeypatch):
     assert _match_names(hook, "--dedup-session", "-k", "1") == [
         Path(ordered[1000]).stem
     ]
+
+
+def test_match_dedup_all_seen_calls_keep_session_state_alive(tmp_path, monkeypatch):
+    """Pruning tracks session activity, not the last new delivery."""
+    import os
+    import time
+
+    from gptme.memory.match import SEEN_TTL_SECONDS, _seen_file
+
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "mem"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    write_entry(tmp_path / "mem", "release-policy", keywords=["stable release"])
+    write_entry(tmp_path / "mem", "hotfix-policy", keywords=["hotfix"])
+    session_a = _hook("cut the stable release", "a")
+
+    # Day 1: session A gets the rule; the delivery is now older than the TTL.
+    assert _match_names(session_a, "--dedup-session") == ["release-policy"]
+    state_a = _seen_file("a", tmp_path / "state" / "gptme")
+    old = time.time() - SEEN_TTL_SECONDS - 3600
+    os.utime(state_a, (old, old))
+    # Session A stays active: the rule keeps matching (already delivered).
+    assert _match_names(session_a, "--dedup-session") == []
+    # A new delivery in session B prunes idle state, but A is not idle.
+    assert _match_names(_hook("ship the hotfix", "b"), "--dedup-session") == [
+        "hotfix-policy"
+    ]
+    assert state_a.exists()
+    assert _match_names(session_a, "--dedup-session") == []
