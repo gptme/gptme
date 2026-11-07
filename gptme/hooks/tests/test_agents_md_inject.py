@@ -798,8 +798,12 @@ class TestStartupLoadedAgentWorkspace:
     ):
         """A configured file that doesn't exist was not loaded, so not exempt."""
         alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
-        # The file is configured but missing, so it was never loaded.
-        _set_prompt_files(monkeypatch, [str(alice / "optional.md")])
+        # An instruction file is configured but missing, so it was never loaded.
+        _set_prompt_files(monkeypatch, [str(alice / "CLAUDE.md")])
+        _load_startup(empty_log, tmp_path)
+        assert not any(
+            (m.metadata or {}).get("startup_agent_roots") for m in empty_log.messages
+        )
 
         msgs = _cd_messages(empty_log, tmp_path, alice)
 
@@ -1379,6 +1383,25 @@ class TestStartupEvidenceReviewFindings:
         (sub / "AGENTS.md").write_text("# Alice source rules")
 
         msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Alice'" in notices[0].content
+
+    def test_scoped_instruction_file_does_not_admit_workspace_root(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Loading alice/docs/AGENTS.md is not loading Alice's identity."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        docs = alice / "docs"
+        docs.mkdir()
+        (docs / "AGENTS.md").write_text("# Docs style rules")
+        _set_prompt_files(monkeypatch, [str(docs / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        _loaded_agent_files_var.set(None)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
 
         assert _injected(msgs) == []
         notices = [m for m in msgs if "agent-workspace-skipped" in m.content]

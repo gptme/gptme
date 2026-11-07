@@ -518,7 +518,7 @@ def prompt_workspace(
         Each file counts at the location it was loaded from, at its target,
         and at every configured alias of that target (including aliases
         deduplicated against an earlier agent or context file), but only where
-        it is itself an agent instruction file. The resolved roots are
+        it is the workspace's own root instruction file. The resolved roots are
         recorded now, so the agents_md_inject hook never re-derives them from
         a filesystem that may have changed since.
         """
@@ -532,7 +532,16 @@ def prompt_workspace(
                 if not _is_agent_instruction_file(location):
                     continue
                 found = _nearest_agent_root(location.parent)
-                if found is not None and str(found[0]) not in roots:
+                if found is None or str(found[0]) in roots:
+                    continue
+                # Only the workspace's own root instruction file (AGENTS.md,
+                # .github/copilot-instructions.md, ...) carries its identity;
+                # scoped rules such as docs/AGENTS.md do not.
+                try:
+                    rel = location.relative_to(found[0])
+                except ValueError:
+                    continue
+                if rel.parts in {Path(p).parts for p in AGENT_FILES}:
                     roots.append(str(found[0]))
         return roots
 
