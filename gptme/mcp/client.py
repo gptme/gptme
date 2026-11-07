@@ -294,8 +294,7 @@ class MCPClient:
             )
         else:
             # Stdio MCP server
-            env = server.env or {}
-            env.update(os.environ)
+            env = {**os.environ, **(server.env or {})}
 
             params = StdioServerParameters(
                 command=server.command, args=server.args, env=env
