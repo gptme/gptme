@@ -5247,6 +5247,112 @@ def test_stream_completions_captures_gemini_thought_signature(monkeypatch, tmp_p
     }
 
 
+def _stream_text(monkeypatch, deltas: list[dict], model: str) -> str:
+    """Run llm_openai.stream() over fake Chat Completions deltas and join it."""
+    from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+
+    def chunk(delta: dict, finish_reason: str | None = None):
+        tool_calls = delta.get("tool_calls")
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    finish_reason=finish_reason,
+                    delta=SimpleNamespace(
+                        reasoning_content=delta.get("reasoning_content"),
+                        reasoning=None,
+                        content=delta.get("content"),
+                        tool_calls=[
+                            ChoiceDeltaToolCall.model_validate(tc) for tc in tool_calls
+                        ]
+                        if tool_calls
+                        else None,
+                    ),
+                )
+            ],
+        )
+
+    chunks = [chunk(d) for d in deltas] + [chunk({}, finish_reason="stop")]
+    create = Mock(return_value=chunks)
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a: False)
+    return "".join(llm_openai.stream([Message(role="user", content="hi")], model, None))
+
+
+_OPENCODE_DEEPSEEK = "opencode-go/deepseek-v4.1-flash"
+
+
+def test_stream_transition_delta_with_reasoning_and_content_keeps_content(
+    monkeypatch,
+):
+    """A delta carrying both the reasoning tail and the first content token
+    (observed from vLLM-served DeepSeek behind OpenCode Go) must not drop the
+    content token."""
+    text = _stream_text(
+        monkeypatch,
+        [
+            {"reasoning_content": "Let me"},
+            {"reasoning_content": " check.", "content": "C"},
+            {"content": "ASCADE picks cleanup."},
+        ],
+        _OPENCODE_DEEPSEEK,
+    )
+    assert text == "<think>\nLet me check.\n</think>\n\nCASCADE picks cleanup."
+
+
+def test_stream_transition_delta_with_reasoning_and_tool_call_closes_think_first(
+    monkeypatch,
+):
+    """A delta carrying the reasoning tail together with the first tool-call
+    fragment must close <think> before the call, not splice "</think>" into the
+    call's arguments on the next chunk."""
+    text = _stream_text(
+        monkeypatch,
+        [
+            {"reasoning_content": "Now commit."},
+            {
+                "reasoning_content": " Careful with quotes.",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "chatcmpl-tool-1",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "'},
+                    }
+                ],
+            },
+            {
+                "tool_calls": [
+                    {"index": 0, "function": {"arguments": 'git commit -m fix"}'}}
+                ]
+            },
+        ],
+        _OPENCODE_DEEPSEEK,
+    )
+    assert text == (
+        "<think>\nNow commit. Careful with quotes.\n</think>\n\n"
+        '\n@shell(chatcmpl-tool-1): {"command": "git commit -m fix"}'
+    )
+    assert text.count("</think>") == 1
+
+
+def test_stream_reasoning_then_separate_content_unchanged(monkeypatch):
+    """The common, well-separated stream shape keeps its existing output."""
+    text = _stream_text(
+        monkeypatch,
+        [
+            {"reasoning_content": "Think."},
+            {"content": "Answer."},
+        ],
+        _OPENCODE_DEEPSEEK,
+    )
+    assert text == "<think>\nThink.\n</think>\n\nAnswer."
+
+
 def test_chat_completions_captures_gemini_thought_signature(monkeypatch):
     from openai.types.chat import ChatCompletionMessageToolCall
 

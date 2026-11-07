@@ -2221,15 +2221,18 @@ def _stream_with_client(
                         yield from _emit("<think>\n")
                         in_reasoning_block = True
                     yield from _emit(reasoning_content)
-                elif in_reasoning_block:
+
+                # Some backends (e.g. vLLM-served DeepSeek behind OpenCode Go)
+                # send a transition delta carrying the reasoning tail together
+                # with the first content or tool-call fragment.  Close the
+                # reasoning block before either, so content is not dropped and
+                # a tool call is not opened inside <think> (which would later
+                # splice "</think>" into its arguments).
+                if in_reasoning_block and (delta.content or delta.tool_calls):
                     yield from _emit("\n</think>\n\n")
                     in_reasoning_block = False
-                    if delta.content is not None:
-                        if detector and detector.feed(delta.content):
-                            _degen_detected = True
-                            break
-                        yield from _emit(delta.content)
-                elif delta.content is not None:
+
+                if delta.content:
                     if detector and detector.feed(delta.content):
                         _degen_detected = True
                         break
