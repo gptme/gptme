@@ -56,6 +56,7 @@ def _get_local_server_info(name: str) -> str | None:
     Returns formatted info string if server is configured locally, None otherwise.
     """
     from ..config import get_config
+    from ..mcp.display import display_target
 
     config = get_config()
     local_server = next((s for s in config.mcp.servers if s.name == name), None)
@@ -68,7 +69,7 @@ def _get_local_server_info(name: str) -> str | None:
     result += f"**Enabled:** {'Yes' if local_server.enabled else 'No'}\n\n"
 
     if local_server.is_http:
-        result += f"**URL:** {local_server.url}\n"
+        result += f"**URL:** {display_target(local_server)}\n"
         if local_server.headers:
             result += f"**Headers:** {len(local_server.headers)} configured\n"
     else:
