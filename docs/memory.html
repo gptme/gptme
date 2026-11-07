@@ -749,13 +749,13 @@ a <em>procedure</em> to run on request, write a skill; if it records <em>what is
 about a user or project, save a memory.</p>
 <p>Memory is not facts-only: the Claude Code format includes a <code class="docutils literal notranslate"><span class="pre">feedback</span></code> type
 for guidance a harness learns from the user (“stage explicit paths”, “don’t
-steal window focus”). Give such an entry <code class="docutils literal notranslate"><span class="pre">keywords</span></code> and harnesses that run
-<code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> (for example a Claude Code hook) inject it when a keyword
-appears (see <a class="reference internal" href="#memory-triggered-matching"><span class="std std-ref">Triggered matching</span></a>). gptme’s own chat loop does not:
-its automatic inclusion reads lesson directories only. Prefer a lesson when the
-rule is curated, shared across workspaces, or must reach gptme sessions; a
-keyworded <code class="docutils literal notranslate"><span class="pre">feedback</span></code> entry suits rules learned at runtime that live with a
-harness’s memory directory.</p>
+steal window focus”). Give such an entry <code class="docutils literal notranslate"><span class="pre">keywords</span></code> and it is injected when a
+keyword appears: gptme’s lesson auto-inclusion matches keyworded memories
+alongside lessons, and other harnesses get the same behaviour by running
+<code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> (for example from a Claude Code hook; see
+<a class="reference internal" href="#memory-triggered-matching"><span class="std std-ref">Triggered matching</span></a>). Prefer a lesson when the rule is curated and
+shared across workspaces; a keyworded <code class="docutils literal notranslate"><span class="pre">feedback</span></code> entry suits rules learned at
+runtime that live with a harness’s memory directory.</p>
 </section>
 <section id="migrating-from-the-knowledge-base">
 <span id="id1"></span><h2>Migrating from the knowledge base<a class="headerlink" href="#migrating-from-the-knowledge-base" title="Link to this heading">#</a></h2>
@@ -802,14 +802,14 @@ them for ranking.</p></li>
 </ul>
 <p>Keep them in separate directories. A memory entry with <code class="docutils literal notranslate"><span class="pre">keywords</span></code> covers the
 same ground as a lesson with <code class="docutils literal notranslate"><span class="pre">match.keywords</span></code>, in the memory format, so either
-can hold a behavioural rule, but delivery differs: gptme automatically includes
-matching <em>lessons</em> in chat, while keyworded <em>memories</em> arrive only where a
-harness calls <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code>. There is no automatic converter: to move a
-lesson into memory, copy its body into an entry (typically <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">feedback</span></code>)
-and turn <code class="docutils literal notranslate"><span class="pre">match.keywords</span></code> into <code class="docutils literal notranslate"><span class="pre">keywords</span></code>; to promote a memory into a
-curated lesson, do the reverse. Remove the original either way, so the rule has
-one home, and only move a lesson out of a lesson directory if no gptme session
-depends on receiving it.</p>
+can hold a behavioural rule. gptme’s lesson auto-inclusion matches both, with
+one shared session budget and dedup; set <code class="docutils literal notranslate"><span class="pre">GPTME_LESSONS_INCLUDE_MEMORIES=false</span></code>
+to match lessons only. Memory candidates match on <code class="docutils literal notranslate"><span class="pre">keywords</span></code> alone (no
+<code class="docutils literal notranslate"><span class="pre">match.tools</span></code> or <code class="docutils literal notranslate"><span class="pre">match.patterns</span></code>). There is no automatic converter: to
+move a lesson into memory, copy its body into an entry (typically
+<code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">feedback</span></code>) and turn <code class="docutils literal notranslate"><span class="pre">match.keywords</span></code> into <code class="docutils literal notranslate"><span class="pre">keywords</span></code>; to promote a
+memory into a curated lesson, do the reverse. Remove the original either way,
+so the rule has one home.</p>
 </section>
 <section id="cross-harness-memory">
 <h2>Cross-harness memory<a class="headerlink" href="#cross-harness-memory" title="Link to this heading">#</a></h2>
