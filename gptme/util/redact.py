@@ -269,17 +269,21 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
 
 # ``'NAME': 'value'`` / ``NAME='value'`` pairs mid-line: pytest assertion
 # introspection, ``env = {...}`` locals and call reprs print them this way.
+# Match each complete name once, then classify it separately. Searching for a
+# keyword inside an unanchored variable-length name retries at every character;
+# repeated keywords can also backtrack through every possible name suffix.
 _EMBEDDED_PAIR_RE = re.compile(
     r"""(?ix)
-    (?P<key>
-        ["']?[\w\-]*?
-        (?:api[-_]?key|apikey|token|secret|password|passwd|private[-_]key
-           |privkey|auth[-_]?(?:key|token)|access[-_]key|credential)
-        [\w\-]*["']?
-    )
+    (?<![\w\-])
+    (?P<key>["']?[\w\-]+["']?)
     (?P<sep>\s*[:=]\s*)
     (?P<q>["'])(?P<val>[A-Za-z0-9_./+=-]{20,})(?P=q)
     """
+)
+_EMBEDDED_SECRET_NAME_RE = re.compile(
+    r"api[-_]?key|apikey|token|secret|password|passwd|private[-_]key"
+    r"|privkey|auth[-_]?(?:key|token)|access[-_]key|credential",
+    re.IGNORECASE,
 )
 
 
@@ -294,7 +298,9 @@ def _redact_embedded_secrets(line: str) -> tuple[str, bool]:
 
     def _pair(match: re.Match[str]) -> str:
         nonlocal changed
-        if not _is_credential_literal(match.group("val")):
+        if not _EMBEDDED_SECRET_NAME_RE.search(match.group("key")) or not (
+            _is_credential_literal(match.group("val"))
+        ):
             return match.group(0)
         changed = True
         q = match.group("q")

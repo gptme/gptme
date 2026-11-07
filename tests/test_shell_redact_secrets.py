@@ -99,6 +99,9 @@ def test_output_specific_credentials(value, quote):
         "E       AssertionError: {key} != None\n",
         # header
         "Authorization: Bearer {key}\n",
+        # Whole-name matching must retain prefixes, suffixes and punctuation.
+        "call(MY_service-ToKeN_suffix='{opaque}')\n",
+        "config = {{'some-token-field': '{opaque}'}}\n",
     ],
 )
 def test_credentials_in_non_line_anchored_output_are_redacted(line):
@@ -130,6 +133,32 @@ def test_non_credential_mid_line_text_is_kept(line):
     out, n = redact_secret_values_from_output(line)
     assert n == 0
     assert out == line
+
+
+@pytest.mark.parametrize(
+    "word", ["x" * 32000, "token" * 6400], ids=["plain-word", "repeated-keyword"]
+)
+def test_long_non_matching_output_does_not_stall(word):
+    """A generous subprocess deadline bounds regex hangs, not normal latency."""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from gptme.util.redact import redact_secret_values_from_output; "
+                "text = sys.stdin.read(); "
+                "assert redact_secret_values_from_output(text) == (text, 0)"
+            ),
+        ],
+        input=word,
+        text=True,
+        check=True,
+        timeout=10,
+    )
 
 
 @pytest.mark.parametrize("final", [False, True])
