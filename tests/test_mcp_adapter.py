@@ -610,8 +610,8 @@ def test_failed_override_load_restores_layer_enabled_flag(mock_mcp_client):
 @pytest.mark.parametrize("higher_layer", ["chat", "project"])
 @pytest.mark.parametrize("fails", [False, True])
 def test_override_load_enables_effective_layer_and_rolls_back(
-    mock_mcp_client, higher_layer, fails
-):
+    mock_mcp_client: MagicMock, higher_layer: str, fails: bool
+) -> None:
     from gptme import tools as tools_mod
     from gptme.config.chat import ChatConfig
     from gptme.config.models import ProjectConfig
@@ -624,7 +624,7 @@ def test_override_load_enables_effective_layer_and_rolls_back(
     setattr(cfg, higher_layer, owner)
     connected = mock_mcp_client.connect.return_value
 
-    def connect(name):
+    def connect(name: str) -> tuple:
         assert cfg.mcp.enabled, "effective MCP layer still disabled"
         assert name in [s.name for s in cfg.mcp.servers]
         if fails:
@@ -654,7 +654,9 @@ def test_override_load_enables_effective_layer_and_rolls_back(
         _set_available_tools_cache(None)
 
 
-def test_failed_override_load_restores_absent_user_layer(mock_mcp_client):
+def test_failed_override_load_restores_absent_user_layer(
+    mock_mcp_client: MagicMock,
+) -> None:
     cfg = Config()
     cfg.user.mcp = None
     mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
