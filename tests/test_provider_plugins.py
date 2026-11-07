@@ -325,17 +325,26 @@ class TestGetModelWithPlugin:
 
     @pytest.mark.parametrize(
         ("model_name", "context"),
-        [("MiniMax-M3", 1_000_000), ("MiniMax-M2.7", 204_800)],
+        [
+            ("MiniMax-M3.1-Flash", 1_000_000),
+            ("MiniMax-M3", 1_000_000),
+            ("MiniMax-M2.7", 204_800),
+        ],
     )
     def test_minimax_registry_models_resolve(
         self, model_name: str, context: int
     ) -> None:
-        """Current MiniMax plugin models should resolve with their own metadata."""
+        """Current and saved legacy plugin models resolve with their own metadata."""
         from gptme.llm.models.resolution import get_model
 
         plugin = _make_plugin(
             name="minimax",
             models=[
+                ModelMeta(
+                    provider="unknown",
+                    model="minimax/MiniMax-M3.1-Flash",
+                    context=1_000_000,
+                ),
                 ModelMeta(
                     provider="unknown",
                     model="minimax/MiniMax-M3",
