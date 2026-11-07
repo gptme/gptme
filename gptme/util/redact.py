@@ -266,7 +266,8 @@ _EMBEDDED_VENDOR_LITERAL_RE = re.compile(
     r"|[rsp]k_(?:live|test)_[A-Za-z0-9]{16,}"
     # JWT segments include '_' and '-': neither can allow another start inside
     # a segment, or repeated 'eyJ_' prefixes retry every remaining suffix.
-    r"|(?<![_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    # A single leading '-' is a diff deletion marker, not a segment character.
+    r"|(?:(?<![_-])|(?<=^-))eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
     r")(?![A-Za-z0-9])"
 )
 

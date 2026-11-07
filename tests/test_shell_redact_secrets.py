@@ -170,6 +170,11 @@ def test_embedded_google_oauth_access_token_is_redacted(template):
     assert n == 1
 
 
+def test_removed_jwt_line_is_redacted():
+    value = "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12
+    assert redact_secret_values_from_output(f"-{value}\n") == ("-[REDACTED]\n", 1)
+
+
 @pytest.mark.parametrize(
     "word",
     ["x" * 32000, "token" * 6400, "eyJ_" * 64000, "eyJ-" * 64000],
