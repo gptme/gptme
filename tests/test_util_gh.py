@@ -727,8 +727,11 @@ class TestExtractFailureSections:
         assert len(result.splitlines()) < 20
 
     def test_lowercase_failed_prose_is_not_an_error_signal(self):
-        text = "db migration failed gracefully and rolled back\nstill ok"
-        assert _extract_failure_sections(text) == text
+        prose = "db migration failed gracefully and rolled back"
+        lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
+        result = _extract_failure_sections("\n".join(lines))
+        assert prose not in result
+        assert "ERROR: real failure" in result
 
 
 class TestTruncateLogTail:
