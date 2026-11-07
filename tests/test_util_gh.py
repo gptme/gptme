@@ -753,6 +753,11 @@ class TestTruncateLogTail:
         assert result.endswith(text[-100:])
         assert result.startswith(f"[... {len(text) - 100} chars omitted]\n")
 
+    def test_complete_line_at_exact_budget_boundary_is_preserved(self):
+        tail = "ERROR: root cause\nok"
+        result = _truncate_log_tail("setup\n" + tail, len(tail))
+        assert result == f"[... 6 chars omitted]\n{tail}"
+
     def test_hint_is_surfaced_once(self):
         result = _truncate_log_tail("x" * 500, 100, hint="use --log-failed")
         assert result.count("use --log-failed") == 1
