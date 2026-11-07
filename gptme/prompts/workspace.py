@@ -422,6 +422,11 @@ def prompt_workspace(
                 try:
                     f.resolve().relative_to(workspace_resolved)
                     resolved = str(f.resolve())
+                    # Record the matched location even when its target was
+                    # already loaded, as for user-configured files below.
+                    configured_paths.setdefault(f.resolve(), []).append(
+                        f.parent.resolve() / f.name
+                    )
                     # Skip if already loaded (e.g., from agent files)
                     if resolved not in seen_paths:
                         context_files.append(f)

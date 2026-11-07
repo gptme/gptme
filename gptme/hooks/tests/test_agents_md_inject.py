@@ -1315,3 +1315,28 @@ class TestStartupEvidenceReviewFindings:
         (sub / "AGENTS.md").write_text("# Alice source rules")
         msgs = _cd_messages(empty_log, tmp_path, sub)
         assert any("Alice source rules" in m.content for m in _injected(msgs))
+
+    def test_project_file_alias_of_earlier_match_is_kept(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Project files README.md and alice/AGENTS.md -> README.md."""
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "README.md").write_text("# Shared rules")
+        alice = _make_agent_workspace(workspace / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(workspace / "README.md")
+        (workspace / "gptme.toml").write_text(
+            '[prompt]\nfiles = ["README.md", "alice/AGENTS.md"]\n'
+        )
+        _set_prompt_files(monkeypatch, [])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
