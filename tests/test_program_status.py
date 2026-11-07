@@ -220,3 +220,35 @@ def test_cli_turn_end_state(output, tmp_path, outcome):
     expected = status.encode_report("done" if outcome == "complete" else "idle")
     assert output.getvalue().endswith(expected)
     assert output.getvalue().count("state=done") == (outcome == "complete")
+
+
+def test_cli_turn_interrupt_outside_step_is_idle(output, tmp_path):
+    """Ctrl+C escaping the turn (e.g. in a TURN_POST hook) is not an error."""
+    import importlib
+    from unittest.mock import patch
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    chat = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "System"), Message("user", "Do work")],
+        logdir=tmp_path / "conversation",
+    )
+
+    def hook(hook_type, **kwargs):
+        if hook_type == chat.HookType.TURN_POST:
+            raise KeyboardInterrupt
+        return []
+
+    with (
+        patch.object(chat, "step", return_value=[Message("assistant", "Done")]),
+        patch.object(chat, "get_default_model", return_value=None),
+        patch.object(chat, "trigger_hook", side_effect=hook),
+        patch.object(chat, "_run_post_tool_compaction", return_value=False),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        chat._process_message_conversation(manager, False, "markdown", None)
+
+    assert output.getvalue().endswith(status.encode_report("idle"))
+    assert "state=error" not in output.getvalue()
