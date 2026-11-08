@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 from ..context.config import parse_context_budget as _parse_context_budget
 from ..util import path_with_tilde
+from ..util.file_write import write_text_preserving_original
 from .models import (
     ContextConfig,
     HooksConfig,
@@ -873,15 +874,16 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     square brackets).  Detect that exact pattern and rewrite the providers block
     as proper ``[[providers]]`` array-of-tables so the file parses again.
 
-    On success, writes the repaired bytes to *path* and returns the parsed
-    ``TOMLDocument``.  Returns ``None`` when the pattern is not recognised so
+    On success, persists the repair when safe and returns the parsed
+    ``TOMLDocument``. Otherwise the repair is used in memory only.
+    Returns ``None`` when the pattern is not recognised so
     the caller can re-raise the original ``TOMLKitError``.
     """
     # Match the corrupted block: providers = [<multi-line table entries>]
     # Valid empty arrays ("providers = []") and simple-value arrays won't match
     # because they don't contain "key =" inside the brackets.
     match = re.search(
-        r"^(providers\s*=\s*\[)(.*?)(\])[ \t]*(?=\r?\n|$)",
+        r"^(providers\s*=\s*\[)(.*?)(\])[ \t]*(?=#|\r?\n|$)",
         raw,
         re.DOTALL | re.MULTILINE,
     )
@@ -932,8 +934,13 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
         return None
 
     _back_up_before_reencoding(path)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(repaired)
+    try:
+        write_text_preserving_original(Path(path), repaired, newline="")
+    except ValueError as exc:
+        # Unsupported metadata/platform: keep startup usable without replacing
+        # an inode whose permissions or aliases we cannot safely preserve.
+        logger.warning("Using repaired providers in memory only for %s: %s", path, exc)
+        return doc
     logger.warning(
         "Automatically repaired corrupt providers section in %s. "
         "This was caused by a bug in an older version of gptme. "

@@ -3008,12 +3008,17 @@ def test_repair_providers_corruption_single(tmp_path, monkeypatch):
     assert result["providers"][0]["base_url"] == "http://localhost:8080/v1"
     assert result["providers"][0]["default_model"] == "my-model"
 
-    # Repaired file must be valid TOML
-    import tomlkit as _tomlkit
+    # Persistence is refused where the writer cannot retain security metadata.
+    import sys
 
     repaired_text = config_file.read_text(encoding="utf-8")
-    reparsed = _tomlkit.loads(repaired_text).unwrap()
-    assert reparsed["providers"][0]["name"] == "myprovider"
+    if sys.platform in ("win32", "darwin"):
+        assert repaired_text == corrupted
+    else:
+        assert (
+            tomlkit.loads(repaired_text).unwrap()["providers"][0]["name"]
+            == "myprovider"
+        )
 
 
 def test_repair_providers_corruption_multiple(tmp_path, monkeypatch):
@@ -3137,10 +3142,95 @@ def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newl
 
     assert doc.unwrap()["providers"] == providers
     repaired = config_file.read_text(encoding="utf-8")
-    assert tomlkit.loads(repaired).unwrap()["providers"] == providers
+    import sys
+
+    if sys.platform in ("win32", "darwin"):
+        assert repaired == corrupted.replace("\r\n", "\n")
+    else:
+        assert tomlkit.loads(repaired).unwrap()["providers"] == providers
     # Loading the repaired file again must not rewrite it.
     assert user_mod._load_config_doc(str(config_file)).unwrap() == doc.unwrap()
     assert config_file.read_text(encoding="utf-8") == repaired
+
+
+def test_repair_providers_corruption_trailing_comment(tmp_path):
+    """A comment on the old array survives alongside the repaired providers."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        'providers = [name = "local"\nbase_url = "http://localhost/v1"\n'
+        '] # custom providers\nenv = { MODEL = "local/model" }\n',
+        encoding="utf-8",
+    )
+    doc = user_mod._load_config_doc(str(config_file)).unwrap()
+    assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
+    assert doc["env"] == {"MODEL": "local/model"}
+    assert "# custom providers" in config_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("failure", ["write", "replace"])
+def test_repair_providers_corruption_write_failure(tmp_path, monkeypatch, failure):
+    """A partial write or failed publication leaves the original bytes intact."""
+    import errno
+    import io
+    import sys
+
+    if sys.platform in ("win32", "darwin"):
+        pytest.skip("Staged replacement refuses unsupported security metadata")
+
+    import gptme.config.user as user_mod
+    import gptme.util.file_write as file_write
+
+    config_file = tmp_path / "config.toml"
+    corrupted = b'providers = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
+    config_file.write_bytes(corrupted)
+
+    class FailingStream(io.TextIOWrapper):
+        def write(self, text):
+            super().write(text[:10])
+            super().flush()
+            raise OSError(errno.ENOSPC, "disk full")
+
+    def fail_replace(*args):
+        raise OSError(errno.ENOSPC, "disk full")
+
+    def failing_open(path, mode, **kwargs):
+        return FailingStream(io.FileIO(path, mode), **kwargs)
+
+    def failing_fdopen(fd, mode, **kwargs):
+        return FailingStream(io.FileIO(fd, mode), **kwargs)
+
+    if failure == "write":
+        monkeypatch.setattr(file_write.os, "fdopen", failing_fdopen)
+        monkeypatch.setattr(user_mod, "open", failing_open, raising=False)
+    else:
+        monkeypatch.setattr(file_write.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="disk full"):
+        user_mod._load_config_doc(str(config_file))
+    assert config_file.read_bytes() == corrupted
+    assert list(tmp_path.iterdir()) == [config_file]
+
+
+def test_repair_providers_corruption_unsupported_metadata(
+    tmp_path, monkeypatch, caplog
+):
+    """Unsafe replacement still allows startup with the repaired in-memory doc."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    corrupted = b'providers = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
+    config_file.write_bytes(corrupted)
+
+    def refuse_replacement(*args, **kwargs):
+        raise ValueError("Cannot safely preserve security metadata")
+
+    monkeypatch.setattr(user_mod, "write_text_preserving_original", refuse_replacement)
+    doc = user_mod._load_config_doc(str(config_file)).unwrap()
+    assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
+    assert config_file.read_bytes() == corrupted
+    assert "in memory only" in caplog.text
 
 
 def test_repair_providers_corruption_local_config(tmp_path, monkeypatch):
