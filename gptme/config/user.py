@@ -236,6 +236,10 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
     if not os.path.exists(path):
         return
     doc = _load_config_doc(path)
+    if str(Path(path).resolve()) in _encoding_unverified:
+        # Cosmetic startup cleanup must not persist a guessed decoding (or an
+        # in-memory provider repair) through the explicit-save backup path.
+        return
     changed = False
     for key in keys:
         if key in doc:
@@ -890,6 +894,15 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
         re.DOTALL | re.MULTILINE,
     )
     if not match:
+        return None
+
+    # Ask TOML to determine the assignment's scope. A nested setting named
+    # providers is not the root-level provider array written by the old saver.
+    try:
+        prefix = tomlkit.loads(raw[: match.start()] + "providers = []\n")
+    except tomlkit.exceptions.TOMLKitError:
+        return None
+    if prefix.get("providers") != []:
         return None
 
     content = match.group(2)

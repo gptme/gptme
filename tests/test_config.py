@@ -3049,13 +3049,13 @@ def test_repair_providers_corruption_preserves_other_settings(tmp_path, monkeypa
     import gptme.config.user as user_mod
 
     corrupted = (
-        "[env]\n"
-        'ANTHROPIC_API_KEY = "sk-ant-test"\n'
-        "\n"
         'providers = [name = "local"\n'
         'base_url = "http://localhost:11434/v1"\n'
         'default_model = "llama3"\n'
         "]\n"
+        "\n"
+        "[env]\n"
+        'ANTHROPIC_API_KEY = "sk-ant-test"\n'
     )
     config_file = tmp_path / "config.toml"
     config_file.write_text(corrupted, encoding="utf-8")
@@ -3244,6 +3244,31 @@ def test_repair_providers_corruption_legacy_encoding_stays_in_memory(
     assert doc["providers"][0]["api_key"] == "sëcret"
     assert config_file.read_bytes() == corrupted
     assert list(tmp_path.iterdir()) == [config_file]
+
+    # Startup's cosmetic unknown-key cleanup must not persist the in-memory
+    # repair or fall back to creating the unsafe backup either.
+    config_file.write_bytes(b"stray_key = 1\n" + corrupted)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    cfg = user_mod.load_user_config(str(config_file))
+    assert cfg.providers[0].api_key == "sëcret"
+    assert config_file.read_bytes() == b"stray_key = 1\n" + corrupted
+    assert list(tmp_path.iterdir()) == [config_file]
+
+
+@pytest.mark.parametrize("section", ["[plugin.foo]", "[env]", "[[mcp.servers]]"])
+def test_repair_providers_corruption_refuses_nested_setting(tmp_path, section):
+    """A nested setting named providers must never become global providers."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    corrupted = (
+        section + '\nproviders = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
+    ).encode()
+    config_file.write_bytes(corrupted)
+
+    with pytest.raises(tomlkit.exceptions.TOMLKitError):
+        user_mod._load_config_doc(str(config_file))
+    assert config_file.read_bytes() == corrupted
 
 
 def test_repair_providers_corruption_unsupported_metadata(
