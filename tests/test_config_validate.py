@@ -390,3 +390,39 @@ def test_cli_reports_repair_failure(
     assert "could not repair" in result.output
     assert "Fixed " not in result.output
     assert cfg.read_text() == CORRUPT_PROVIDERS_TOML
+
+
+def test_unterminated_comment_array_returns_promptly(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    cfg = _make_config(tmp_path, "providers = [\n" + "# x\n" * 100)
+    script = (
+        "from pathlib import Path; from gptme.config.validate import detect_config_problems; "
+        f"assert [p.name for p in detect_config_problems(Path({str(tmp_path)!r}))] == ['config-invalid']"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, timeout=5, check=False
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    assert cfg.read_text() == "providers = [\n" + "# x\n" * 100
+
+
+def test_repair_replace_failure_keeps_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    cfg = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+
+    def fail_replace(src: object, dst: object) -> None:
+        raise OSError("fixture publication failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="fixture publication failure"):
+        fix_providers_corruption(cfg)
+    assert cfg.read_text() == CORRUPT_PROVIDERS_TOML
+    assert len(list(tmp_path.glob("*.bak"))) == 1
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
+        [cfg.name, list(tmp_path.glob("*.bak"))[0].name]
+    )

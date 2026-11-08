@@ -36,30 +36,41 @@ def _repaired_providers_text(text: str) -> str | None:
     Parse every assignment and the entire candidate before returning it. Unknown
     syntax is a manual repair, never a reason to discard part of the input.
     """
-    match = re.search(
-        r'^providers[ \t]*=[ \t]*\[((?:"(?:[^"\\\r\n]|\\.)*"|#[^\r\n]*|[^"\]#])*)\][ \t]*(?=#|\r?\n|$)',
-        text,
-        re.MULTILINE,
-    )
+    start = re.search(r"^providers[ \t]*=[ \t]*\[", text, re.MULTILINE)
+    if start is None:
+        return None
+    # Consume each token once: an unclosed/comment-heavy array must not cause
+    # exponential regex backtracking while searching for the closing bracket.
+    token = re.compile(r'"(?:[^"\\\r\n]|\\.)*"|#[^\r\n]*|[^"\]#]+')
+    end = start.end()
+    while end < len(text) and text[end] != "]":
+        part = token.match(text, end)
+        if part is None:
+            return None
+        end = part.end()
+    if end == len(text):
+        return None
+    match = re.match(r"\][ \t]*(?=#|\r?\n|$)", text[end:])
     if match is None:
         return None
+    block_end = end + match.end()
     try:
         # A providers key in a nested table (or a multiline string) is not the
         # root assignment emitted by the affected saver.
-        prefix = tomllib.loads(text[: match.start()] + "providers = []\n")
+        prefix = tomllib.loads(text[: start.start()] + "providers = []\n")
         if prefix.get("providers") != []:
             return None
     except tomllib.TOMLDecodeError:
         return None
     try:
         # A valid inline array must not be rewritten for an unrelated error.
-        tomllib.loads(match.group())
+        tomllib.loads(text[start.start() : block_end])
     except tomllib.TOMLDecodeError:
         pass
     else:
         return None
 
-    content = match.group(1)
+    content = text[start.end() : end]
     trivia = re.compile(r"(?:\s|#[^\r\n]*)*")
     assignment = re.compile(r'(\w+)[ \t]*=[ \t]*("(?:[^"\\\r\n]|\\.)*")')
     entries: list[list[str]] = [[]]
@@ -94,13 +105,13 @@ def _repaired_providers_text(text: str) -> str | None:
     replacement = "\n\n".join("[[providers]]\n" + "\n".join(entry) for entry in entries)
     # Appending tables avoids absorbing trailing root settings into a provider.
     candidate = (
-        (text[: match.start()] + text[match.end() :]).rstrip("\n")
+        (text[: start.start()] + text[block_end:]).rstrip("\n")
         + "\n"
         + replacement
         + "\n"
     )
     try:
-        original_settings = tomllib.loads(text[: match.start()] + text[match.end() :])
+        original_settings = tomllib.loads(text[: start.start()] + text[block_end:])
         repaired = tomllib.loads(candidate)
         providers = repaired.pop("providers")
         if repaired != original_settings:
@@ -203,7 +214,10 @@ def fix_providers_corruption(config_path: Path) -> Path:
     Returns the backup path only after the validated content has been written.
     """
     import datetime
+    import os
     import shutil
+    import tempfile
+    from pathlib import Path
 
     text = config_path.read_text(encoding="utf-8")
     fixed_text = _repaired_providers_text(text)
@@ -213,5 +227,17 @@ def fix_providers_corruption(config_path: Path) -> Path:
     ts = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     bak = config_path.with_name(config_path.name + f".{ts}.bak")
     shutil.copy2(config_path, bak)
-    config_path.write_text(fixed_text, encoding="utf-8")
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=config_path.parent, delete=False
+        ) as output:
+            temporary = Path(output.name)
+            output.write(fixed_text)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, config_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return bak
