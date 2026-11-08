@@ -622,7 +622,7 @@ async fn spawn_server_sidecar(
 /// Append one JSONL entry to `crash-log.jsonl` in the app config directory
 /// (`app_config_dir()`, e.g. `~/.config/org.gptme.tauri/` on Linux) when the
 /// sidecar exits unexpectedly. The file stays on the user's machine; nothing
-/// reads it automatically or sends it anywhere. Deleting it is the opt-out.
+/// reads it automatically or sends it anywhere. Deleting it clears recorded history.
 #[cfg(desktop)]
 fn write_crash_log(crash_log_path: &std::path::Path, exit_code: Option<i32>, stderr_tail: &str) {
     use std::io::Write;
