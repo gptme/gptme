@@ -270,6 +270,30 @@ class MCPClient:
                 raise RuntimeError("Failed to get tools list")
 
             return (self.tools, self.session)
+        except asyncio.CancelledError:
+            # A failed streamable-HTTP request (401/404, TLS error, refused
+            # connection) tears down the transport's task group, so the MCP SDK
+            # reports it as a cancellation and the HTTP-level error is lost.
+            # Calling that "MCP client is closed" sends the user to debug the
+            # wrong thing, so describe the real situation instead. The URL is
+            # deliberately omitted: it may carry credentials.
+            if self.stack:
+                try:
+                    await self.stack.__aexit__(None, None, None)
+                except (asyncio.CancelledError, Exception):
+                    logger.debug(
+                        "MCP HTTP stack cleanup failed after cancel", exc_info=True
+                    )
+                self.stack = None
+            if self._closing.is_set():
+                raise RuntimeError("MCP client is closed") from None
+            raise RuntimeError(
+                "MCP connection failed before initialization: the streamable-HTTP "
+                "transport cancelled while connecting, which discards the "
+                "underlying HTTP error. Check that the URL is correct and "
+                "reachable, that the endpoint speaks MCP over streamable HTTP, and "
+                "that any required auth headers are configured."
+            ) from None
         except Exception:
             if self.stack:
                 await self.stack.__aexit__(None, None, None)

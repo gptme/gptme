@@ -475,3 +475,27 @@ def test_mcp_client_close_interrupts_stalled_call():
     assert client.loop.is_closed()
     assert call_error
     assert any("closed" in str(exc).lower() for exc in call_error)
+
+
+def test_mcp_http_connect_failure_is_not_reported_as_closed():
+    """A failed HTTP connect must not surface as "MCP client is closed".
+
+    The streamable-HTTP transport cancels its task group when the request
+    fails, so the MCP SDK reports a 401/404/refused connection as a
+    cancellation. Translating that into the client's closed state hides the
+    actionable problem (bad URL, unreachable endpoint, missing auth headers).
+    """
+    from gptme.mcp.client import MCPClient
+
+    client = MCPClient()
+    try:
+        with pytest.raises(RuntimeError) as excinfo:
+            # Port 1 on loopback refuses immediately; no external network.
+            client._run_async(
+                client._setup_http_connection("http://127.0.0.1:1/mcp", {})
+            )
+        message = str(excinfo.value)
+        assert "MCP client is closed" not in message
+        assert "fail" in message.lower()
+    finally:
+        client.close()
