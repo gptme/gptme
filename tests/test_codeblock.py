@@ -3156,3 +3156,62 @@ def test_nonexec_save_invalid_first_lookahead_tag_is_literal() -> None:
     assert list(_extract_codeblocks(f"```save notes.md\n{content}\n```")) == [
         Codeblock("save notes.md", content)
     ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_recovered_save_pairs_use_linear_fence_work(
+    monkeypatch, streaming: bool
+) -> None:
+    """Repeated complete pairs must not rescan every remaining suffix."""
+    import gptme.codeblock as codeblock
+
+    pair_count = 80
+    markdown = "```save a.txt\nx\n```\nChecking:\n```shell\necho ok\n```\n" * pair_count
+    original = codeblock._is_valid_lang_tag
+    validations = 0
+
+    def count_validation(tag: str) -> bool:
+        nonlocal validations
+        validations += 1
+        return original(tag)
+
+    monkeypatch.setattr(codeblock, "_is_valid_lang_tag", count_validation)
+    blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+    if not streaming:
+        assert (
+            blocks
+            == [Codeblock("save a.txt", "x"), Codeblock("shell", "echo ok")]
+            * pair_count
+        )
+    # Count parser work rather than wall time: no machine/load-dependent bound.
+    assert validations <= 40 * pair_count, validations
+
+
+def test_outer_closer_index_matches_forward_depth_scan() -> None:
+    """The optimization must preserve all three outcomes, including invalid tags."""
+    from itertools import product
+
+    from gptme.codeblock import _is_valid_lang_tag, _outer_closer_index
+
+    def forward_scan(lines: list[str], start: int) -> bool | None:
+        if not lines[start].startswith("```") or not _is_valid_lang_tag(
+            lines[start][3:].strip()
+        ):
+            return None
+        depth = 1
+        for line in lines[start + 1 :]:
+            if line.strip() == "```":
+                if depth == 0:
+                    return True
+                depth -= 1
+            elif line.startswith("```") and _is_valid_lang_tag(line[3:].strip()):
+                depth += 1
+        return False if depth == 0 else None
+
+    tokens = ["text", "```", "```shell", "```save x", "```!!!"]
+    for tail in product(tokens, repeat=5):
+        lines = ["```shell", *tail]
+        indexed = _outer_closer_index(lines)
+        for start in range(len(lines)):
+            assert indexed.get(start) is forward_scan(lines, start), (lines, start)
+    assert _outer_closer_index([]) == {}

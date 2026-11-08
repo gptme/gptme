@@ -383,6 +383,7 @@ def _line_fence_states(
     language-tagged nested openers so thinking-tag checks agree with extraction.
     """
     lines = text.split("\n")
+    outer_closer_index: dict[int, bool | None] | None = None
     # Suffix queries only need to know whether a tagged fence remains. Compute
     # its last position once rather than rescanning for every literal example.
     last_tagged_fence = next(
@@ -635,9 +636,11 @@ def _line_fence_states(
                         not streaming
                         and not has_closing_fence
                         and following_tagged_idx is not None
-                        and _outer_block_has_explicit_closer(
-                            lines, following_tagged_idx
-                        )
+                        and (
+                            outer_closer_index
+                            if outer_closer_index is not None
+                            else (outer_closer_index := _outer_closer_index(lines))
+                        ).get(following_tagged_idx)
                         is False
                     ):
                         # Match extraction's recovered save boundary before
@@ -755,50 +758,47 @@ def _unclosed_standalone_after(
     return False
 
 
-def _outer_block_has_explicit_closer(lines: list[str], inner_start: int) -> bool | None:
-    """Check whether the outer block has an explicit bare-fence closer after the inner block.
+def _outer_closer_index(lines: list[str]) -> dict[int, bool | None]:
+    """Index outer-closer verdicts for tagged fence lines in linear time.
 
-    Called when the main lookahead hits a language-tagged fence (``inner_start``) before
-    finding a bare inner-closing fence.  Scans forward through the inner block to find
-    where it closes, then checks whether a bare fence follows (the outer closer).
+    A True verdict means a later unmatched bare closer continues the outer
+    save/patch, so its earlier candidate closer is literal content. False
+    means no outer closer remains; None means an unclosed tagged block makes
+    the decision ambiguous. Invalid candidate openers are absent (also None).
 
-    If a bare fence IS found after the inner block closes, the outer block has an
-    explicit closer, meaning the bare fence at the call site (depth-1) is CONTENT, not
-    the outer closer — preserve original behaviour (append as literal content).
-
-    If NO unmatched bare fence follows the inner block before EOF, the outer
-    block has no closer after the inner block, meaning the bare fence at the call site
-    IS the outer closer — yield the outer block there.
-
-    Returns:
-        True  – outer block has an explicit closer after the inner block → bare fence
-                at depth-1 is literal content; don't yield early.
-        False – inner block closes and no bare fence follows → bare fence at depth-1 IS
-                the outer closer; yield the block at that fence.
-        None  – a tagged block did not close before EOF → ambiguous;
-                caller should stay fail-closed (treat bare fence as literal content).
+    Match tagged openers with bare closers first, then walk backward, skipping
+    complete tagged blocks. An unmatched bare closer proves continuation;
+    an unmatched opener makes the suffix ambiguous; only EOF proves absence.
+    Invalid tags stay literal. This preserves the forward scan's depth semantics
+    without repeated suffix scans or a process-wide cache of message content.
     """
-    opener = re.match(r"^(`{3,})(.*)$", lines[inner_start])
-    if opener is None or not _is_valid_lang_tag(opener.group(2).strip()):
-        # The bounded caller also stops at fence-like literal text. Such a
-        # line cannot establish a tagged block or justify early recovery.
-        return None
-    inner_depth = 1
-    for line in lines[inner_start + 1 :]:
-        fence_m = re.match(r"^(`{3,})", line)
-        if fence_m:
-            flen = len(fence_m.group(1))
-            if line.strip() == "`" * flen:
-                if inner_depth == 0:
-                    return True  # A closer not owned by a tagged block.
-                inner_depth -= 1
-            elif _is_valid_lang_tag(line[flen:].strip()):
-                # Track subsequent tagged blocks too: their closers are not
-                # evidence that the original save has an outer closer. Invalid
-                # language tags remain literal, just as in extraction.
-                inner_depth += 1
-    # Only EOF proves absence. A fixed lookahead window can truncate long saves.
-    return False if inner_depth == 0 else None
+    openers: list[int] = []
+    matching: dict[int, int] = {}
+    bare: set[int] = set()
+    verdicts: dict[int, bool | None] = {}
+    for i, line in enumerate(lines):
+        fence = re.match(r"^(`{3,})(.*)$", line)
+        if fence is None:
+            continue
+        if not fence.group(2).strip():
+            bare.add(i)
+            if openers:
+                matching[openers.pop()] = i
+        elif _is_valid_lang_tag(fence.group(2).strip()):
+            openers.append(i)
+            verdicts[i] = None
+
+    suffix: list[bool | None] = [False] * (len(lines) + 1)
+    for i in range(len(lines) - 1, -1, -1):
+        if i in bare:
+            suffix[i] = True
+        elif i in verdicts:
+            closer = matching.get(i)
+            verdicts[i] = None if closer is None else suffix[closer + 1]
+            suffix[i] = verdicts[i]
+        else:
+            suffix[i] = suffix[i + 1]
+    return verdicts
 
 
 def _extract_codeblocks(
@@ -975,6 +975,7 @@ def _extract_codeblocks(
         return
 
     lines = markdown.split("\n")
+    outer_closer_index: dict[int, bool | None] | None = None
     i = 0
 
     while i < len(lines):
@@ -1248,16 +1249,18 @@ def _extract_codeblocks(
                                     nesting_depth += 1
                                     content_lines.append(line)
                                 elif lang_tagged_fence_j is not None:
-                                    # Lookahead crossed into a language-tagged block.  Use
-                                    # _outer_block_has_explicit_closer to decide: does the
+                                    # Lookahead crossed into a language-tagged block. Use
+                                    # the per-parse suffix index to decide: does the
                                     # outer block have an explicit bare-fence closer AFTER
                                     # the inner block closes?
                                     # If YES → outer block has its own closer later, so the
                                     #           bare fence at i is literal content (original).
                                     # If NO  → no outer closer after the inner block, so the
                                     #           bare fence at i IS the outer closer; yield now.
-                                    outer_has_closer = _outer_block_has_explicit_closer(
-                                        lines, lang_tagged_fence_j
+                                    if outer_closer_index is None:
+                                        outer_closer_index = _outer_closer_index(lines)
+                                    outer_has_closer = outer_closer_index.get(
+                                        lang_tagged_fence_j
                                     )
                                     if outer_has_closer is True:
                                         # Outer block has an explicit closer later.
