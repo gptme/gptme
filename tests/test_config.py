@@ -3117,7 +3117,17 @@ def test_repair_providers_corruption_quoted_comma_in_url(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
-@pytest.mark.parametrize("api_key", ["key\\", "key\\\\", 'key\\",b=c'])
+@pytest.mark.parametrize(
+    "api_key",
+    [
+        "key\\",
+        "key\\\\",
+        'key\\",b=c',
+        "token]#suffix",
+        'token"]#suffix',
+        "token]\nsuffix",
+    ],
+)
 def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newline):
     """Repair preserves escaped strings and still separates the next provider."""
     import gptme.config.user as user_mod

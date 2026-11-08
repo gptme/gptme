@@ -881,9 +881,11 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     """
     # Match the corrupted block: providers = [<multi-line table entries>]
     # Valid empty arrays ("providers = []") and simple-value arrays won't match
-    # because they don't contain "key =" inside the brackets.
+    # because they don't contain "key =" inside the brackets. Consume complete
+    # basic strings (including escapes) before looking for the closing bracket:
+    # a value such as "token]#suffix" is not an array boundary.
     match = re.search(
-        r"^(providers\s*=\s*\[)(.*?)(\])[ \t]*(?=#|\r?\n|$)",
+        r'^(providers\s*=\s*\[)((?:"(?:[^"\\]|\\.)*"|[^"\]])*)(\])[ \t]*(?=#|\r?\n|$)',
         raw,
         re.DOTALL | re.MULTILINE,
     )
