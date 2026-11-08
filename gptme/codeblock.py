@@ -750,7 +750,7 @@ def _outer_block_has_explicit_closer(lines: list[str], inner_start: int) -> bool
     explicit closer, meaning the bare fence at the call site (depth-1) is CONTENT, not
     the outer closer — preserve original behaviour (append as literal content).
 
-    If NO bare fence follows the inner block before EOF (or the scan window), the outer
+    If NO unmatched bare fence follows the inner block before EOF, the outer
     block has no closer after the inner block, meaning the bare fence at the call site
     IS the outer closer — yield the outer block there.
 
@@ -759,33 +759,24 @@ def _outer_block_has_explicit_closer(lines: list[str], inner_start: int) -> bool
                 at depth-1 is literal content; don't yield early.
         False – inner block closes and no bare fence follows → bare fence at depth-1 IS
                 the outer closer; yield the block at that fence.
-        None  – inner block did not close within the scan window → ambiguous;
+        None  – a tagged block did not close before EOF → ambiguous;
                 caller should stay fail-closed (treat bare fence as literal content).
     """
     inner_depth = 1
-    j = inner_start + 1
-    limit = min(inner_start + 60, len(lines))
-    while j < limit:
-        fence_m = re.match(r"^(`{3,})", lines[j])
+    for line in lines[inner_start + 1 :]:
+        fence_m = re.match(r"^(`{3,})", line)
         if fence_m:
             flen = len(fence_m.group(1))
-            if lines[j].strip() == "`" * flen:
-                # bare fence: closes the innermost open block
-                inner_depth -= 1
+            if line.strip() == "`" * flen:
                 if inner_depth == 0:
-                    # inner block closed; check if there's a bare fence after (outer closer)
-                    for k in range(j + 1, min(j + 30, len(lines))):
-                        kf = re.match(r"^(`{3,})", lines[k])
-                        if kf:
-                            klen = len(kf.group(1))
-                            if lines[k].strip() == "`" * klen:
-                                return True  # outer closer found
-                    return False  # no outer closer after inner block
+                    return True  # A closer not owned by a tagged block.
+                inner_depth -= 1
             else:
-                # language-tagged fence: opens another nested block
+                # Track subsequent tagged blocks too: their closers are not
+                # evidence that the original save has an outer closer.
                 inner_depth += 1
-        j += 1
-    return None  # inner block never closed in window
+    # Only EOF proves absence. A fixed lookahead window can truncate long saves.
+    return False if inner_depth == 0 else None
 
 
 def _extract_codeblocks(
@@ -1283,8 +1274,11 @@ def _extract_codeblocks(
                                             nesting_depth += 1
                                             content_lines.append(line)
                                     else:
-                                        # Ambiguous (inner block too deep / not closed in window)
-                                        # Stay fail-closed: treat bare fence as literal content.
+                                        # An unfinished tagged block is ambiguous. Streaming
+                                        # must retain the same conservative depth increment
+                                        # as the other lookahead outcomes, including prefixes.
+                                        if streaming:
+                                            nesting_depth += 1
                                         content_lines.append(line)
                                 elif streaming:
                                     # In streaming mode, be conservative: treat bare fence

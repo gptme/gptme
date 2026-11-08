@@ -3091,3 +3091,39 @@ Final line.
     assert blocks[0].lang == "save notes.md"
     assert "Final line." in blocks[0].content
     assert "x = 1" in blocks[0].content
+
+
+@pytest.mark.parametrize("tail_lines", [30, 100])
+def test_nonexec_save_preserves_distant_outer_closer(tail_lines: int) -> None:
+    content = (
+        "intro\n```\nExample:\n```python\nx = 1\n```\n\n"
+        + "ordinary content\n" * tail_lines
+        + "Final line."
+    )
+    markdown = f"```save notes.md\n{content}\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("save notes.md", content)]
+
+
+@pytest.mark.parametrize("command_count", [2, 3])
+def test_nonexec_save_followed_by_multiple_commands(command_count: int) -> None:
+    markdown = "```save result.txt\nhello\n```\nChecking:\n" + "\n".join(
+        f"```shell\necho {i}\n```" for i in range(command_count)
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save result.txt", "hello"),
+        *(Codeblock("shell", f"echo {i}") for i in range(command_count)),
+    ]
+
+
+def test_streaming_long_tagged_example_never_exposes_unfinished_save() -> None:
+    content = (
+        "intro\n```\nExample:\n```python\n"
+        + "x = 1\n" * 70
+        + "```\n```\n\nRemaining content."
+    )
+    markdown = f"```save notes.md\n{content}\n```\n\n"
+    expected = Codeblock("save notes.md", content)
+    for end in range(1, len(markdown) + 1):
+        blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
+        assert all(block == expected for block in blocks), (end, blocks)
+    assert list(_extract_codeblocks(markdown, streaming=True)) == [expected]
