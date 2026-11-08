@@ -495,6 +495,7 @@ def _line_fence_states(
                     # literal; streaming conservatively opens another level.
                     has_closing_fence = False
                     has_following_tagged_fence = False
+                    following_tagged_idx: int | None = None
                     nested_closer_idx: int | None = None
                     for j in range(i + 1, min(i + 20, len(lines))):
                         if re.match(r"^(`{3,})$", lines[j].strip()):
@@ -506,6 +507,7 @@ def _line_fence_states(
                             break
                         if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
                             has_following_tagged_fence = True
+                            following_tagged_idx = j
                             break
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
@@ -629,6 +631,20 @@ def _line_fence_states(
                             outer_lang = ""
                         else:
                             depth += 1
+                    elif (
+                        not streaming
+                        and not has_closing_fence
+                        and following_tagged_idx is not None
+                        and _outer_block_has_explicit_closer(
+                            lines, following_tagged_idx
+                        )
+                        is False
+                    ):
+                        # Match extraction's recovered save boundary before
+                        # classifying later reasoning tags as literal content.
+                        depth = 0
+                        fence_len = 0
+                        outer_lang = ""
                     elif has_closing_fence or streaming:
                         depth += 1
                     continue
@@ -771,9 +787,10 @@ def _outer_block_has_explicit_closer(lines: list[str], inner_start: int) -> bool
                 if inner_depth == 0:
                     return True  # A closer not owned by a tagged block.
                 inner_depth -= 1
-            else:
+            elif _is_valid_lang_tag(line[flen:].strip()):
                 # Track subsequent tagged blocks too: their closers are not
-                # evidence that the original save has an outer closer.
+                # evidence that the original save has an outer closer. Invalid
+                # language tags remain literal, just as in extraction.
                 inner_depth += 1
     # Only EOF proves absence. A fixed lookahead window can truncate long saves.
     return False if inner_depth == 0 else None

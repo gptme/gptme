@@ -3127,3 +3127,25 @@ def test_streaming_long_tagged_example_never_exposes_unfinished_save() -> None:
         blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
         assert all(block == expected for block in blocks), (end, blocks)
     assert list(_extract_codeblocks(markdown, streaming=True)) == [expected]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_recovered_save_and_output_never_expose_reasoning_command(
+    tag: str, streaming: bool
+) -> None:
+    markdown = (
+        "```save a.txt\nhello\n```\nChecking:\n```output\nx\n```\n"
+        f"<{tag}>\n```shell\necho draft\n```\n</{tag}>\n"
+    )
+    blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+    assert all(block.lang != "shell" for block in blocks), blocks
+    if not streaming:
+        assert blocks == [Codeblock("save a.txt", "hello"), Codeblock("output", "x")]
+
+
+def test_nonexec_save_invalid_nested_tag_is_literal() -> None:
+    content = "intro\n```\nExample:\n```text\n```!!!\nliteral\n```\nFinal."
+    assert list(_extract_codeblocks(f"```save notes.md\n{content}\n```")) == [
+        Codeblock("save notes.md", content)
+    ]
