@@ -881,7 +881,7 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     # Valid empty arrays ("providers = []") and simple-value arrays won't match
     # because they don't contain "key =" inside the brackets.
     match = re.search(
-        r"^(providers\s*=\s*\[)(.*?)(\])[ \t]*(?=\n|$)",
+        r"^(providers\s*=\s*\[)(.*?)(\])[ \t]*(?=\r?\n|$)",
         raw,
         re.DOTALL | re.MULTILINE,
     )

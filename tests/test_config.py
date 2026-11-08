@@ -3111,8 +3111,9 @@ def test_repair_providers_corruption_quoted_comma_in_url(tmp_path, monkeypatch):
     assert result["providers"][0]["base_url"] == "http://localhost:8080/v1?opts=a,b=c"
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
 @pytest.mark.parametrize("api_key", ["key\\", "key\\\\", 'key\\",b=c'])
-def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key):
+def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newline):
     """Repair preserves escaped strings and still separates the next provider."""
     import gptme.config.user as user_mod
 
@@ -3126,12 +3127,12 @@ def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key):
         table = tomlkit.table()
         table.update(provider)
         broken_array.append(table)
-    corrupted = tomlkit.dumps({"providers": broken_array})
+    corrupted = tomlkit.dumps({"providers": broken_array}).replace("\n", newline)
     with pytest.raises(tomlkit.exceptions.TOMLKitError):
         tomlkit.loads(corrupted)
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text(corrupted, encoding="utf-8")
+    config_file.write_bytes(corrupted.encode("utf-8"))
     doc = user_mod._load_config_doc(str(config_file))
 
     assert doc.unwrap()["providers"] == providers
