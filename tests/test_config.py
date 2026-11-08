@@ -2983,6 +2983,85 @@ def test_provider_config_save_load_roundtrip_non_ascii_name(tmp_path, monkeypatc
     assert len(loaded.providers) == 1
     assert loaded.providers[0].name == "lokal-åäö"
     assert loaded.providers[0].base_url == "http://localhost:9999/v1"
+def test_repair_providers_corruption_single(tmp_path, monkeypatch):
+    """_load_config_doc auto-repairs the providers = [...table...] corruption."""
+    import gptme.config.user as user_mod
+
+    # Reproduce the exact corrupted output written by an unfixed gptme:
+    # tomlkit serialises a Table appended to an Array as inline table syntax.
+    corrupted = (
+        'providers = [name = "myprovider"\n'
+        'base_url = "http://localhost:8080/v1"\n'
+        'default_model = "my-model"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert isinstance(result["providers"], list)
+    assert len(result["providers"]) == 1
+    assert result["providers"][0]["name"] == "myprovider"
+    assert result["providers"][0]["base_url"] == "http://localhost:8080/v1"
+    assert result["providers"][0]["default_model"] == "my-model"
+
+    # Repaired file must be valid TOML
+    import tomlkit as _tomlkit
+
+    repaired_text = config_file.read_text(encoding="utf-8")
+    reparsed = _tomlkit.loads(repaired_text).unwrap()
+    assert reparsed["providers"][0]["name"] == "myprovider"
+
+
+def test_repair_providers_corruption_multiple(tmp_path, monkeypatch):
+    """_load_config_doc repairs two providers encoded in the corrupted format."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "first"\n'
+        'base_url = "http://localhost:8080/v1"\n'
+        ', name = "second"\n'
+        'base_url = "http://localhost:9090/v1"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert len(result["providers"]) == 2
+    names = [p["name"] for p in result["providers"]]
+    assert names == ["first", "second"]
+
+
+def test_repair_providers_corruption_preserves_other_settings(tmp_path, monkeypatch):
+    """Repair does not touch non-providers settings in the config file."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        "[env]\n"
+        'ANTHROPIC_API_KEY = "sk-ant-test"\n'
+        "\n"
+        'providers = [name = "local"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        'default_model = "llama3"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert result["providers"][0]["name"] == "local"
+    # Unrelated settings must survive the repair
+    assert result["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test"
 
 
 def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_symlinks):

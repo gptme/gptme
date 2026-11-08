@@ -10,6 +10,7 @@ import dataclasses
 import locale
 import logging
 import os
+import re
 from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -825,6 +826,82 @@ def _strip_none(d: dict) -> dict:
     }
 
 
+def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument | None":
+    """Detect and auto-repair the ``providers = [...]`` inline-table corruption.
+
+    When gptme appended a tomlkit ``Table`` to a generated ``providers = []``
+    ``Array``, the resulting TOML was invalid (table key=value syntax inside
+    square brackets).  Detect that exact pattern and rewrite the providers block
+    as proper ``[[providers]]`` array-of-tables so the file parses again.
+
+    On success, writes the repaired bytes to *path* and returns the parsed
+    ``TOMLDocument``.  Returns ``None`` when the pattern is not recognised so
+    the caller can re-raise the original ``TOMLKitError``.
+    """
+    # Match the corrupted block: providers = [<multi-line table entries>]
+    # Valid empty arrays ("providers = []") and simple-value arrays won't match
+    # because they don't contain "key =" inside the brackets.
+    match = re.search(
+        r"^(providers\s*=\s*\[)(.*?)(\])[ \t]*(?=\n|$)",
+        raw,
+        re.DOTALL | re.MULTILINE,
+    )
+    if not match:
+        return None
+
+    content = match.group(2)
+
+    # Require at least one key = "value" pair inside the brackets.
+    if not re.search(r'\w+\s*=\s*"', content):
+        return None
+
+    # Split into individual provider entries.
+    # Multiple entries within the broken Array are separated by a comma
+    # followed by optional whitespace then an identifier= (next provider start).
+    # The comma may appear at the start of a new line, so no lookbehind needed.
+    provider_texts = re.split(r",\s*(?=\w+\s*=)", content)
+
+    aot = tomlkit.aot()
+    for ptext in provider_texts:
+        ptext = ptext.strip().strip(",").strip()
+        if not ptext:
+            continue
+        try:
+            parsed = tomlkit.loads(f"[__p__]\n{ptext}\n")
+        except tomlkit.exceptions.TOMLKitError:
+            return None  # Unrecognised structure — don't attempt a lossy repair
+        t = tomlkit.table()
+        for k, v in parsed["__p__"].items():
+            t.add(k, v)
+        aot.append(t)
+
+    if not aot:
+        return None
+
+    # Rebuild: replace only the corrupted block; preserve everything else.
+    aot_doc = tomlkit.document()
+    aot_doc.add("providers", aot)
+    replacement = tomlkit.dumps(aot_doc).strip()
+
+    repaired = raw[: match.start()] + replacement + "\n" + raw[match.end() :]
+
+    try:
+        doc = tomlkit.loads(repaired)
+    except tomlkit.exceptions.TOMLKitError:
+        return None
+
+    _back_up_before_reencoding(path)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(repaired)
+    logger.warning(
+        "Automatically repaired corrupt providers section in %s. "
+        "This was caused by a bug in an older version of gptme. "
+        "Your provider configuration has been preserved.",
+        path,
+    )
+    return doc
+
+
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if path is None:
         path = config_path
@@ -845,7 +922,14 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         logger.info(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
-    return tomlkit.loads(_read_config_text(path))
+    text = _read_config_text(path)
+    try:
+        return tomlkit.loads(text)
+    except tomlkit.exceptions.TOMLKitError:
+        repaired = _repair_providers_corruption(text, path)
+        if repaired is not None:
+            return repaired
+        raise
 
 
 def set_config_value(
