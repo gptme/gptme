@@ -693,6 +693,8 @@ def auto_reply_hook(
         logger.warning("Autonomous mode: No tools used after 2 confirmations. Exiting.")
         raise SessionCompleteException("No tools used after 2 auto-reply confirmations")
 
+    fence_hint = _unparsed_fence_hint(last_assistant_msg.content)
+
     # First time - inject auto-reply
     # Check for incomplete todos - if present, remind about them instead of asking about completion
     if has_incomplete_todos():
@@ -702,7 +704,7 @@ def auto_reply_hook(
         )
         yield Message(
             "user",
-            f"<system>No tool call detected in last message. You have incomplete todos:\n{incomplete_summary}\n\nPlease continue working on these tasks, or mark them complete/remove them before finishing.</system>",
+            f"<system>No tool call detected in last message. You have incomplete todos:\n{incomplete_summary}\n\nPlease continue working on these tasks, or mark them complete/remove them before finishing.{fence_hint}</system>",
             quiet=False,
         )
     else:
@@ -711,9 +713,30 @@ def auto_reply_hook(
         )
         yield Message(
             "user",
-            "<system>No tool call detected in last message. Did you mean to finish? If so, make sure you are completely done and then use the `complete` tool to end the session.</system>",
+            f"<system>No tool call detected in last message. Did you mean to finish? If so, make sure you are completely done and then use the `complete` tool to end the session.{fence_hint}</system>",
             quiet=False,
         )
+
+
+def _unparsed_fence_hint(content: str) -> str:
+    """Explain a zero-tool-call reply whose fences all failed to parse.
+
+    A reply with fence lines but no parsed codeblock (typically a closing ``` glued
+    to following prose in front of a later block) is dropped whole and silently.
+    The generic "Did you mean to finish?" nudge then invites the model to narrate
+    results of calls that never ran (gptme/gptme#4817).
+    """
+    from ..codeblock import Codeblock
+
+    if len(re.findall(r"(?m)^`{3,}", content)) < 2:
+        return ""
+    if Codeblock.iter_from_markdown(content):
+        return ""
+    return (
+        " Your message contains fenced code (```) but none of it parsed, so nothing ran: "
+        "likely a closing fence directly followed by text. Put a blank line after every "
+        "closing ``` and resend the tool calls; do not assume they executed."
+    )
 
 
 def _env_flag(name: str, default: str) -> bool:
