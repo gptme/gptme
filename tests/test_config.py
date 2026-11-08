@@ -3064,6 +3064,76 @@ def test_repair_providers_corruption_preserves_other_settings(tmp_path, monkeypa
     assert result["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test"
 
 
+def test_repair_providers_corruption_root_settings_after_block(tmp_path, monkeypatch):
+    """Root settings that follow the corrupted block must stay at root, not inside a provider."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "local"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        "]\n"
+        "\n"
+        "[env]\n"
+        'MODEL = "local/llama3"\n'
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert result["providers"][0]["name"] == "local"
+    # [env] must be a root section, not absorbed into the provider table
+    assert "env" in result
+    assert result["env"]["MODEL"] == "local/llama3"
+    assert "env" not in result["providers"][0]
+
+
+def test_repair_providers_corruption_quoted_comma_in_url(tmp_path, monkeypatch):
+    """A comma inside a quoted URL value must not be treated as a provider separator."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "myprovider"\n'
+        'base_url = "http://localhost:8080/v1?opts=a,b=c"\n'
+        'default_model = "my-model"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert len(result["providers"]) == 1
+    assert result["providers"][0]["base_url"] == "http://localhost:8080/v1?opts=a,b=c"
+
+
+def test_repair_providers_corruption_local_config(tmp_path, monkeypatch):
+    """Corruption in config.local.toml is auto-repaired the same as config.toml."""
+    import gptme.config.user as user_mod
+
+    # Empty main config
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("", encoding="utf-8")
+
+    corrupted_local = (
+        'providers = [name = "local"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        'default_model = "llama3"\n'
+        "]\n"
+    )
+    local_file = tmp_path / "config.local.toml"
+    local_file.write_text(corrupted_local, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    # load_user_config must not raise even with corrupted local config
+    cfg = user_mod.load_user_config(str(config_file))
+    assert any(p.name == "local" for p in cfg.providers)
+
+
 def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_symlinks):
     """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
     logdir = tmp_path / "conversation-save-transition"

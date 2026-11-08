@@ -346,7 +346,7 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
 
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        local_doc = tomlkit.loads(_read_config_text(local_path))
+        local_doc = _load_config_doc(str(local_path))
         if _get_nested_config_value(local_doc, "env", bare) is not None:
             return USER_CONFIG_SOURCE_LOCAL
 
@@ -372,7 +372,7 @@ def get_default_model_source(path: str | None = None) -> str | None:
     """
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        local_doc = tomlkit.loads(_read_config_text(local_path))
+        local_doc = _load_config_doc(str(local_path))
         if _get_nested_config_value(local_doc, "models", "default") is not None:
             return USER_CONFIG_SOURCE_LOCAL
     main_doc = _load_config_doc(str(config_file))
@@ -577,7 +577,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     # Look for local config file in the same directory
     has_local = local_path.exists()
     if has_local:
-        local_config = tomlkit.loads(_read_config_text(local_path)).unwrap()
+        local_config = _load_config_doc(str(local_path)).unwrap()
         writable_keys.update(local_config)
         config = _merge_config_data(config, local_config)
 
@@ -826,6 +826,42 @@ def _strip_none(d: dict) -> dict:
     }
 
 
+def _split_outside_quotes(text: str) -> list[str]:
+    """Split provider entries at commas that fall outside quoted strings.
+
+    A URL value like ``base_url = "http://host/v1?a=1,b=2"`` must not be
+    split at the inner comma.  Walk the text, track double-quote depth
+    (TOML only uses double quotes for basic strings here), and emit a split
+    only when the comma is followed by ``word =`` outside any string.
+    """
+    entries: list[str] = []
+    current: list[str] = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_string:
+            current.append(c)
+            if c == '"' and (i == 0 or text[i - 1] != "\\"):
+                in_string = False
+        elif c == '"':
+            in_string = True
+            current.append(c)
+        elif c == ",":
+            rest = text[i + 1 :].lstrip()
+            if re.match(r"\w+\s*=", rest):
+                entries.append("".join(current))
+                current = []
+            else:
+                current.append(c)
+        else:
+            current.append(c)
+        i += 1
+    if any(ch.strip() for ch in current):
+        entries.append("".join(current))
+    return entries
+
+
 def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument | None":
     """Detect and auto-repair the ``providers = [...]`` inline-table corruption.
 
@@ -855,11 +891,9 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     if not re.search(r'\w+\s*=\s*"', content):
         return None
 
-    # Split into individual provider entries.
-    # Multiple entries within the broken Array are separated by a comma
-    # followed by optional whitespace then an identifier= (next provider start).
-    # The comma may appear at the start of a new line, so no lookbehind needed.
-    provider_texts = re.split(r",\s*(?=\w+\s*=)", content)
+    # Split into individual provider entries, respecting quoted strings.
+    # A base_url like "http://host/v1?a=1,b=2" must not split at the inner comma.
+    provider_texts = _split_outside_quotes(content)
 
     aot = tomlkit.aot()
     for ptext in provider_texts:
@@ -878,12 +912,16 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     if not aot:
         return None
 
-    # Rebuild: replace only the corrupted block; preserve everything else.
+    # Rebuild: remove the corrupted block and append the AoT at the end.
+    # Putting [[providers]] at the end avoids absorbing any root-level settings
+    # that follow the providers block into the last provider table.
     aot_doc = tomlkit.document()
     aot_doc.add("providers", aot)
     replacement = tomlkit.dumps(aot_doc).strip()
 
-    repaired = raw[: match.start()] + replacement + "\n" + raw[match.end() :]
+    pre = raw[: match.start()]
+    post = raw[match.end() :]
+    repaired = (pre + post).rstrip("\n") + "\n" + replacement + "\n"
 
     try:
         doc = tomlkit.loads(repaired)
