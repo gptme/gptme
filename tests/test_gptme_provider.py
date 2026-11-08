@@ -99,6 +99,63 @@ def test_load_token_zero_expires_at(tmp_path: Path):
         assert _load_token() is None
 
 
+@pytest.mark.parametrize(
+    ("content", "description"),
+    [
+        # JSON root is a list, not a dict
+        (b"[]", "list root"),
+        # JSON root is null
+        (b"null", "null root"),
+        # expires_at is a string
+        (
+            json.dumps({"access_token": "tok", "expires_at": "not-a-number"}).encode(),
+            "string expires_at",
+        ),
+        # expires_at is NaN (not representable in JSON, but Python's json module encodes it)
+        (
+            b'{"access_token": "tok", "expires_at": NaN}',
+            "NaN expires_at — invalid JSON",
+        ),
+        # expires_at is a valid but huge number that overflows datetime (Python json round-trips it as Inf)
+        (
+            b'{"access_token": "tok", "expires_at": 1e309}',
+            "Infinity expires_at — invalid JSON",
+        ),
+        # access_token is an integer (non-string)
+        (
+            json.dumps(
+                {"access_token": 12345, "expires_at": time.time() + 3600}
+            ).encode(),
+            "integer access_token",
+        ),
+        # Invalid UTF-8 bytes
+        (b"\xff\xfe{bad utf8}", "invalid UTF-8"),
+    ],
+)
+def test_load_token_malformed(tmp_path: Path, content: bytes, description: str):
+    """Malformed cache files should be treated as missing (return None)."""
+    from gptme.llm.llm_gptme import _load_token
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_bytes(content)
+
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        assert _load_token() is None, f"Expected None for: {description}"
+
+
+def test_load_token_non_string_access_token_falls_back_to_env(tmp_path: Path):
+    """A token file with a non-string access_token should not be used; env var fallback applies."""
+    from gptme.llm.llm_gptme import get_api_key
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_text(
+        json.dumps({"access_token": 12345, "expires_at": time.time() + 3600})
+    )
+    config = _mock_config(env={"GPTME_CLOUD_API_KEY": "env-fallback-key"})
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        assert get_api_key(config) == "env-fallback-key"
+
+
 def test_get_api_key_from_token(tmp_path: Path):
     """Should prefer Device Flow token over env var."""
     from gptme.llm.llm_gptme import get_api_key

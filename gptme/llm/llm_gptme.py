@@ -42,6 +42,7 @@ URL architecture:
 import hashlib
 import json
 import logging
+import math
 import os
 import stat
 import tempfile
@@ -149,19 +150,41 @@ def _load_token(service_url: str | None = None) -> dict | None:
             return None
 
     try:
-        data = json.loads(token_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
+        data = json.loads(token_path.read_bytes())
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
         logger.warning(f"Failed to read gptme token: {e}")
+        return None
+
+    # Must be a JSON object — a list, null, string, etc. is not a valid token
+    if not isinstance(data, dict):
+        logger.warning(
+            "gptme token file is malformed (not a JSON object), treating as missing"
+        )
         return None
 
     # Check expiration (with 60s buffer)
     # Treat missing/zero expires_at as expired to avoid bypassing expiration
     expires_at = data.get("expires_at", 0)
+    if (
+        not isinstance(expires_at, (int, float))
+        or math.isnan(expires_at)
+        or math.isinf(expires_at)
+    ):
+        logger.warning("gptme token has non-finite expires_at, treating as expired")
+        return None
     if not expires_at or time.time() > expires_at - 60:
         if expires_at:
             logger.warning(
                 "gptme token expired, run `gptme-auth login` to re-authenticate"
             )
+        return None
+
+    # access_token must be a non-empty string to be usable
+    access_token = data.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        logger.warning(
+            "gptme token has missing or non-string access_token, treating as missing"
+        )
         return None
 
     return data
@@ -177,8 +200,9 @@ def get_api_key(config: Config) -> str:
     """
     # Try Device Flow token first
     token_data = _load_token()
-    if token_data and token_data.get("access_token"):
-        return token_data["access_token"]
+    access_token = token_data.get("access_token") if token_data else None
+    if isinstance(access_token, str) and access_token:
+        return access_token
 
     # Fall back to API key env var
     api_key = config.get_env("GPTME_CLOUD_API_KEY")
@@ -207,12 +231,14 @@ def get_base_url(config: Config) -> str:
     token_data = _load_token()
     if token_data:
         # New explicit base_url field (Supabase-aware, set by device_flow_authenticate)
-        if token_data.get("base_url"):
-            return token_data["base_url"].rstrip("/")
+        base_url_field = token_data.get("base_url")
+        if isinstance(base_url_field, str) and base_url_field:
+            return base_url_field.rstrip("/")
         # Legacy: token has server_url but no base_url — reconstruct old-style
         # (e.g. tokens saved before this fix, pointing at fleet.gptme.ai)
-        if token_data.get("server_url"):
-            server_url = token_data["server_url"].rstrip("/")
+        server_url_field = token_data.get("server_url")
+        if isinstance(server_url_field, str) and server_url_field:
+            server_url = server_url_field.rstrip("/")
             if not server_url.endswith("/v1"):
                 server_url += "/v1"
             return server_url
@@ -239,8 +265,14 @@ def get_models_url(config: Config) -> str:
     token_data = _load_token()
     if token_data:
         # Custom-server token (server_url without explicit base_url)
-        if not token_data.get("base_url") and token_data.get("server_url"):
-            server_url = token_data["server_url"].rstrip("/")
+        base_url_field = token_data.get("base_url")
+        server_url_field = token_data.get("server_url")
+        if (
+            not (isinstance(base_url_field, str) and base_url_field)
+            and isinstance(server_url_field, str)
+            and server_url_field
+        ):
+            server_url = server_url_field.rstrip("/")
             if not server_url.endswith("/v1"):
                 server_url += "/v1"
             return server_url
