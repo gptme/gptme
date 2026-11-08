@@ -2363,6 +2363,50 @@ def test_thinking_directly_after_save_preserves_following_command():
             ]
 
 
+def test_non_exec_block_followed_by_later_block_yields_both():
+    """Non-exec-lang block followed by a later block must yield both, not zero.
+
+    Regression for gptme/gptme#4817: the nested-fence lookahead heuristic found
+    the later block's closing fence and mistook it for confirmation that the first
+    block's fence was a nested opener, causing the whole message to yield 0 blocks.
+    """
+    # Main repro: save + prose + shell
+    content = (
+        "```save /tmp/x.json\n"
+        "hello\n"
+        "```\n"
+        "Checking the result now.\n"
+        "```shell\n"
+        "cat /tmp/x.json\n"
+        "```\n"
+    )
+    result = list(_extract_codeblocks(content))
+    assert len(result) == 2, f"Expected 2 blocks, got {len(result)}"
+    assert result[0].lang == "save /tmp/x.json"
+    assert result[0].content == "hello"
+    assert result[1].lang == "shell"
+    assert result[1].content == "cat /tmp/x.json"
+
+    # save followed by another non-exec-lang block
+    result2 = list(
+        _extract_codeblocks(
+            "```save /tmp/a\nhello\n```\ntext\n```save /tmp/b\nworld\n```\n"
+        )
+    )
+    assert len(result2) == 2, f"Expected 2 blocks, got {len(result2)}"
+    assert result2[0].lang == "save /tmp/a"
+    assert result2[1].lang == "save /tmp/b"
+
+    # four blocks: save + prose + shell + prose + shell + prose + shell
+    content4 = (
+        "```save /tmp/out.py\nprint('hello')\n```\n"
+        "Running the script:\n"
+        "```shell\npython /tmp/out.py\n```\n"
+    )
+    result4 = list(_extract_codeblocks(content4))
+    assert len(result4) == 2, f"Expected 2 blocks, got {len(result4)}"
+
+
 def test_unfinished_thinking_after_save_with_nested_fences_does_not_extract_shell():
     """Unclosed reasoning after a completed save must not yield inner commands.
 

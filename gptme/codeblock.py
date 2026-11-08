@@ -1152,6 +1152,13 @@ def _extract_codeblocks(
                                 # At depth 1, look ahead to see if there's a matching closing fence
                                 # This distinguishes real nested blocks from bare backticks in content
                                 has_closing_fence = False
+                                # A tagged fence (e.g. ```shell) encountered before any bare
+                                # fence means a new top-level block follows immediately — the
+                                # current bare fence must be the closer of the current block.
+                                # Exception: if a thinking opener (<think>/<thinking>) appears
+                                # before the tagged fence, the tagged fence may be inside
+                                # reasoning content, so we stay conservative.
+                                has_following_tagged_fence = False
                                 for j in range(i + 1, min(i + 20, len(lines))):
                                     # Check if this line is a bare fence (only backticks)
                                     inner_fence_match = re.match(
@@ -1176,7 +1183,46 @@ def _extract_codeblocks(
                                         re.match(r"^`{3,}", lines[j])
                                         and len(lines[j].strip()) > 3
                                     ):
-                                        # Hit a language-tagged fence, stop looking
+                                        # Tagged fence found. Only treat as evidence that this
+                                        # bare fence is a closer (and the tagged fence opens a
+                                        # new top-level block) when:
+                                        # 1. No thinking opener appears in the intervening lines
+                                        #    (a thinking opener suggests the tagged fence is
+                                        #    inside reasoning content), AND
+                                        # 2. The tagged block closes within a bounded window AND
+                                        #    has no subsequent content — confirming it's a
+                                        #    top-level peer block, not nested inside the outer.
+                                        #    If content follows the tagged block's closer, it
+                                        #    likely belongs to the outer block (which has an
+                                        #    outer closer further down).
+                                        intervening = lines[i + 1 : j]
+                                        has_thinking_opener = any(
+                                            ln.startswith(("<think>", "<thinking>"))
+                                            for ln in intervening
+                                        )
+                                        if not has_thinking_opener:
+                                            tagged_closer_found = False
+                                            content_after_tagged_close = False
+                                            for k in range(
+                                                j + 1, min(j + 40, len(lines))
+                                            ):
+                                                if re.match(
+                                                    r"^(`{3,})$", lines[k].strip()
+                                                ):
+                                                    tagged_closer_found = True
+                                                    content_after_tagged_close = any(
+                                                        lines[m].strip() != ""
+                                                        for m in range(
+                                                            k + 1,
+                                                            min(k + 10, len(lines)),
+                                                        )
+                                                    )
+                                                    break
+                                            if (
+                                                tagged_closer_found
+                                                and not content_after_tagged_close
+                                            ):
+                                                has_following_tagged_fence = True
                                         break
 
                                 # Genuine reasoning was removed above. Any tags
@@ -1186,6 +1232,21 @@ def _extract_codeblocks(
                                     # Looks like a real nested block
                                     nesting_depth += 1
                                     content_lines.append(line)
+                                elif has_following_tagged_fence:
+                                    # A new top-level block follows — treat current bare fence
+                                    # as a block closer and yield the completed block.
+                                    nesting_depth -= 1
+                                    if nesting_depth == 0:
+                                        yield Codeblock(
+                                            lang,
+                                            "\n".join(content_lines),
+                                            start=start_line,
+                                            fence="`" * fence_len,
+                                        )
+                                        i += 1
+                                        break
+                                    else:
+                                        content_lines.append(line)
                                 elif streaming:
                                     # In streaming mode, be conservative: treat bare fence
                                     # followed by content as a nested block opener even without
