@@ -30,6 +30,7 @@ tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
 getrandom = "0.4"
 tokio = { version = "1", features = ["net", "time", "io-util", "sync"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-shell = "2"

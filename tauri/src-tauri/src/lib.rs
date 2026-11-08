@@ -1,4 +1,6 @@
 #[cfg(desktop)]
+use std::collections::VecDeque;
+#[cfg(desktop)]
 use std::net::TcpListener;
 #[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -503,6 +505,18 @@ async fn spawn_server_sidecar(
     }
     owns_port.store(true, Ordering::Relaxed);
 
+    // Resolve the crash log path once here (before the async task moves `app`).
+    let crash_log_path = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("crash-log.jsonl"));
+
+    // Ring buffer for the last 10 stderr lines — written to the crash log on
+    // unexpected sidecar exit so the developer has immediate context.
+    let stderr_buf: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let stderr_buf_for_task = stderr_buf.clone();
+
     let state_for_output = state_arc.clone();
     let owns_port_for_output = owns_port.clone();
     tauri::async_runtime::spawn(async move {
@@ -519,8 +533,16 @@ async fn spawn_server_sidecar(
                 tauri_plugin_shell::process::CommandEvent::Stderr(data) => {
                     let output = String::from_utf8_lossy(&data);
                     for line in output.lines() {
-                        if !line.trim().is_empty() {
-                            log::warn!("[gptme-server] {}", line.trim());
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            log::warn!("[gptme-server] {}", trimmed);
+                            // Buffer last 10 lines for crash log context.
+                            if let Ok(mut buf) = stderr_buf_for_task.lock() {
+                                buf.push_back(trimmed.to_string());
+                                if buf.len() > 10 {
+                                    buf.pop_front();
+                                }
+                            }
                         }
                     }
                 }
@@ -555,7 +577,7 @@ async fn spawn_server_sidecar(
                     // spawns the actual Python interpreter as a child. When the
                     // launcher dies (cleanly or via SIGKILL), the Python child
                     // can survive — reparented to init — and keep port 5700
-                    // bound until something explicitly kills it.  Verify the
+                    // bound until something explicitly fixes it.  Verify the
                     // port is actually free before declaring the server gone;
                     // otherwise leave owns_port=true so cleanup_server_process
                     // catches the orphan on app exit (#2260).
@@ -568,6 +590,21 @@ async fn spawn_server_sidecar(
                             server_port()
                         );
                     }
+                    // Write crash log on unexpected exits (non-zero or signal kill).
+                    // Note: app-initiated kills via cleanup_server_process() also
+                    // reach this arm; a future improvement can suppress those with
+                    // an `Arc<AtomicBool>` shutdown flag.
+                    let is_crash = payload.code.map(|c| c != 0).unwrap_or(true);
+                    if is_crash {
+                        if let Some(ref path) = crash_log_path {
+                            let stderr_tail = stderr_buf
+                                .lock()
+                                .ok()
+                                .map(|b| b.iter().cloned().collect::<Vec<_>>().join("\n"))
+                                .unwrap_or_default();
+                            write_crash_log(path, payload.code, &stderr_tail);
+                        }
+                    }
                     break;
                 }
                 _ => {}
@@ -576,6 +613,36 @@ async fn spawn_server_sidecar(
     });
 
     Ok(())
+}
+
+/// Write a single JSONL entry to `~/.config/gptme/crash-log.jsonl` when the
+/// sidecar exits unexpectedly. The file is local-only and opt-out (empty until
+/// a crash occurs); it is never sent anywhere.
+#[cfg(desktop)]
+fn write_crash_log(crash_log_path: &std::path::Path, exit_code: Option<i32>, stderr_tail: &str) {
+    use std::io::Write;
+    if let Some(dir) = crash_log_path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let Ok(mut f) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(crash_log_path)
+    else {
+        return;
+    };
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let platform = std::env::consts::OS;
+    let app_version = env!("CARGO_PKG_VERSION");
+    let entry = serde_json::json!({
+        "timestamp": timestamp,
+        "exit_code": exit_code,
+        "stderr_tail": stderr_tail,
+        "platform": platform,
+        "app_version": app_version,
+    });
+    let _ = writeln!(f, "{}", entry);
+    log::info!("Crash log written to {}", crash_log_path.display());
 }
 
 fn extract_auth_code(url: &url::Url) -> Option<String> {
