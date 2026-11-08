@@ -138,7 +138,25 @@ def detect_config_problems(config_root: Path | None = None) -> list[ConfigProble
     problems: list[ConfigProblem] = []
     if config_root is not None:
         config_path = config_root / "config.toml"
-        token_paths = sorted((config_root / "auth").glob("gptme-cloud-*.json"))
+        auth_dir = config_root / "auth"
+        try:
+            # glob() suppresses some permission errors (depending on Python
+            # version). Enumerate directly so an unreadable audit is not clean.
+            token_paths = sorted(
+                path for path in auth_dir.iterdir() if path.match("gptme-cloud-*.json")
+            )
+        except FileNotFoundError:
+            token_paths = []
+        except OSError:
+            token_paths = []
+            problems.append(
+                ConfigProblem(
+                    name="auth-cache-unreadable",
+                    path=auth_dir,
+                    description=f"{auth_dir}: could not enumerate cached auth tokens.",
+                    repair_cmd=f"Check permissions of {shlex.quote(str(auth_dir))}",
+                )
+            )
     else:
         from ..llm.llm_gptme import _LEGACY_SERVICE_URLS, _get_token_path
 
@@ -146,7 +164,18 @@ def detect_config_problems(config_root: Path | None = None) -> list[ConfigProble
         candidates = [_get_token_path()] + [
             _get_token_path(url) for url in _LEGACY_SERVICE_URLS
         ]
-        token_paths = next(([path] for path in candidates if path.exists()), [])
+        token_paths = []
+        for path in candidates:
+            try:
+                path.stat()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                # Do not fall back past an inaccessible primary cache or let
+                # exists() suppress its error. The read below reports it.
+                pass
+            token_paths = [path]
+            break
 
     try:
         # Read directly: Path.exists() suppresses permission errors on newer

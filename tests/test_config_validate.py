@@ -159,12 +159,66 @@ def test_config_beneath_unsearchable_directory_is_reported(
     finally:
         root.chmod(0o700)
 
-    assert [(p.name, p.path) for p in problems] == [("config-unreadable", cfg)]
+    assert ("config-unreadable", cfg) in [(p.name, p.path) for p in problems]
     assert result.exit_code == 1, result.output
     assert "config-unreadable" in result.output
     assert "repair:" in result.output
     assert cfg.read_bytes() == original
     assert list(root.iterdir()) == [cfg]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory search permissions")
+@pytest.mark.parametrize("explicit_root", [False, True])
+@pytest.mark.parametrize("suppress_exists_errors", [False, True])
+def test_unsearchable_auth_directory_is_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_root: bool,
+    suppress_exists_errors: bool,
+) -> None:
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+    from gptme.config import user
+    from gptme.llm import llm_gptme
+
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions")
+    cfg = _make_config(tmp_path, CLEAN_PROVIDERS_TOML)
+    token = _make_token(tmp_path, {"access_token": "fixture"})
+    original = token.read_bytes()
+    real_exists = Path.exists
+
+    def suppressed_exists(path: Path) -> bool:
+        try:
+            return real_exists(path)
+        except OSError:
+            return False
+
+    if suppress_exists_errors:
+        monkeypatch.setattr(Path, "exists", suppressed_exists)
+    monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", token.parent)
+    token.parent.chmod(0)
+    try:
+        problems = detect_config_problems(tmp_path if explicit_root else None)
+        result = CliRunner().invoke(main, ["--check-config"])
+    finally:
+        token.parent.chmod(0o700)
+    assert len(problems) == 1
+    assert problems[0].name == (
+        "auth-cache-unreadable" if explicit_root else "auth-cache-invalid"
+    )
+    assert problems[0].repair_cmd
+    assert "fixture" not in problems[0].description
+    assert result.exit_code == 1, result.output
+    assert "auth-cache-invalid" in result.output
+    assert token.read_bytes() == original
+    assert list(token.parent.iterdir()) == [token]
+    assert cfg.read_text() == CLEAN_PROVIDERS_TOML
+    assert not list(tmp_path.glob("*.bak"))
 
 
 class TestDetectProvidersCorruption:
