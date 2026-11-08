@@ -558,9 +558,15 @@ async fn spawn_server_sidecar(
                     // rebind may already have stored a replacement sidecar by
                     // the time the old server's Terminated event arrives —
                     // blindly clearing would orphan the new child handle.
+                    // The slot still holding OUR pid also means nobody asked for
+                    // this exit: stop_server() and cleanup_server_process() both
+                    // take() the child before killing it, so a deliberate stop
+                    // finds the slot empty (or replaced) here.
+                    let mut unexpected_exit = false;
                     if let Ok(mut guard) = state_for_output.lock() {
                         match guard.as_ref() {
                             Some(current) if current.pid() == watched_pid => {
+                                unexpected_exit = true;
                                 *guard = None;
                             }
                             Some(_) => {
@@ -577,7 +583,7 @@ async fn spawn_server_sidecar(
                     // spawns the actual Python interpreter as a child. When the
                     // launcher dies (cleanly or via SIGKILL), the Python child
                     // can survive — reparented to init — and keep port 5700
-                    // bound until something explicitly fixes it.  Verify the
+                    // bound until something explicitly kills it.  Verify the
                     // port is actually free before declaring the server gone;
                     // otherwise leave owns_port=true so cleanup_server_process
                     // catches the orphan on app exit (#2260).
@@ -590,12 +596,10 @@ async fn spawn_server_sidecar(
                             server_port()
                         );
                     }
-                    // Write crash log on unexpected exits (non-zero or signal kill).
-                    // Note: app-initiated kills via cleanup_server_process() also
-                    // reach this arm; a future improvement can suppress those with
-                    // an `Arc<AtomicBool>` shutdown flag.
+                    // Local crash record for unexpected exits only (non-zero or
+                    // signal kill while the app still tracked the child).
                     let is_crash = payload.code.map(|c| c != 0).unwrap_or(true);
-                    if is_crash {
+                    if unexpected_exit && is_crash {
                         if let Some(ref path) = crash_log_path {
                             let stderr_tail = stderr_buf
                                 .lock()
@@ -615,34 +619,39 @@ async fn spawn_server_sidecar(
     Ok(())
 }
 
-/// Write a single JSONL entry to `~/.config/gptme/crash-log.jsonl` when the
-/// sidecar exits unexpectedly. The file is local-only and opt-out (empty until
-/// a crash occurs); it is never sent anywhere.
+/// Append one JSONL entry to `crash-log.jsonl` in the app config directory
+/// (`app_config_dir()`, e.g. `~/.config/org.gptme.tauri/` on Linux) when the
+/// sidecar exits unexpectedly. The file stays on the user's machine; nothing
+/// reads it automatically or sends it anywhere. Deleting it is the opt-out.
 #[cfg(desktop)]
 fn write_crash_log(crash_log_path: &std::path::Path, exit_code: Option<i32>, stderr_tail: &str) {
     use std::io::Write;
     if let Some(dir) = crash_log_path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            log::warn!("Could not create crash log dir {}: {}", dir.display(), e);
+            return;
+        }
     }
-    let Ok(mut f) = std::fs::OpenOptions::new()
+    let entry = serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "exit_code": exit_code,
+        "stderr_tail": stderr_tail,
+        "platform": std::env::consts::OS,
+        "app_version": env!("CARGO_PKG_VERSION"),
+    });
+    let result = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
         .open(crash_log_path)
-    else {
-        return;
-    };
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    let platform = std::env::consts::OS;
-    let app_version = env!("CARGO_PKG_VERSION");
-    let entry = serde_json::json!({
-        "timestamp": timestamp,
-        "exit_code": exit_code,
-        "stderr_tail": stderr_tail,
-        "platform": platform,
-        "app_version": app_version,
-    });
-    let _ = writeln!(f, "{}", entry);
-    log::info!("Crash log written to {}", crash_log_path.display());
+        .and_then(|mut f| writeln!(f, "{}", entry));
+    match result {
+        Ok(()) => log::info!("Crash log written to {}", crash_log_path.display()),
+        Err(e) => log::warn!(
+            "Failed to write crash log {}: {}",
+            crash_log_path.display(),
+            e
+        ),
+    }
 }
 
 fn extract_auth_code(url: &url::Url) -> Option<String> {
@@ -1247,6 +1256,32 @@ mod tests {
     use tauri::Manager;
     #[cfg(desktop)]
     use tauri_plugin_shell::ShellExt;
+
+    #[cfg(desktop)]
+    #[test]
+    fn write_crash_log_appends_jsonl_entries() {
+        let dir = std::env::temp_dir().join(format!(
+            "gptme-crash-log-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let path = dir.join("nested").join("crash-log.jsonl");
+        write_crash_log(&path, Some(1), "boom\ntrace");
+        write_crash_log(&path, None, "");
+        let content = std::fs::read_to_string(&path).expect("crash log written");
+        let lines: Vec<serde_json::Value> = content
+            .lines()
+            .map(|l| serde_json::from_str(l).expect("valid JSON line"))
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["exit_code"], 1);
+        assert_eq!(lines[0]["stderr_tail"], "boom\ntrace");
+        assert!(lines[1]["exit_code"].is_null());
+        for k in ["timestamp", "platform", "app_version"] {
+            assert!(lines[0].get(k).is_some(), "missing {k}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[cfg(desktop)]
     fn build_test_app() -> tauri::App<MockRuntime> {
