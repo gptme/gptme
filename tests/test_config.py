@@ -3154,20 +3154,31 @@ def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newl
     assert config_file.read_bytes() == corrupted.encode("utf-8")
 
 
-def test_repair_providers_corruption_trailing_comment(tmp_path):
-    """A comment on the old array survives alongside the repaired providers."""
+def test_repair_providers_corruption_trailing_comment(tmp_path, monkeypatch):
+    """A comment survives in-memory recovery and a subsequent explicit save."""
     import gptme.config.user as user_mod
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text(
+    corrupted = (
         'providers = [name = "local"\nbase_url = "http://localhost/v1"\n'
-        '] # custom providers\nenv = { MODEL = "local/model" }\n',
-        encoding="utf-8",
+        '] # custom providers\nenv = { MODEL = "local/model" }\n'
     )
-    doc = user_mod._load_config_doc(str(config_file)).unwrap()
-    assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
-    assert doc["env"] == {"MODEL": "local/model"}
-    assert "# custom providers" in config_file.read_text(encoding="utf-8")
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+    assert result["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
+    assert result["env"] == {"MODEL": "local/model"}
+    assert "# custom providers" in tomlkit.dumps(doc)
+    assert config_file.read_text(encoding="utf-8") == corrupted
+
+    user_mod.set_config_value("env.MODEL", "local/new-model", reload=False)
+    saved_text = config_file.read_text(encoding="utf-8")
+    saved = tomlkit.loads(saved_text).unwrap()
+    assert "# custom providers" in saved_text
+    assert saved["providers"] == result["providers"]
+    assert saved["env"] == {"MODEL": "local/new-model"}
 
 
 def test_repair_providers_corruption_legacy_encoding_stays_in_memory(
