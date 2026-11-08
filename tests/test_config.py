@@ -3223,6 +3223,29 @@ def test_repair_providers_corruption_write_failure(tmp_path, monkeypatch, failur
     assert list(tmp_path.iterdir()) == [config_file]
 
 
+def test_repair_providers_corruption_legacy_encoding_stays_in_memory(
+    tmp_path, monkeypatch
+):
+    """Startup must not create a less-private backup of a legacy-encoded secret."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    corrupted = (
+        'providers = [name = "local"\nbase_url = "http://localhost/v1"\n'
+        'api_key = "sëcret"\n]\n'
+    ).encode("cp1252")
+    config_file.write_bytes(corrupted)
+    config_file.chmod(0o600)
+    monkeypatch.setattr(user_mod, "_legacy_codec_candidates", lambda: ["cp1252"])
+    monkeypatch.setattr(user_mod, "_encoding_unverified", set())
+
+    doc = user_mod._load_config_doc(str(config_file)).unwrap()
+
+    assert doc["providers"][0]["api_key"] == "sëcret"
+    assert config_file.read_bytes() == corrupted
+    assert list(tmp_path.iterdir()) == [config_file]
+
+
 def test_repair_providers_corruption_unsupported_metadata(
     tmp_path, monkeypatch, caplog
 ):

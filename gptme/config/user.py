@@ -935,7 +935,15 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     except tomlkit.exceptions.TOMLKitError:
         return None
 
-    _back_up_before_reencoding(path)
+    if str(Path(path).resolve()) in _encoding_unverified:
+        # Startup must not persist a guessed decoding or create a backup with
+        # weaker permissions. Leave explicit re-encoding to the save path.
+        logger.warning(
+            "Using repaired providers in memory only for %s: "
+            "the original encoding could not be confirmed",
+            path,
+        )
+        return doc
     try:
         write_text_preserving_original(Path(path), repaired, newline="")
     except ValueError as exc:
