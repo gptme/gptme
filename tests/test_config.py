@@ -2901,6 +2901,90 @@ def test_save_provider_config_upserts_existing_provider(tmp_path, monkeypatch):
     }
 
 
+def test_provider_config_save_load_roundtrip(tmp_path, monkeypatch):
+    """save_provider_config followed by load_user_config returns the same provider fields."""
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    provider = ProviderConfig(
+        name="mylocal",
+        base_url="http://localhost:8080/v1",
+        api_key="sk-test",
+        default_model="gpt-4o-mini",
+    )
+    user_mod.save_provider_config(provider, reload=False)
+
+    loaded = load_user_config(str(config_file))
+    assert loaded.providers is not None
+    assert len(loaded.providers) == 1
+    p = loaded.providers[0]
+    assert p.name == "mylocal"
+    assert p.base_url == "http://localhost:8080/v1"
+    assert p.api_key == "sk-test"
+    assert p.default_model == "gpt-4o-mini"
+
+
+def test_provider_config_save_load_roundtrip_multiple_providers(tmp_path, monkeypatch):
+    """Multiple distinct providers written via save_provider_config all survive load_user_config.
+
+    Covers the case where a user adds two providers sequentially and then loads;
+    the previous upsert test only validates that *the same* name is not duplicated.
+    """
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    user_mod.save_provider_config(
+        ProviderConfig(name="alpha", base_url="http://alpha/v1", default_model="m1"),
+        reload=False,
+    )
+    user_mod.save_provider_config(
+        ProviderConfig(name="beta", base_url="http://beta/v1", api_key="sk-beta"),
+        reload=False,
+    )
+
+    loaded = load_user_config(str(config_file))
+    assert loaded.providers is not None
+    assert len(loaded.providers) == 2
+    names = {p.name for p in loaded.providers}
+    assert names == {"alpha", "beta"}
+    alpha = next(p for p in loaded.providers if p.name == "alpha")
+    beta = next(p for p in loaded.providers if p.name == "beta")
+    assert alpha.base_url == "http://alpha/v1"
+    assert alpha.default_model == "m1"
+    assert beta.base_url == "http://beta/v1"
+    assert beta.api_key == "sk-beta"
+
+
+def test_provider_config_save_load_roundtrip_non_ascii_name(tmp_path, monkeypatch):
+    """Provider names with non-ASCII characters survive a write-load roundtrip."""
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    provider = ProviderConfig(
+        name="lokal-åäö",
+        base_url="http://localhost:9999/v1",
+    )
+    user_mod.save_provider_config(provider, reload=False)
+
+    loaded = load_user_config(str(config_file))
+    assert loaded.providers is not None
+    assert len(loaded.providers) == 1
+    assert loaded.providers[0].name == "lokal-åäö"
+    assert loaded.providers[0].base_url == "http://localhost:9999/v1"
+
+
 def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_symlinks):
     """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
     logdir = tmp_path / "conversation-save-transition"
