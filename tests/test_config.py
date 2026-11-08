@@ -3154,6 +3154,48 @@ def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newl
     assert config_file.read_bytes() == corrupted.encode("utf-8")
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+@pytest.mark.parametrize(
+    "comment",
+    [
+        '# note, api_key = "fake"',
+        '# unmatched " quote, api_key = "fake"',
+        '# bracket ] and comma, api_key = "fake"',
+    ],
+)
+def test_repair_providers_corruption_comment_separators(
+    tmp_path, monkeypatch, newline, comment
+):
+    """Comment punctuation must not split providers or activate commented keys."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "local"\n' + comment + "\n"
+        'base_url = "http://localhost/v1#fragment,a=b"\n'
+        ', name = "second"\nbase_url = "http://localhost:9090/v1"\n]\n'
+    ).replace("\n", newline)
+    expected = [
+        {"name": "local", "base_url": "http://localhost/v1#fragment,a=b"},
+        {"name": "second", "base_url": "http://localhost:9090/v1"},
+    ]
+    config_file = tmp_path / "config.toml"
+    original = corrupted.encode("utf-8")
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    assert doc.unwrap()["providers"] == expected
+    assert config_file.read_bytes() == original
+    cfg = user_mod.load_user_config(str(config_file))
+    assert [p.name for p in cfg.providers] == ["local", "second"]
+    assert all(p.api_key is None for p in cfg.providers)
+
+    user_mod.set_config_value("env.MODEL", "local/new-model", reload=False)
+    saved = tomlkit.loads(config_file.read_text(encoding="utf-8")).unwrap()
+    assert saved["providers"] == expected
+    assert saved["env"] == {"MODEL": "local/new-model"}
+
+
 def test_repair_providers_corruption_trailing_comment(tmp_path, monkeypatch):
     """A comment survives in-memory recovery and a subsequent explicit save."""
     import gptme.config.user as user_mod

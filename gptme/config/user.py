@@ -838,16 +838,21 @@ def _split_outside_quotes(text: str) -> list[str]:
     A URL value like ``base_url = "http://host/v1?a=1,b=2"`` must not be
     split at the inner comma.  Walk the text, track double-quote depth
     (TOML only uses double quotes for basic strings here), and emit a split
-    only when the comma is followed by ``word =`` outside any string.
+    only when the comma is followed by ``word =`` outside any string or comment.
     """
     entries: list[str] = []
     current: list[str] = []
     in_string = False
+    in_comment = False
     backslashes = 0
     i = 0
     while i < len(text):
         c = text[i]
-        if in_string:
+        if in_comment:
+            current.append(c)
+            if c == "\n":
+                in_comment = False
+        elif in_string:
             current.append(c)
             # Only an odd run of backslashes escapes the following quote.
             if c == '"' and backslashes % 2 == 0:
@@ -855,6 +860,9 @@ def _split_outside_quotes(text: str) -> list[str]:
             backslashes = backslashes + 1 if c == "\\" else 0
         elif c == '"':
             in_string = True
+            current.append(c)
+        elif c == "#":
+            in_comment = True
             current.append(c)
         elif c == ",":
             rest = text[i + 1 :].lstrip()
@@ -889,9 +897,10 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     # Valid empty arrays ("providers = []") and simple-value arrays won't match
     # because they don't contain "key =" inside the brackets. Consume complete
     # basic strings (including escapes) before looking for the closing bracket:
-    # a value such as "token]#suffix" is not an array boundary.
+    # a value such as "token]#suffix" is not an array boundary. Comments also
+    # consume to end-of-line, so their quotes and brackets cannot be syntax.
     match = re.search(
-        r'^(providers\s*=\s*\[)((?:"(?:[^"\\]|\\.)*"|[^"\]])*)(\])[ \t]*(?=#|\r?\n|$)',
+        r'^(providers\s*=\s*\[)((?:"(?:[^"\\]|\\.)*"|#[^\r\n]*|[^"\]#])*)(\])[ \t]*(?=#|\r?\n|$)',
         raw,
         re.DOTALL | re.MULTILINE,
     )
