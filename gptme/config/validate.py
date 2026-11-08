@@ -215,6 +215,7 @@ def fix_providers_corruption(config_path: Path) -> Path:
     """
     import datetime
     import os
+    import stat
     import tempfile
     from pathlib import Path
 
@@ -241,6 +242,9 @@ def fix_providers_corruption(config_path: Path) -> Path:
             temporary = Path(output.name)
             output.write(fixed_text)
             output.flush()
+            # Atomic replacement must retain deliberately configured access,
+            # e.g. a group-readable managed target. Backups stay private.
+            temporary.chmod(stat.S_IMODE(original_stat.st_mode))
             os.fsync(output.fileno())
         # Detect an edit/replacement during preparation. This is optimistic
         # conflict detection, not a lock against an uncooperative editor writing

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -494,6 +495,33 @@ def test_repair_preserves_symlink(tmp_path: Path) -> None:
         == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
     )
     assert bak.read_text() == CORRUPT_PROVIDERS_TOML
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+@pytest.mark.parametrize("mode", [0o600, 0o640, 0o644])
+@pytest.mark.parametrize("symlink", [False, True])
+def test_repair_preserves_target_permissions(
+    tmp_path: Path, mode: int, symlink: bool
+) -> None:
+    import stat
+
+    target = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+    target.chmod(mode)
+    cfg = target
+    if symlink:
+        cfg = tmp_path / "linked.toml"
+        cfg.symlink_to(target)
+
+    bak = fix_providers_corruption(cfg)
+
+    assert stat.S_IMODE(target.stat().st_mode) == mode
+    assert stat.S_IMODE(bak.stat().st_mode) == 0o600
+    assert bak.read_text() == CORRUPT_PROVIDERS_TOML
+    assert (
+        tomllib.loads(target.read_text())["providers"]
+        == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
+    )
+    assert cfg.is_symlink() == symlink
 
 
 @pytest.mark.parametrize("line_ending", ["\n", "\r\n"])
