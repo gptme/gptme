@@ -778,6 +778,11 @@ def _outer_block_has_explicit_closer(lines: list[str], inner_start: int) -> bool
         None  – a tagged block did not close before EOF → ambiguous;
                 caller should stay fail-closed (treat bare fence as literal content).
     """
+    opener = re.match(r"^(`{3,})(.*)$", lines[inner_start])
+    if opener is None or not _is_valid_lang_tag(opener.group(2).strip()):
+        # The bounded caller also stops at fence-like literal text. Such a
+        # line cannot establish a tagged block or justify early recovery.
+        return None
     inner_depth = 1
     for line in lines[inner_start + 1 :]:
         fence_m = re.match(r"^(`{3,})", line)

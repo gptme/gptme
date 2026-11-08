@@ -3149,3 +3149,10 @@ def test_nonexec_save_invalid_nested_tag_is_literal() -> None:
     assert list(_extract_codeblocks(f"```save notes.md\n{content}\n```")) == [
         Codeblock("save notes.md", content)
     ]
+
+
+def test_nonexec_save_invalid_first_lookahead_tag_is_literal() -> None:
+    content = "intro\n```\nExample:\n```!!!\nliteral"
+    assert list(_extract_codeblocks(f"```save notes.md\n{content}\n```")) == [
+        Codeblock("save notes.md", content)
+    ]
