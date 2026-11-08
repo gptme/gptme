@@ -494,3 +494,46 @@ def test_repair_preserves_symlink(tmp_path: Path) -> None:
         == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
     )
     assert bak.read_text() == CORRUPT_PROVIDERS_TOML
+
+
+@pytest.mark.parametrize("line_ending", ["\n", "\r\n"])
+@pytest.mark.parametrize("simulate_windows", [False, True])
+def test_repair_writes_validated_newlines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    line_ending: str,
+    simulate_windows: bool,
+) -> None:
+    import tempfile
+    from typing import Any
+
+    # Force Windows' default text-write translation on any host. Explicit
+    # newline handling must override it; also exercise the native platform.
+    real_temporary_file = tempfile.NamedTemporaryFile
+
+    def windows_temporary_file(**kwargs: Any) -> Any:
+        if kwargs.get("newline") is None:
+            kwargs["newline"] = "\r\n"
+        return real_temporary_file(**kwargs)
+
+    if simulate_windows:
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", windows_temporary_file)
+
+    original = (
+        (UNRELATED_SETTING + CORRUPT_PROVIDERS_TOML + 'env.FOO = "bar"\n')
+        .replace("\n", line_ending)
+        .encode("utf-8")
+    )
+    cfg = tmp_path / "config.toml"
+    cfg.write_bytes(original)
+    bak = fix_providers_corruption(cfg)
+    repaired = cfg.read_bytes()
+    # Parse raw bytes, not read_text(): universal newline decoding could hide
+    # the doubled carriage returns produced by the broken Windows writer.
+    parsed = tomllib.loads(repaired.decode("utf-8"))
+    assert parsed["model"] == "openai/gpt-4o-mini"
+    assert parsed["env"] == {"FOO": "bar"}
+    assert parsed["providers"] == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
+    assert b"\r\r\n" not in repaired
+    assert bak.read_bytes() == original
+    assert detect_config_problems(tmp_path) == []

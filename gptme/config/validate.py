@@ -236,7 +236,7 @@ def fix_providers_corruption(config_path: Path) -> Path:
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=config_path.parent, delete=False
+            mode="w", encoding="utf-8", newline="", dir=config_path.parent, delete=False
         ) as output:
             temporary = Path(output.name)
             output.write(fixed_text)
