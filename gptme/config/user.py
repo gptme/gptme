@@ -837,13 +837,16 @@ def _split_outside_quotes(text: str) -> list[str]:
     entries: list[str] = []
     current: list[str] = []
     in_string = False
+    backslashes = 0
     i = 0
     while i < len(text):
         c = text[i]
         if in_string:
             current.append(c)
-            if c == '"' and (i == 0 or text[i - 1] != "\\"):
+            # Only an odd run of backslashes escapes the following quote.
+            if c == '"' and backslashes % 2 == 0:
                 in_string = False
+            backslashes = backslashes + 1 if c == "\\" else 0
         elif c == '"':
             in_string = True
             current.append(c)

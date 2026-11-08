@@ -3111,6 +3111,37 @@ def test_repair_providers_corruption_quoted_comma_in_url(tmp_path, monkeypatch):
     assert result["providers"][0]["base_url"] == "http://localhost:8080/v1?opts=a,b=c"
 
 
+@pytest.mark.parametrize("api_key", ["key\\", "key\\\\", 'key\\",b=c'])
+def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key):
+    """Repair preserves escaped strings and still separates the next provider."""
+    import gptme.config.user as user_mod
+
+    providers = [
+        {"name": "first", "base_url": "http://localhost:8080/v1", "api_key": api_key},
+        {"name": "second", "base_url": "http://localhost:9090/v1"},
+    ]
+    # Use the old writer's Array-of-Table mistake to generate real escaped TOML.
+    broken_array = tomlkit.array()
+    for provider in providers:
+        table = tomlkit.table()
+        table.update(provider)
+        broken_array.append(table)
+    corrupted = tomlkit.dumps({"providers": broken_array})
+    with pytest.raises(tomlkit.exceptions.TOMLKitError):
+        tomlkit.loads(corrupted)
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    doc = user_mod._load_config_doc(str(config_file))
+
+    assert doc.unwrap()["providers"] == providers
+    repaired = config_file.read_text(encoding="utf-8")
+    assert tomlkit.loads(repaired).unwrap()["providers"] == providers
+    # Loading the repaired file again must not rewrite it.
+    assert user_mod._load_config_doc(str(config_file)).unwrap() == doc.unwrap()
+    assert config_file.read_text(encoding="utf-8") == repaired
+
+
 def test_repair_providers_corruption_local_config(tmp_path, monkeypatch):
     """Corruption in config.local.toml is auto-repaired the same as config.toml."""
     import gptme.config.user as user_mod
