@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -522,6 +523,74 @@ def test_repair_preserves_target_permissions(
         == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
     )
     assert cfg.is_symlink() == symlink
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux POSIX ACLs")
+@pytest.mark.parametrize("existing_acl", [False, True])
+def test_repair_preserves_access_acl(tmp_path: Path, existing_acl: bool) -> None:
+    import errno
+    import stat
+    import struct
+
+    cfg = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+    cfg.chmod(0o640)
+
+    def acl(named_user: int, owner: int) -> bytes:
+        return struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, perm, uid)
+            for tag, perm, uid in [
+                (1, owner, 0xFFFFFFFF),
+                (2, 4, named_user),
+                (4, 0, 0xFFFFFFFF),
+                (16, 4, 0xFFFFFFFF),
+                (32, 0, 0xFFFFFFFF),
+            ]
+        )
+
+    try:
+        if existing_acl:
+            os.setxattr(cfg, "system.posix_acl_access", acl(os.getuid() + 1, 6))
+        # The config predates the default ACL. Replacements inherit a different
+        # named reader, which chmod(0640) alone would incorrectly enable.
+        os.setxattr(tmp_path, "system.posix_acl_default", acl(os.getuid() + 2, 7))
+    except OSError as exc:
+        if exc.errno in (errno.ENOTSUP, errno.EPERM):
+            pytest.skip(f"POSIX ACLs unavailable: {exc}")
+        raise
+    expected = os.getxattr(cfg, "system.posix_acl_access") if existing_acl else None
+
+    bak = fix_providers_corruption(cfg)
+
+    if expected is None:
+        assert "system.posix_acl_access" not in os.listxattr(cfg)
+    else:
+        assert os.getxattr(cfg, "system.posix_acl_access") == expected
+    assert stat.S_IMODE(cfg.stat().st_mode) == 0o640
+    assert stat.S_IMODE(bak.stat().st_mode) == 0o600
+    assert bak.read_text() == CORRUPT_PROVIDERS_TOML
+    assert (
+        tomllib.loads(cfg.read_text())["providers"]
+        == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
+    )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux POSIX ACLs")
+def test_acl_preservation_failure_aborts_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+
+    def denied_acl(path: object, name: str) -> bytes:
+        raise PermissionError("ACL read denied")
+
+    monkeypatch.setattr(os, "getxattr", denied_acl)
+    with pytest.raises(PermissionError, match="ACL read denied"):
+        fix_providers_corruption(cfg)
+    assert cfg.read_text() == CORRUPT_PROVIDERS_TOML
+    backups = list(tmp_path.glob("*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == CORRUPT_PROVIDERS_TOML
+    assert set(tmp_path.iterdir()) == {cfg, backups[0]}
 
 
 @pytest.mark.parametrize("line_ending", ["\n", "\r\n"])

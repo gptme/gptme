@@ -215,9 +215,10 @@ def fix_providers_corruption(config_path: Path) -> Path:
     """
     import datetime
     import os
-    import stat
     import tempfile
     from pathlib import Path
+
+    from ..memory.store import _preserve_mode
 
     # Publish to the managed target, never replace a config symlink itself.
     config_path = config_path.resolve(strict=True)
@@ -242,9 +243,10 @@ def fix_providers_corruption(config_path: Path) -> Path:
             temporary = Path(output.name)
             output.write(fixed_text)
             output.flush()
-            # Atomic replacement must retain deliberately configured access,
-            # e.g. a group-readable managed target. Backups stay private.
-            temporary.chmod(stat.S_IMODE(original_stat.st_mode))
+            # Preserve ownership and access ACLs before enabling broader mode
+            # bits; chmod alone could activate inherited named-user readers.
+            # Preservation errors abort publication. Backups stay private.
+            _preserve_mode(temporary, config_path)
             os.fsync(output.fileno())
         # Detect an edit/replacement during preparation. This is optimistic
         # conflict detection, not a lock against an uncooperative editor writing
