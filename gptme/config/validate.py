@@ -215,18 +215,24 @@ def fix_providers_corruption(config_path: Path) -> Path:
     """
     import datetime
     import os
-    import shutil
     import tempfile
     from pathlib import Path
 
-    text = config_path.read_text(encoding="utf-8")
+    # Publish to the managed target, never replace a config symlink itself.
+    config_path = config_path.resolve(strict=True)
+    original_stat = config_path.stat()
+    original = config_path.read_bytes()
+    text = original.decode("utf-8")
     fixed_text = _repaired_providers_text(text)
     if fixed_text is None:
         raise ValueError("no safe providers repair recognized")
 
     ts = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     bak = config_path.with_name(config_path.name + f".{ts}.bak")
-    shutil.copy2(config_path, bak)
+    # Credentials must be private from creation, not chmod'd after copying.
+    fd = os.open(bak, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as backup:
+        backup.write(original)
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -236,6 +242,18 @@ def fix_providers_corruption(config_path: Path) -> Path:
             output.write(fixed_text)
             output.flush()
             os.fsync(output.fileno())
+        # Detect an edit/replacement during preparation. This is optimistic
+        # conflict detection, not a lock against an uncooperative editor writing
+        # in the final check-to-replace interval.
+        current_stat = config_path.stat()
+        if (
+            current_stat.st_ino != original_stat.st_ino
+            or current_stat.st_mtime_ns != original_stat.st_mtime_ns
+            or config_path.read_bytes() != original
+        ):
+            raise ValueError(
+                "configuration changed during repair; retry after editing finishes"
+            )
         os.replace(temporary, config_path)
     finally:
         if temporary is not None:

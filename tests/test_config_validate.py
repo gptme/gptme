@@ -426,3 +426,71 @@ def test_repair_replace_failure_keeps_original(
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
         [cfg.name, list(tmp_path.glob("*.bak"))[0].name]
     )
+
+
+def test_backup_is_private_from_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import stat
+
+    cfg = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+    cfg.chmod(0o600)
+    real_open = os.open
+    seen: list[int] = []
+
+    def inspect_open(
+        path: object, flags: int, mode: int = 0o777, **kwargs: object
+    ) -> int:
+        fd = real_open(path, flags, mode, **kwargs)  # type: ignore[arg-type]
+        if str(path).endswith(".bak"):
+            seen.append(stat.S_IMODE(os.fstat(fd).st_mode))
+        return fd
+
+    monkeypatch.setattr(os, "open", inspect_open)
+    old_umask = os.umask(0o022)
+    try:
+        bak = fix_providers_corruption(cfg)
+    finally:
+        os.umask(old_umask)
+    assert seen == [0o600]
+    assert stat.S_IMODE(bak.stat().st_mode) == 0o600
+    assert bak.read_text() == CORRUPT_PROVIDERS_TOML
+
+
+def test_intervening_edit_aborts_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    cfg = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+    changed = 'env.MODEL = "new/model"\n'
+    fsync = os.fsync
+
+    def edit_during_write(fd: int) -> None:
+        fsync(fd)
+        cfg.write_text(changed)
+
+    monkeypatch.setattr(os, "fsync", edit_during_write)
+    with pytest.raises(ValueError, match="changed during repair"):
+        fix_providers_corruption(cfg)
+    assert cfg.read_text() == changed
+    backups = list(tmp_path.glob("*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == CORRUPT_PROVIDERS_TOML
+    assert len(list(tmp_path.iterdir())) == 2
+
+
+def test_repair_preserves_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "managed.toml"
+    target.write_text(CORRUPT_PROVIDERS_TOML)
+    cfg = tmp_path / "config.toml"
+    cfg.symlink_to(target)
+    bak = fix_providers_corruption(cfg)
+    assert cfg.is_symlink()
+    assert cfg.resolve() == target
+    assert (
+        tomllib.loads(target.read_text())["providers"]
+        == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
+    )
+    assert bak.read_text() == CORRUPT_PROVIDERS_TOML
