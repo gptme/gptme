@@ -149,33 +149,36 @@ def detect_config_problems(config_root: Path | None = None) -> list[ConfigProble
         token_paths = next(([path] for path in candidates if path.exists()), [])
 
     try:
-        if config_path.exists():
-            text = config_path.read_text(encoding="utf-8")
-            try:
-                tomllib.loads(text)
-            except tomllib.TOMLDecodeError:
-                if _repaired_providers_text(text) is not None:
-                    problems.append(
-                        ConfigProblem(
-                            name="providers-not-array",
-                            path=config_path,
-                            description=(
-                                f"{config_path}: providers key contains table "
-                                "syntax inside square brackets — not valid TOML. "
-                                "Should be [[providers]] array-of-tables entries."
-                            ),
-                            repair_cmd="gptme --check-config --fix",
-                        )
+        # Read directly: Path.exists() suppresses permission errors on newer
+        # Python versions, making an unreadable config look absent.
+        text = config_path.read_text(encoding="utf-8")
+        try:
+            tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            if _repaired_providers_text(text) is not None:
+                problems.append(
+                    ConfigProblem(
+                        name="providers-not-array",
+                        path=config_path,
+                        description=(
+                            f"{config_path}: providers key contains table "
+                            "syntax inside square brackets — not valid TOML. "
+                            "Should be [[providers]] array-of-tables entries."
+                        ),
+                        repair_cmd="gptme --check-config --fix",
                     )
-                else:
-                    problems.append(
-                        ConfigProblem(
-                            name="config-invalid",
-                            path=config_path,
-                            description=f"{config_path}: invalid TOML; no safe automatic repair recognized.",
-                            repair_cmd=f"Edit {shlex.quote(str(config_path))} to correct the TOML syntax",
-                        )
+                )
+            else:
+                problems.append(
+                    ConfigProblem(
+                        name="config-invalid",
+                        path=config_path,
+                        description=f"{config_path}: invalid TOML; no safe automatic repair recognized.",
+                        repair_cmd=f"Edit {shlex.quote(str(config_path))} to correct the TOML syntax",
                     )
+                )
+    except FileNotFoundError:
+        pass  # A user config is optional; unreadable existing files are not.
     except (OSError, UnicodeError) as exc:
         problems.append(
             ConfigProblem(

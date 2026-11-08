@@ -81,9 +81,8 @@ class TestDetectClean:
         assert problems == []
 
 
-@pytest.mark.parametrize("operation", ["exists", "read_text"])
 def test_unreadable_config_is_reported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from pathlib import Path
 
@@ -95,16 +94,16 @@ def test_unreadable_config_is_reported(
 
     cfg = _make_config(tmp_path, CLEAN_PROVIDERS_TOML)
     original = cfg.read_bytes()
-    real_operation = getattr(Path, operation)
+    real_read = Path.read_text
 
-    def denied(path: Path, *args: object, **kwargs: object) -> object:
+    def denied(
+        path: Path, encoding: str | None = None, errors: str | None = None
+    ) -> str:
         if path == cfg:
             raise PermissionError("config access denied")
-        return real_operation(path, *args, **kwargs)
+        return real_read(path, encoding=encoding, errors=errors)
 
-    # Python 3.11/3.12 Path.exists propagates PermissionError; model that
-    # behavior explicitly even on newer Python versions that suppress it.
-    monkeypatch.setattr(Path, operation, denied)
+    monkeypatch.setattr(Path, "read_text", denied)
     monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
     monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
 
@@ -116,6 +115,56 @@ def test_unreadable_config_is_reported(
     assert "repair:" in result.output
     assert cfg.read_bytes() == original
     assert not list(tmp_path.glob("*.bak"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory search permissions")
+@pytest.mark.parametrize("suppress_exists_errors", [False, True])
+def test_config_beneath_unsearchable_directory_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suppress_exists_errors: bool
+) -> None:
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+    from gptme.config import user
+    from gptme.llm import llm_gptme
+
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions")
+    root = tmp_path / "private"
+    root.mkdir()
+    cfg = _make_config(root, CLEAN_PROVIDERS_TOML)
+    original = cfg.read_bytes()
+    # Match Python 3.14+ exists() on older interpreters without replacing the
+    # actual filesystem permission failure in read_text().
+    real_exists = Path.exists
+
+    def suppressed_exists(path: Path) -> bool:
+        try:
+            return real_exists(path)
+        except OSError:
+            return False
+
+    if suppress_exists_errors:
+        monkeypatch.setattr(Path, "exists", suppressed_exists)
+    monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
+    root.chmod(0)
+    try:
+        with pytest.raises(PermissionError):
+            cfg.read_text()
+        problems = detect_config_problems(root)
+        result = CliRunner().invoke(main, ["--check-config"])
+    finally:
+        root.chmod(0o700)
+
+    assert [(p.name, p.path) for p in problems] == [("config-unreadable", cfg)]
+    assert result.exit_code == 1, result.output
+    assert "config-unreadable" in result.output
+    assert "repair:" in result.output
+    assert cfg.read_bytes() == original
+    assert list(root.iterdir()) == [cfg]
 
 
 class TestDetectProvidersCorruption:
