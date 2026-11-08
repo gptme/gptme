@@ -126,6 +126,12 @@ def test_load_token_zero_expires_at(tmp_path: Path):
             json.dumps({"access_token": "tok", "expires_at": 10**400}).encode(),
             "oversized integer expires_at",
         ),
+        # JSON decoding itself rejects integers beyond Python's digit limit
+        pytest.param(
+            b'{"access_token": "tok", "expires_at": ' + b"9" * 5000 + b"}",
+            "integer beyond JSON decoder digit limit",
+            id="integer-decoder-digit-limit",
+        ),
         # Finite number outside datetime's representable timestamp range
         (
             b'{"access_token": "tok", "expires_at": 1e20}',

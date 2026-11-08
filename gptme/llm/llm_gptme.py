@@ -151,7 +151,7 @@ def _load_token(service_url: str | None = None) -> dict | None:
 
     try:
         data = json.loads(token_path.read_bytes())
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+    except (ValueError, OSError) as e:
         logger.warning(f"Failed to read gptme token: {e}")
         return None
 
