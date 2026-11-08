@@ -739,6 +739,55 @@ def _unclosed_standalone_after(
     return False
 
 
+def _outer_block_has_explicit_closer(lines: list[str], inner_start: int) -> bool | None:
+    """Check whether the outer block has an explicit bare-fence closer after the inner block.
+
+    Called when the main lookahead hits a language-tagged fence (``inner_start``) before
+    finding a bare inner-closing fence.  Scans forward through the inner block to find
+    where it closes, then checks whether a bare fence follows (the outer closer).
+
+    If a bare fence IS found after the inner block closes, the outer block has an
+    explicit closer, meaning the bare fence at the call site (depth-1) is CONTENT, not
+    the outer closer — preserve original behaviour (append as literal content).
+
+    If NO bare fence follows the inner block before EOF (or the scan window), the outer
+    block has no closer after the inner block, meaning the bare fence at the call site
+    IS the outer closer — yield the outer block there.
+
+    Returns:
+        True  – outer block has an explicit closer after the inner block → bare fence
+                at depth-1 is literal content; don't yield early.
+        False – inner block closes and no bare fence follows → bare fence at depth-1 IS
+                the outer closer; yield the block at that fence.
+        None  – inner block did not close within the scan window → ambiguous;
+                caller should stay fail-closed (treat bare fence as literal content).
+    """
+    inner_depth = 1
+    j = inner_start + 1
+    limit = min(inner_start + 60, len(lines))
+    while j < limit:
+        fence_m = re.match(r"^(`{3,})", lines[j])
+        if fence_m:
+            flen = len(fence_m.group(1))
+            if lines[j].strip() == "`" * flen:
+                # bare fence: closes the innermost open block
+                inner_depth -= 1
+                if inner_depth == 0:
+                    # inner block closed; check if there's a bare fence after (outer closer)
+                    for k in range(j + 1, min(j + 30, len(lines))):
+                        kf = re.match(r"^(`{3,})", lines[k])
+                        if kf:
+                            klen = len(kf.group(1))
+                            if lines[k].strip() == "`" * klen:
+                                return True  # outer closer found
+                    return False  # no outer closer after inner block
+            else:
+                # language-tagged fence: opens another nested block
+                inner_depth += 1
+        j += 1
+    return None  # inner block never closed in window
+
+
 def _extract_codeblocks(
     markdown: str, streaming: bool = False
 ) -> Generator[Codeblock, None, None]:
@@ -1149,43 +1198,94 @@ def _extract_codeblocks(
                                 nesting_depth += 1
                                 content_lines.append(line)
                             elif nesting_depth == 1:
-                                # At depth 1, look ahead to see if there's a matching closing fence
-                                # This distinguishes real nested blocks from bare backticks in content
+                                # At depth 1, look ahead to see if there's a matching closing fence.
+                                # This distinguishes real nested blocks from bare backticks in content.
                                 has_closing_fence = False
+                                lang_tagged_fence_j: int | None = None
                                 for j in range(i + 1, min(i + 20, len(lines))):
                                     # Check if this line is a bare fence (only backticks)
                                     inner_fence_match = re.match(
                                         r"^(`{3,})$", lines[j].strip()
                                     )
                                     if inner_fence_match:
-                                        # Found a bare fence
-                                        # Check if there's content after it (allowing blank lines)
-                                        # Look ahead a few more lines to see if outer block continues
-                                        has_more_content = False
-                                        for k in range(j + 1, min(j + 5, len(lines))):
-                                            if lines[k].strip() != "":
-                                                # Found non-blank content after closing fence
-                                                has_more_content = True
-                                                break
-
+                                        # Found a bare fence — check if content follows it
+                                        has_more_content = any(
+                                            lines[k].strip() != ""
+                                            for k in range(
+                                                j + 1, min(j + 5, len(lines))
+                                            )
+                                        )
                                         if has_more_content:
-                                            # This looks like a nested block: opening, content, closing, more content
+                                            # Looks like a nested block: opener → content → closer → more
                                             has_closing_fence = True
                                         break
                                     elif (
                                         re.match(r"^`{3,}", lines[j])
                                         and len(lines[j].strip()) > 3
                                     ):
-                                        # Hit a language-tagged fence, stop looking
+                                        # Hit a language-tagged fence before any bare inner fence.
+                                        # Determine whether the outer block continues after this
+                                        # inner block closes, or whether the bare fence at `i`
+                                        # is actually the outer block's closer.
+                                        lang_tagged_fence_j = j
                                         break
 
-                                # Genuine reasoning was removed above. Any tags
-                                # still here belong to literal content and must
-                                # not confirm closure of a growing nested save.
                                 if has_closing_fence:
-                                    # Looks like a real nested block
+                                    # Confirmed nested block: opener → content → closer → more content
                                     nesting_depth += 1
                                     content_lines.append(line)
+                                elif lang_tagged_fence_j is not None:
+                                    # Lookahead crossed into a language-tagged block.  Use
+                                    # _outer_block_has_explicit_closer to decide: does the
+                                    # outer block have an explicit bare-fence closer AFTER
+                                    # the inner block closes?
+                                    # If YES → outer block has its own closer later, so the
+                                    #           bare fence at i is literal content (original).
+                                    # If NO  → no outer closer after the inner block, so the
+                                    #           bare fence at i IS the outer closer; yield now.
+                                    outer_has_closer = _outer_block_has_explicit_closer(
+                                        lines, lang_tagged_fence_j
+                                    )
+                                    if outer_has_closer is True:
+                                        # Outer block has an explicit closer later.
+                                        # Streaming: use the original increment so the
+                                        # nesting-depth chain resolves correctly as more
+                                        # tokens arrive (matches original behaviour).
+                                        # Non-streaming: append as literal content; the
+                                        # explicit outer closer will close at depth 1.
+                                        if streaming:
+                                            nesting_depth += 1
+                                        content_lines.append(line)
+                                    elif outer_has_closer is False:
+                                        # No outer closer found after the inner block.
+                                        # Non-streaming (complete message): bare fence IS
+                                        # the outer closer; yield the block now.
+                                        # Streaming: may be a truncated prefix — the outer
+                                        # closer may not have arrived yet; stay conservative
+                                        # and use the original increment to avoid a premature
+                                        # partial yield.
+                                        if not streaming:
+                                            nesting_depth -= 1
+                                            if nesting_depth == 0:
+                                                yield Codeblock(
+                                                    lang,
+                                                    "\n".join(content_lines),
+                                                    start=start_line,
+                                                    fence="`" * fence_len,
+                                                )
+                                                i += 1
+                                                break
+                                            else:
+                                                content_lines.append(line)
+                                        else:
+                                            # Streaming: conservative — increment so more
+                                            # content can still resolve this correctly.
+                                            nesting_depth += 1
+                                            content_lines.append(line)
+                                    else:
+                                        # Ambiguous (inner block too deep / not closed in window)
+                                        # Stay fail-closed: treat bare fence as literal content.
+                                        content_lines.append(line)
                                 elif streaming:
                                     # In streaming mode, be conservative: treat bare fence
                                     # followed by content as a nested block opener even without
