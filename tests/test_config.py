@@ -3180,8 +3180,10 @@ def test_repair_providers_corruption_trailing_comment(tmp_path):
 
 
 @pytest.mark.parametrize("failure", ["write", "replace"])
-def test_repair_providers_corruption_write_failure(tmp_path, monkeypatch, failure):
-    """A partial write or failed publication leaves the original bytes intact."""
+def test_repair_providers_corruption_write_failure(
+    tmp_path, monkeypatch, failure, caplog
+):
+    """Failed persistence retains the original bytes and uses the in-memory repair."""
     import errno
     import io
     import sys
@@ -3217,8 +3219,10 @@ def test_repair_providers_corruption_write_failure(tmp_path, monkeypatch, failur
     else:
         monkeypatch.setattr(file_write.os, "replace", fail_replace)
 
-    with pytest.raises(OSError, match="disk full"):
-        user_mod._load_config_doc(str(config_file))
+    doc = user_mod._load_config_doc(str(config_file)).unwrap()
+    assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
+    assert "in memory only" in caplog.text
+    assert "disk full" in caplog.text
     assert config_file.read_bytes() == corrupted
     assert list(tmp_path.iterdir()) == [config_file]
 
@@ -3271,10 +3275,18 @@ def test_repair_providers_corruption_refuses_nested_setting(tmp_path, section):
     assert config_file.read_bytes() == corrupted
 
 
-def test_repair_providers_corruption_unsupported_metadata(
-    tmp_path, monkeypatch, caplog
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("Cannot safely preserve security metadata"),
+        PermissionError("read-only directory"),
+    ],
+    ids=["unsupported-metadata", "permission-denied"],
+)
+def test_repair_providers_corruption_persistence_refused(
+    tmp_path, monkeypatch, caplog, error
 ):
-    """Unsafe replacement still allows startup with the repaired in-memory doc."""
+    """Refused persistence still allows full startup with the repaired provider."""
     import gptme.config.user as user_mod
 
     config_file = tmp_path / "config.toml"
@@ -3282,12 +3294,15 @@ def test_repair_providers_corruption_unsupported_metadata(
     config_file.write_bytes(corrupted)
 
     def refuse_replacement(*args, **kwargs):
-        raise ValueError("Cannot safely preserve security metadata")
+        raise error
 
     monkeypatch.setattr(user_mod, "write_text_preserving_original", refuse_replacement)
-    doc = user_mod._load_config_doc(str(config_file)).unwrap()
-    assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
+    cfg = user_mod.load_user_config(str(config_file))
+    assert len(cfg.providers) == 1
+    assert cfg.providers[0].name == "local"
+    assert cfg.providers[0].base_url == "http://localhost/v1"
     assert config_file.read_bytes() == corrupted
+    assert list(tmp_path.iterdir()) == [config_file]
     assert "in memory only" in caplog.text
 
 

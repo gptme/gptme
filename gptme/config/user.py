@@ -959,9 +959,9 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
         return doc
     try:
         write_text_preserving_original(Path(path), repaired, newline="")
-    except ValueError as exc:
-        # Unsupported metadata/platform: keep startup usable without replacing
-        # an inode whose permissions or aliases we cannot safely preserve.
+    except (ValueError, OSError) as exc:
+        # Refused or failed persistence must not prevent startup with the parsed
+        # repair. The staged writer leaves the original intact on failure.
         logger.warning("Using repaired providers in memory only for %s: %s", path, exc)
         return doc
     logger.warning(
