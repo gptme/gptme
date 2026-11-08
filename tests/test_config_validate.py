@@ -81,6 +81,43 @@ class TestDetectClean:
         assert problems == []
 
 
+@pytest.mark.parametrize("operation", ["exists", "read_text"])
+def test_unreadable_config_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+    from gptme.config import user
+    from gptme.llm import llm_gptme
+
+    cfg = _make_config(tmp_path, CLEAN_PROVIDERS_TOML)
+    original = cfg.read_bytes()
+    real_operation = getattr(Path, operation)
+
+    def denied(path: Path, *args: object, **kwargs: object) -> object:
+        if path == cfg:
+            raise PermissionError("config access denied")
+        return real_operation(path, *args, **kwargs)
+
+    # Python 3.11/3.12 Path.exists propagates PermissionError; model that
+    # behavior explicitly even on newer Python versions that suppress it.
+    monkeypatch.setattr(Path, operation, denied)
+    monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
+
+    problems = detect_config_problems(tmp_path)
+    assert [(p.name, p.path) for p in problems] == [("config-unreadable", cfg)]
+    result = CliRunner().invoke(main, ["--check-config"])
+    assert result.exit_code == 1, result.output
+    assert "config-unreadable" in result.output
+    assert "repair:" in result.output
+    assert cfg.read_bytes() == original
+    assert not list(tmp_path.glob("*.bak"))
+
+
 class TestDetectProvidersCorruption:
     """providers-not-array pattern (gptme/gptme#4806)."""
 

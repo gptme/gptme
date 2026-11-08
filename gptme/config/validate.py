@@ -148,8 +148,8 @@ def detect_config_problems(config_root: Path | None = None) -> list[ConfigProble
         ]
         token_paths = next(([path] for path in candidates if path.exists()), [])
 
-    if config_path.exists():
-        try:
+    try:
+        if config_path.exists():
             text = config_path.read_text(encoding="utf-8")
             try:
                 tomllib.loads(text)
@@ -176,15 +176,15 @@ def detect_config_problems(config_root: Path | None = None) -> list[ConfigProble
                             repair_cmd=f"Edit {shlex.quote(str(config_path))} to correct the TOML syntax",
                         )
                     )
-        except (OSError, UnicodeError) as exc:
-            problems.append(
-                ConfigProblem(
-                    name="config-unreadable",
-                    path=config_path,
-                    description=f"{config_path}: could not read config: {exc}",
-                    repair_cmd=f"Check permissions and encoding of {shlex.quote(str(config_path))}",
-                )
+    except (OSError, UnicodeError) as exc:
+        problems.append(
+            ConfigProblem(
+                name="config-unreadable",
+                path=config_path,
+                description=f"{config_path}: could not read config: {exc}",
+                repair_cmd=f"Check permissions and encoding of {shlex.quote(str(config_path))}",
             )
+        )
 
     # Cached Device Flow token root must be an object (gptme/gptme#4797).
     for token_path in token_paths:
