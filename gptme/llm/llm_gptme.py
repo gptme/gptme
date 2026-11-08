@@ -42,11 +42,11 @@ URL architecture:
 import hashlib
 import json
 import logging
-import math
 import os
 import stat
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Config
@@ -165,12 +165,15 @@ def _load_token(service_url: str | None = None) -> dict | None:
     # Check expiration (with 60s buffer)
     # Treat missing/zero expires_at as expired to avoid bypassing expiration
     expires_at = data.get("expires_at", 0)
-    if (
-        not isinstance(expires_at, (int, float))
-        or math.isnan(expires_at)
-        or math.isinf(expires_at)
-    ):
-        logger.warning("gptme token has non-finite expires_at, treating as expired")
+    if not isinstance(expires_at, (int, float)):
+        logger.warning("gptme token has non-numeric expires_at, treating as expired")
+        return None
+    # auth_status formats this timestamp. Validate its representability here so
+    # malformed numbers also leave API-key fallback usable (including huge ints).
+    try:
+        datetime.fromtimestamp(expires_at, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        logger.warning("gptme token has out-of-range expires_at, treating as expired")
         return None
     if not expires_at or time.time() > expires_at - 60:
         if expires_at:
