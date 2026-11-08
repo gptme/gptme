@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 from ..context.config import parse_context_budget as _parse_context_budget
 from ..util import path_with_tilde
-from ..util.file_write import write_text_preserving_original
 from .models import (
     ContextConfig,
     HooksConfig,
@@ -236,9 +235,11 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
     if not os.path.exists(path):
         return
     doc = _load_config_doc(path)
-    if str(Path(path).resolve()) in _encoding_unverified:
-        # Cosmetic startup cleanup must not persist a guessed decoding (or an
-        # in-memory provider repair) through the explicit-save backup path.
+    if str(Path(path).resolve()) in _encoding_unverified or getattr(
+        doc, "_providers_recovered", False
+    ):
+        # Cosmetic startup cleanup must not persist a guessed decoding or an
+        # in-memory provider repair. Only an explicit save may rewrite it.
         return
     changed = False
     for key in keys:
@@ -878,8 +879,9 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     square brackets).  Detect that exact pattern and rewrite the providers block
     as proper ``[[providers]]`` array-of-tables so the file parses again.
 
-    On success, persists the repair when safe and returns the parsed
-    ``TOMLDocument``. Otherwise the repair is used in memory only.
+    On success, returns the repaired ``TOMLDocument`` in memory only. Loading
+    must not overwrite a concurrent save or risk credentials during startup.
+    An explicit config save will persist the recovered document.
     Returns ``None`` when the pattern is not recognised so
     the caller can re-raise the original ``TOMLKitError``.
     """
@@ -948,26 +950,14 @@ def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument |
     except tomlkit.exceptions.TOMLKitError:
         return None
 
-    if str(Path(path).resolve()) in _encoding_unverified:
-        # Startup must not persist a guessed decoding or create a backup with
-        # weaker permissions. Leave explicit re-encoding to the save path.
-        logger.warning(
-            "Using repaired providers in memory only for %s: "
-            "the original encoding could not be confirmed",
-            path,
-        )
-        return doc
-    try:
-        write_text_preserving_original(Path(path), repaired, newline="")
-    except (ValueError, OSError) as exc:
-        # Refused or failed persistence must not prevent startup with the parsed
-        # repair. The staged writer leaves the original intact on failure.
-        logger.warning("Using repaired providers in memory only for %s: %s", path, exc)
-        return doc
+    # Keep this on the document, not a path registry: a later explicit save or
+    # external repair must not leave a stale cleanup prohibition for that path.
+    doc._providers_recovered = True  # type: ignore[attr-defined]
     logger.warning(
-        "Automatically repaired corrupt providers section in %s. "
+        "Using repaired providers in memory only for %s. "
         "This was caused by a bug in an older version of gptme. "
-        "Your provider configuration has been preserved.",
+        "Save your config explicitly to persist the repair; "
+        "the original file has not been changed.",
         path,
     )
     return doc

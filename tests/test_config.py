@@ -2983,6 +2983,8 @@ def test_provider_config_save_load_roundtrip_non_ascii_name(tmp_path, monkeypatc
     assert len(loaded.providers) == 1
     assert loaded.providers[0].name == "lokal-åäö"
     assert loaded.providers[0].base_url == "http://localhost:9999/v1"
+
+
 def test_repair_providers_corruption_single(tmp_path, monkeypatch):
     """_load_config_doc auto-repairs the providers = [...table...] corruption."""
     import gptme.config.user as user_mod
@@ -3008,17 +3010,12 @@ def test_repair_providers_corruption_single(tmp_path, monkeypatch):
     assert result["providers"][0]["base_url"] == "http://localhost:8080/v1"
     assert result["providers"][0]["default_model"] == "my-model"
 
-    # Persistence is refused where the writer cannot retain security metadata.
-    import sys
-
-    repaired_text = config_file.read_text(encoding="utf-8")
-    if sys.platform in ("win32", "darwin"):
-        assert repaired_text == corrupted
-    else:
-        assert (
-            tomlkit.loads(repaired_text).unwrap()["providers"][0]["name"]
-            == "myprovider"
-        )
+    # Loading recovers in memory only; an explicit save persists the repair.
+    assert config_file.read_text(encoding="utf-8") == corrupted
+    user_mod.set_config_value("env.MODEL", "myprovider/my-model", reload=False)
+    saved = tomlkit.loads(config_file.read_text(encoding="utf-8")).unwrap()
+    assert saved["providers"] == result["providers"]
+    assert saved["env"]["MODEL"] == "myprovider/my-model"
 
 
 def test_repair_providers_corruption_multiple(tmp_path, monkeypatch):
@@ -3151,16 +3148,10 @@ def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newl
     doc = user_mod._load_config_doc(str(config_file))
 
     assert doc.unwrap()["providers"] == providers
-    repaired = config_file.read_text(encoding="utf-8")
-    import sys
-
-    if sys.platform in ("win32", "darwin"):
-        assert repaired == corrupted.replace("\r\n", "\n")
-    else:
-        assert tomlkit.loads(repaired).unwrap()["providers"] == providers
-    # Loading the repaired file again must not rewrite it.
+    assert config_file.read_bytes() == corrupted.encode("utf-8")
+    # Repeated loading must recover the same values without rewriting the file.
     assert user_mod._load_config_doc(str(config_file)).unwrap() == doc.unwrap()
-    assert config_file.read_text(encoding="utf-8") == repaired
+    assert config_file.read_bytes() == corrupted.encode("utf-8")
 
 
 def test_repair_providers_corruption_trailing_comment(tmp_path):
@@ -3177,54 +3168,6 @@ def test_repair_providers_corruption_trailing_comment(tmp_path):
     assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
     assert doc["env"] == {"MODEL": "local/model"}
     assert "# custom providers" in config_file.read_text(encoding="utf-8")
-
-
-@pytest.mark.parametrize("failure", ["write", "replace"])
-def test_repair_providers_corruption_write_failure(
-    tmp_path, monkeypatch, failure, caplog
-):
-    """Failed persistence retains the original bytes and uses the in-memory repair."""
-    import errno
-    import io
-    import sys
-
-    if sys.platform in ("win32", "darwin"):
-        pytest.skip("Staged replacement refuses unsupported security metadata")
-
-    import gptme.config.user as user_mod
-    import gptme.util.file_write as file_write
-
-    config_file = tmp_path / "config.toml"
-    corrupted = b'providers = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
-    config_file.write_bytes(corrupted)
-
-    class FailingStream(io.TextIOWrapper):
-        def write(self, text):
-            super().write(text[:10])
-            super().flush()
-            raise OSError(errno.ENOSPC, "disk full")
-
-    def fail_replace(*args):
-        raise OSError(errno.ENOSPC, "disk full")
-
-    def failing_open(path, mode, **kwargs):
-        return FailingStream(io.FileIO(path, mode), **kwargs)
-
-    def failing_fdopen(fd, mode, **kwargs):
-        return FailingStream(io.FileIO(fd, mode), **kwargs)
-
-    if failure == "write":
-        monkeypatch.setattr(file_write.os, "fdopen", failing_fdopen)
-        monkeypatch.setattr(user_mod, "open", failing_open, raising=False)
-    else:
-        monkeypatch.setattr(file_write.os, "replace", fail_replace)
-
-    doc = user_mod._load_config_doc(str(config_file)).unwrap()
-    assert doc["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
-    assert "in memory only" in caplog.text
-    assert "disk full" in caplog.text
-    assert config_file.read_bytes() == corrupted
-    assert list(tmp_path.iterdir()) == [config_file]
 
 
 def test_repair_providers_corruption_legacy_encoding_stays_in_memory(
@@ -3273,37 +3216,6 @@ def test_repair_providers_corruption_refuses_nested_setting(tmp_path, section):
     with pytest.raises(tomlkit.exceptions.TOMLKitError):
         user_mod._load_config_doc(str(config_file))
     assert config_file.read_bytes() == corrupted
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        ValueError("Cannot safely preserve security metadata"),
-        PermissionError("read-only directory"),
-    ],
-    ids=["unsupported-metadata", "permission-denied"],
-)
-def test_repair_providers_corruption_persistence_refused(
-    tmp_path, monkeypatch, caplog, error
-):
-    """Refused persistence still allows full startup with the repaired provider."""
-    import gptme.config.user as user_mod
-
-    config_file = tmp_path / "config.toml"
-    corrupted = b'providers = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
-    config_file.write_bytes(corrupted)
-
-    def refuse_replacement(*args, **kwargs):
-        raise error
-
-    monkeypatch.setattr(user_mod, "write_text_preserving_original", refuse_replacement)
-    cfg = user_mod.load_user_config(str(config_file))
-    assert len(cfg.providers) == 1
-    assert cfg.providers[0].name == "local"
-    assert cfg.providers[0].base_url == "http://localhost/v1"
-    assert config_file.read_bytes() == corrupted
-    assert list(tmp_path.iterdir()) == [config_file]
-    assert "in memory only" in caplog.text
 
 
 def test_repair_providers_corruption_local_config(tmp_path, monkeypatch):
@@ -3823,3 +3735,50 @@ def test_tui_statusline_config(tmp_path, caplog):
     assert load_user_config(str(path)).tui.statusline is None
     assert "statusline" in caplog.text
     assert "foo" in caplog.text
+
+
+@pytest.mark.parametrize("local", [False, True], ids=["main", "local"])
+def test_provider_recovery_never_opens_config_for_writing(tmp_path, monkeypatch, local):
+    """Startup and cosmetic cleanup cannot truncate a recovered secret config."""
+    import builtins
+
+    import gptme.config.user as user_mod
+
+    main = tmp_path / "config.toml"
+    main.write_text("", encoding="utf-8")
+    config_file = tmp_path / "config.local.toml" if local else main
+    corrupted = (
+        b'stray_key = 1\nproviders = [name = "local"\n'
+        b'base_url = "http://localhost/v1"\napi_key = "secret"\n]\n'
+    )
+    config_file.write_bytes(corrupted)
+    monkeypatch.setattr(user_mod, "config_path", str(main))
+
+    def read_only_open(path, mode="r", *args, **kwargs):
+        assert not any(flag in mode for flag in "wax+"), "startup attempted a write"
+        return builtins.open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(user_mod, "open", read_only_open, raising=False)
+    cfg = user_mod.load_user_config(str(main))
+    assert cfg.providers[0].api_key == "secret"
+    assert config_file.read_bytes() == corrupted
+    assert sorted(p.name for p in tmp_path.iterdir()) == (
+        ["config.local.toml", "config.toml"] if local else ["config.toml"]
+    )
+
+
+def test_stale_provider_recovery_cannot_overwrite_newer_save(tmp_path):
+    """A recovery based on an old read never publishes over a newer config."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    stale = 'providers = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
+    newer = (
+        b'[env]\nAPI_KEY = "new-secret"\n[[providers]]\n'
+        b'name = "local"\nbase_url = "http://localhost/v2"\n'
+    )
+    config_file.write_bytes(newer)
+    doc = user_mod._repair_providers_corruption(stale, str(config_file))
+    assert doc is not None
+    assert doc.unwrap()["providers"][0]["base_url"] == "http://localhost/v1"
+    assert config_file.read_bytes() == newer
