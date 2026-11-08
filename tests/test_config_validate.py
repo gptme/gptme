@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+import pytest
 import tomllib
 
 if TYPE_CHECKING:
@@ -175,8 +176,217 @@ class TestFixProvidersCorruption:
         assert not any(p.name == "providers-not-array" for p in problems)
 
     def test_no_unrecognised_block_leaves_file_unchanged(self, tmp_path: Path) -> None:
-        # A clean config should not be modified (backup is still written).
+        # Refuse clean or unrecognized input without even creating a backup.
         content = CLEAN_PROVIDERS_TOML
         cfg = _make_config(tmp_path, content)
-        fix_providers_corruption(cfg)
+        with pytest.raises(ValueError, match="no safe providers repair"):
+            fix_providers_corruption(cfg)
         assert cfg.read_text(encoding="utf-8") == content
+        assert not list(tmp_path.glob("*.bak"))
+
+
+def test_repair_keeps_following_root_settings(tmp_path: Path) -> None:
+    cfg = _make_config(
+        tmp_path,
+        CORRUPT_PROVIDERS_TOML + 'env.FOO = "bar"\n[prompt]\nfiles = ["README.md"]\n',
+    )
+    fix_providers_corruption(cfg)
+    data = tomllib.loads(cfg.read_text())
+    assert data["env"] == {"FOO": "bar"}
+    assert data["prompt"] == {"files": ["README.md"]}
+    assert data["providers"] == tomllib.loads(CLEAN_PROVIDERS_TOML)["providers"]
+
+
+@pytest.mark.parametrize(
+    "providers",
+    [
+        "providers = []\n",
+        'providers = [\n{name = "local", base_url = "http://localhost/v1"}\n]\n',
+    ],
+)
+def test_valid_array_with_other_error_is_not_repaired(
+    tmp_path: Path, providers: str
+) -> None:
+    original = providers + "broken = [\n"
+    cfg = _make_config(tmp_path, original)
+    problems = detect_config_problems(tmp_path)
+    assert [p.name for p in problems] == ["config-invalid"]
+    with pytest.raises(ValueError, match="no safe providers repair"):
+        fix_providers_corruption(cfg)
+    assert cfg.read_text() == original
+    assert not list(tmp_path.glob("*.bak"))
+
+
+def test_invalid_repair_is_not_written(tmp_path: Path) -> None:
+    original = CORRUPT_PROVIDERS_TOML + "broken = [\n"
+    cfg = _make_config(tmp_path, original)
+    with pytest.raises(ValueError, match="no safe providers repair"):
+        fix_providers_corruption(cfg)
+    assert cfg.read_text() == original
+    assert not list(tmp_path.glob("*.bak"))
+
+
+@pytest.mark.parametrize("legacy_index", [0, 1])
+@pytest.mark.parametrize("content", ["[]", "null"])
+def test_default_scan_finds_legacy_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_index: int, content: str
+) -> None:
+    from gptme.config import user
+    from gptme.llm import llm_gptme
+
+    monkeypatch.setattr(
+        user, "get_user_config_paths", lambda: (tmp_path / "config.toml", None)
+    )
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
+    path = llm_gptme._get_token_path(llm_gptme._LEGACY_SERVICE_URLS[legacy_index])
+    path.parent.mkdir()
+    path.write_text(content)
+    problems = detect_config_problems()
+    assert [(p.name, p.path) for p in problems] == [("auth-cache-invalid", path)]
+    assert path.read_text() == content
+
+
+def test_cli_invalid_config_never_reports_fixed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+    from gptme.config import user
+
+    original = CORRUPT_PROVIDERS_TOML + "broken = [\n"
+    cfg = _make_config(tmp_path, original)
+    monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
+    result = CliRunner().invoke(main, ["--check-config", "--fix"])
+    assert result.exit_code != 0
+    assert "Fixed " not in result.output
+    assert "config-invalid" in result.output or "could not repair" in result.output
+    assert cfg.read_text() == original
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        'api_key = "token]#suffix"\n',
+        'api_key = "token, name=secret" # "comment],"\n',
+        'default_model = "model\\"quote"\n',
+    ],
+)
+def test_repair_preserves_quoted_values(tmp_path: Path, extra: str) -> None:
+    original = (
+        'providers = [name = "local"\nbase_url = "http://localhost/v1"\n'
+        + extra
+        + "]\n"
+    )
+    cfg = _make_config(tmp_path, original)
+    fix_providers_corruption(cfg)
+    actual = tomllib.loads(cfg.read_text())["providers"]
+    expected = tomllib.loads(
+        'name = "local"\nbase_url = "http://localhost/v1"\n' + extra
+    )
+    assert actual == [expected]
+
+
+def test_repair_multiple_providers(tmp_path: Path) -> None:
+    original = (
+        'providers = [name = "first"\nbase_url = "http://localhost/first"\n'
+        ', name = "second"\nbase_url = "http://localhost/second"\n]\n'
+    )
+    cfg = _make_config(tmp_path, original)
+    fix_providers_corruption(cfg)
+    providers = tomllib.loads(cfg.read_text())["providers"]
+    assert providers == [
+        {"name": "first", "base_url": "http://localhost/first"},
+        {"name": "second", "base_url": "http://localhost/second"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        "[plugin]\n" + CORRUPT_PROVIDERS_TOML,
+        'description = """\n' + CORRUPT_PROVIDERS_TOML + '"""\nbroken = [\n',
+        CORRUPT_PROVIDERS_TOML.replace("base_url = ", "unknown = "),
+        CORRUPT_PROVIDERS_TOML.replace("base_url = ", "base_url = INVALID\nother = "),
+        CORRUPT_PROVIDERS_TOML.replace("base_url = ", "name = "),
+    ],
+)
+def test_unrecognized_repair_is_non_destructive(tmp_path: Path, original: str) -> None:
+    cfg = _make_config(tmp_path, original)
+    with pytest.raises(ValueError, match="no safe providers repair"):
+        fix_providers_corruption(cfg)
+    assert cfg.read_text() == original
+    assert not list(tmp_path.glob("*.bak"))
+
+
+def test_default_cache_shadows_legacy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gptme.config import user
+    from gptme.llm import llm_gptme
+
+    monkeypatch.setattr(
+        user, "get_user_config_paths", lambda: (tmp_path / "config.toml", None)
+    )
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
+    primary = llm_gptme._get_token_path()
+    primary.parent.mkdir()
+    primary.write_text('{"access_token": "fixture"}')
+    legacy = llm_gptme._get_token_path(llm_gptme._LEGACY_SERVICE_URLS[0])
+    legacy.write_text("null")
+    assert detect_config_problems() == []
+    # An explicit root requests an audit of all its cache files.
+    assert [(p.name, p.path) for p in detect_config_problems(tmp_path)] == [
+        ("auth-cache-invalid", legacy)
+    ]
+
+
+def test_cli_repair_success_and_read_only_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+    from gptme.config import user
+    from gptme.llm import llm_gptme
+
+    original = CORRUPT_PROVIDERS_TOML + 'env.FOO = "bar"\n'
+    cfg = _make_config(tmp_path, original)
+    monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
+    runner = CliRunner()
+    check = runner.invoke(main, ["--check-config"])
+    assert check.exit_code == 1
+    assert "providers-not-array" in check.output
+    assert cfg.read_text() == original
+    assert not list(tmp_path.glob("*.bak"))
+    fixed = runner.invoke(main, ["--check-config", "--fix"])
+    assert fixed.exit_code == 0, fixed.output
+    assert "Fixed " in fixed.output
+    assert tomllib.loads(cfg.read_text())["env"] == {"FOO": "bar"}
+    assert len(list(tmp_path.glob("*.bak"))) == 1
+    assert list(tmp_path.glob("*.bak"))[0].read_text() == original
+
+
+def test_cli_reports_repair_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from click.testing import CliRunner
+
+    from gptme.cli.main import main
+    from gptme.config import user, validate
+    from gptme.llm import llm_gptme
+
+    cfg = _make_config(tmp_path, CORRUPT_PROVIDERS_TOML)
+    monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
+    monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
+
+    def fail_repair(path: Path) -> Path:
+        raise OSError("fixture write failure")
+
+    monkeypatch.setattr(validate, "fix_providers_corruption", fail_repair)
+    result = CliRunner().invoke(main, ["--check-config", "--fix"])
+    assert result.exit_code == 2
+    assert "could not repair" in result.output
+    assert "Fixed " not in result.output
+    assert cfg.read_text() == CORRUPT_PROVIDERS_TOML

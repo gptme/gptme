@@ -850,7 +850,13 @@ def main(
             fixed = False
             for p in problems:
                 if p.name == "providers-not-array":
-                    bak = fix_providers_corruption(p.path)
+                    try:
+                        bak = fix_providers_corruption(p.path)
+                    except (OSError, ValueError) as exc:
+                        print(
+                            f"Error: could not repair {p.path}: {exc}", file=sys.stderr
+                        )
+                        sys.exit(2)
                     print(f"Fixed {p.path} (backup: {bak})")
                     fixed = True
             if fixed:
