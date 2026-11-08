@@ -919,6 +919,7 @@ def _process_message_conversation(
             break
 
     _trigger_turn_post(manager)
+    return interrupted
 
 
 def _trigger_turn_post(manager: "LogManager") -> None:
@@ -934,7 +935,6 @@ def _trigger_turn_post(manager: "LogManager") -> None:
             manager.append(msg)
     # Returning to the prompt acknowledges this turn, including hook output.
     manager.write(sync=True)
-    return interrupted
 
 
 def _has_pending_tooluse(log: Log) -> bool:
