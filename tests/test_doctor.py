@@ -3,6 +3,7 @@
 import json
 import logging
 import sys
+import time
 import types
 from collections import UserDict
 from pathlib import Path
@@ -30,6 +31,8 @@ from gptme.cli.doctor import (
     _check_tools,
     _check_version,
     _model_override_blocking_repair,
+    _oauth_token_expiry,
+    _probe_proxy_connect,
     _provider_has_placeholder_key,
     _provider_repair_needed,
     _subscription_default_candidate,
@@ -260,6 +263,40 @@ class TestCheckBrowser:
             assert results[0].status == CheckStatus.OK
             assert "2 browser(s)" in results[0].message
 
+    @patch(
+        "gptme.cli.doctor._expected_playwright_browsers",
+        return_value=["chromium-1200"],
+    )
+    @patch("importlib.util.find_spec", return_value=True)
+    def test_playwright_revision_mismatch_warns(
+        self, mock_find, mock_expected, tmp_path
+    ):
+        """A stale browser cache is WARNING: the library expects another revision."""
+        (tmp_path / "chromium-1148").mkdir()
+
+        with patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": str(tmp_path)}):
+            results = _check_browser()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.WARNING
+            assert "expected revision" in results[0].message
+            assert results[0].fix_hint == "playwright install"
+
+    @patch(
+        "gptme.cli.doctor._expected_playwright_browsers",
+        return_value=["chromium-1200", "firefox-1400", "webkit-2000"],
+    )
+    @patch("importlib.util.find_spec", return_value=True)
+    def test_partial_expected_browsers_stays_ok(
+        self, mock_find, mock_expected, tmp_path
+    ):
+        """Installing a subset of browsers is a choice, not breakage."""
+        (tmp_path / "chromium-1200").mkdir()
+
+        with patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": str(tmp_path)}):
+            results = _check_browser()
+            assert len(results) == 1
+            assert results[0].status == CheckStatus.OK
+
 
 class TestCheckTools:
     """Test _check_tools function."""
@@ -474,6 +511,12 @@ class TestCheckConfig:
 class TestCheckProxy:
     """Test _check_proxy function."""
 
+    @pytest.fixture(autouse=True)
+    def _reachable_by_default(self):
+        """Keep the connect probe out of the network for URL-shape tests."""
+        with patch("gptme.cli.doctor._probe_proxy_connect", return_value=None) as probe:
+            yield probe
+
     def test_no_proxy_configured(self):
         """When LLM_PROXY_URL is not set, check is skipped."""
         with patch("gptme.cli.doctor.get_config") as mock_cfg:
@@ -509,7 +552,7 @@ class TestCheckProxy:
 
         assert len(results) == 1
         assert results[0].status == CheckStatus.OK
-        assert results[0].message == "Configured (proxy.example.com:8443)"
+        assert results[0].message == "Configured and reachable (proxy.example.com:8443)"
         assert results[0].details == "Proxy: https://proxy.example.com:8443"
         assert "secret" not in f"{results[0].message} {results[0].details}"
 
@@ -600,6 +643,59 @@ class TestCheckProxy:
             results = _check_proxy()
         assert len(results) == 1
         assert results[0].status == CheckStatus.OK
+
+    def test_unreachable_proxy_warns(self):
+        """A parseable but dead proxy is WARNING, not 'Configured'."""
+        with (
+            patch("gptme.cli.doctor.get_config") as mock_cfg,
+            patch(
+                "gptme.cli.doctor._probe_proxy_connect",
+                return_value="[Errno 111] Connection refused",
+            ),
+        ):
+            mock_cfg.return_value.get_env.return_value = "http://127.0.0.1:9"
+            results = _check_proxy(verbose=True)
+
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.WARNING
+        assert "unreachable" in results[0].message.lower()
+        assert results[0].details == "[Errno 111] Connection refused"
+        assert results[0].fix_hint is not None
+
+    def test_probe_connect_success_and_default_port(self):
+        """The connect probe reports success as None and derives the port."""
+        calls = []
+
+        class _Conn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_create_connection(address, timeout):
+            calls.append((address, timeout))
+            return _Conn()
+
+        with patch(
+            "gptme.cli.doctor.socket.create_connection",
+            side_effect=fake_create_connection,
+        ):
+            assert _probe_proxy_connect("proxy.example.com", None, "https") is None
+            assert _probe_proxy_connect("proxy.example.com", 8080, "http") is None
+
+        assert calls == [
+            (("proxy.example.com", 443), 2.0),
+            (("proxy.example.com", 8080), 2.0),
+        ]
+
+    def test_probe_connect_reports_oserror(self):
+        """A transport failure is surfaced as the reason string."""
+        with patch(
+            "gptme.cli.doctor.socket.create_connection",
+            side_effect=OSError("boom"),
+        ):
+            assert _probe_proxy_connect("proxy.example.com", None, "http") == "boom"
 
     def test_verbose_shows_details(self):
         """Verbose mode includes URL details."""
@@ -1075,6 +1171,83 @@ class TestPrintResults:
         ]
         assert "should-not-appear" not in self._run(results, verbose=False)
         assert "should-not-appear" not in self._run(results, verbose=True)
+
+
+class TestOAuthTokenExpiry:
+    """Test the cheap (no-network) OAuth expiry read."""
+
+    def test_reads_unix_expiry_from_gptme_store(self, tmp_path, monkeypatch):
+        oauth_dir = tmp_path / "gptme" / "oauth"
+        oauth_dir.mkdir(parents=True)
+        (oauth_dir / "openai_subscription.json").write_text(
+            json.dumps(
+                {"access_token": "tok", "refresh_token": None, "expires_at": 1000.0}
+            )
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+        assert _oauth_token_expiry("openai-subscription") == (1000.0, False)
+
+    def test_reads_grok_cli_iso_expiry(self, tmp_path, monkeypatch):
+        grok_dir = tmp_path / ".grok"
+        grok_dir.mkdir()
+        (grok_dir / "auth.json").write_text(
+            json.dumps(
+                {
+                    "https://auth.x.ai::client": {
+                        "key": "tok",
+                        "refresh_token": "refresh",
+                        "expires_at": "2026-11-09T12:00:00.000000Z",
+                    }
+                }
+            )
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "missing"))
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        expiry, refreshable = _oauth_token_expiry("grok-subscription")
+        assert refreshable is True
+        assert expiry == pytest.approx(1794225600.0)
+
+    def test_unknown_provider_has_no_expiry(self):
+        assert _oauth_token_expiry("anthropic") == (None, False)
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor._oauth_token_expiry")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_expired_unrefreshable_token_degrades_to_warning(
+        self, mock_expiry, mock_config, mock_providers
+    ):
+        """Expired with no refresh token means the 'Authenticated' claim is wrong."""
+        mock_providers.return_value = [("openai-subscription", "oauth")]
+        mock_config.return_value.get_env.return_value = None
+        mock_expiry.return_value = (time.time() - 3600, False)
+
+        results = _check_api_keys()
+
+        result = next(r for r in results if r.name == "Auth: openai-subscription")
+        assert result.status == CheckStatus.WARNING
+        assert "cannot be refreshed" in result.message
+        assert result.fix_hint == "Run: gptme auth openai-subscription"
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor._oauth_token_expiry")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_expired_refreshable_token_stays_ok(
+        self, mock_expiry, mock_config, mock_providers
+    ):
+        """A short-lived access token is self-healing; warning would be noise."""
+        mock_providers.return_value = [("openai-subscription", "oauth")]
+        mock_config.return_value.get_env.return_value = None
+        mock_expiry.return_value = (time.time() - 60, True)
+
+        results = _check_api_keys()
+
+        result = next(r for r in results if r.name == "Auth: openai-subscription")
+        assert result.status == CheckStatus.OK
+        assert "refreshable" in result.message
 
 
 class TestCheckApiKeys:
