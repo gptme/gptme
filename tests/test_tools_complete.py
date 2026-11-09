@@ -1231,15 +1231,25 @@ class TestAutoReplyHook:
     @patch("gptme.tools.complete.has_incomplete_todos", return_value=False)
     def test_auto_reply_flags_fences_that_all_failed_to_parse(self, mock_todos):
         """A reply whose fences all dropped must not read as a plain 'done' (#4817)."""
-        dropped = (
-            "```save /tmp/x.json\nhello\n```\nChecking the result now.\n"
-            "```shell\ncat /tmp/x.json\n```\n"
-        )
+        # Keep a genuinely incomplete nested block. The original save-then-shell
+        # fixture from #4817 now parses successfully and should not get a hint.
+        dropped = "```save /tmp/x.json\nhello\n```python\nx = 1\n"
         manager = _mock_manager([_user("save it"), _assistant(dropped)])
         (msg,) = list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
         assert isinstance(msg, Message)
         assert "none of it parsed" in msg.content
         assert "blank line after every closing" in msg.content
+
+    @patch("gptme.tools.complete.has_incomplete_todos", return_value=False)
+    def test_auto_reply_does_not_nudge_recovered_save_and_command(self, mock_todos):
+        recovered = (
+            "```save /tmp/x.json\nhello\n```\nChecking the result now.\n"
+            "```shell\ncat /tmp/x.json\n```\n"
+        )
+        manager = _mock_manager([_user("save it"), _assistant(recovered)])
+        assert (
+            list(auto_reply_hook(manager, interactive=False, prompt_queue=None)) == []
+        )
 
     @pytest.mark.parametrize(
         "reply",

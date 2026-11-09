@@ -3035,3 +3035,183 @@ def test_nested_tagged_thinking_example_with_later_command_never_truncates(
         else []
     )
     assert list(_extract_codeblocks(markdown, streaming=streaming)) == expected
+
+
+def test_nonexec_save_block_followed_by_shell_block_yields_both() -> None:
+    """Regression test for gptme/gptme#4817.
+
+    A non-exec-lang (save/patch) block whose content is closed by a bare fence,
+    followed by prose and then a separate shell block, used to yield nothing
+    because the lookahead treated the bare fence as content when it hit the
+    shell block.  Both blocks must be extracted correctly.
+    """
+    content = "hello"
+    markdown = (
+        f"```save /tmp/x.json\n{content}\n```\n"
+        "Checking the result now.\n"
+        "```shell\ncat /tmp/x.json\n```\n"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0] == Codeblock("save /tmp/x.json", content)
+    assert blocks[1] == Codeblock("shell", "cat /tmp/x.json")
+
+
+def test_nonexec_patch_block_followed_by_shell_block_yields_both() -> None:
+    """Regression test for gptme/gptme#4817 — patch variant."""
+    diff = "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"
+    markdown = f"```patch f\n{diff}\n```\nApplied the patch.\n```shell\ncat f\n```\n"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0] == Codeblock("patch f", diff)
+    assert blocks[1] == Codeblock("shell", "cat f")
+
+
+def test_nonexec_save_block_explicit_outer_closer_unaffected() -> None:
+    """Regression: a save block with a bare fence in its content (followed by a
+    language-tagged inner block) must still yield the full block when the outer
+    block has an explicit closer.  The fix must not break this case.
+    """
+    fence = "```"
+    markdown = f"""{fence}save notes.md
+# Title
+
+**Note:**
+{fence}
+More content.
+
+{fence}python
+x = 1
+{fence}
+
+Final line.
+{fence}"""
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "save notes.md"
+    assert "Final line." in blocks[0].content
+    assert "x = 1" in blocks[0].content
+
+
+@pytest.mark.parametrize("tail_lines", [30, 100])
+def test_nonexec_save_preserves_distant_outer_closer(tail_lines: int) -> None:
+    content = (
+        "intro\n```\nExample:\n```python\nx = 1\n```\n\n"
+        + "ordinary content\n" * tail_lines
+        + "Final line."
+    )
+    markdown = f"```save notes.md\n{content}\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("save notes.md", content)]
+
+
+@pytest.mark.parametrize("command_count", [2, 3])
+def test_nonexec_save_followed_by_multiple_commands(command_count: int) -> None:
+    markdown = "```save result.txt\nhello\n```\nChecking:\n" + "\n".join(
+        f"```shell\necho {i}\n```" for i in range(command_count)
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save result.txt", "hello"),
+        *(Codeblock("shell", f"echo {i}") for i in range(command_count)),
+    ]
+
+
+def test_streaming_long_tagged_example_never_exposes_unfinished_save() -> None:
+    content = (
+        "intro\n```\nExample:\n```python\n"
+        + "x = 1\n" * 70
+        + "```\n```\n\nRemaining content."
+    )
+    markdown = f"```save notes.md\n{content}\n```\n\n"
+    expected = Codeblock("save notes.md", content)
+    for end in range(1, len(markdown) + 1):
+        blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
+        assert all(block == expected for block in blocks), (end, blocks)
+    assert list(_extract_codeblocks(markdown, streaming=True)) == [expected]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_recovered_save_and_output_never_expose_reasoning_command(
+    tag: str, streaming: bool
+) -> None:
+    markdown = (
+        "```save a.txt\nhello\n```\nChecking:\n```output\nx\n```\n"
+        f"<{tag}>\n```shell\necho draft\n```\n</{tag}>\n"
+    )
+    blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+    assert all(block.lang != "shell" for block in blocks), blocks
+    if not streaming:
+        assert blocks == [Codeblock("save a.txt", "hello"), Codeblock("output", "x")]
+
+
+def test_nonexec_save_invalid_nested_tag_is_literal() -> None:
+    content = "intro\n```\nExample:\n```text\n```!!!\nliteral\n```\nFinal."
+    assert list(_extract_codeblocks(f"```save notes.md\n{content}\n```")) == [
+        Codeblock("save notes.md", content)
+    ]
+
+
+def test_nonexec_save_invalid_first_lookahead_tag_is_literal() -> None:
+    content = "intro\n```\nExample:\n```!!!\nliteral"
+    assert list(_extract_codeblocks(f"```save notes.md\n{content}\n```")) == [
+        Codeblock("save notes.md", content)
+    ]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_recovered_save_pairs_use_linear_fence_work(
+    monkeypatch, streaming: bool
+) -> None:
+    """Repeated complete pairs must not rescan every remaining suffix."""
+    import gptme.codeblock as codeblock
+
+    pair_count = 80
+    markdown = "```save a.txt\nx\n```\nChecking:\n```shell\necho ok\n```\n" * pair_count
+    original = codeblock._is_valid_lang_tag
+    validations = 0
+
+    def count_validation(tag: str) -> bool:
+        nonlocal validations
+        validations += 1
+        return original(tag)
+
+    monkeypatch.setattr(codeblock, "_is_valid_lang_tag", count_validation)
+    blocks = list(_extract_codeblocks(markdown, streaming=streaming))
+    if not streaming:
+        assert (
+            blocks
+            == [Codeblock("save a.txt", "x"), Codeblock("shell", "echo ok")]
+            * pair_count
+        )
+    # Count parser work rather than wall time: no machine/load-dependent bound.
+    assert validations <= 40 * pair_count, validations
+
+
+def test_outer_closer_index_matches_forward_depth_scan() -> None:
+    """The optimization must preserve all three outcomes, including invalid tags."""
+    from itertools import product
+
+    from gptme.codeblock import _is_valid_lang_tag, _outer_closer_index
+
+    def forward_scan(lines: list[str], start: int) -> bool | None:
+        if not lines[start].startswith("```") or not _is_valid_lang_tag(
+            lines[start][3:].strip()
+        ):
+            return None
+        depth = 1
+        for line in lines[start + 1 :]:
+            if line.strip() == "```":
+                if depth == 0:
+                    return True
+                depth -= 1
+            elif line.startswith("```") and _is_valid_lang_tag(line[3:].strip()):
+                depth += 1
+        return False if depth == 0 else None
+
+    tokens = ["text", "```", "```shell", "```save x", "```!!!"]
+    for tail in product(tokens, repeat=5):
+        lines = ["```shell", *tail]
+        indexed = _outer_closer_index(lines)
+        for start in range(len(lines)):
+            assert indexed.get(start) is forward_scan(lines, start), (lines, start)
+    assert _outer_closer_index([]) == {}

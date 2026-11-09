@@ -383,6 +383,7 @@ def _line_fence_states(
     language-tagged nested openers so thinking-tag checks agree with extraction.
     """
     lines = text.split("\n")
+    outer_closer_index: dict[int, bool | None] | None = None
     # Suffix queries only need to know whether a tagged fence remains. Compute
     # its last position once rather than rescanning for every literal example.
     last_tagged_fence = next(
@@ -495,6 +496,7 @@ def _line_fence_states(
                     # literal; streaming conservatively opens another level.
                     has_closing_fence = False
                     has_following_tagged_fence = False
+                    following_tagged_idx: int | None = None
                     nested_closer_idx: int | None = None
                     for j in range(i + 1, min(i + 20, len(lines))):
                         if re.match(r"^(`{3,})$", lines[j].strip()):
@@ -506,6 +508,7 @@ def _line_fence_states(
                             break
                         if re.match(r"^`{3,}", lines[j]) and len(lines[j].strip()) > 3:
                             has_following_tagged_fence = True
+                            following_tagged_idx = j
                             break
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
@@ -629,6 +632,22 @@ def _line_fence_states(
                             outer_lang = ""
                         else:
                             depth += 1
+                    elif (
+                        not streaming
+                        and not has_closing_fence
+                        and following_tagged_idx is not None
+                        and (
+                            outer_closer_index
+                            if outer_closer_index is not None
+                            else (outer_closer_index := _outer_closer_index(lines))
+                        ).get(following_tagged_idx)
+                        is False
+                    ):
+                        # Match extraction's recovered save boundary before
+                        # classifying later reasoning tags as literal content.
+                        depth = 0
+                        fence_len = 0
+                        outer_lang = ""
                     elif has_closing_fence or streaming:
                         depth += 1
                     continue
@@ -737,6 +756,49 @@ def _unclosed_standalone_after(
                 if close_tag not in text[line_start:]:
                     return True
     return False
+
+
+def _outer_closer_index(lines: list[str]) -> dict[int, bool | None]:
+    """Index outer-closer verdicts for tagged fence lines in linear time.
+
+    A True verdict means a later unmatched bare closer continues the outer
+    save/patch, so its earlier candidate closer is literal content. False
+    means no outer closer remains; None means an unclosed tagged block makes
+    the decision ambiguous. Invalid candidate openers are absent (also None).
+
+    Match tagged openers with bare closers first, then walk backward, skipping
+    complete tagged blocks. An unmatched bare closer proves continuation;
+    an unmatched opener makes the suffix ambiguous; only EOF proves absence.
+    Invalid tags stay literal. This preserves the forward scan's depth semantics
+    without repeated suffix scans or a process-wide cache of message content.
+    """
+    openers: list[int] = []
+    matching: dict[int, int] = {}
+    bare: set[int] = set()
+    verdicts: dict[int, bool | None] = {}
+    for i, line in enumerate(lines):
+        fence = re.match(r"^(`{3,})(.*)$", line)
+        if fence is None:
+            continue
+        if not fence.group(2).strip():
+            bare.add(i)
+            if openers:
+                matching[openers.pop()] = i
+        elif _is_valid_lang_tag(fence.group(2).strip()):
+            openers.append(i)
+            verdicts[i] = None
+
+    suffix: list[bool | None] = [False] * (len(lines) + 1)
+    for i in range(len(lines) - 1, -1, -1):
+        if i in bare:
+            suffix[i] = True
+        elif i in verdicts:
+            closer = matching.get(i)
+            verdicts[i] = None if closer is None else suffix[closer + 1]
+            suffix[i] = verdicts[i]
+        else:
+            suffix[i] = suffix[i + 1]
+    return verdicts
 
 
 def _extract_codeblocks(
@@ -913,6 +975,7 @@ def _extract_codeblocks(
         return
 
     lines = markdown.split("\n")
+    outer_closer_index: dict[int, bool | None] | None = None
     i = 0
 
     while i < len(lines):
@@ -1149,43 +1212,99 @@ def _extract_codeblocks(
                                 nesting_depth += 1
                                 content_lines.append(line)
                             elif nesting_depth == 1:
-                                # At depth 1, look ahead to see if there's a matching closing fence
-                                # This distinguishes real nested blocks from bare backticks in content
+                                # At depth 1, look ahead to see if there's a matching closing fence.
+                                # This distinguishes real nested blocks from bare backticks in content.
                                 has_closing_fence = False
+                                lang_tagged_fence_j: int | None = None
                                 for j in range(i + 1, min(i + 20, len(lines))):
                                     # Check if this line is a bare fence (only backticks)
                                     inner_fence_match = re.match(
                                         r"^(`{3,})$", lines[j].strip()
                                     )
                                     if inner_fence_match:
-                                        # Found a bare fence
-                                        # Check if there's content after it (allowing blank lines)
-                                        # Look ahead a few more lines to see if outer block continues
-                                        has_more_content = False
-                                        for k in range(j + 1, min(j + 5, len(lines))):
-                                            if lines[k].strip() != "":
-                                                # Found non-blank content after closing fence
-                                                has_more_content = True
-                                                break
-
+                                        # Found a bare fence — check if content follows it
+                                        has_more_content = any(
+                                            lines[k].strip() != ""
+                                            for k in range(
+                                                j + 1, min(j + 5, len(lines))
+                                            )
+                                        )
                                         if has_more_content:
-                                            # This looks like a nested block: opening, content, closing, more content
+                                            # Looks like a nested block: opener → content → closer → more
                                             has_closing_fence = True
                                         break
                                     elif (
                                         re.match(r"^`{3,}", lines[j])
                                         and len(lines[j].strip()) > 3
                                     ):
-                                        # Hit a language-tagged fence, stop looking
+                                        # Hit a language-tagged fence before any bare inner fence.
+                                        # Determine whether the outer block continues after this
+                                        # inner block closes, or whether the bare fence at `i`
+                                        # is actually the outer block's closer.
+                                        lang_tagged_fence_j = j
                                         break
 
-                                # Genuine reasoning was removed above. Any tags
-                                # still here belong to literal content and must
-                                # not confirm closure of a growing nested save.
                                 if has_closing_fence:
-                                    # Looks like a real nested block
+                                    # Confirmed nested block: opener → content → closer → more content
                                     nesting_depth += 1
                                     content_lines.append(line)
+                                elif lang_tagged_fence_j is not None:
+                                    # Lookahead crossed into a language-tagged block. Use
+                                    # the per-parse suffix index to decide: does the
+                                    # outer block have an explicit bare-fence closer AFTER
+                                    # the inner block closes?
+                                    # If YES → outer block has its own closer later, so the
+                                    #           bare fence at i is literal content (original).
+                                    # If NO  → no outer closer after the inner block, so the
+                                    #           bare fence at i IS the outer closer; yield now.
+                                    if outer_closer_index is None:
+                                        outer_closer_index = _outer_closer_index(lines)
+                                    outer_has_closer = outer_closer_index.get(
+                                        lang_tagged_fence_j
+                                    )
+                                    if outer_has_closer is True:
+                                        # Outer block has an explicit closer later.
+                                        # Streaming: use the original increment so the
+                                        # nesting-depth chain resolves correctly as more
+                                        # tokens arrive (matches original behaviour).
+                                        # Non-streaming: append as literal content; the
+                                        # explicit outer closer will close at depth 1.
+                                        if streaming:
+                                            nesting_depth += 1
+                                        content_lines.append(line)
+                                    elif outer_has_closer is False:
+                                        # No outer closer found after the inner block.
+                                        # Non-streaming (complete message): bare fence IS
+                                        # the outer closer; yield the block now.
+                                        # Streaming: may be a truncated prefix — the outer
+                                        # closer may not have arrived yet; stay conservative
+                                        # and use the original increment to avoid a premature
+                                        # partial yield.
+                                        if not streaming:
+                                            nesting_depth -= 1
+                                            if nesting_depth == 0:
+                                                yield Codeblock(
+                                                    lang,
+                                                    "\n".join(content_lines),
+                                                    start=start_line,
+                                                    fence="`" * fence_len,
+                                                )
+                                                i += 1
+                                                break
+                                            else:
+                                                content_lines.append(line)
+                                        else:
+                                            # Streaming: conservative — increment so more
+                                            # content can still resolve this correctly.
+                                            nesting_depth += 1
+                                            content_lines.append(line)
+                                    else:
+                                        # An unfinished tagged block is ambiguous. Streaming
+                                        # must retain the same conservative depth increment
+                                        # as the other lookahead outcomes, including prefixes.
+                                        if streaming:
+                                            nesting_depth += 1
+                                        content_lines.append(line)
                                 elif streaming:
                                     # In streaming mode, be conservative: treat bare fence
                                     # followed by content as a nested block opener even without
