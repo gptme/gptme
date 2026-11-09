@@ -4027,8 +4027,12 @@ class GptmeApp(App):
                         )
                     ):
                         outcome = "completed"
-                    # else: _terminal_outcome stays "done" — a configured budget
-                    # stop is a natural completion, not a user interrupt.
+                    else:
+                        # The limit cut the turn short with work still pending:
+                        # the session outcome stays abandoned, so the terminal
+                        # must not say done either. The user is back at the
+                        # prompt and has to decide whether to continue.
+                        self._terminal_outcome = "idle"
                     break
                 # continue stepping while the last assistant msg has runnable tools
                 if response is None:

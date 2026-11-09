@@ -202,10 +202,10 @@ async def test_tui_url_fetch_after_approval_reports_working(tmp_path, monkeypatc
 
 @pytest.mark.parametrize(
     ("pending_tools", "expected"),
-    [(True, "done"), (False, "done")],
+    [(True, "idle"), (False, "done")],
 )
 def test_tui_max_steps_stop_outcome(tmp_path, monkeypatch, pending_tools, expected):
-    """A step limit always ends done: a configured budget stop, not a user interrupt."""
+    """A step limit ends done only if the stopped turn had finished its work."""
     from gptme.message import Message
     from gptme.tools import init_tools
 

@@ -971,7 +971,12 @@ def _process_message_conversation(
                 )
             )
             interrupted = True
-            mark_turn_done()  # configured budget stop, not user interrupt
+            if _turn_reply_completed(manager.log):
+                # The budget stopped a turn that had finished its work: a
+                # completion, not a user interrupt. A stop that cut pending
+                # tool calls short leaves the user at the prompt instead, so
+                # the decorator's idle default stands (same rule as the TUI).
+                mark_turn_done()
             _idle_autowake_blocked.set(True)
             break
 
@@ -1029,6 +1034,20 @@ def _trigger_turn_post(manager: "LogManager") -> None:
             manager.append(msg)
     # Returning to the prompt acknowledges this turn, including hook output.
     manager.write(sync=True)
+
+
+def _turn_reply_completed(log: Log) -> bool:
+    """True if the last assistant reply finished its work.
+
+    Nonempty and with no runnable tool left, as the TUI's own completion
+    check requires: the two interfaces must not disagree about whether a
+    step-budget stop ended completed or abandoned work.
+    """
+    last_content = next(
+        (m.content for m in reversed(log) if m.role == "assistant"),
+        "",
+    )
+    return bool(last_content.strip()) and not _has_pending_tooluse(log)
 
 
 def _has_pending_tooluse(log: Log) -> bool:

@@ -390,32 +390,34 @@ def test_cli_cancelled_turn_is_not_done(output, tmp_path, cancelled):
     assert output.getvalue().count("state=done") == (not cancelled)
 
 
-def test_cli_max_steps_stop_reports_done(output, tmp_path, monkeypatch):
-    """GPTME_MAX_STEPS ending a turn reports done, not idle."""
+@pytest.mark.parametrize(
+    ("pending_tools", "expected"),
+    [(True, "idle"), (False, "done")],
+)
+def test_cli_max_steps_stop_outcome(
+    output, tmp_path, monkeypatch, pending_tools, expected
+):
+    """A step-budget stop reports done only if the turn had finished its work."""
     import importlib
     from unittest.mock import patch
 
     from gptme.logmanager import LogManager
     from gptme.message import Message
+    from gptme.tools import init_tools
 
+    init_tools(["shell"])
     monkeypatch.setenv("GPTME_MAX_STEPS", "1")
     chat = importlib.import_module("gptme.chat")
     manager = LogManager(
         [Message("system", "System"), Message("user", "run a step")],
         logdir=tmp_path / "conversation",
     )
-
-    step_count = 0
+    content = "Running it:\n```shell\necho hi\n```" if pending_tools else "Done."
 
     def fake_step(*args, **kwargs):
-        nonlocal step_count
-        step_count += 1
-        yield Message("assistant", "Done.")
+        yield Message("assistant", content)
 
     with patch.object(chat, "step", fake_step):
-        chat._process_message_conversation(manager, False, "markdown", None)
+        assert chat._process_message_conversation(manager, False, "markdown", None)
 
-    assert output.getvalue().endswith(status.encode_report("done"))
-    assert (
-        "state=idle" not in output.getvalue().split(status.encode_report("working"))[-1]
-    )
+    assert output.getvalue().endswith(status.encode_report(expected))
