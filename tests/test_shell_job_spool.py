@@ -2,6 +2,7 @@
 
 import os
 import shlex
+import subprocess
 import sys
 import time
 from unittest.mock import Mock
@@ -14,6 +15,7 @@ from gptme.tools.shell_background import (
     _write_job_log,
     complete_background_job,
     format_job_output,
+    register_background_job,
     reset_background_jobs,
     start_background_job,
 )
@@ -145,3 +147,68 @@ def test_failed_final_snapshot_does_not_break_later_output(
     assert "retained line" in job.log_path.read_text()
     if job._snapshot_stream is not None:
         job._snapshot_stream.close()
+
+
+def test_registered_pipe_process_preserves_supplied_final_output(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "print('BEGIN'); print('line\\n' * 300000); print('END')",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        job = register_background_job("external reader", process)
+        stdout, stderr = process.communicate(timeout=15)
+        complete_background_job(job, stdout.decode(), stderr.decode())
+        assert job.log_path is not None
+        saved = job.log_path.read_text()
+        assert "BEGIN" in saved
+        assert "END" in saved
+        assert job._stdout_buffer_start > 0
+        assert "Full output" in format_job_output(job, *job.get_output(), complete=True)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        reset_background_jobs()
+
+
+def test_spool_open_failure_also_tolerates_cleanup_fsync_failure(
+    tmp_path, monkeypatch
+) -> None:
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    job = BackgroundJob(1, "synthetic", process, 0)
+    job.log_dir = tmp_path
+    stream = open_private_output_file(tmp_path, "shell-jobs", "cleanup.live")
+    opens = 0
+
+    def open_stream(*args):
+        nonlocal opens
+        opens += 1
+        if opens == 1:
+            return stream
+        raise OSError("cannot create stderr spool")
+
+    def fail_fsync(fd):
+        raise OSError("cannot flush cleanup")
+
+    monkeypatch.setattr(
+        "gptme.tools.shell_background.open_private_output_file", open_stream
+    )
+    monkeypatch.setattr(os, "fsync", fail_fsync)
+    job._open_spools()
+    assert not job._spool_from_reader
+    assert job._stdout_spool is None
+    assert job._stderr_spool is None
+    assert stream._closed
+    with pytest.raises(OSError, match="Bad file descriptor"):
+        os.fstat(stream._fd)

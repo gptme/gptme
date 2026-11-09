@@ -396,6 +396,7 @@ def test_open_private_output_file_appends_and_keeps_distinct_collisions(
         assert stat.S_IMODE(first.path.parent.stat().st_mode) == 0o700
 
 
+@posix_only
 def test_open_private_output_file_replace_does_not_follow_symlink(
     tmp_path: Path, writer_mode
 ):

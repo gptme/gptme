@@ -963,6 +963,7 @@ class TestEdgeCases:
                 process.poll.side_effect = [None, None, 0]
             job._read_output()
 
+        assert job._capture_partial == (exit_path != "eof")
         assert completion_outputs == [("out�", "err�")]
         assert job.get_output() == ("out�", "err�")
         assert job._stdout_decoder.getstate()[0] == b""

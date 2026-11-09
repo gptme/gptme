@@ -163,9 +163,6 @@ class BackgroundJob:
     # the job's main process): delivered as a message of its own
     _late_kill_notice: str | None = field(default=None, repr=False)
 
-    def __post_init__(self) -> None:
-        self._open_spools()
-
     def _can_spool_from_process(self) -> bool:
         if (
             self.log_dir is None
@@ -202,7 +199,14 @@ class BackgroundJob:
                 "Could not open background job spool under %s: %s", self.log_dir, e
             )
             if stdout_spool is not None:
-                stdout_spool.close()
+                try:
+                    stdout_spool.close()
+                except OSError as close_error:
+                    logger.warning(
+                        "Could not close unused background job spool %s: %s",
+                        stdout_spool.path,
+                        close_error,
+                    )
             self._stdout_spool = None
             self._stderr_spool = None
             return
@@ -346,6 +350,7 @@ class BackgroundJob:
                     except BlockingIOError:
                         continue
                     except (OSError, ValueError):
+                        self._capture_partial = True
                         open_fds.discard(fd)
                         continue
                     if not raw:
