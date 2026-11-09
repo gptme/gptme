@@ -155,7 +155,8 @@ def cmd_backtrack(ctx: CommandContext) -> Generator[Message, None, None]:
             f"conversation length ({current_len} messages)"
         )
         return
-    is_numeric_target = target.lstrip("-").isdigit()
+    _stripped = target.lstrip("-")
+    is_numeric_target = _stripped.isascii() and _stripped.isdecimal()
     if not is_numeric_target:
         if not record.prefix_hash:
             print(
