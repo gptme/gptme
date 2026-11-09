@@ -1016,19 +1016,19 @@ Use `gh` for GitHub issues, PRs, CI runs, and merges.
 Refs: URLs, `owner/repo#N`, `#N`, or bare `N`.
 
 Native commands:
-- `gh issue view <ref>` gets issue body and comments in one result
-- `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
-- `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
-- `gh pr checks <ref> [commit_sha]` waits for failure, completion, or 60s
-- `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
-- `gh run view <run-id>` extracts failed-job logs
+- `gh issue view <ref>`: body and comments
+- `gh pr view <ref>`: body, comments, review threads, CI, mergeability
+- `gh pr status <ref> [commit_sha]`: CI state and run IDs
+- `gh pr checks <ref> [commit_sha]`: waits for failure, completion, or 60s
+- `gh pr merge <ref> ...`: squash default, optional head-commit protection
+- `gh run view <run-id>`: failed-job logs
 
-Read flags beyond `--repo`/`-R` (e.g. `--json`, `--jq`, `--job`) and other
-subcommands use the CLI. `run view --log-failed` stays native (capped
-failure extraction). A separate `url` supplies the target; flagged PR-specific
-`pr status` uses `pr view` (CLI `pr status` has no target).
+Read flags beyond `--repo`/`-R` and other subcommands use the CLI, except
+`run view --log-failed` stays native (capped failure extraction).
+A separate `url` supplies the target. Flagged PR-specific `pr status` uses
+`pr view` (CLI `pr status` has no target).
 
-Structured tool calls pass the whole command as `command`, e.g.
+Structured calls pass the whole command as `command`, e.g.
 `{"command": "issue view owner/repo#42"}`."""
 
 
