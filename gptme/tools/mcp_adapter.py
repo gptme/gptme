@@ -765,6 +765,8 @@ def list_loaded_servers() -> str:
     Returns:
         Formatted list of loaded servers
     """
+    from ..mcp.display import redact_url  # lazy: gptme.mcp imports the MCP client
+
     config = get_config()
 
     if not config.mcp.servers:
@@ -779,7 +781,7 @@ def list_loaded_servers() -> str:
         if server.command:
             output.append(f"  Command: `{server.command}`")
         elif server.url:
-            output.append(f"  URL: `{server.url}`")
+            output.append(f"  URL: `{redact_url(server.url)}`")
         output.append("")
 
     return "\n".join(output)

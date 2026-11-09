@@ -748,3 +748,13 @@ def test_display_target_shows_stdio_command() -> None:
 
     server = MCPServerConfig(name="project-stdio", command="python", args=["-m", "srv"])
     assert _display_target(server) == "python -m srv"
+
+
+def test_redact_url_is_shared_with_display_target() -> None:
+    """The conversational tool and the CLI use the same redaction policy."""
+    from gptme.mcp.display import redact_url
+
+    url = "https://user:pw@example.com/mcp?token=abc#frag=xyz"
+    assert redact_url(url) == "https://example.com/mcp?token=***#frag=***"
+    assert redact_url(None) == ""
+    assert redact_url("https://[::1/mcp") == "<unparseable URL>"

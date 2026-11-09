@@ -10,6 +10,7 @@ Tests cover:
 
 from unittest.mock import MagicMock, patch
 
+from gptme.config import Config, MCPConfig, MCPServerConfig
 from gptme.tools.mcp import (
     _cmd_mcp_info,
     _cmd_mcp_list,
@@ -345,6 +346,62 @@ class TestGetLocalServerInfo:
 
         assert result is not None
         assert "No" in result  # enabled = No
+
+
+# ── credential redaction in conversational list/info (#4795) ─────────
+
+_URL_SECRETS = ("userinfo-secret", "pw-secret", "query-secret", "fragment-secret")
+_SECRET_URL = (
+    "https://userinfo-secret:pw-secret@example.com:8443/mcp"
+    "?token=query-secret&mode=ro#access_token=fragment-secret"
+)
+
+
+class TestConversationalUrlRedaction:
+    """list/info must not surface credentials embedded in configured URLs."""
+
+    @staticmethod
+    def _config() -> Config:
+        config = Config()
+        config.user.mcp = MCPConfig(
+            enabled=True,
+            servers=[
+                MCPServerConfig(
+                    name="secret-remote",
+                    enabled=False,
+                    url=_SECRET_URL,
+                    headers={"Authorization": "Bearer header-secret"},
+                )
+            ],
+        )
+        return config
+
+    def _run(self, command: str) -> str:
+        config = self._config()
+        with (
+            patch("gptme.config.get_config", return_value=config),
+            patch("gptme.tools.mcp_adapter.get_config", return_value=config),
+        ):
+            msgs = list(execute_mcp(command, None, None))
+        return "\n".join(m.content for m in msgs)
+
+    def test_list_redacts_url_credentials(self):
+        out = self._run("list")
+        assert "secret-remote" in out
+        for secret in _URL_SECRETS:
+            assert secret not in out
+        # Endpoint identity and parameter names stay visible.
+        assert "example.com:8443/mcp" in out
+        assert "token=***" in out
+
+    def test_info_redacts_url_credentials(self):
+        out = self._run("info secret-remote")
+        for secret in _URL_SECRETS:
+            assert secret not in out
+        assert "example.com:8443/mcp" in out
+        assert "mode=***" in out
+        assert "1 configured" in out
+        assert "header-secret" not in out
 
 
 # ── _cmd_mcp_* wrappers ──────────────────────────────────────────────
