@@ -3067,6 +3067,88 @@ def test_nonexec_patch_block_followed_by_shell_block_yields_both() -> None:
     assert blocks[1] == Codeblock("shell", "cat f")
 
 
+@pytest.mark.parametrize(
+    "lang", ["save /tmp/x.json", "append notes.md", "patch f.py", "text"]
+)
+def test_nonexec_block_followed_only_by_prose_is_extracted(lang: str) -> None:
+    """gptme/gptme#4817: a closed non-exec block followed by prose to EOF.
+
+    Nothing after the closer can close the block, so treating it as literal
+    content left the block unclosed and the message yielded no codeblocks.
+    """
+    markdown = f"```{lang}\nhello\n```\nI saved the file, that is all.\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock(lang, "hello")]
+
+
+@pytest.mark.parametrize("prose_lines", [19, 30, 100])
+def test_nonexec_save_followed_by_distant_command(prose_lines: int) -> None:
+    """gptme/gptme#4817: a later block beyond the 20-line lookahead window."""
+    markdown = (
+        "```save a.md\n# Title\n```\n"
+        + "Some explanation.\n" * prose_lines
+        + "```shell\ncat a.md\n```\n"
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", "# Title"),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
+def test_nonexec_save_with_tagged_example_then_prose_is_extracted() -> None:
+    """A tagged nested example is unambiguous; the final closer still recovers."""
+    content = "# T\n```bash\nls\n```\nmore"
+    markdown = f"```save R.md\n{content}\n```\nDone.\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("save R.md", content)]
+
+
+def test_nonexec_save_with_bare_example_then_prose_stays_fail_closed() -> None:
+    """After a bare fence was guessed to open a nested example, a final fence
+    before prose may merge blocks or truncate a save: extract nothing."""
+    markdown = "```save R.md\n# T\n```\nexample\n```\nmore\n```\nDone, saved.\n"
+    assert list(_extract_codeblocks(markdown)) == []
+
+
+def test_nonexec_save_literal_fence_with_distant_outer_closer_unaffected() -> None:
+    """A bare fence in content stays literal when a later outer closer exists."""
+    content = "intro\n```\n" + "body\n" * 30 + "end"
+    markdown = f"```save a.md\n{content}\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("save a.md", content)]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_save_then_prose_then_unclosed_reasoning_never_runs_command(tag: str) -> None:
+    markdown = f"```save a\nhello\n```\nDone.\n<{tag}>\n```shell\nrm -rf x\n```\n"
+    assert all(b.lang != "shell" for b in _extract_codeblocks(markdown))
+
+
+def test_streaming_save_then_prose_never_exposes_prefix() -> None:
+    markdown = "```save a\nhello\nworld\n```\nDone, that is all.\n"
+    for end in range(1, len(markdown) + 1):
+        blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
+        assert all(b == Codeblock("save a", "hello\nworld") for b in blocks), (
+            end,
+            blocks,
+        )
+
+
+def test_issue_4817_tooluse_end_to_end() -> None:
+    """The live failure: save, narration, then several verification commands."""
+    from gptme.tools import init_tools
+    from gptme.tools.base import ToolUse
+
+    init_tools(["save", "shell"])
+    content = (
+        '```save final.json\n{"a": 1}\n```\nLet me verify.\n'
+        "```shell\ncat final.json\n```\n```shell\nls\n```\n"
+    )
+    tools = [(t.tool, t.content) for t in ToolUse.iter_from_content(content)]
+    assert tools == [
+        ("save", '{"a": 1}'),
+        ("shell", "cat final.json"),
+        ("shell", "ls"),
+    ]
+
+
 def test_nonexec_save_block_explicit_outer_closer_unaffected() -> None:
     """Regression: a save block with a bare fence in its content (followed by a
     language-tagged inner block) must still yield the full block when the outer
