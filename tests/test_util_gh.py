@@ -876,7 +876,7 @@ class TestTruncateLogTail:
         delivered = _truncate_log_tail(
             _extract_failure_sections("\n".join(lines)),
             4000,
-            hint="use `gh run view 123 --log-failed` for full logs",
+            hint="use shell `gh run view 123 --log-failed` for full logs",
         )
 
         assert "test_real_breakage" in delivered
@@ -954,6 +954,24 @@ class TestGetGithubRunLogs:
         assert result is not None
         assert "❌ test: failure" in result
         assert "Failed step: Run tests" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_truncated_logs_point_at_shell_not_native_gh(self, mock_run, _mock_which):
+        """Overflow hint must name the shell tool: native --log-failed is capped."""
+        failed_step = {"name": "Run tests", "conclusion": "failure"}
+        jobs = [self._make_job("test", "failure", 200, [failed_step])]
+        run_json = self._make_run_json("failure", jobs)
+        log_output = "test\tRun tests\tERROR: " + "x" * 50_000 + " TRACEBACK_END\n"
+        mock_run.side_effect = [
+            MagicMock(stdout=run_json, returncode=0),
+            MagicMock(stdout=log_output, returncode=0),
+        ]
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "TRACEBACK_END" in result
+        assert "chars omitted" in result
+        assert "shell `gh run view 12345 --log-failed`" in result
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")

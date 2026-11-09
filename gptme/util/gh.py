@@ -1273,7 +1273,9 @@ def get_github_run_logs(
                 extracted = _truncate_log_tail(
                     extracted,
                     tokens_per_job * 4,
-                    hint=f"use `gh run view {run_id} --log-failed` for full logs",
+                    hint=(
+                        f"use shell `gh run view {run_id} --log-failed` for full logs"
+                    ),
                 )
 
                 output += f"\n```\n{extracted}\n```\n"
@@ -1311,7 +1313,7 @@ def get_github_run_logs(
                 else:
                     output += (
                         f"\nCould not fetch logs. "
-                        f"Try: `gh run view {run_id} --log-failed`\n"
+                        f"Try shell: `gh run view {run_id} --log-failed`\n"
                     )
 
         return output
