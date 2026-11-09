@@ -682,6 +682,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig"><code class="docutils literal notranslate"><span class="pre">MCPConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">MCPConfig.from_dict()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.to_dict"><code class="docutils literal notranslate"><span class="pre">MCPConfig.to_dict()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
@@ -1033,13 +1034,22 @@ cost limits, and strategy-specific parameters.</p>
 <dd><p>Configuration for <a class="reference internal" href="../mcp.html#mcp"><span class="std std-ref">Model Context Protocol</span></a> support, including which MCP servers to use.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.MCPConfig.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_start:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">servers:</span> <span class="pre">list[~gptme.config.models.MCPServerConfig]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.MCPConfig.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_start:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">servers:</span> <span class="pre">list[~gptme.config.models.MCPServerConfig]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enabled_declared:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_start_declared:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.MCPConfig.__init__" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="gptme.config.MCPConfig.from_dict">
 <em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">doc</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><span class="pre">dict</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Self" title="(in Python v3.15)"><span class="pre">Self</span></a></span></span><a class="headerlink" href="#gptme.config.MCPConfig.from_dict" title="Link to this definition">#</a></dt>
 <dd><p>Create a MCPConfig instance from a dictionary. Warns about unknown keys.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="gptme.config.MCPConfig.to_dict">
+<span class="sig-name descname"><span class="pre">to_dict</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><span class="pre">dict</span></a></span></span><a class="headerlink" href="#gptme.config.MCPConfig.to_dict" title="Link to this definition">#</a></dt>
+<dd><p>Serialize only the on-disk <code class="docutils literal notranslate"><span class="pre">[mcp]</span></code> schema.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">*_declared</span></code> fields are merge bookkeeping, not configuration, so
+they must not reach a written config file (where they would come back
+as unknown keys).</p>
 </dd></dl>
 
 </dd></dl>
@@ -1524,6 +1534,7 @@ environment -&gt; chat/project <code class="docutils literal notranslate"><span 
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig"><code class="docutils literal notranslate"><span class="pre">MCPConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.__init__"><code class="docutils literal notranslate"><span class="pre">MCPConfig.__init__()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.from_dict"><code class="docutils literal notranslate"><span class="pre">MCPConfig.from_dict()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPConfig.to_dict"><code class="docutils literal notranslate"><span class="pre">MCPConfig.to_dict()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.MCPServerConfig"><code class="docutils literal notranslate"><span class="pre">MCPServerConfig</span></code></a><ul class="pst-show_toc_level nav section-nav flex-column">
