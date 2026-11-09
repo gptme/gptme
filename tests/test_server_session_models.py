@@ -915,6 +915,71 @@ class TestSessionManagerThreadSafety:
 class TestSessionHealthMonitorStartup:
     """The session health monitor must start with the app, not only on ACP use."""
 
+    def test_idle_cleanup_persists_session_end_metadata(self, monkeypatch, tmp_path):
+        """The actual monitor thread inherits the configured session-end hooks."""
+        import contextvars
+        import json
+        from datetime import datetime, timedelta
+
+        from gptme.hooks import init_hooks, trigger_hook
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+        from gptme.server import session_step
+        from gptme.tools.complete import SESSION_END_BLOCK_CLOSE, SESSION_END_BLOCK_OPEN
+
+        session_step.stop_session_health_monitor()
+        monkeypatch.setattr("gptme.server.session_models.trigger_hook", trigger_hook)
+        manager = LogManager(logdir=tmp_path / "conversation", lock=False)
+        manager.append(Message("user", "Finish the task"))
+        manager.append(Message("assistant", "Done"))
+        manager.append(
+            Message(
+                "system",
+                "Session stop accepted.",
+                ui_only=True,
+                metadata={"session_stop_outcome": "completed"},
+            )
+        )
+        manager.write(sync=True)
+        session = SessionManager.create_session(str(manager.logdir))
+        session.last_activity = datetime.now(session.last_activity.tzinfo) - timedelta(
+            hours=2
+        )
+        checked = threading.Event()
+        run_health_check = session_step._run_health_check
+
+        def check_once():
+            try:
+                run_health_check()
+            finally:
+                checked.set()
+
+        monkeypatch.setattr(session_step, "_run_health_check", check_once)
+
+        def start_with_hooks():
+            init_hooks(allowlist=["session_end_metadata"], server=True)
+            session_step.start_session_health_monitor(interval=1)
+
+        # Keep registration isolated from other tests, but start the real thread.
+        contextvars.Context().run(start_with_hooks)
+        try:
+            assert checked.wait(timeout=5), "health monitor did not run"
+        finally:
+            session_step.stop_session_health_monitor()
+
+        assert SessionManager.get_session(session.id) is None
+        reopened = LogManager.load(manager.logdir, lock=False)
+        blocks = [
+            msg
+            for msg in reopened.history_log.messages
+            if msg.content.startswith(SESSION_END_BLOCK_OPEN)
+        ]
+        assert len(blocks) == 1
+        payload = blocks[0].content[
+            len(SESSION_END_BLOCK_OPEN) : -len(SESSION_END_BLOCK_CLOSE)
+        ]
+        assert json.loads(payload)["outcome"] == "completed"
+
     def test_create_app_starts_session_health_monitor(self):
         """create_app() starts the session cleanup thread unconditionally."""
         from gptme.server import session_step  # fmt: skip
