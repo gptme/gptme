@@ -1,13 +1,16 @@
 """
 Persistent memory tool for gptme.
 
-Saves memories to the shared Claude Code memory path so they are readable
-by future sessions on any runtime (CC, gptme, Codex).
+Saves memories to the layered memory store so they are readable by future
+sessions on any runtime (CC, gptme, Codex).
 
-Memory files are written to:
-  ~/.claude/projects/<workspace-hash>/memory/<name>.md
+Memory files are written to the resolved write root:
 
-And an entry is added to MEMORY.md (the index file), which is auto-loaded
+  - project  (default when <workspace>/memory/ exists): <workspace>/memory/
+  - cc       (default otherwise): ~/.claude/projects/<workspace-hash>/memory/
+  - user     (explicit scope): <config-dir>/memory/  — shared across workspaces
+
+An entry is added to MEMORY.md (the index file), which is auto-loaded
 by gptme (via prompt_workspace) and by Claude Code in every session.
 
 Usage:
@@ -20,8 +23,9 @@ import logging
 from collections.abc import Generator
 from pathlib import Path
 
-from ..dirs import get_cc_memory_dir, get_workspace
-from ..memory import MemoryEntry, MemoryRoot, MemoryStore, slugify, update_index_line
+from ..dirs import get_workspace
+from ..memory import MemoryEntry, MemoryStore, slugify, update_index_line
+from ..memory.roots import SCOPES
 from ..memory.schema import MemoryParseError
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -39,6 +43,15 @@ Use this tool when you learn something worth remembering for future work:
 
 Each memory is cross-runtime: future sessions on gptme, Claude Code, and Codex
 all load it automatically at workspace startup.
+
+Scope controls where the memory is written:
+- (omit) — default: writes to the nearest writable root (project > cc).
+  Use for project-specific facts, decisions, and local context.
+- "user" — writes to the global user root, shared across every workspace.
+  Use for cross-project preferences, workflow corrections, and user feedback
+  that should apply regardless of which repo you are working in.
+  Important: use "user" scope when invoked from a temporary feature worktree
+  to avoid orphaning the memory under a throwaway workspace identity.
 
 The first line of the content is the one-line summary shown in the index;
 subsequent lines are the full detail body.
@@ -73,13 +86,20 @@ def _update_memory_index(
     )
 
 
-def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
-    """Save a memory to the shared CC memory directory.
+def save_memory(
+    name: str,
+    content: str,
+    workspace: Path | None = None,
+    scope: str | None = None,
+) -> str:
+    """Save a memory to the layered memory store.
 
     Args:
         name: Memory name (slugified to a safe filename).
         content: Memory content. First line is the description; rest is the body.
         workspace: Workspace root (defaults to get_workspace()).
+        scope: Write root to target ('project', 'cc', 'user', …).
+            Defaults to the nearest writable root (project > cc).
 
     Returns:
         Path to the saved memory file as a string.
@@ -87,12 +107,16 @@ def save_memory(name: str, content: str, workspace: Path | None = None) -> str:
     if workspace is None:
         workspace = get_workspace()
 
+    if scope is not None and scope not in SCOPES:
+        valid = ", ".join(repr(s) for s in SCOPES)
+        raise ValueError(f"invalid scope {scope!r}; valid values: {valid}")
+
     lines = content.strip().splitlines()
     description = lines[0].strip() if lines else name
     body = "\n".join(lines[1:]).strip() if len(lines) > 1 else content.strip()
 
-    store = MemoryStore([MemoryRoot("cc", get_cc_memory_dir(workspace))])
-    return str(store.save(name, description, body))
+    store = MemoryStore.from_workspace(workspace)
+    return str(store.save(name, description, body, scope=scope))
 
 
 def execute_memory(
@@ -118,6 +142,7 @@ def execute_memory(
         return
 
     name = args[0]
+    scope: str | None = (kwargs or {}).get("scope", "").strip() or None
 
     content = (code or "").strip()
     if not content:
@@ -127,26 +152,39 @@ def execute_memory(
         )
         return
 
+    if scope is not None and scope not in SCOPES:
+        valid = ", ".join(repr(s) for s in SCOPES)
+        yield Message(
+            "system",
+            f"Error: invalid memory scope {scope!r}. Valid values: {valid}.",
+        )
+        return
+
     def _get_path(
         _code: str | None,
         _args: list[str] | None,
         _kwargs: dict[str, str] | None,
     ) -> Path:
         ws = get_workspace()
-        mem_dir = get_cc_memory_dir(ws)
+        store = MemoryStore.from_workspace(ws)
+        mem_dir = store.root(scope).path
         return mem_dir / f"{slugify(name)}.md"
 
     def _do_save(
         save_content: str, path: Path | None
     ) -> Generator[Message, None, None]:
         try:
-            file_path = save_memory(name, save_content)
-            yield Message("system", f"Memory '{name}' saved to `{file_path}`.")
+            file_path = save_memory(name, save_content, scope=scope)
+            scope_label = f" (scope: {scope})" if scope else ""
+            yield Message(
+                "system", f"Memory '{name}' saved to `{file_path}`{scope_label}."
+            )
         except (OSError, ValueError, MemoryParseError) as e:
             yield Message("system", f"Error saving memory '{name}': {e}")
 
     target_path = _get_path(code, args, kwargs)
-    confirm_msg = f"Save memory '{name}' to `{target_path}`?"
+    scope_label = f" (scope: {scope})" if scope else ""
+    confirm_msg = f"Save memory '{name}' to `{target_path}`{scope_label}?"
 
     yield from execute_with_confirmation(
         code,
@@ -179,6 +217,17 @@ tool = ToolSpec(
             type="string",
             description="The memory body text. First line is the one-line summary; rest is the detail.",
             required=True,
+        ),
+        Parameter(
+            name="scope",
+            type="string",
+            description=(
+                "Write root: 'user' for cross-project preferences/feedback (shared across all workspaces), "
+                "'cc' for the current Claude Code workspace, 'project' for the project memory/ directory. "
+                "Omit to use the default (project > cc). "
+                "Always use 'user' when saving from a temporary worktree to avoid orphaning the memory."
+            ),
+            required=False,
         ),
     ],
 )

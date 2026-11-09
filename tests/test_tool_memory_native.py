@@ -11,13 +11,14 @@ from gptme.tools.memory import execute_memory
 
 @pytest.fixture
 def memory_workspace(tmp_path, monkeypatch):
-    """Redirect the memory workspace and CC memory dir into tmp_path."""
+    """Redirect the memory workspace into tmp_path and use a local CC memory dir."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     mem_dir = tmp_path / "cc-memory"
     mem_dir.mkdir()
     monkeypatch.setattr(memory_mod, "get_workspace", lambda: workspace)
-    monkeypatch.setattr(memory_mod, "get_cc_memory_dir", lambda _ws: mem_dir)
+    # Patch at the roots level so MemoryStore.from_workspace() uses our temp dir.
+    monkeypatch.setattr("gptme.memory.roots.get_cc_memory_dir", lambda _ws: mem_dir)
     return mem_dir
 
 
