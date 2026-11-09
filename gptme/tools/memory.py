@@ -44,21 +44,19 @@ Use this tool when you learn something worth remembering for future work:
 Each memory is cross-runtime: future sessions on gptme, Claude Code, and Codex
 all load it automatically at workspace startup.
 
-Scope controls where the memory is written:
-- (omit) — default: writes to the nearest writable root (project > cc).
-  Use for project-specific facts, decisions, and local context.
-- "user" — writes to the global user root, shared across every workspace.
-  Use for cross-project preferences, workflow corrections, and user feedback
-  that should apply regardless of which repo you are working in.
-  Important: use "user" scope when invoked from a temporary feature worktree
-  to avoid orphaning the memory under a throwaway workspace identity.
+Scope selects the write root (no fallback if unavailable):
+- Omit for project memory/ when present, otherwise the CC workspace root.
+- "user" for cross-project preferences and feedback shared across workspaces.
+  Use this from temporary worktrees to avoid orphaning memories.
+- "cc" for the CC workspace root; "project" for an existing project memory/.
 
 The first line of the content is the one-line summary shown in the index;
 subsequent lines are the full detail body.
 """.strip()
 
 instructions_format = {
-    "markdown": "Use a code block with the language tag `memory <name>` to save a memory. The first line is the description; the rest is the body.",
+    "markdown": "Use a code block tagged `memory <name> [scope=user]`. The first line is the description; the rest is the body.",
+    "xml": 'Use <memory args="<name> scope=user">content</memory> inside <tool-use>; omit scope for the default root.',
 }
 
 
@@ -141,8 +139,21 @@ def execute_memory(
         )
         return
 
-    name = args[0]
+    # XML's args attribute arrives as one string; Markdown splits the tag.
+    positional = args
+    if not kwargs and len(args) == 1 and " scope=" in args[0]:
+        positional = args[0].rsplit(" ", 1)
+    if not positional or len(positional) > 2:
+        yield Message("system", "Error: use memory <name> [scope=user].")
+        return
+    name = positional[0]
     scope: str | None = (kwargs or {}).get("scope", "").strip() or None
+    if len(positional) == 2:
+        positional_scope = positional[1].removeprefix("scope=")
+        if scope is not None and scope != positional_scope:
+            yield Message("system", "Error: conflicting memory scopes.")
+            return
+        scope = positional_scope
 
     content = (code or "").strip()
     if not content:
@@ -160,29 +171,35 @@ def execute_memory(
         )
         return
 
+    workspace = get_workspace()
+    try:
+        store = MemoryStore.from_workspace(workspace)
+        target_path = store.root(scope).path / f"{slugify(name)}.md"
+    except (KeyError, OSError) as e:
+        yield Message("system", f"Error selecting memory scope: {e}")
+        return
+
     def _get_path(
         _code: str | None,
         _args: list[str] | None,
         _kwargs: dict[str, str] | None,
     ) -> Path:
-        ws = get_workspace()
-        store = MemoryStore.from_workspace(ws)
-        mem_dir = store.root(scope).path
-        return mem_dir / f"{slugify(name)}.md"
+        return target_path
 
     def _do_save(
         save_content: str, path: Path | None
     ) -> Generator[Message, None, None]:
         try:
-            file_path = save_memory(name, save_content, scope=scope)
+            file_path = save_memory(
+                name, save_content, workspace=workspace, scope=scope
+            )
             scope_label = f" (scope: {scope})" if scope else ""
             yield Message(
                 "system", f"Memory '{name}' saved to `{file_path}`{scope_label}."
             )
-        except (OSError, ValueError, MemoryParseError) as e:
+        except (KeyError, OSError, ValueError, MemoryParseError) as e:
             yield Message("system", f"Error saving memory '{name}': {e}")
 
-    target_path = _get_path(code, args, kwargs)
     scope_label = f" (scope: {scope})" if scope else ""
     confirm_msg = f"Save memory '{name}' to `{target_path}`{scope_label}?"
 
@@ -193,7 +210,10 @@ def execute_memory(
         execute_fn=_do_save,
         get_path_fn=_get_path,
         preview_lang="markdown",
+        preview_fn=lambda content, path: f"{confirm_msg}\n\n{content}",
         confirm_msg=confirm_msg,
+        # The preview includes destination metadata, not just editable memory text.
+        allow_edit=False,
     )
 
 

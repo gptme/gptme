@@ -16,6 +16,8 @@ def memory_workspace(tmp_path, monkeypatch):
     workspace.mkdir()
     mem_dir = tmp_path / "cc-memory"
     mem_dir.mkdir()
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.delenv("GPTME_AGENT_WORKSPACE", raising=False)
     monkeypatch.setattr(memory_mod, "get_workspace", lambda: workspace)
     # Patch at the roots level so MemoryStore.from_workspace() uses our temp dir.
     monkeypatch.setattr("gptme.memory.roots.get_cc_memory_dir", lambda _ws: mem_dir)
@@ -39,7 +41,10 @@ def test_native_call_reaches_confirmation_with_content(memory_workspace):
 
     assert spy.call_count == 1
     assert confirm.call_count == 1
-    assert confirm.call_args.kwargs["preview"] == "Test content"
+    assert "Test content" in confirm.call_args.kwargs["preview"]
+    assert (
+        str(memory_workspace / "native-probe.md") in confirm.call_args.kwargs["preview"]
+    )
     assert not any("requires a name" in m.content for m in messages)
 
 
@@ -62,4 +67,7 @@ def test_legacy_call_still_reaches_confirmation(memory_workspace):
         list(execute_memory("Legacy body", ["legacy-name"], None))
 
     assert confirm.call_count == 1
-    assert confirm.call_args.kwargs["preview"] == "Legacy body"
+    assert "Legacy body" in confirm.call_args.kwargs["preview"]
+    assert (
+        str(memory_workspace / "legacy-name.md") in confirm.call_args.kwargs["preview"]
+    )

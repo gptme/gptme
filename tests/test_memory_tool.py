@@ -1,5 +1,9 @@
 """Tests for the gptme memory write tool (cross-runtime memory store)."""
 
+from pathlib import Path
+
+import pytest
+
 from gptme.dirs import get_cc_memory_dir, get_cc_memory_file
 from gptme.tools.memory import (
     _slugify,
@@ -8,6 +12,17 @@ from gptme.tools.memory import (
     save_memory,
     tool,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolated_memory_roots(tmp_path, monkeypatch):
+    """Exercise default resolution without touching the developer's memory roots."""
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.delenv("GPTME_AGENT_WORKSPACE", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(
+        "gptme.memory.roots.get_config_dir", lambda: tmp_path / "config"
+    )
 
 
 class TestSlugify:

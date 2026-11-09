@@ -6,7 +6,9 @@ from unittest.mock import patch
 import pytest
 
 from gptme.hooks import ConfirmAction, ConfirmationResult
+from gptme.tools import init_tools
 from gptme.tools import memory as memory_mod
+from gptme.tools.base import ToolUse
 from gptme.tools.memory import execute_memory, save_memory
 
 
@@ -135,7 +137,7 @@ def test_execute_memory_confirmation_path_matches_save_path(worktree_workspace):
     saved_path: list[str] = []
 
     def capture_confirm(**kwargs):
-        confirmed_path.append(kwargs.get("confirm_msg", ""))
+        confirmed_path.append(kwargs["preview"])
         return ConfirmationResult(action=ConfirmAction.CONFIRM)
 
     with patch("gptme.hooks.get_confirmation", side_effect=capture_confirm):
@@ -158,7 +160,7 @@ def test_execute_memory_confirmation_path_matches_save_path(worktree_workspace):
 
     assert saved_path, "no success message found"
     # Confirm message should reference the same file
-    assert saved_path[0] in confirmed_path[0] or confirmed_path[0] == "", (
+    assert saved_path[0] in confirmed_path[0], (
         f"confirmation path {confirmed_path[0]!r} does not contain {saved_path[0]!r}"
     )
     # Saved file should actually exist
@@ -178,3 +180,138 @@ def test_execute_memory_default_scope_from_worktree_uses_cc(worktree_workspace):
 
     assert (worktree_workspace["cc"] / "local-note.md").exists()
     assert not (worktree_workspace["user"] / "local-note.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("tool_format", "call"),
+    [
+        ("markdown", "```memory parsed-pref scope=user\nDescription.\n```"),
+        (
+            "xml",
+            '<tool-use><memory args="parsed-pref scope=user">Description.</memory></tool-use>',
+        ),
+        (
+            "xml",
+            '<tool-use><memory name="parsed-pref" scope="user">Description.</memory></tool-use>',
+        ),
+    ],
+)
+def test_parsed_scope_saves_to_user_root(worktree_workspace, tool_format, call):
+    init_tools(allowlist=["memory"])
+    calls = list(ToolUse.iter_from_content(call, tool_format_override=tool_format))
+    assert len(calls) == 1
+    parsed = calls[0]
+    with patch("gptme.hooks.get_confirmation", return_value=_auto_confirm()):
+        messages = list(execute_memory(parsed.content, parsed.args, parsed.kwargs))
+    assert any("saved" in m.content for m in messages)
+    assert (worktree_workspace["user"] / "parsed-pref.md").exists()
+    assert not (worktree_workspace["cc"] / "parsed-pref.md").exists()
+
+
+def test_unavailable_scope_yields_error_before_confirmation(worktree_workspace):
+    with patch("gptme.hooks.get_confirmation") as confirm:
+        messages = list(
+            execute_memory(
+                None,
+                None,
+                {"name": "missing-root", "content": "Description.", "scope": "project"},
+            )
+        )
+    confirm.assert_not_called()
+    assert len(messages) == 1
+    assert "no memory root" in messages[0].content
+    assert "project" in messages[0].content
+    assert not (worktree_workspace["cc"] / "missing-root.md").exists()
+
+
+def test_default_project_scope_and_explicit_cc(scoped_workspace):
+    workspace = scoped_workspace["workspace"]
+    project = workspace / "memory"
+    project.mkdir()
+    assert (
+        Path(save_memory("project-note", "Description.", workspace=workspace)).parent
+        == project
+    )
+    assert (
+        Path(
+            save_memory("cc-note", "Description.", workspace=workspace, scope="cc")
+        ).parent
+        == scoped_workspace["cc"]
+    )
+
+
+@pytest.mark.parametrize("scope", ["user", "cc", "project"])
+def test_explicit_roots_reject_unavailable_scopes(
+    worktree_workspace, monkeypatch, scope
+):
+    explicit = worktree_workspace["worktree"] / "explicit"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(explicit))
+    with patch("gptme.hooks.get_confirmation") as confirm:
+        messages = list(
+            execute_memory(
+                None,
+                None,
+                {"name": "no-fallback", "content": "Description.", "scope": scope},
+            )
+        )
+    confirm.assert_not_called()
+    assert "no memory root" in messages[0].content
+    assert not explicit.exists()
+
+
+def test_native_name_with_spaces_preserved(worktree_workspace):
+    with patch("gptme.hooks.get_confirmation", return_value=_auto_confirm()):
+        messages = list(
+            execute_memory(
+                None,
+                None,
+                {"name": "My Cool Fact", "content": "Description.", "scope": "user"},
+            )
+        )
+    assert any("saved" in m.content for m in messages)
+    assert (worktree_workspace["user"] / "my-cool-fact.md").exists()
+
+
+@pytest.mark.parametrize(
+    "args", [["pref", "scope=invalid"], ["pref", "scope=user", "extra"]]
+)
+def test_invalid_positional_scope_writes_nothing(worktree_workspace, args):
+    with patch("gptme.hooks.get_confirmation") as confirm:
+        messages = list(execute_memory("Description.", args))
+    confirm.assert_not_called()
+    assert "Error" in messages[0].content
+    assert list(worktree_workspace["user"].glob("*.md")) == []
+    assert list(worktree_workspace["cc"].glob("*.md")) == []
+
+
+def test_confirmation_edit_cannot_save_preview_metadata(worktree_workspace):
+    decision = ConfirmationResult(
+        action=ConfirmAction.EDIT, edited_content="Edited body."
+    )
+    with patch("gptme.hooks.get_confirmation", return_value=decision):
+        messages = list(
+            execute_memory(
+                None,
+                None,
+                {"name": "edit-note", "content": "Description.", "scope": "user"},
+            )
+        )
+    assert any("Editing is not supported" in m.content for m in messages)
+    assert not (worktree_workspace["user"] / "edit-note.md").exists()
+
+
+def test_native_name_containing_scope_text_is_not_parsed(worktree_workspace):
+    with patch("gptme.hooks.get_confirmation", return_value=_auto_confirm()):
+        messages = list(
+            execute_memory(
+                None,
+                None,
+                {
+                    "name": "Preference scope=cc",
+                    "content": "Description.",
+                    "scope": "user",
+                },
+            )
+        )
+    assert any("saved" in m.content for m in messages)
+    assert (worktree_workspace["user"] / "preference-scope-cc.md").exists()

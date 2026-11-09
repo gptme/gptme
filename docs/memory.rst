@@ -177,6 +177,29 @@ Inspect and write memory
 ``index`` prints by default. Pass ``--write`` only when you want to replace the
 selected root's ``MEMORY.md`` with a generated index.
 
+Saving through the conversational tool
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``memory`` tool accepts ``name``, ``content`` and an optional ``scope`` in
+native tool calls. In Markdown, use a block tagged
+``memory prefer-short-answers scope=user`` with the memory text in the body.
+The equivalent XML call is:
+
+.. code-block:: xml
+
+   <tool-use>
+     <memory args="prefer-short-answers scope=user">User prefers short answers.</memory>
+   </tool-use>
+
+Use ``scope=user`` for cross-project preferences, especially from temporary
+worktrees. Omit scope for project ``memory/`` when it exists, otherwise the
+Claude Code workspace root. An explicit scope must be available in the resolved
+roots; an unavailable scope reports an error rather than silently falling back.
+``GPTME_MEMORY_DIRS`` replaces the normal layers, so only ``explicit`` is
+available when it is set. The confirmation preview includes the destination path.
+Inline editing is disabled because the preview contains destination metadata;
+skip and submit a new call to change the memory text.
+
 Persistent index selection and budget
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
