@@ -1906,6 +1906,25 @@ class TestSessionEndMetadataHook:
 
         assert hook_func is session_end_metadata_hook
 
+    def test_trigger_hook_delivers_the_block(self):
+        """The registered hook fires through the hook system, not just directly."""
+        from gptme.hooks import HookType, trigger_hook
+
+        messages = [
+            _user("go"),
+            _assistant_with_usage(10, 5),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        delivered = trigger_hook(
+            HookType.SESSION_END, manager=_session_end_manager(messages)
+        )
+
+        assert any(
+            isinstance(m, Message) and "gptme:session-end" in (m.content or "")
+            for m in delivered
+        )
+
     def test_completed_session_records_fields_and_token_totals(self):
         from gptme.tools.complete import session_end_metadata_hook
 
