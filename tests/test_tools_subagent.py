@@ -1460,11 +1460,13 @@ def test_subprocess_monitor_timeout():
         call(),
     ]
 
-    # Verify: result was cached as failure with timeout message
+    # Verify: result was cached as timeout (not failure) with timeout message.
+    # The wall-clock deadline path must agree with the max_time watchdog and
+    # the batch deadline, both of which already report "timeout".
     with _subagent_results_lock:
         result = _subagent_results.get("timeout-test")
     assert result is not None
-    assert result.status == "failure"
+    assert result.status == "timeout"
     assert result.result is not None
     assert isinstance(result.result, str)
     assert "timeout" in result.result.lower()
