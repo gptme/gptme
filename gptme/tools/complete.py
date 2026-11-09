@@ -1,6 +1,7 @@
 """Complete tool - signals that the autonomous session is finished."""
 
 import contextlib
+import json
 import logging
 import os
 import re
@@ -8,11 +9,13 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from xml.sax.saxutils import escape as xml_escape
 
+from ..constants import MAX_STEPS_STOP_PREFIX
 from ..hooks import HookType, StopPropagation
 from ..hooks._policy_block import POLICY_BLOCK_MARKER
 from ..hooks.confirm import ConfirmAction, get_confirmation
@@ -865,6 +868,22 @@ def _unparsed_fence_hint(content: str) -> str:
     )
 
 
+def _effective_chat(manager: "LogManager"):
+    """Resolve the conversation's chat config, including server sessions."""
+    from ..config import get_config  # fmt: skip
+
+    chat = get_config().chat
+    if chat is None and (logdir := getattr(manager, "logdir", None)) is not None:
+        # Server steps run with the process-level workspace config, whose
+        # ``chat`` is None; the conversation's own config (including its
+        # ``interactive`` flag) lives in its logdir. Resolve it so a human-driven
+        # server/web session is not force-ended as if it were headless.
+        from ..config import ChatConfig  # fmt: skip
+
+        chat = ChatConfig.from_logdir(logdir)
+    return chat
+
+
 def block_budget_hook(
     manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
@@ -875,18 +894,8 @@ def block_budget_hook(
     ``STEP_PRE`` hook runs before every step and is the only place to stop it.
     Interactive sessions (including ``-y``) are left alone: a human is present.
     """
-    from ..config import get_config  # fmt: skip
-
     budget = _block_budget()
-    chat = get_config().chat
-    if chat is None and (logdir := getattr(manager, "logdir", None)) is not None:
-        # Server steps run with the process-level workspace config, whose
-        # ``chat`` is None; the conversation's own config (including its
-        # ``interactive`` flag) lives in its logdir. Resolve it so a human-driven
-        # server/web session is not force-ended as if it were headless.
-        from ..config import ChatConfig  # fmt: skip
-
-        chat = ChatConfig.from_logdir(logdir)
+    chat = _effective_chat(manager)
     # ``chat is None`` means no Chat object and no conversation config
     # (library/headless usage) — there is no human at a terminal, so treat it
     # as non-interactive.
@@ -901,6 +910,100 @@ def block_budget_hook(
             f"policy block budget exhausted: {blocks} blocks"
         )
     yield from ()
+
+
+# Structured session-end metadata block.
+#
+# Consumers (gptme-sessions, the judge pipeline, value heartbeat ledgers)
+# otherwise rebuild basic session metadata by walking whole transcripts. One
+# compact JSON line at the tail of the log turns that into a single parse.
+# Emitted as an HTML comment inside a ``ui_only`` system message: the comment
+# keeps it out of rendered prose, and ``ui_only`` keeps ``prepare_messages()``
+# from ever sending it to a provider on a resumed session.
+SESSION_END_BLOCK_OPEN = "<!-- gptme:session-end "
+SESSION_END_BLOCK_CLOSE = " -->"
+
+OUTCOME_COMPLETED = "completed"
+OUTCOME_MAX_TURNS = "max_turns"
+OUTCOME_POLICY_BLOCK_BUDGET = "policy_block_budget_exhausted"
+OUTCOME_ENDED = "ended"
+
+
+def _session_usage_totals(messages: "list[Message]") -> tuple[int, int]:
+    """Sum provider-reported token usage over the conversation's assistant turns."""
+    input_tokens = 0
+    output_tokens = 0
+    for m in messages:
+        if m.role != "assistant" or not m.metadata:
+            continue
+        usage = m.metadata.get("usage")
+        if not usage:
+            continue
+        input_tokens += int(usage.get("input_tokens") or 0)
+        output_tokens += int(usage.get("output_tokens") or 0)
+    return input_tokens, output_tokens
+
+
+def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str:
+    """Classify why the session ended, from what the log actually recorded."""
+    if messages:
+        last = messages[-1]
+        if (last.metadata or {}).get("max_steps_stop") is True:
+            return OUTCOME_MAX_TURNS
+        if (last.content or "").startswith(MAX_STEPS_STOP_PREFIX):
+            return OUTCOME_MAX_TURNS
+    # The complete tool appends its acknowledgement before the session-end
+    # exception unwinds. Looking in the current episode (not the whole history)
+    # keeps a stale acknowledgement from a resumed log from relabelling a new run.
+    if any(
+        m.role == "system" and (m.content or "") == _TASK_COMPLETE_MSG
+        for m in current_episode(messages)
+    ):
+        return OUTCOME_COMPLETED
+    budget = _block_budget()
+    chat = _effective_chat(manager)
+    # Mirror ``block_budget_hook``: only a non-interactive session can have been
+    # ended by the budget rather than by a human leaving a long-running session.
+    if budget and not (chat is not None and chat.interactive):
+        if count_policy_blocks(messages) >= 2 * budget:
+            return OUTCOME_POLICY_BLOCK_BUDGET
+    return OUTCOME_ENDED
+
+
+def _session_wall_seconds(messages: "list[Message]") -> int:
+    """Wall-clock duration covered by the conversation log, in whole seconds."""
+    if not messages:
+        return 0
+    started = min(m.timestamp for m in messages).timestamp()
+    return max(0, int(time.time() - started))
+
+
+def session_end_metadata_hook(
+    manager: "LogManager", **kwargs: Any
+) -> Generator[Message | StopPropagation, None, None]:
+    """Emit one ``<!-- gptme:session-end {...} -->`` block when a session ends.
+
+    Registered on ``SESSION_END``, which fires exactly once per session: on the
+    CLI completion path (after ``SessionCompleteException``), on normal loop
+    exit, in the TUI, and on last-session server teardown. ``TURN_POST`` was the
+    idea's first suggestion, but it fires on every turn and cannot see the
+    completion signal, so it would need a separate flag to know the run is over.
+    """
+    messages = manager.history_log.messages
+    input_tokens, output_tokens = _session_usage_totals(messages)
+    payload = {
+        "outcome": _session_outcome(manager, messages),
+        "policy_blocks": count_policy_blocks(messages),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "wall_seconds": _session_wall_seconds(messages),
+    }
+    content = (
+        f"{SESSION_END_BLOCK_OPEN}"
+        f"{json.dumps(payload, separators=(',', ':'))}"
+        f"{SESSION_END_BLOCK_CLOSE}"
+    )
+    yield Message("system", content, ui_only=True)
 
 
 def _env_flag(name: str, default: str) -> bool:
@@ -1190,5 +1293,10 @@ Use only after all requested work is done and committed. Do not call it mid-task
             stuck_detect_hook,
             1000,
         ),  # Run before auto_reply: catches repeating-tool loops it can't see
+        "session_end_metadata": (
+            HookType.SESSION_END.value,
+            session_end_metadata_hook,
+            0,
+        ),  # Structured tail block for gptme-sessions and the judge pipeline
     },
 )

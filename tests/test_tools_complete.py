@@ -20,7 +20,7 @@ Tests cover:
 """
 
 import subprocess
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -41,6 +41,9 @@ from gptme.tools.complete import (
     tool,
 )
 from gptme.util.completion_verification import VerificationCommand
+
+if TYPE_CHECKING:
+    from gptme.hooks import StopPropagation
 
 
 @pytest.fixture(autouse=True)
@@ -1850,3 +1853,147 @@ class TestStuckDetectRCAIntegration:
         assert "</system>" not in content or content.count("</system>") == 1
         # The one legitimate closing tag is at the very end of the content.
         assert content.endswith("</system>")
+
+
+# ── TestSessionEndMetadataHook ─────────────────────────────────────────────
+
+
+def _session_end_manager(messages: list[Message]) -> MagicMock:
+    """Mock LogManager exposing the history log the session-end hook reads."""
+    manager = MagicMock()
+    manager.logdir = None
+    manager.history_log.messages = messages
+    return manager
+
+
+def _extract_session_end(messages: "list[Message | StopPropagation]") -> dict:
+    """Parse the JSON payload out of the emitted session-end block."""
+    import json
+
+    from gptme.tools.complete import SESSION_END_BLOCK_CLOSE, SESSION_END_BLOCK_OPEN
+
+    blocks = [
+        m
+        for m in messages
+        if isinstance(m, Message)
+        and (m.content or "").startswith(SESSION_END_BLOCK_OPEN)
+        and (m.content or "").endswith(SESSION_END_BLOCK_CLOSE)
+    ]
+    assert len(blocks) == 1, (
+        f"expected exactly one session-end block, got {len(blocks)}"
+    )
+    content = blocks[0].content
+    payload = content[len(SESSION_END_BLOCK_OPEN) : -len(SESSION_END_BLOCK_CLOSE)]
+    return json.loads(payload)
+
+
+def _assistant_with_usage(inp: int, out: int) -> Message:
+    return Message(
+        "assistant",
+        "done",
+        metadata={"usage": {"input_tokens": inp, "output_tokens": out}},
+    )
+
+
+class TestSessionEndMetadataHook:
+    """The structured tail block consumed by gptme-sessions and the judge."""
+
+    def test_registered_on_session_end(self):
+        assert "session_end_metadata" in tool.hooks
+        hook_type, hook_func, _priority = tool.hooks["session_end_metadata"]
+        assert hook_type == "session.end"
+        from gptme.tools.complete import session_end_metadata_hook
+
+        assert hook_func is session_end_metadata_hook
+
+    def test_completed_session_records_fields_and_token_totals(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("do the thing"),
+            _assistant_with_usage(100, 40),
+            _assistant_with_usage(250, 60),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+        emitted = list(session_end_metadata_hook(_session_end_manager(messages)))
+
+        assert len(emitted) == 1
+        assert isinstance(emitted[0], Message)
+        assert emitted[0].role == "system"
+        assert emitted[0].ui_only is True
+
+        payload = _extract_session_end(emitted)
+        assert payload["outcome"] == "completed"
+        assert payload["policy_blocks"] == 0
+        assert payload["input_tokens"] == 350
+        assert payload["output_tokens"] == 100
+        assert payload["wall_seconds"] >= 0
+        assert set(payload) == {
+            "outcome",
+            "policy_blocks",
+            "input_tokens",
+            "output_tokens",
+            "wall_seconds",
+        }
+
+    def test_policy_block_count_matches_helper(self, monkeypatch):
+        from gptme.hooks._policy_block import POLICY_BLOCK_MARKER
+        from gptme.tools.complete import (
+            count_policy_blocks,
+            session_end_metadata_hook,
+        )
+
+        monkeypatch.setenv("GPTME_BLOCK_BUDGET", "1")
+        monkeypatch.setattr(
+            "gptme.tools.complete._effective_chat", lambda _manager: None
+        )
+        messages = [
+            _user("go"),
+            _assistant_with_usage(10, 5),
+            _system(f"{POLICY_BLOCK_MARKER} blocked: rm"),
+            _system(f"{POLICY_BLOCK_MARKER} blocked: mv"),
+        ]
+
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+
+        assert payload["policy_blocks"] == count_policy_blocks(messages) == 2
+        assert payload["outcome"] == "policy_block_budget_exhausted"
+
+    def test_max_turns_outcome(self):
+        from gptme.constants import MAX_STEPS_STOP_PREFIX
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("go"),
+            _assistant_with_usage(10, 5),
+            Message(
+                "system",
+                f"{MAX_STEPS_STOP_PREFIX} (25)",
+                metadata={"max_steps_stop": True},
+            ),
+        ]
+
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+
+        assert payload["outcome"] == "max_turns"
+
+    def test_block_is_not_sent_back_to_the_model(self):
+        from gptme.logmanager import prepare_messages
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("hello"),
+            _assistant_with_usage(10, 5),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+        emitted = list(session_end_metadata_hook(_session_end_manager(messages)))
+        block = next(m for m in emitted if isinstance(m, Message))
+
+        prepared = prepare_messages([*messages, block])
+
+        assert all(not m.ui_only for m in prepared)
+        assert "gptme:session-end" not in "".join(m.content for m in prepared)
