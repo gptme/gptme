@@ -1380,3 +1380,53 @@ def test_read_jsonl_uses_explicit_utf8_encoding(tmp_path: Path):
     assert calls[0]["encoding"] == "utf-8", (
         f"read_jsonl must pass encoding='utf-8', got encoding={calls[0]['encoding']!r}"
     )
+
+
+def test_history_log_ignores_the_active_view(tmp_path: Path):
+    """``history_log`` must not return the compacted view ``log`` returns.
+
+    Compaction replaces the active view with a summary plus a retained tail, so
+    messages it summarised disappear from ``log``. Consumers that must not lose
+    pre-compaction state (the policy-block budget counts ``[policy-block]``
+    markers) read ``history_log`` instead.
+    """
+    from gptme.message import Message
+
+    manager = LogManager([Message("user", "original question")], logdir=tmp_path)
+    manager._views["compacted-001"] = Log([Message("system", "summary")])
+    manager.current_view = "compacted-001"
+
+    assert [m.content for m in manager.log.messages] == ["summary"]
+    assert [m.content for m in manager.history_log.messages] == ["original question"]
+
+
+def test_history_log_reads_branch_lossless_archive(tmp_path: Path):
+    """A branch created from a compacted view must still expose inherited history.
+
+    ``branch()`` stores the view as the new branch log and the pre-compaction
+    transcript in ``_branch_lossless_logs``. ``history_log`` has to read that
+    archive (via ``full_log``); otherwise a later append on the branch hides
+    the inherited ``[policy-block]`` markers from the budget counter.
+    """
+    from gptme.message import Message
+
+    inherited = [
+        Message("user", "do the task"),
+        Message("system", "[policy-block] one"),
+        Message("system", "[policy-block] two"),
+        Message("system", "[policy-block] three"),
+        Message("system", "[policy-block] four"),
+        Message("system", "[policy-block] five"),
+    ]
+    manager = LogManager(inherited, logdir=tmp_path, lock=False)
+    manager._views["compacted-001"] = Log([Message("system", "summary")])
+    manager.current_view = "compacted-001"
+    manager.branch("dev")
+    extra = Message("system", "[policy-block] six")
+    manager.append(extra)
+
+    assert [m.content for m in manager.log.messages] == ["summary", extra.content]
+    assert [m.content for m in manager.history_log.messages] == [
+        *(m.content for m in inherited),
+        extra.content,
+    ]
