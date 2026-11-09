@@ -444,6 +444,8 @@ def load_user_config(path: str | None = None) -> UserConfig:
 def _serialize_user_config(config: UserConfig) -> dict[str, Any]:
     """Serialize model overrides using their public TOML table shape."""
     data = asdict(config)
+    if config.mcp is not None:
+        data["mcp"] = config.mcp.to_dict()
     model_data = data["models"]
     overrides = model_data.pop("overrides", {})
     model_data.update(overrides)

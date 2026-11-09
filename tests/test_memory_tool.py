@@ -1,5 +1,9 @@
 """Tests for the gptme memory write tool (cross-runtime memory store)."""
 
+from pathlib import Path
+
+import pytest
+
 from gptme.dirs import get_cc_memory_dir, get_cc_memory_file
 from gptme.tools.memory import (
     _slugify,
@@ -8,6 +12,20 @@ from gptme.tools.memory import (
     save_memory,
     tool,
 )
+
+
+@pytest.fixture(autouse=True)
+def cc_memory_fallback(
+    no_memory_lessons: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the default CC fallback without touching the real home directory."""
+    # The suite's isolation override takes precedence over CC after layered saves.
+    # Remove it only here, after no_memory_lessons has installed it.
+    monkeypatch.delenv("GPTME_MEMORY_DIRS", raising=False)
+    monkeypatch.delenv("GPTME_AGENT_WORKSPACE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
 
 class TestSlugify:

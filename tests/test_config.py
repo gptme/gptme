@@ -552,6 +552,120 @@ def test_mcp_config_loaded_in_correct_priority(tmp_path):
     assert my_server_4.env == {"API_KEY": "your-key-4"}
 
 
+def test_project_mcp_partial_layer_inherits_user_toggles(tmp_path: Path):
+    """A project [mcp] layer that only adds servers must not reset the toggles.
+
+    Regression for https://github.com/gptme/gptme/issues/4775: a project
+    ``[mcp]`` table without ``enabled``/``auto_start`` parsed to
+    ``MCPConfig(enabled=False)``, which silently disabled a globally enabled
+    MCP setup instead of inheriting it.
+    """
+    user_config = tmp_path / "config.toml"
+    user_config.write_text(
+        default_user_config
+        + "\n"
+        + default_mcp_config
+        + "\n"
+        + test_mcp_server_1_enabled
+    )
+    project_config = tmp_path / "gptme.toml"
+    project_config.write_text("[mcp]\n\n" + test_mcp_server_3)
+
+    config = Config.from_workspace(tmp_path)
+    config = replace(config, user=load_user_config(str(user_config)))
+
+    # Undeclared keys inherit from the user layer, servers still merge.
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+    assert [s.name for s in config.mcp.servers] == ["my-server-3", "my-server"]
+
+    # An explicit project override still wins.
+    project_config.write_text(
+        "[mcp]\nenabled = false\nauto_start = false\n\n" + test_mcp_server_3
+    )
+    config = Config.from_workspace(tmp_path)
+    config = replace(config, user=load_user_config(str(user_config)))
+
+    assert config.mcp.enabled is False
+    assert config.mcp.auto_start is False
+
+    # The merge bookkeeping must never reach a written config file.
+    project = Config.from_workspace(tmp_path).project
+    assert project is not None and project.mcp is not None
+    assert set(project.mcp.to_dict()) == {"enabled", "auto_start", "servers"}
+
+
+@pytest.mark.parametrize(
+    "toggles",
+    [{}, {"enabled": False}, {"auto_start": False}, {"enabled": True}],
+)
+def test_partial_chat_mcp_save_reload_preserves_inheritance(
+    tmp_path: Path, toggles: dict[str, bool]
+) -> None:
+    """Saving unrelated chat settings must not freeze inherited MCP toggles."""
+    logdir = tmp_path / "chat"
+    logdir.mkdir()
+    mcp_data = {
+        **toggles,
+        "servers": [{"name": "chat-server", "command": "server-command"}],
+    }
+    (logdir / "config.toml").write_text(tomlkit.dumps({"mcp": mcp_data}))
+    chat = ChatConfig.from_logdir(logdir)
+    config = Config(user=UserConfig(mcp=MCPConfig(enabled=True, auto_start=True)))
+    config.chat = chat
+    expected = (toggles.get("enabled", True), toggles.get("auto_start", True))
+    assert (config.mcp.enabled, config.mcp.auto_start) == expected
+
+    chat.name = "Renamed conversation"
+    chat.save()
+    config.chat = ChatConfig.from_logdir(logdir)
+    assert (config.mcp.enabled, config.mcp.auto_start) == expected
+    assert [s.name for s in config.mcp.servers] == ["chat-server"]
+    saved_mcp = tomlkit.loads((logdir / "config.toml").read_text())["mcp"]
+    assert {k: v for k, v in saved_mcp.items() if k != "servers"} == toggles
+
+    # Inheritance must remain live, rather than freezing the current user values.
+    config.user.mcp = MCPConfig(enabled=False, auto_start=False)
+    assert (config.mcp.enabled, config.mcp.auto_start) == (
+        toggles.get("enabled", False),
+        toggles.get("auto_start", False),
+    )
+
+
+@pytest.mark.parametrize("layer_type", [ChatConfig, ProjectConfig])
+@pytest.mark.parametrize("toggles", [{}, {"enabled": False}, {"auto_start": True}])
+def test_mcp_layer_serialization_preserves_declared_keys(
+    layer_type: type[ChatConfig] | type[ProjectConfig], toggles: dict[str, bool]
+) -> None:
+    layer = layer_type.from_dict(
+        {"mcp": {**toggles, "servers": [{"name": "server", "command": "cmd"}]}}
+    )
+    serialized = layer.to_dict()["mcp"]
+    assert {k: v for k, v in serialized.items() if k != "servers"} == toggles
+    reloaded = layer_type.from_dict(
+        tomlkit.loads(tomlkit.dumps({"mcp": serialized})).unwrap()
+    )
+    assert reloaded.mcp is not None
+    assert reloaded.mcp.to_dict() == serialized
+
+
+def test_programmatic_mcp_toggles_survive_serialization() -> None:
+    """Programmatic and effective configs have explicit values, not omissions."""
+    mcp = MCPConfig(enabled=True, auto_start=True)
+    assert mcp.to_dict() == {"enabled": True, "auto_start": True, "servers": []}
+    config = Config(user=UserConfig(mcp=mcp))
+    chat = ChatConfig.from_dict({"mcp": config.mcp.to_dict()})
+    config.chat = chat
+    config.user.mcp = MCPConfig()
+    assert config.mcp.enabled is True
+    assert config.mcp.auto_start is True
+    assert MCPConfig().to_dict() == {
+        "enabled": False,
+        "auto_start": False,
+        "servers": [],
+    }
+
+
 def test_malformed_mcp_server_entries_skipped_not_fatal():
     """A malformed [[mcp.servers]] entry must not crash config loading.
 
