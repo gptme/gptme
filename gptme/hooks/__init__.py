@@ -153,6 +153,13 @@ def init_hooks(
 
     # Available hooks with their register functions
     available_hooks = {
+        "session_end_metadata": lambda: register_hook(
+            "session_end_metadata",
+            HookType.SESSION_END,
+            __import__(
+                "gptme.tools.complete", fromlist=["session_end_metadata_hook"]
+            ).session_end_metadata_hook,
+        ),
         "cwd_changed": lambda: __import__(
             "gptme.hooks.cwd_changed", fromlist=["register"]
         ).register(),

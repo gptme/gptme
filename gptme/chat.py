@@ -1092,7 +1092,11 @@ def _transparent_system_notice(msg: Message) -> bool:
     if msg.role != "system" or msg.call_id:
         return False
     meta = msg.metadata or {}
-    return "compaction_reminder_view" in meta or meta.get("idle_notification") is True
+    return (
+        "compaction_reminder_view" in meta
+        or meta.get("idle_notification") is True
+        or (msg.ui_only and msg.content.startswith("<!-- gptme:session-end "))
+    )
 
 
 def _should_prompt_for_input(log: Log) -> bool:
@@ -1126,6 +1130,7 @@ def _should_prompt_for_input(log: Log) -> bool:
                 msg.content in (INTERRUPT_CONTENT, DECLINED_CONTENT)
                 or msg.content.startswith(LLM_REQUEST_FAILED_PREFIX)
                 or (msg.metadata or {}).get("max_steps_stop") is True
+                or (msg.ui_only and "session_stop_outcome" in (msg.metadata or {}))
             )
         ):
             has_recent_return_to_prompt = True

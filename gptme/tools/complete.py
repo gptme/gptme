@@ -394,6 +394,10 @@ def _run_verify_cmd(
 class SessionCompleteException(Exception):
     """Exception raised to signal that the session should end."""
 
+    def __init__(self, message: str = "", *, outcome: str | None = None) -> None:
+        super().__init__(message)
+        self.outcome = outcome
+
 
 def execute_complete(
     code: str | None,
@@ -409,6 +413,44 @@ def execute_complete(
 
 
 def complete_hook(
+    messages: list[Message],
+    workspace: Path | None = None,
+    **kwargs,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Persist an accepted stop, never the complete tool's pre-verification ack."""
+    from ..logmanager import LogManager
+
+    try:
+        yield from _complete_hook(messages, workspace, **kwargs)
+    except SessionCompleteException as exc:
+        manager = kwargs.get("manager") or LogManager.get_current_log()
+        # Prepared provider messages can be merged copies. Record on the owning
+        # transcript, not on those copies; don't mutate an unrelated current log.
+        last_assistant = next(
+            (m for m in reversed(messages) if m.role == "assistant"), None
+        )
+        if (
+            manager is not None
+            and last_assistant is not None
+            and any(
+                m.role == "assistant" and m.timestamp == last_assistant.timestamp
+                for m in current_episode(manager.log.messages)
+            )
+        ):
+            manager.append(
+                Message(
+                    "system",
+                    "Session stop accepted.",
+                    ui_only=True,
+                    hide=True,
+                    metadata={"session_stop_outcome": exc.outcome or "completed"},
+                )
+            )
+            manager.write(sync=True)
+        raise
+
+
+def _complete_hook(
     messages: list[Message],
     workspace: Path | None = None,
     **kwargs,
@@ -680,6 +722,10 @@ def complete_hook(
                     logger.warning(
                         "Verification failed %d time(s); proceeding with session close anyway.",
                         prior_attempts,
+                    )
+                    raise SessionCompleteException(
+                        "Completion verification retry limit exhausted",
+                        outcome="verification_failed",
                     )
 
             logger.info("Complete tool call detected, stopping session immediately")
@@ -957,14 +1003,15 @@ def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str | 
             return OUTCOME_MAX_TURNS
         if (last.content or "").startswith(MAX_STEPS_STOP_PREFIX):
             return OUTCOME_MAX_TURNS
-    # The complete tool appends its acknowledgement before the session-end
-    # exception unwinds. Looking in the current episode (not the whole history)
-    # keeps a stale acknowledgement from a resumed log from relabelling a new run.
-    if any(
-        m.role == "system" and (m.content or "") == _TASK_COMPLETE_MSG
-        for m in current_episode(messages)
-    ):
-        return OUTCOME_COMPLETED
+    # The acknowledgement precedes verification and cannot prove success.
+    # Only complete_hook's accepted-stop receipt is authoritative.
+    for m in reversed(current_episode(messages)):
+        if m.role in ("assistant", "user"):
+            break  # A resumed/continued turn invalidates the previous stop.
+        if m.role == "system" and m.ui_only:
+            outcome = (m.metadata or {}).get("session_stop_outcome")
+            if isinstance(outcome, str):
+                return outcome
     budget = _block_budget()
     chat = _effective_chat(manager)
     # Mirror ``block_budget_hook``: only a non-interactive session can have been
@@ -1304,10 +1351,5 @@ Use only after all requested work is done and committed. Do not call it mid-task
             stuck_detect_hook,
             1000,
         ),  # Run before auto_reply: catches repeating-tool loops it can't see
-        "session_end_metadata": (
-            HookType.SESSION_END.value,
-            session_end_metadata_hook,
-            0,
-        ),  # Structured tail block for gptme-sessions and the judge pipeline
     },
 )
