@@ -638,6 +638,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migrating-from-the-knowledge-base">Migrating from the knowledge base</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-harness-memory">Cross-harness memory</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-scope-in-the-memory-tool">Choosing scope in the memory tool</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
@@ -830,6 +831,63 @@ user); the nearest entry wins when names collide.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">index</span></code> prints by default. Pass <code class="docutils literal notranslate"><span class="pre">--write</span></code> only when you want to replace the
 selected root’s <code class="docutils literal notranslate"><span class="pre">MEMORY.md</span></code> with a generated index.</p>
+</section>
+<section id="choosing-scope-in-the-memory-tool">
+<h3>Choosing scope in the memory tool<a class="headerlink" href="#choosing-scope-in-the-memory-tool" title="Link to this heading">#</a></h3>
+<p>The conversational <code class="docutils literal notranslate"><span class="pre">memory</span></code> tool uses the same root selector as the CLI.
+Choose <code class="docutils literal notranslate"><span class="pre">scope=&quot;user&quot;</span></code> for preferences or feedback that should follow you
+across projects; choose <code class="docutils literal notranslate"><span class="pre">project</span></code> for local facts or <code class="docutils literal notranslate"><span class="pre">cc</span></code> for the current
+workspace’s Claude Code memory directory. The native tool accepts <code class="docutils literal notranslate"><span class="pre">name</span></code>,
+<code class="docutils literal notranslate"><span class="pre">content</span></code>, and optional <code class="docutils literal notranslate"><span class="pre">scope</span></code>. In Markdown format:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>```memory review-in-parallel --scope user
+Check review feedback concurrently with CI rather than blocking on CI alone.
+This preference applies across projects.
+```
+</pre></div>
+</div>
+<p>XML format carries the same shell-quoted arguments in its <code class="docutils literal notranslate"><span class="pre">args</span></code> attribute:</p>
+<div class="highlight-xml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;tool-use&gt;</span>
+<span class="nt">&lt;memory</span><span class="w"> </span><span class="na">args=</span><span class="s">"review-in-parallel --scope user"</span><span class="nt">&gt;</span>
+Check<span class="w"> </span>review<span class="w"> </span>feedback<span class="w"> </span>concurrently<span class="w"> </span>with<span class="w"> </span>CI<span class="w"> </span>rather<span class="w"> </span>than<span class="w"> </span>blocking<span class="w"> </span>on<span class="w"> </span>CI<span class="w"> </span>alone.
+This<span class="w"> </span>preference<span class="w"> </span>applies<span class="w"> </span>across<span class="w"> </span>projects.
+<span class="nt">&lt;/memory&gt;</span>
+<span class="nt">&lt;/tool-use&gt;</span>
+</pre></div>
+</div>
+<p>In XML, <code class="docutils literal notranslate"><span class="pre">--scope</span></code> is reserved for scope selection. To save a literal name
+containing that token, quote the entire name inside the attribute, for example
+<code class="docutils literal notranslate"><span class="pre">args=&quot;'deployment</span> <span class="pre">--scope</span> <span class="pre">user'&quot;</span></code>. Other unscoped XML names retain their
+whole-attribute behavior; serialized literal names with <code class="docutils literal notranslate"><span class="pre">--scope</span></code> are quoted.</p>
+<p>Available scopes are <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">cc</span></code>, <code class="docutils literal notranslate"><span class="pre">agent</span></code>, <code class="docutils literal notranslate"><span class="pre">user</span></code>, and <code class="docutils literal notranslate"><span class="pre">explicit</span></code>.
+<code class="docutils literal notranslate"><span class="pre">project</span></code> requires an existing workspace <code class="docutils literal notranslate"><span class="pre">memory/</span></code> directory; <code class="docutils literal notranslate"><span class="pre">agent</span></code>
+requires an existing configured agent memory directory. <code class="docutils literal notranslate"><span class="pre">user</span></code> writes under
+<code class="docutils literal notranslate"><span class="pre">&lt;gptme</span> <span class="pre">config</span> <span class="pre">directory&gt;/memory/</span></code>. When <code class="docutils literal notranslate"><span class="pre">GPTME_MEMORY_DIRS</span></code> is set, it
+replaces all other roots: only <code class="docutils literal notranslate"><span class="pre">explicit</span></code> is available. An unavailable or
+invalid scope fails without falling back or creating another root.
+Relative paths in <code class="docutils literal notranslate"><span class="pre">GPTME_MEMORY_DIRS</span></code> and <code class="docutils literal notranslate"><span class="pre">GPTME_AGENT_WORKSPACE</span></code> are resolved
+against the selected workspace (the conversation workspace on the server),
+before directory availability checks and duplicate-root removal. Absolute paths
+and <code class="docutils literal notranslate"><span class="pre">~</span></code>-expanded paths keep their configured destinations.</p>
+<p>Without a scope, the tool follows the CLI default: first explicit root, else
+existing project <code class="docutils literal notranslate"><span class="pre">memory/</span></code>, else the workspace’s CC root. This is not a
+user-wide default, and no text classifier chooses a scope for you. Confirmation
+and success show the actual selected scope and destination. Interactive tool
+confirmation hooks receive destination metadata separately from editable memory
+text; editing the memory does not add that metadata to the saved entry. The
+selected root is made absolute before confirmation and retained throughout
+confirmation and saving, even if the process directory changes. The shared writer updates the
+index under its existing policy and budget.</p>
+<p>Temporary Git worktrees retain their own project/CC identity under the existing
+workspace resolver. A project fact stays local to that worktree unless you
+explicitly configure a shared root; use <code class="docutils literal notranslate"><span class="pre">user</span></code> for cross-project feedback or
+a configured <code class="docutils literal notranslate"><span class="pre">agent</span></code> root for agent-wide knowledge. This tool does not remap
+a worktree to the primary checkout, migrate memories, or delete old entries.</p>
+<p>Saving is not the same as startup delivery: gptme loads the layered indexes
+within its shared prompt budget, not every full entry. Claude Code’s native
+auto-load covers its project CC index, not an arbitrary user root; configure
+the recall hook below to search the other layers. Codex requires explicit
+recall instructions or an exported index in <code class="docutils literal notranslate"><span class="pre">AGENTS.md</span></code> as described below.
+A policy-managed entry may remain recall-only until selected for the index.</p>
 </section>
 <section id="persistent-index-selection-and-budget">
 <h3>Persistent index selection and budget<a class="headerlink" href="#persistent-index-selection-and-budget" title="Link to this heading">#</a></h3>
@@ -1133,6 +1191,7 @@ instead. Invalid JSON, a non-object, or a reserved key fails before writing.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migrating-from-the-knowledge-base">Migrating from the knowledge base</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cross-harness-memory">Cross-harness memory</a><ul class="pst-show_toc_level nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inspect-and-write-memory">Inspect and write memory</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-scope-in-the-memory-tool">Choosing scope in the memory tool</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#persistent-index-selection-and-budget">Persistent index selection and budget</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supersession-and-audit">Supersession and audit</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#recall">Recall</a></li>
