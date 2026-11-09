@@ -694,6 +694,61 @@ class TestRunDiagnostics:
 
         assert calls == ["plugins", "api_keys", "default_model"]
 
+    def test_failing_check_does_not_abort_the_report(self):
+        """A crashing check becomes an ERROR row; later checks still run.
+
+        gptme/gptme#4813: a config.toml that fails to parse crashed
+        _check_proxy -> get_config(), taking down the whole report — including
+        the Config row that names the corruption.
+        """
+
+        def boom(verbose=False):
+            raise ValueError("unparseable config")
+
+        with patch("gptme.cli.doctor._check_proxy", new=boom):
+            results, summary = run_diagnostics()
+
+        crashed = [r for r in results if r.name == "Proxy: Check"]
+        assert len(crashed) == 1
+        assert crashed[0].status == CheckStatus.ERROR
+        assert "unparseable config" in crashed[0].message
+        assert summary["error"] >= 1
+        # Checks after the failing one still ran.
+        assert any(r.name.startswith("Permissions:") for r in results)
+
+    def test_every_check_can_fail_independently(self):
+        """No single check is load-bearing for producing a report."""
+        from gptme.cli import doctor
+
+        names = [
+            "_check_python_version",
+            "_check_version",
+            "_check_config",
+            "_check_proxy",
+            "_check_plugins",
+            "_check_api_keys",
+            "_check_default_model",
+            "_check_tools",
+            "_check_python_deps",
+            "_check_computer",
+            "_check_browser",
+            "_check_mcp",
+            "_check_permissions",
+        ]
+
+        def boom(verbose=False):
+            raise RuntimeError("fixture failure")
+
+        for name in names:
+            assert hasattr(doctor, name), name
+            with patch(f"gptme.cli.doctor.{name}", new=boom):
+                results, summary = run_diagnostics()
+            assert summary["total"] == len(results)
+            assert any(
+                r.status == CheckStatus.ERROR and "fixture failure" in r.message
+                for r in results
+            ), name
+
 
 class TestCLI:
     """Test CLI interface."""

@@ -276,6 +276,7 @@ jobs:
           tests/test_tools_patch.py::test_execute_patch_size_warning `
           tests/test_config.py::test_custom_tool_file_allowlist_preserved `
           tests/test_config.py::test_custom_tool_file_mixed_allowlist `
+          tests/test_config_validate.py::test_repair_writes_validated_newlines `
           tests/test_llm_openai.py::TestIsProxy `
           tests/test_cli.py::test_help `
           tests/test_cli.py::test_version
