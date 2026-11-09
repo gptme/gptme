@@ -611,3 +611,65 @@ def test_update_subagent_result_with_branch_skips_structured_results():
     with _subagent_results_lock:
         result = _subagent_results["schema-agent"]
     assert "Changes preserved on branch" in (result.result or "")
+
+
+# ---------------------------------------------------------------------------
+# Non-git isolation directory preservation (gptme/gptme#4555 slice)
+# ---------------------------------------------------------------------------
+
+
+def _fake_isolated_subagent(path: Path):
+    """Minimal stand-in exposing only the fields _cleanup_isolation reads."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        agent_id="tempdir-isolation",
+        isolated=True,
+        worktree_path=path,
+        repo_path=None,
+        isolation_mode=None,
+    )
+
+
+def test_cleanup_preserves_non_empty_non_git_isolation(tmp_path: Path):
+    """Work written into a non-git isolation dir must not be deleted silently.
+
+    ``_run_planner()`` falls back to ``tempfile.mkdtemp()`` when the workspace is
+    not a git repo (or ``create_worktree`` fails) and builds the Subagent without
+    ``isolation_mode``, so cleanup used to remove the directory outright — taking
+    the child's output with it and telling the caller nothing.
+    """
+    isolated = tmp_path / "isolation"
+    isolated.mkdir()
+    artifact = isolated / "result.md"
+    artifact.write_text("unpublished work\n", encoding="utf-8")
+
+    preserved = subagent_execution._cleanup_isolation(_fake_isolated_subagent(isolated))
+
+    assert preserved == str(isolated), "cleanup must report the preserved path"
+    assert artifact.exists(), "child output must survive cleanup"
+    assert artifact.read_text() == "unpublished work\n"
+
+
+def test_cleanup_removes_empty_non_git_isolation(tmp_path: Path):
+    """An empty non-git isolation dir is still cleaned up (no directory leak)."""
+    isolated = tmp_path / "isolation"
+    isolated.mkdir()
+
+    preserved = subagent_execution._cleanup_isolation(_fake_isolated_subagent(isolated))
+
+    assert preserved is None
+    assert not isolated.exists()
+
+
+def test_preserved_notice_distinguishes_path_from_branch():
+    """A preserved path must not be rendered as a branch to merge."""
+    from gptme.tools.subagent.types import preserved_notice
+
+    path_notice = preserved_notice("/tmp/subagent-x-123")
+    assert "isolated workspace" in path_notice
+    assert "git merge" not in path_notice
+
+    branch_notice = preserved_notice("subagent-x-abc123")
+    assert "Changes preserved on branch" in branch_notice
+    assert "git merge subagent-x-abc123" in branch_notice

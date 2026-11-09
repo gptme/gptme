@@ -36,6 +36,7 @@ from .types import (
     _subagents,
     _subagents_lock,
     clarification_result_from_content,
+    preserved_notice,
     resolve_role_defaults,
     set_subagent_result_if_absent,
     update_subagent_result_with_branch,
@@ -1133,9 +1134,7 @@ def subagent(
 
                         result = _ReturnType(
                             result.status,
-                            f"{result.result}\n\nChanges preserved on branch "
-                            f"{preserved_branch!r}"
-                            f" — merge with: git merge {preserved_branch}",
+                            f"{result.result}{preserved_notice(preserved_branch)}",
                             input_tokens=result.input_tokens,
                             output_tokens=result.output_tokens,
                             tool_uses=result.tool_uses,

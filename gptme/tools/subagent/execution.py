@@ -44,6 +44,7 @@ from .hooks import notify_completion, notify_progress
 from .persistence import persist_subagent_meta
 from .types import (
     ReturnType,
+    preserved_notice,
     set_subagent_result_if_absent,
     update_subagent_result_with_branch,
 )
@@ -960,6 +961,24 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     if not subagent.isolated or not subagent.worktree_path:
         return None
 
+    worktree_path = subagent.worktree_path
+
+    # A non-git isolation directory (the ``tempfile.mkdtemp`` fallback used when
+    # the workspace is not a repo or ``create_worktree`` failed) has no branch to
+    # preserve, so ``cleanup_worktree`` would delete it outright — including
+    # whatever the child wrote there. Keep it and report the path instead.
+    if subagent.repo_path is None:
+        try:
+            has_content = any(worktree_path.iterdir())
+        except OSError:
+            has_content = True
+        if has_content:
+            logger.warning(
+                f"Subagent {subagent.agent_id!r}: preserving non-empty isolated "
+                f"workspace at {worktree_path} (no git branch to hold the work)"
+            )
+            return str(worktree_path)
+
     from ...util.git_worktree import cleanup_worktree
 
     try:
@@ -1354,10 +1373,7 @@ def _monitor_subprocess(
     # the result string is JSON that callers parse, and appending text after
     # it would break that parse.
     if preserved_branch and isinstance(result, str) and not subagent.output_schema:
-        result = (
-            f"{result}\n\nChanges preserved on branch {preserved_branch!r}"
-            f" — merge with: git merge {preserved_branch}"
-        )
+        result = f"{result}{preserved_notice(preserved_branch)}"
 
     # Cache the result in module-level dict (Subagent is frozen)
     final_result = ReturnType(
