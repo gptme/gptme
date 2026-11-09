@@ -212,3 +212,20 @@ def test_spool_open_failure_also_tolerates_cleanup_fsync_failure(
     assert stream._closed
     with pytest.raises(OSError, match="Bad file descriptor"):
         os.fstat(stream._fd)
+
+
+def test_live_spool_with_pending_line_does_not_claim_full_output(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "pending.live")
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    try:
+        job._spool_text(True, "x" * 10000, final=False)
+        preview = format_job_output(job, "x" * 10000, "")
+        assert "Full output" not in preview
+        assert "pending sanitation" in preview
+        job._spool_text(True, "", final=True)
+        assert "Full output" in format_job_output(job, "x" * 10000, "", complete=True)
+    finally:
+        stream.close()

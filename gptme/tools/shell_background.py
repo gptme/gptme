@@ -707,11 +707,12 @@ def format_job_output(
         )
         dropped = job._stdout_buffer_start + job._stderr_buffer_start
         if job._spool_from_reader:
-            label = (
-                "Partial output (capture omitted data)"
-                if job._capture_partial
-                else "Full output"
-            )
+            if job._capture_partial:
+                label = "Partial output (capture omitted data)"
+            elif job._spool_pending_stdout or job._spool_pending_stderr:
+                label = "Partial output (incomplete line pending sanitation)"
+            else:
+                label = "Full output"
             paths = [f"stdout: `{log_path}`"] if log_path is not None else []
             if job.stderr_log_path is not None:
                 paths.append(f"stderr: `{job.stderr_log_path}`")
