@@ -111,18 +111,24 @@ class Config:
                 if server.name not in [s.name for s in servers]:
                     servers.append(server)
 
-        # merge mcp config
+        # merge mcp config: the user layer is the base, stronger layers only
+        # override the scalars they actually declare, so a project (or chat)
+        # layer that just adds servers inherits `enabled`/`auto_start`.
         if self.user and self.user.mcp:
             enabled = self.user.mcp.enabled
             auto_start = self.user.mcp.auto_start
 
         if self.project and self.project.mcp:
-            enabled = self.project.mcp.enabled
-            auto_start = self.project.mcp.auto_start
+            if self.project.mcp.enabled_declared:
+                enabled = self.project.mcp.enabled
+            if self.project.mcp.auto_start_declared:
+                auto_start = self.project.mcp.auto_start
 
         if self.chat and self.chat.mcp:
-            enabled = self.chat.mcp.enabled
-            auto_start = self.chat.mcp.auto_start
+            if self.chat.mcp.enabled_declared:
+                enabled = self.chat.mcp.enabled
+            if self.chat.mcp.auto_start_declared:
+                auto_start = self.chat.mcp.auto_start
 
         mcp = MCPConfig(
             enabled=enabled,
