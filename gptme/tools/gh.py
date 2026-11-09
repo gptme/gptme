@@ -39,6 +39,8 @@ from collections.abc import Generator
 
 from ..message import Message
 from ..util.gh import (
+    DEFAULT_LOG_MAX_TOKENS,
+    _truncate_log_tail,
     get_github_issue_content,
     get_github_pr_content,
     get_github_run_logs,
@@ -638,8 +640,9 @@ def _passthrough_gh(
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=60, check=False
         )
-        output = result.stdout.strip()
-        stderr = result.stderr.strip()
+        max_chars = DEFAULT_LOG_MAX_TOKENS * 4
+        output = _truncate_log_tail((result.stdout or "").strip(), max_chars)
+        stderr = _truncate_log_tail((result.stderr or "").strip(), max_chars)
         if result.returncode != 0:
             details = []
             if stderr:
@@ -708,19 +711,24 @@ _NATIVE_REF_COMMANDS = {
 
 
 # Native read handlers that implement no flags beyond ``--repo``/``-R``.
+# ``run view`` also absorbs ``--log``/``--log-failed``: native extraction already
+# returns the failure block, and passing those flags through dumps megabyte logs.
 _NATIVE_REPO_FLAG_ONLY = _NATIVE_REF_COMMANDS - {("pr", "merge")} | {("run", "view")}
+_NATIVE_RUN_VIEW_LOG_FLAGS = frozenset({"--log", "--log-failed"})
 
 
 def _has_unsupported_flags(args: list[str]) -> bool:
     """True when a native read command carries a flag its handler does not implement.
 
-    The native handlers understand only ``--repo``/``-R``.  Any other flag
-    (``--json``, ``--jq``, ``--log-failed``, ``--job``, ...) was previously
+    The native handlers understand ``--repo``/``-R``.  ``run view`` also absorbs
+    ``--log``/``--log-failed`` (native extraction is the capped failure view).
+    Any other flag (``--json``, ``--jq``, ``--job``, ...) was previously
     discarded, or read as a positional value (``pr checks --json`` became the
     commit SHA), so the caller got the native summary instead of what it asked
     for.  Such calls must reach the real gh CLI.
     """
     rest = args[2:]
+    is_run_view = tuple(args[:2]) == ("run", "view")
     i = 0
     while i < len(rest):
         token = rest[i]
@@ -730,10 +738,34 @@ def _has_unsupported_flags(args: list[str]) -> bool:
         if token.startswith("--repo=") or (token.startswith("-R") and len(token) > 2):
             i += 1
             continue
+        if is_run_view and token in _NATIVE_RUN_VIEW_LOG_FLAGS:
+            i += 1
+            continue
         if token.startswith("-"):
             return True
         i += 1
     return False
+
+
+def _run_view_id(args: list[str]) -> str | None:
+    """First positional token of ``run view``, skipping repo and log flags."""
+    i = 2
+    while i < len(args):
+        token = args[i]
+        if token in ("--repo", "-R"):
+            i += 2
+            continue
+        if token.startswith("--repo=") or (token.startswith("-R") and len(token) > 2):
+            i += 1
+            continue
+        if token in _NATIVE_RUN_VIEW_LOG_FLAGS:
+            i += 1
+            continue
+        if token.startswith("-"):
+            i += 1
+            continue
+        return token
+    return None
 
 
 def _cli_reference_index(args: list[str]) -> int | None:
@@ -932,13 +964,13 @@ def execute_gh(
             )
 
     elif args and len(args) >= 2 and args[0] == "run" and args[1] == "view":
-        if len(args) < 3:
+        run_id = _run_view_id(args)
+        if not run_id:
             yield Message(
                 "system", "Error: No run ID provided. Usage: gh run view <run-id>"
             )
             return
 
-        run_id = args[2]
         if not run_id.isdigit():
             yield Message(
                 "system",
@@ -946,7 +978,7 @@ def execute_gh(
             )
             return
 
-        repo, repo_err = _parse_run_repo(args[3:])
+        repo, repo_err = _parse_run_repo(args[2:])
         if repo_err:
             yield Message("system", repo_err)
             return
@@ -982,8 +1014,9 @@ Native commands:
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
 
-Read flags beyond `--repo`/`-R` (e.g. `--json`, `--log-failed`) and other
-subcommands use the CLI. A separate `url` supplies the target; flagged PR-specific
+Read flags beyond `--repo`/`-R` (e.g. `--json`, `--jq`, `--job`) and other
+subcommands use the CLI. `run view --log`/`--log-failed` stay native (capped
+failure extraction). A separate `url` supplies the target; flagged PR-specific
 `pr status` uses `pr view` (CLI `pr status` has no target).
 
 Structured tool calls pass the whole command as `command`, e.g.
