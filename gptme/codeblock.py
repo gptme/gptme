@@ -432,6 +432,12 @@ def _line_fence_states(
             states.append((0, False, ""))
             continue
 
+        # A confirmed heredoc body is verbatim shell input, including fences
+        # and thinking tags. Do not apply ambiguous markdown recovery to it.
+        if heredoc_terminator is not None and line.strip() != heredoc_terminator:
+            states.append((depth, False, outer_lang))
+            continue
+
         if depth == 1 and line.startswith("`" * fence_len):
             rest = line[fence_len:]
             if re.match(r"^`{3,}\S", rest):
@@ -1078,6 +1084,16 @@ def _extract_codeblocks(
             # Collect content until we find the matching closing ```
             while i < len(lines):
                 line = lines[i]
+
+                # Confirmed heredoc payload is literal, even when it resembles
+                # a joined fence or has no later markdown outer closer.
+                if (
+                    heredoc_terminator is not None
+                    and line.strip() != heredoc_terminator
+                ):
+                    content_lines.append(line)
+                    i += 1
+                    continue
 
                 # Recover from malformed adjacent fences where a closing fence for the
                 # current block is directly concatenated with the opening fence of the

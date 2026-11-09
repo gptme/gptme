@@ -3383,3 +3383,14 @@ def test_long_outer_save_preserves_tail_before_actual_joined_fences(
         Codeblock("save a.md", content),
         Codeblock("shell", "cat a.md"),
     ]
+
+
+@pytest.mark.parametrize("tail_lines", [3, 30])
+def test_distant_tagged_fence_inside_shell_heredoc_is_not_recovered_closer(
+    tail_lines: int,
+) -> None:
+    content = (
+        "cat <<EOF > a.md\n```\n" + "body\n" * tail_lines + "```text\nEOF\necho done"
+    )
+    markdown = f"```shell\n{content}\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("shell", content)]
