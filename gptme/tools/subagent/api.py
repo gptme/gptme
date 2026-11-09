@@ -1528,7 +1528,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
 
     Thread and subprocess children append the follow-up to their original gptme
     conversation log. ACP children reload their durable ACP session before the
-    prompt. Isolated children cannot be continued after their workspace cleanup.
+    prompt. Isolated children cannot be continued.
 
     Args:
         agent_id: The completed subagent to continue.
@@ -1545,15 +1545,8 @@ def subagent_continue(agent_id: str, message: str) -> None:
         raise ValueError(
             f"Subagent '{agent_id}' is still running. Use subagent_steer() instead."
         )
-    if sa.execution_mode != "acp" and not (sa.logdir / "conversation.jsonl").exists():
-        raise ValueError(f"Subagent '{agent_id}' has no conversation log to continue.")
-    if sa.execution_mode == "acp" and sa.acp_session_id is None:
-        raise ValueError(f"ACP subagent '{agent_id}' has no session ID to continue.")
-    if sa.isolated:
-        raise ValueError(
-            f"Subagent '{agent_id}' used an isolated workspace that was cleaned up "
-            "after completion and cannot be continued."
-        )
+    if (blocker := sa.continuation_blocker()) is not None:
+        raise ValueError(blocker)
     try:
         workspace = sa.workdir or Path.cwd()
     except FileNotFoundError:

@@ -34,6 +34,7 @@ from gptme.tools.subagent.control import (
 )
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.hooks import (
+    _completion_message,
     _get_complete_instruction,
     _subagent_cancel_checkpoint,
     _subagent_completion_hook,
@@ -8455,3 +8456,56 @@ class TestReasoningEffort:
             )
         if _sa and _sa.thread:
             _sa.thread.join(timeout=2.0)
+
+
+class TestTimeoutCompletionContinuationHint:
+    """A timed-out child reports whether the parent can resume it (gptme#4555)."""
+
+    @staticmethod
+    def _register(tmp_path, agent_id: str, **kwargs) -> Subagent:
+        logdir = tmp_path / agent_id
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            '{"role":"assistant","content":"opened PR, waiting on CI"}\n'
+        )
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+            **kwargs,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        return sa
+
+    def test_timeout_names_continuation_for_resumable_child(self, tmp_path):
+        sa = self._register(tmp_path, "resumable-timeout")
+        msg = _completion_message(sa.agent_id, "timeout", "killed after 1200s")
+        assert "⏱️ Subagent 'resumable-timeout' timed out" in msg.content
+        assert "subagent_continue('resumable-timeout'" in msg.content
+
+    def test_timeout_omits_continuation_for_isolated_child(self, tmp_path):
+        sa = self._register(tmp_path, "isolated-timeout", isolated=True)
+        msg = _completion_message(sa.agent_id, "timeout", "killed after 1200s")
+        assert "subagent_continue" not in msg.content
+
+    def test_timeout_omits_continuation_without_conversation_log(self, tmp_path):
+        sa = self._register(tmp_path, "logless-timeout")
+        (sa.logdir / "conversation.jsonl").unlink()
+        msg = _completion_message(sa.agent_id, "timeout", "killed after 1200s")
+        assert "subagent_continue" not in msg.content
+
+    def test_timeout_omits_continuation_for_unknown_child(self):
+        msg = _completion_message("never-registered", "timeout", "gone")
+        assert "subagent_continue" not in msg.content
+
+    def test_failure_and_cancel_never_offer_continuation(self, tmp_path):
+        sa = self._register(tmp_path, "final-outcome")
+        for msg in (
+            _completion_message(sa.agent_id, "failure", "done"),
+            _completion_message(sa.agent_id, "cancelled", "done"),
+        ):
+            assert "subagent_continue" not in msg.content

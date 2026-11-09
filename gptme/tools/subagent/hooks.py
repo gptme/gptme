@@ -659,6 +659,17 @@ def _notification_branch(
     return "main"
 
 
+def _timeout_is_resumable(agent_id: str) -> bool:
+    """Whether a timed-out child can resume in the same conversation.
+
+    Only the in-memory registry is consulted: the notice is formatted on
+    delivery paths that must not hit disk, and an unknown child stays silent.
+    """
+    with _subagents_lock:
+        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
+    return sa is not None and sa.continuation_blocker() is None
+
+
 def _completion_message(agent_id: str, status: Status, summary: str) -> Message:
     """Format a completion identically for CLI hooks and server wakeups."""
     if status == "success":
@@ -670,6 +681,11 @@ def _completion_message(agent_id: str, status: Status, summary: str) -> Message:
         )
     elif status == "timeout":
         content = f"⏱️ Subagent '{agent_id}' timed out: {summary}"
+        if _timeout_is_resumable(agent_id):
+            content += (
+                f"\nIts conversation is intact. Call subagent_continue('{agent_id}', "
+                "'<next instruction>') to resume it instead of redoing its work."
+            )
     elif status == "blocked_external":
         content = (
             f"⏸️ Subagent '{agent_id}' yielded, blocked on an external condition: "
