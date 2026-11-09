@@ -1239,6 +1239,7 @@ class TestOAuthTokenExpiry:
         expiry, refreshable = _oauth_token_expiry("grok-subscription")
         assert refreshable is True
         assert expiry == pytest.approx(1794225600.0)
+        assert not (tmp_path / "missing").exists()
 
     @pytest.mark.parametrize(
         ("cli_expiry", "cli_refresh", "stored_expiry", "expected_expiry"),
