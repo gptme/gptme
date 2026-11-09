@@ -61,6 +61,7 @@ from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.program_status import (
     mark_turn_cancelled,
+    mark_turn_done,
     session_status,
     turn_start,
     turn_status,
@@ -970,6 +971,7 @@ def _process_message_conversation(
                 )
             )
             interrupted = True
+            mark_turn_done()  # configured budget stop, not user interrupt
             _idle_autowake_blocked.set(True)
             break
 

@@ -388,3 +388,34 @@ def test_cli_cancelled_turn_is_not_done(output, tmp_path, cancelled):
     expected = status.encode_report("idle" if cancelled else "done")
     assert output.getvalue().endswith(expected)
     assert output.getvalue().count("state=done") == (not cancelled)
+
+
+def test_cli_max_steps_stop_reports_done(output, tmp_path, monkeypatch):
+    """GPTME_MAX_STEPS ending a turn reports done, not idle."""
+    import importlib
+    from unittest.mock import patch
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    chat = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "System"), Message("user", "run a step")],
+        logdir=tmp_path / "conversation",
+    )
+
+    step_count = 0
+
+    def fake_step(*args, **kwargs):
+        nonlocal step_count
+        step_count += 1
+        yield Message("assistant", "Done.")
+
+    with patch.object(chat, "step", fake_step):
+        chat._process_message_conversation(manager, False, "markdown", None)
+
+    assert output.getvalue().endswith(status.encode_report("done"))
+    assert (
+        "state=idle" not in output.getvalue().split(status.encode_report("working"))[-1]
+    )

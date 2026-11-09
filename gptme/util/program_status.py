@@ -12,7 +12,7 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, ParamSpec
 
 from ..message import get_output_format
@@ -64,6 +64,9 @@ class Scope:
     """A reporting scope; ``after`` may be changed before a normal exit."""
 
     after: State | None
+    # Set by mark_turn_cancelled / mark_turn_done to prevent the decorator's
+    # interrupted→idle default from overriding an explicit outcome.
+    _locked: bool = field(default=False)
 
 
 def mark_turn_cancelled() -> None:
@@ -77,6 +80,20 @@ def mark_turn_cancelled() -> None:
     scope = _turn_scope.get()
     if scope is not None:
         scope.after = "idle"
+        scope._locked = True
+
+
+def mark_turn_done() -> None:
+    """End the in-flight turn ``done``: a configured stop, not a user interrupt.
+
+    Use this when a step limit (``GPTME_MAX_STEPS``) stops the turn — the agent
+    ran to its configured budget, not user-interrupted, so the terminal consumer
+    should see ``done`` rather than ``idle``.
+    """
+    scope = _turn_scope.get()
+    if scope is not None:
+        scope.after = "done"
+        scope._locked = True
 
 
 @contextmanager
@@ -180,7 +197,7 @@ def turn_status(
                     raise
                 finally:
                     _turn_scope.reset(token)
-                if interrupted:
+                if interrupted and not scope._locked:
                     scope.after = "idle"
                 return interrupted
 

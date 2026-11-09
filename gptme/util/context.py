@@ -764,6 +764,13 @@ def _include_paths(
             files.append(file)
 
     # Process URLs (only confirmed ones in interactive mode)
+    # Report working before the fetch: approval may have left the status at
+    # idle (the blocked:permission scope restores the previous state on exit),
+    # so a slow URL fetch would otherwise appear idle to terminal consumers.
+    if confirmed_urls:
+        from .program_status import report as _report_status
+
+        _report_status("working")
     for url in urls_found:
         if confirmed_urls is not None and url not in confirmed_urls:
             logger.debug(f"Skipping unconfirmed URL: {url}")
