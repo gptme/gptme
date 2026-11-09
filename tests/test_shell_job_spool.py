@@ -236,6 +236,7 @@ def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_s
     from gptme.config import ChatConfig, Config, UserConfig, _config_var
 
     monkeypatch.delenv("GPTME_SHELL_REDACT_SECRETS", raising=False)
+    monkeypatch.delenv("SHELL_REDACT_SECRETS", raising=False)
     user = UserConfig(env={"SHELL_REDACT_SECRETS": "0"})
     monkeypatch.setattr("gptme.config.core.Config", lambda: Config(user=user))
     config = Config(user=user, chat=ChatConfig(env={"SHELL_REDACT_SECRETS": "1"}))
