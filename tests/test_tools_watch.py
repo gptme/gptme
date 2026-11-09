@@ -256,8 +256,10 @@ def test_until_retries_nonzero_probe(monkeypatch, tmp_path):
         [
             sys.executable,
             "-c",
-            f"from pathlib import Path; import sys; p=Path({str(marker)!r}); "
-            "seen=p.exists(); p.write_text('attempt'); print('success' if seen else 'retry'); sys.exit(0 if seen else 1)",
+            (
+                f"from pathlib import Path; import sys; p=Path({str(marker)!r}); "
+                "seen=p.exists(); p.write_text('attempt'); print('success' if seen else 'retry'); sys.exit(0 if seen else 1)"
+            ),
         ]
     )
     watch = Watch(
@@ -273,7 +275,7 @@ def test_until_retries_nonzero_probe(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("cancel", [False, True])
 def test_until_stops_quiet_probe_after_eof(monkeypatch, cancel):
-    monkeypatch.setattr(_watch_mod, "_deliver", lambda *_: None)
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args, **kwargs: None)
     command = "exec " + shlex.join(
         [
             sys.executable,
@@ -852,12 +854,15 @@ def test_requeue_preserves_remaining_events(tmp_path: Path):
             ]
         )
     batch = take_queued_watch_events(logdir)
-    assert batch == [("w1", "a"), ("w2", "b"), ("w3", "c")]
+    assert batch == [("w1", "a", "fired"), ("w2", "b", "fired"), ("w3", "c", "fired")]
     # Mid-loop failure on the second event: put that one and every later
     # event back, preserving order (the previous-review P1).
-    for wid, txt in reversed(batch[1:]):
-        requeue_watch_event(logdir, wid, txt)
-    assert take_queued_watch_events(logdir) == [("w2", "b"), ("w3", "c")]
+    for wid, txt, status in reversed(batch[1:]):
+        requeue_watch_event(logdir, wid, txt, status=status)
+    assert take_queued_watch_events(logdir) == [
+        ("w2", "b", "fired"),
+        ("w3", "c", "fired"),
+    ]
 
 
 def test_deferred_watch_wakes_deliver_batch_in_one_wake(tmp_path, monkeypatch):
@@ -906,7 +911,10 @@ def test_deferred_watch_wakes_requeue_whole_batch_when_busy(tmp_path, monkeypatc
     )
     SessionManager.retry_deferred_watch_wakes("conv")
 
-    assert take_queued_watch_events(logdir) == [("w1", "a"), ("w2", "b")]
+    assert take_queued_watch_events(logdir) == [
+        ("w1", "a", "fired"),
+        ("w2", "b", "fired"),
+    ]
 
 
 @pytest.mark.parametrize("wake_succeeds", [False, True])
@@ -935,7 +943,7 @@ def test_deferred_watch_wakes_preserve_branches(tmp_path, monkeypatch, wake_succ
     assert "Watch w2 fired: b" in calls[0][1]
     assert take_queued_watch_events(logdir, branch="main") == []
     assert take_queued_watch_events(logdir, branch="other") == (
-        [] if wake_succeeds else [("w1", "a"), ("w2", "b")]
+        [] if wake_succeeds else [("w1", "a", "fired"), ("w2", "b", "fired")]
     )
 
 
@@ -966,10 +974,10 @@ def test_deferred_watch_wakes_keep_mixed_branch_order(tmp_path, monkeypatch):
         ("main", "Watch w2 fired: b\nWatch w4 fired: d"),
     ]
     assert take_queued_watch_events(logdir) == [
-        ("w1", "a"),
-        ("w2", "b"),
-        ("w3", "c"),
-        ("w4", "d"),
+        ("w1", "a", "fired"),
+        ("w2", "b", "fired"),
+        ("w3", "c", "fired"),
+        ("w4", "d", "fired"),
     ]
 
 
@@ -1472,7 +1480,7 @@ def test_server_step_drains_only_its_watch_branch(
         assert delivered == [f"Watch {branch} fired: ready-{branch}"]
         other = "feature" if branch == "main" else "main"
         assert take_queued_watch_events_with_branches(manager.logdir) == [
-            (other, f"ready-{other}", other)
+            (other, f"ready-{other}", other, "fired")
         ]
     finally:
         session.acp_runtime = None
@@ -1563,7 +1571,7 @@ def test_tmux_cancelled_or_expired_watch_does_not_capture(monkeypatch, cancelled
         pytest.fail("An expired or cancelled watch must not capture")
 
     monkeypatch.setattr(_watch_mod.subprocess, "run", unexpected_capture)
-    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args: None)
+    monkeypatch.setattr(_watch_mod, "_deliver", lambda *args, **kwargs: None)
     _watch_mod._poll_tmux(w, "control", None, 0.01)
     assert list(w.events) == ([] if cancelled else ["expired without match"])
 
@@ -1733,7 +1741,7 @@ def test_stream_oversized_live_child_cleanup(
         id="cleanup", kind="stream", description="test", created=time.time(), proc=proc
     )
 
-    def deliver(_: Watch, text: str) -> None:
+    def deliver(_: Watch, text: str, *, status: str = "fired") -> None:
         if "truncated" in text:
             delivered.set()
 
@@ -1813,7 +1821,7 @@ def test_stream_firehose_guards_still_stop_child(
         proc=proc,
     )
 
-    def deliver(_: Watch, text: str) -> None:
+    def deliver(_: Watch, text: str, *, status: str = "fired") -> None:
         if guard == "queue":
             assert w.cancel_event.wait(timeout=3), (
                 "reader must cancel on queue overflow"

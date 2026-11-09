@@ -1882,7 +1882,7 @@ class SubagentSnapshot:
 
     run_id: str
     agent_id: str
-    status: str  # running | success | failure | clarification_needed | unknown
+    status: str  # running | success | failure | cancelled | timeout | clarification_needed | unknown
     started_at: float
     elapsed_s: int
     execution_mode: str
@@ -1919,10 +1919,12 @@ def subagent_snapshots(
             continue
         if parent_branch is not None and (sa.parent_branch or "main") != parent_branch:
             continue
-        if sa.is_running():
-            status = "running"
-        elif newest[sa.agent_id] is sa:
+        status: str
+        if newest[sa.agent_id] is sa:
+            # status() honors cached cancellation/timeout before worker liveness.
             status = sa.status().status
+        elif sa.is_running():
+            status = "running"
         else:
             status = "unknown"
         prompt = sa.prompt[:97] + "..." if len(sa.prompt) > 100 else sa.prompt

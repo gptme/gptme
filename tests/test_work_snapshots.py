@@ -88,7 +88,7 @@ def test_deadline_expiry_is_explicit_and_delivered_once(tmp_path, monkeypatch):
     assert w.status == "expired"
     assert w.delivered == 1
     queued = take_queued_watch_events(tmp_path)
-    assert queued == [("w1", "expired before timer elapsed (w1)")]
+    assert queued == [("w1", "expired before timer elapsed (w1)", "expired")]
     assert format_watch_event(*queued[0]) == (
         "Watch w1 expired: expired before timer elapsed (w1)"
     )
@@ -113,6 +113,7 @@ def test_expire_after_cancel_or_fire_is_ignored(tmp_path):
 
 
 def test_server_event_status_names_expiry(tmp_path, monkeypatch):
+    pytest.importorskip("flask")
     from gptme.server.session_models import SessionManager
 
     events: list = []
@@ -154,7 +155,7 @@ def test_watch_snapshot_does_not_drain_delivery_queue(tmp_path):
     watch_module._fire(w, "ready")
     watch_snapshots(tmp_path)
     watch_snapshots(tmp_path)
-    assert take_queued_watch_events(tmp_path) == [("w1", "ready")]
+    assert take_queued_watch_events(tmp_path) == [("w1", "ready", "fired")]
 
 
 def _subagent(
@@ -241,3 +242,83 @@ def test_subagent_snapshot_does_not_drain_completion_queue(tmp_path, monkeypatch
     subagent_snapshots(parent)
     subagent_snapshots(parent)
     assert _completion_queue.qsize() == 1
+
+
+@pytest.mark.parametrize("wake_succeeds", [False, True])
+def test_stream_event_outcomes_survive_expiry_and_retry(
+    tmp_path, monkeypatch, wake_succeeds
+):
+    pytest.importorskip("flask")
+    from gptme.server.session_models import SessionManager
+
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    server_events = []
+    wakes = []
+    monkeypatch.setattr(
+        SessionManager,
+        "add_event",
+        staticmethod(lambda cid, ev: server_events.append(ev)),
+    )
+    monkeypatch.setattr(
+        SessionManager, "request_watch_wake", staticmethod(lambda *a, **kw: False)
+    )
+    w = _watch("w1", tmp_path / "conv", kind="stream", branch="side")
+    watch_module._fire(w, "line arrived", once=False)
+    watch_module._expire(w, "deadline reached")
+    assert [e["status"] for e in server_events] == ["fired", "expired"]
+
+    def wake(cid, message, *, branch):
+        wakes.append((branch, message.content))
+        return wake_succeeds
+
+    monkeypatch.setattr(SessionManager, "request_watch_wake", staticmethod(wake))
+    SessionManager.retry_deferred_watch_wakes("conv")
+    assert wakes == [
+        ("side", "Watch w1 fired: line arrived\nWatch w1 expired: deadline reached")
+    ]
+    # A failed server retry must retain both event outcomes for STEP_PRE.
+    drained = list(
+        watch_module._watch_drain_hook(
+            SimpleNamespace(logdir=w.logdir), notification_branch="side"
+        )
+    )
+    assert [m.content for m in drained] == (
+        []
+        if wake_succeeds
+        else ["Watch w1 fired: line arrived", "Watch w1 expired: deadline reached"]
+    )
+
+
+@pytest.mark.parametrize("outcome", ["cancelled", "timeout"])
+def test_subagent_snapshot_terminal_outcome_precedes_live_worker(
+    tmp_path, monkeypatch, outcome
+):
+    monkeypatch.setattr(
+        "gptme.tools.subagent.api._maybe_rehydrate_registry", lambda: None
+    )
+    parent = tmp_path / "parent"
+    gate = threading.Event()
+    running = threading.Thread(target=gate.wait, daemon=True)
+    running.start()
+    try:
+        _subagent("a", tmp_path / "a", parent, thread=running)
+        with _subagent_results_lock:
+            _subagent_results["a"] = ReturnType(outcome, "stopped")
+        assert running.is_alive()
+        assert subagent_snapshots(parent)[0].status == outcome
+    finally:
+        gate.set()
+        running.join(timeout=2)
+
+
+def test_offline_stream_outcomes_do_not_depend_on_watch_registry(tmp_path):
+    w = _watch("w1", None, kind="stream")
+    watch_module._fire(w, "line arrived", once=False)
+    watch_module._expire(w, "deadline reached")
+    # Rendering needs only the event, even if the watch has been removed.
+    with watch_module._watches_lock:
+        watch_module._watches.clear()
+    assert [format_watch_event(*event) for event in take_queued_watch_events(None)] == [
+        "Watch w1 fired: line arrived",
+        "Watch w1 expired: deadline reached",
+    ]

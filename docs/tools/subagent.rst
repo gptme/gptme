@@ -7,6 +7,9 @@ Subagent
     :members:
     :noindex:
 
+.. autoclass:: gptme.tools.subagent.api.SubagentSnapshot
+    :members:
+
 Child tool format
 -----------------
 

@@ -1275,8 +1275,10 @@ def _deliver_idle_notifications(manager: LogManager, *, autowake: bool = True) -
         )
     ]
     terminal.extend(
-        Message("system", format_watch_event(watch_id, text))
-        for watch_id, text in take_queued_watch_events(manager.logdir, branch=branch)
+        Message("system", format_watch_event(watch_id, text, status))
+        for watch_id, text, status in take_queued_watch_events(
+            manager.logdir, branch=branch
+        )
     )
     for msg in messages + terminal:
         meta = dict(msg.metadata or {})

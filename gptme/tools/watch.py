@@ -118,9 +118,12 @@ class WatchSnapshot:
 _watches: dict[str, Watch] = {}
 _watches_lock = threading.Lock()
 _watch_seq = 0
-# Offline fallback queue drained at STEP_PRE: (logdir, watch_id, text)
+# Offline fallback queue: (logdir, watch_id, text, branch, event outcome).
+# Three/four-field records from legacy callers default to main/fired.
 _pending_deliveries: deque[
-    tuple[Path | None, str, str] | tuple[Path | None, str, str, str]
+    tuple[Path | None, str, str]
+    | tuple[Path | None, str, str, str]
+    | tuple[Path | None, str, str, str, str]
 ] = deque()
 _pending_lock = threading.Lock()
 
@@ -273,15 +276,12 @@ def watch_snapshots(logdir: Path, *, branch: str | None = None) -> list[WatchSna
     return sorted(snapshots, key=lambda snap: snap.created)
 
 
-def format_watch_event(watch_id: str, text: str) -> str:
-    """Render a delivered event, naming expiry instead of calling it fired."""
-    with _watches_lock:
-        watch = _watches.get(watch_id)
-    verb = "expired" if watch is not None and watch.expired else "fired"
-    return f"Watch {watch_id} {verb}: {text}"
+def format_watch_event(watch_id: str, text: str, status: str = "fired") -> str:
+    """Render the event's captured outcome, never the watch's later state."""
+    return f"Watch {watch_id} {status}: {text}"
 
 
-def _deliver(watch: Watch, text: str) -> None:
+def _deliver(watch: Watch, text: str, *, status: str = "fired") -> None:
     """Deliver a fired event: server wake if possible, else STEP_PRE queue."""
     conversation_id = watch.logdir.name if watch.logdir else None
     if conversation_id:
@@ -294,15 +294,14 @@ def _deliver(watch: Watch, text: str) -> None:
                 WatchEvent(
                     type="watch_event",
                     kind=watch.kind,
-                    status="expired" if watch.expired else "fired",
+                    status=status,
                     ref=watch.id,
                     message=text,
                 ),
             )
-            verb = "expired" if watch.expired else "fired"
             woke = SessionManager.request_watch_wake(
                 conversation_id,
-                Message("system", f"Watch {watch.id} ({watch.kind}) {verb}: {text}"),
+                Message("system", f"Watch {watch.id} ({watch.kind}) {status}: {text}"),
                 branch=watch.branch,
             )
             if woke:
@@ -313,7 +312,7 @@ def _deliver(watch: Watch, text: str) -> None:
         except Exception:
             logger.debug("server delivery failed for %s", watch.id, exc_info=True)
     with _pending_lock:
-        _pending_deliveries.append((watch.logdir, watch.id, text, watch.branch))
+        _pending_deliveries.append((watch.logdir, watch.id, text, watch.branch, status))
     from ..util.notification_ready import signal
 
     signal(watch.logdir)
@@ -321,11 +320,11 @@ def _deliver(watch: Watch, text: str) -> None:
 
 def take_queued_watch_events(
     logdir: Path | None, *, branch: str | None = None
-) -> list[tuple[str, str]]:
-    """Pop events for delivery to a consumer that already owns its branch."""
+) -> list[tuple[str, str, str]]:
+    """Pop (watch_id, text, outcome) for a consumer owning its branch."""
     return [
-        (watch_id, text)
-        for watch_id, text, _ in take_queued_watch_events_with_branches(
+        (watch_id, text, status)
+        for watch_id, text, _, status in take_queued_watch_events_with_branches(
             logdir, branch=branch
         )
     ]
@@ -333,9 +332,9 @@ def take_queued_watch_events(
 
 def take_queued_watch_events_with_branches(
     logdir: Path | None, *, branch: str | None = None
-) -> list[tuple[str, str, str]]:
-    """Pop events with their captured branches for lossless server retries."""
-    returned: list[tuple[str, str, str]] = []
+) -> list[tuple[str, str, str, str]]:
+    """Pop (watch_id, text, branch, outcome) for lossless server retries."""
+    returned: list[tuple[str, str, str, str]] = []
     with _pending_lock:
         retained = type(_pending_deliveries)()
         for item in _pending_deliveries:
@@ -343,7 +342,14 @@ def take_queued_watch_events_with_branches(
             if (logdir is None or item_logdir == logdir) and (
                 branch is None or (origin[0] if origin else "main") == branch
             ):
-                returned.append((watch_id, text, origin[0] if origin else "main"))
+                returned.append(
+                    (
+                        watch_id,
+                        text,
+                        origin[0] if origin else "main",
+                        origin[1] if len(origin) > 1 else "fired",
+                    )
+                )
             else:
                 retained.append(item)
         _pending_deliveries.clear()
@@ -352,11 +358,16 @@ def take_queued_watch_events_with_branches(
 
 
 def requeue_watch_event(
-    logdir: Path | None, watch_id: str, text: str, *, branch: str = "main"
+    logdir: Path | None,
+    watch_id: str,
+    text: str,
+    *,
+    branch: str = "main",
+    status: str = "fired",
 ) -> None:
     """Put an event back at the head of the offline queue after a failed retry."""
     with _pending_lock:
-        _pending_deliveries.appendleft((logdir, watch_id, text, branch))
+        _pending_deliveries.appendleft((logdir, watch_id, text, branch, status))
 
 
 def _fire(watch: Watch, text: str, once: bool = True) -> None:
@@ -381,7 +392,7 @@ def _expire(watch: Watch, text: str) -> None:
     if not _record_event(watch, text):
         return
     watch.delivered += 1
-    _deliver(watch, text)
+    _deliver(watch, text, status="expired")
 
 
 # --- sources ---------------------------------------------------------------
@@ -801,10 +812,10 @@ def _watch_drain_hook(manager, **kwargs) -> "Generator[Message, None, None]":
     """
 
     manager_logdir = getattr(manager, "logdir", None)
-    for watch_id, text in take_queued_watch_events(
+    for watch_id, text, status in take_queued_watch_events(
         manager_logdir, branch=kwargs.get("notification_branch")
     ):
-        yield Message("system", format_watch_event(watch_id, text))
+        yield Message("system", format_watch_event(watch_id, text, status))
 
 
 # --- duration parsing ------------------------------------------------------
