@@ -1138,7 +1138,8 @@ def get_github_run_logs(
 
     Args:
         run_id: The workflow run ID (numeric string)
-        max_tokens: Maximum tokens for the output (default: 4000)
+        max_tokens: Approximate total output budget, at four characters per token
+            including metadata and truncation notices (default: 4000)
         repo: Optional explicit ``owner/repo`` the run belongs to. When omitted,
             ``gh`` resolves the repository from the current checkout.
 
@@ -1150,6 +1151,24 @@ def get_github_run_logs(
         return None
 
     repo_args = ["--repo", repo] if repo else []
+
+    def bounded_output(output: str) -> str:
+        # Per-job allocations are useful previews, not an aggregate bound:
+        # minimum allocations and metadata can exceed the budget on large matrices.
+        max_chars = max(0, max_tokens * 4)
+        if len(output) <= max_chars:
+            return output
+        repo_flag = f" --repo {repo}" if repo else ""
+        marker = (
+            "\n[... run output truncated; use shell "
+            f"`gh run view {run_id}{repo_flag} --log-failed` for full logs ...]\n"
+        )
+        if max_chars <= len(marker):
+            return marker[:max_chars]
+        available = max_chars - len(marker)
+        head_chars = min(1000, available // 4)
+        tail_chars = available - head_chars
+        return output[:head_chars] + marker + output[-tail_chars:]
 
     try:
         # Get run metadata
@@ -1189,7 +1208,7 @@ def get_github_run_logs(
         jobs = run_data.get("jobs", [])
         if not jobs:
             output += "\nNo job data available."
-            return output
+            return bounded_output(output)
 
         # Summarize all jobs
         output += "\n### Jobs\n"
@@ -1214,7 +1233,7 @@ def get_github_run_logs(
                 output += "\nAll jobs passed."
             else:
                 output += f"\nNo failed jobs found (run conclusion: {conclusion})."
-            return output
+            return bounded_output(output)
 
         # Fetch logs for failed jobs
         output += "\n### Failed Job Logs\n"
@@ -1316,7 +1335,7 @@ def get_github_run_logs(
                         f"Try shell: `gh run view {run_id} --log-failed`\n"
                     )
 
-        return output
+        return bounded_output(output)
 
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to get run info: {e}")
