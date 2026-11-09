@@ -145,6 +145,7 @@ class BackgroundJob:
     # displayed output is truncated is written under it.
     log_dir: Path | None = field(default=None, repr=False)
     log_path: Path | None = field(default=None, repr=False)
+    stderr_log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
     _final_log_written: bool = field(default=False, repr=False)
     _stdout_spool: PrivateOutputFile | None = field(default=None, repr=False)
@@ -152,6 +153,8 @@ class BackgroundJob:
     _snapshot_stream: PrivateOutputFile | None = field(default=None, repr=False)
     _spool_pending_stdout: str = field(default="", repr=False)
     _spool_pending_stderr: str = field(default="", repr=False)
+    _spool_discard_stdout: bool = field(default=False, repr=False)
+    _spool_discard_stderr: bool = field(default=False, repr=False)
     _spool_from_reader: bool = field(default=False, repr=False)
     _capture_partial: bool = field(default=False, repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
@@ -205,6 +208,8 @@ class BackgroundJob:
             return
         self._stdout_spool = stdout_spool
         self.log_path = stdout_spool.path
+        assert self._stderr_spool is not None
+        self.stderr_log_path = self._stderr_spool.path
         self._spool_from_reader = True
 
     def start_reader(self) -> None:
@@ -245,6 +250,14 @@ class BackgroundJob:
         if stream is None:
             return
         pending_attr = "_spool_pending_stdout" if is_stdout else "_spool_pending_stderr"
+        discard_attr = "_spool_discard_stdout" if is_stdout else "_spool_discard_stderr"
+        if getattr(self, discard_attr):
+            # The assignment prefix was omitted. Its suffix is unsafe even at EOF;
+            # resume only after the newline, with a fresh line's full context.
+            _, newline, text = text.partition("\n")
+            if not newline:
+                return
+            setattr(self, discard_attr, False)
         pending = getattr(self, pending_attr) + text
         if final:
             to_write, leftover = pending, ""
@@ -254,6 +267,7 @@ class BackgroundJob:
                 if len(pending) > _SPOOL_PENDING_MAX:
                     to_write = "[omitted: pending sanitation window exceeded]\n"
                     leftover = ""
+                    setattr(self, discard_attr, True)
                     self._capture_partial = True
                 else:
                     setattr(self, pending_attr, pending)
@@ -262,6 +276,7 @@ class BackgroundJob:
                 to_write, leftover = head + sep, tail
                 if len(leftover) > _SPOOL_PENDING_MAX:
                     leftover = ""
+                    setattr(self, discard_attr, True)
                     self._capture_partial = True
                     to_write += "[omitted: pending sanitation window exceeded]\n"
         setattr(self, pending_attr, leftover)
@@ -346,6 +361,8 @@ class BackgroundJob:
 
         # EOF is not guaranteed: drain limits, read errors and forced stops can
         # also end the reader. Preserve any pending bytes before publishing output.
+        if open_fds:
+            self._capture_partial = True
         for fd in (stdout_fd, stderr_fd):
             if fd >= 0:
                 self._append_output(fd, stdout_fd, b"", final=True)
@@ -353,10 +370,10 @@ class BackgroundJob:
             if stream is None:
                 continue
             try:
-                stream.flush()
+                stream.close()
             except OSError as e:
                 logger.warning(
-                    "Could not flush background job spool %s: %s", stream.path, e
+                    "Could not close background job spool %s: %s", stream.path, e
                 )
                 self._capture_partial = True
         # Consumers can render the notification before this thread returns.
@@ -570,7 +587,7 @@ def _write_job_log(
         path = _write_job_log_locked(
             job, stdout, stderr, final=final, complete=complete
         )
-        if path is not None and final:
+        if path is not None and final and not job._spool_from_reader:
             job._final_log_written = True
         return path
 
@@ -584,17 +601,9 @@ def _write_job_log_locked(
     complete: bool = False,
 ) -> Path | None:
     assert job.log_dir is not None
-    if job._spool_from_reader and job._stdout_spool is not None:
-        if final:
-            try:
-                job._stdout_spool.flush()
-                if job._stderr_spool is not None:
-                    job._stderr_spool.flush()
-            except OSError as e:
-                logger.warning(
-                    "Could not flush background job spool %s: %s", job.log_path, e
-                )
-                return None
+    if job._spool_from_reader:
+        # Only the reader owns live descriptors, including final flush/close.
+        # Never replace a partial live spool with a RAM snapshot.
         return job.log_path
     if not final:
         stdout, stderr = _omit_evicted_line(job, stdout, stderr)
@@ -620,6 +629,14 @@ def _write_job_log_locked(
     except (OSError, UnsafeOutputPathError) as e:
         logger.warning("Could not write background job log %s: %s", job.log_path, e)
         return None
+    finally:
+        if final and job._snapshot_stream is not None:
+            try:
+                job._snapshot_stream.close()
+            except OSError as e:
+                logger.warning(
+                    "Could not close background job log %s: %s", job.log_path, e
+                )
     return job.log_path
 
 
@@ -679,14 +696,18 @@ def format_job_output(
             job, *job.get_output(), final=False, complete=complete
         )
         dropped = job._stdout_buffer_start + job._stderr_buffer_start
-        spool_complete = (
-            job._spool_from_reader
-            and job.log_path is not None
-            and not job._capture_partial
-        )
-        if log_path is not None and (
-            job._final_log_written or spool_complete or not dropped
-        ):
+        if job._spool_from_reader:
+            label = (
+                "Partial output (capture omitted data)"
+                if job._capture_partial
+                else "Full output"
+            )
+            paths = [f"stdout: `{log_path}`"] if log_path is not None else []
+            if job.stderr_log_path is not None:
+                paths.append(f"stderr: `{job.stderr_log_path}`")
+            if paths:
+                blocks.append(label + ":\n" + "\n".join(paths))
+        elif log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")
         elif log_path is not None:
             # The in-memory buffer already discarded the earliest output.
