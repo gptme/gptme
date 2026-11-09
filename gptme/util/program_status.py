@@ -26,6 +26,11 @@ _current: ContextVar[tuple[State, Kind | None]] = ContextVar(
 # Set inside a chat session nested in another (e.g. an inline subagent run by
 # a parent's tool call): the outer session owns the lifecycle reports.
 _nested: ContextVar[bool] = ContextVar("program_status_nested", default=False)
+# The turn scope a ``turn_status`` function is running in, so the turn itself
+# can correct its end state (see ``mark_turn_cancelled``).
+_turn_scope: ContextVar["Scope | None"] = ContextVar(
+    "program_status_turn_scope", default=None
+)
 
 
 def encode_report(state: State, kind: Kind | None = None) -> str:
@@ -59,6 +64,19 @@ class Scope:
     """A reporting scope; ``after`` may be changed before a normal exit."""
 
     after: State | None
+
+
+def mark_turn_cancelled() -> None:
+    """End the in-flight turn ``idle``: its work was cancelled, not completed.
+
+    A turn can raise an exception that ``turn_status`` treats as a successful
+    end (a completion signal), yet mean cancellation — ``DrainCancelled``
+    subclasses ``SessionCompleteException``. Reporting ``done`` there tells
+    terminal consumers the work finished, so the turn marks itself instead.
+    """
+    scope = _turn_scope.get()
+    if scope is not None:
+        scope.after = "idle"
 
 
 @contextmanager
@@ -154,11 +172,14 @@ def turn_status(
                 after="done",
                 success_exceptions=(*success_exceptions, KeyboardInterrupt),
             ) as scope:
+                token = _turn_scope.set(scope)
                 try:
                     interrupted = func(*args, **kwargs)
                 except KeyboardInterrupt:
                     scope.after = "idle"
                     raise
+                finally:
+                    _turn_scope.reset(token)
                 if interrupted:
                     scope.after = "idle"
                 return interrupted

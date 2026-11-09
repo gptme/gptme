@@ -12,8 +12,12 @@ from gptme.util import program_status as status
 
 
 @pytest.fixture(autouse=True)
-def isolated_status():
+def isolated_status(monkeypatch):
     """Every test starts outside any session; report() always updates state."""
+    # A user-configured step budget would otherwise stop the turns these tests
+    # drive (the real _process_message_conversation honours it), changing both
+    # the return value and the reported end state.
+    monkeypatch.delenv("GPTME_MAX_STEPS", raising=False)
     token = status._current.set(("clear", None))
     yield
     status._current.reset(token)
@@ -329,3 +333,58 @@ def test_nested_chat_session_keeps_parent_working(output):
             )
         assert output.getvalue().endswith(status.encode_report("done"))
     assert output.getvalue().endswith(status.encode_report("clear"))
+
+
+def test_cli_url_approval_is_blocked(output, monkeypatch):
+    """The CLI's "Read URL(s)?" prompt blocks the turn before it starts."""
+    from gptme.util import context, prompt
+
+    during_prompt = []
+
+    def answer(_prompt):
+        during_prompt.append(output.getvalue())
+        return "n"
+
+    monkeypatch.setattr(prompt, "prompt_alert", answer)
+    with status.program_status("idle"):
+        assert context._confirm_urls(["https://example.com"]) == []
+        assert during_prompt == [
+            status.encode_report("idle") + status.encode_report("blocked", "permission")
+        ]
+        # The prompt is answered: back to the state it interrupted.
+        assert output.getvalue().endswith(status.encode_report("idle"))
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_cli_cancelled_turn_is_not_done(output, tmp_path, cancelled):
+    """A cancelled drain ends idle; an ordinary completion still ends done."""
+    import importlib
+    from unittest.mock import patch
+
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.tools.complete import SessionCompleteException
+    from gptme.tools.subagent.drain import DrainCancelled
+
+    chat = importlib.import_module("gptme.chat")
+    manager = LogManager(
+        [Message("system", "System"), Message("user", "Do work")],
+        logdir=tmp_path / "conversation",
+    )
+    exception = DrainCancelled if cancelled else SessionCompleteException
+
+    def hook(hook_type, **kwargs):
+        if hook_type == chat.HookType.STEP_PRE:
+            raise exception("stop")
+        return []
+
+    with (
+        patch.object(chat, "get_default_model", return_value=None),
+        patch.object(chat, "trigger_hook", side_effect=hook),
+        pytest.raises(exception),
+    ):
+        chat._process_message_conversation(manager, False, "markdown", None)
+
+    expected = status.encode_report("idle" if cancelled else "done")
+    assert output.getvalue().endswith(expected)
+    assert output.getvalue().count("state=done") == (not cancelled)

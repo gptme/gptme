@@ -198,3 +198,37 @@ async def test_tui_url_fetch_after_approval_reports_working(tmp_path, monkeypatc
         app._report_program_status("blocked", "permission")
         app._send(Message("user", "read https://example.com"), ["https://example.com"])
         assert during_fetch == [encode_report("working")]
+
+
+@pytest.mark.parametrize(
+    ("pending_tools", "expected"),
+    [(True, "idle"), (False, "done")],
+)
+def test_tui_max_steps_stop_outcome(tmp_path, monkeypatch, pending_tools, expected):
+    """A step limit that cuts a turn short ends idle, not done, like the CLI."""
+    from gptme.message import Message
+    from gptme.tools import init_tools
+
+    init_tools(["shell"])
+    manager = LogManager([], logdir=tmp_path / "chat", lock=False)
+    manager.append(Message("user", "run a tool"))
+    app = GptmeApp(manager, workspace=tmp_path)
+    app._terminal_outcome = "done"  # as set by _start_generation
+
+    def call_from_thread(callback, *args, **kwargs):
+        if callback in (app._take_steer_prompts, app._generation_failed):
+            return callback(*args, **kwargs)
+        return None
+
+    content = "Running it:\n```shell\necho hi\n```" if pending_tools else "All done."
+
+    def reply(*args, **kwargs):
+        yield Message("assistant", content)
+
+    monkeypatch.setattr(app, "call_from_thread", call_from_thread)
+    monkeypatch.setattr(app, "_restore_terminal", lambda: None)
+    monkeypatch.setattr("gptme.tui.app.trigger_hook", lambda *a, **kw: [])
+    monkeypatch.setenv("GPTME_MAX_STEPS", "1")
+    monkeypatch.setattr("gptme.tui.app.step", reply)
+    app._generation_body()
+    assert app._terminal_outcome == expected

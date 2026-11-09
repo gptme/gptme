@@ -95,6 +95,7 @@ def _confirm_urls(urls: list[str]) -> list[str]:
     """
     from rich import print as rprint
 
+    from .program_status import program_status
     from .prompt import prompt_alert
 
     if not urls:
@@ -108,7 +109,11 @@ def _confirm_urls(urls: list[str]) -> list[str]:
             rprint(f"  {i}. {url}")
 
     try:
-        response = prompt_alert("Read URL(s)? [Y/n/select numbers]")
+        # The turn cannot proceed until the user answers, and this prompt runs
+        # before any turn scope starts, so report it or the terminal keeps
+        # showing the previous idle/done state while approval is required.
+        with program_status("blocked", "permission"):
+            response = prompt_alert("Read URL(s)? [Y/n/select numbers]")
     except (EOFError, KeyboardInterrupt):
         return []
 

@@ -59,7 +59,12 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
-from .util.program_status import session_status, turn_start, turn_status
+from .util.program_status import (
+    mark_turn_cancelled,
+    session_status,
+    turn_start,
+    turn_status,
+)
 from .util.reduce import ContextLimitError
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
@@ -871,12 +876,20 @@ def _process_message_conversation(
                     logdir=manager.logdir,
                 )
             )
-        except SessionCompleteException:
+        except SessionCompleteException as exc:
             # A completion signal raised inside step() or by a STEP_PRE hook
             # must still run post-turn hooks (pre-commit checks, autocommit)
             # before the session ends. A failing hook must not replace the
             # completion signal — chat() would skip SESSION_END and report a
             # failed run instead of the intended budget stop.
+            from .tools.subagent.drain import DrainCancelled
+
+            if isinstance(exc, DrainCancelled):
+                # Cancelled work is not a completed turn: the turn scope would
+                # otherwise report done, since DrainCancelled subclasses the
+                # completion signal (_run_chat_loop makes the same distinction,
+                # but only after this turn has already reported its outcome).
+                mark_turn_cancelled()
             try:
                 _trigger_turn_post(manager)
             except Exception:
