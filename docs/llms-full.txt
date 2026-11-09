@@ -3695,6 +3695,18 @@ This file currently supports a few options:
       [subagent]
       max_concurrent = 4
 
+  ``drain_timeout`` (seconds, default ``0``) sets how long a non-interactive run
+  waits for subagents it spawned that are still running when its prompt queue is
+  exhausted (ordinary final text). The wait is event-driven, never polls the
+  model, and is one fixed window per session: each terminal result (success,
+  failure, timeout, clarification) is delivered once and permits a continuation,
+  while progress updates neither generate nor extend the window, and delegating
+  new work does not reset it. Children still running when the window closes are
+  cancelled with a warning. ``0`` exits immediately, cancelling them with a
+  warning. Explicit ``complete``, interrupts and errors never wait. Interactive
+  CLI/TUI sessions ignore this setting. Resolution order: the
+  ``GPTME_SUBAGENT_DRAIN_TIMEOUT`` environment variable, then this setting.
+
 - ``context``, context management settings. ``budget`` sets when compaction triggers, as a fraction of the model context window (``0 < x <= 1``) or an absolute token count; see :doc:`context-compression` for how it layers with the CLI flag, environment variable, and per-model config. ``enabled`` turns on fresh context mode (default ``false``; it replaces ``GPTME_FRESH``, and takes precedence over it whenever a project config is present), ``[context.selector]`` tunes how relevant files are selected, and ``scout_model`` names a cheap model that picks relevant files before each user turn (unset disables the pre-pass). Example:
 
   .. code-block:: toml
@@ -3784,8 +3796,9 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 ``watch_autowake`` (default on) controls whether a child-agent result or fired
 watch may resume an idle CLI, TUI, or server conversation without another
 prompt. Set it to ``false`` for notification-only delivery at idle. Progress
-updates never start generation. Non-interactive shutdown is independent of
-this setting.
+updates never start generation. Non-interactive shutdown is governed by
+``[subagent] drain_timeout`` instead; if ``watch_autowake`` is ``false``, results
+arriving in that window are recorded without a continuation.
 
 The chat configuration file is stored as ``config.toml`` in the chat log directory (i.e. ``~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml``). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.
 

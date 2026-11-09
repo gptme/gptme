@@ -1072,6 +1072,17 @@ repositories. See <a class="reference internal" href="security.html"><span class
 <span class="n">max_concurrent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">drain_timeout</span></code> (seconds, default <code class="docutils literal notranslate"><span class="pre">0</span></code>) sets how long a non-interactive run
+waits for subagents it spawned that are still running when its prompt queue is
+exhausted (ordinary final text). The wait is event-driven, never polls the
+model, and is one fixed window per session: each terminal result (success,
+failure, timeout, clarification) is delivered once and permits a continuation,
+while progress updates neither generate nor extend the window, and delegating
+new work does not reset it. Children still running when the window closes are
+cancelled with a warning. <code class="docutils literal notranslate"><span class="pre">0</span></code> exits immediately, cancelling them with a
+warning. Explicit <code class="docutils literal notranslate"><span class="pre">complete</span></code>, interrupts and errors never wait. Interactive
+CLI/TUI sessions ignore this setting. Resolution order: the
+<code class="docutils literal notranslate"><span class="pre">GPTME_SUBAGENT_DRAIN_TIMEOUT</span></code> environment variable, then this setting.</p>
 </li>
 <li><p><code class="docutils literal notranslate"><span class="pre">context</span></code>, context management settings. <code class="docutils literal notranslate"><span class="pre">budget</span></code> sets when compaction triggers, as a fraction of the model context window (<code class="docutils literal notranslate"><span class="pre">0</span> <span class="pre">&lt;</span> <span class="pre">x</span> <span class="pre">&lt;=</span> <span class="pre">1</span></code>) or an absolute token count; see <a class="reference internal" href="context-compression.html"><span class="doc">Context Compression</span></a> for how it layers with the CLI flag, environment variable, and per-model config. <code class="docutils literal notranslate"><span class="pre">enabled</span></code> turns on fresh context mode (default <code class="docutils literal notranslate"><span class="pre">false</span></code>; it replaces <code class="docutils literal notranslate"><span class="pre">GPTME_FRESH</span></code>, and takes precedence over it whenever a project config is present), <code class="docutils literal notranslate"><span class="pre">[context.selector]</span></code> tunes how relevant files are selected, and <code class="docutils literal notranslate"><span class="pre">scout_model</span></code> names a cheap model that picks relevant files before each user turn (unset disables the pre-pass). Example:</p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[context]</span>
@@ -1146,8 +1157,9 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <p><code class="docutils literal notranslate"><span class="pre">watch_autowake</span></code> (default on) controls whether a child-agent result or fired
 watch may resume an idle CLI, TUI, or server conversation without another
 prompt. Set it to <code class="docutils literal notranslate"><span class="pre">false</span></code> for notification-only delivery at idle. Progress
-updates never start generation. Non-interactive shutdown is independent of
-this setting.</p>
+updates never start generation. Non-interactive shutdown is governed by
+<code class="docutils literal notranslate"><span class="pre">[subagent]</span> <span class="pre">drain_timeout</span></code> instead; if <code class="docutils literal notranslate"><span class="pre">watch_autowake</span></code> is <code class="docutils literal notranslate"><span class="pre">false</span></code>, results
+arriving in that window are recorded without a continuation.</p>
 <p>The chat configuration file is stored as <code class="docutils literal notranslate"><span class="pre">config.toml</span></code> in the chat log directory (i.e. <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/2025-04-23-dancing-happy-walrus/config.toml</span></code>). It is automatically generated when a new chat is started and loaded when the chat is resumed, applying any overloaded options passed through the CLI.</p>
 <p>See <a class="reference internal" href="api/config.html#gptme.config.ChatConfig" title="gptme.config.ChatConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.ChatConfig</span></code></a> for the API reference.</p>
 </section>
