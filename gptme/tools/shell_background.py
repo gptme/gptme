@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Generator
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -220,7 +221,11 @@ class BackgroundJob:
         """Start background thread to read output."""
         self._open_spools()
         self._capture_finished.clear()
-        self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
+        # Sanitize stored output under the initiating chat's configuration.
+        context = copy_context()
+        self._reader_thread = threading.Thread(
+            target=context.run, args=(self._read_output,), daemon=True
+        )
         self._reader_thread.start()
 
     def _append_output(

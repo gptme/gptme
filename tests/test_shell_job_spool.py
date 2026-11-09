@@ -229,3 +229,42 @@ def test_live_spool_with_pending_line_does_not_claim_full_output(tmp_path) -> No
         assert "Full output" in format_job_output(job, "x" * 10000, "", complete=True)
     finally:
         stream.close()
+
+
+@pytest.mark.parametrize("is_stdout", [True, False])
+def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_stdout):
+    from gptme.config import ChatConfig, Config, UserConfig, _config_var
+
+    monkeypatch.delenv("GPTME_SHELL_REDACT_SECRETS", raising=False)
+    user = UserConfig(env={"SHELL_REDACT_SECRETS": "0"})
+    monkeypatch.setattr("gptme.config.core.Config", lambda: Config(user=user))
+    config = Config(user=user, chat=ChatConfig(env={"SHELL_REDACT_SECRETS": "1"}))
+    token = _config_var.set(config)
+    stream_name = "stdout" if is_stdout else "stderr"
+    secret = "Zq8" + "x7WmK2pL9vR4tY6uN3bH5jC1"
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import sys; sys.{stream_name}.write('API_SECRET={secret}\\n')",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    job = BackgroundJob(1, "synthetic", process, time.time(), log_dir=tmp_path)
+    try:
+        job.start_reader()
+        assert process.wait(timeout=15) == 0
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+        path = job.log_path if is_stdout else job.stderr_log_path
+        assert path is not None
+        saved = path.read_text()
+        assert "API_SECRET=" in saved
+        assert secret not in saved
+    finally:
+        _config_var.reset(token)
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
