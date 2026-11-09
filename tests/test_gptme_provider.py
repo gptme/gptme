@@ -99,6 +99,85 @@ def test_load_token_zero_expires_at(tmp_path: Path):
         assert _load_token() is None
 
 
+@pytest.mark.parametrize(
+    ("content", "description"),
+    [
+        # JSON root is a list, not a dict
+        (b"[]", "list root"),
+        # JSON root is null
+        (b"null", "null root"),
+        # expires_at is a string
+        (
+            json.dumps({"access_token": "tok", "expires_at": "not-a-number"}).encode(),
+            "string expires_at",
+        ),
+        # expires_at is NaN (not representable in JSON, but Python's json module encodes it)
+        (
+            b'{"access_token": "tok", "expires_at": NaN}',
+            "NaN expires_at — invalid JSON",
+        ),
+        # expires_at is a valid but huge number that overflows datetime (Python json round-trips it as Inf)
+        (
+            b'{"access_token": "tok", "expires_at": 1e309}',
+            "Infinity expires_at — invalid JSON",
+        ),
+        # Oversized integer cannot be converted to float by timestamp helpers
+        (
+            json.dumps({"access_token": "tok", "expires_at": 10**400}).encode(),
+            "oversized integer expires_at",
+        ),
+        # JSON decoding itself rejects integers beyond Python's digit limit
+        pytest.param(
+            b'{"access_token": "tok", "expires_at": ' + b"9" * 5000 + b"}",
+            "integer beyond JSON decoder digit limit",
+            id="integer-decoder-digit-limit",
+        ),
+        # Finite number outside datetime's representable timestamp range
+        (
+            b'{"access_token": "tok", "expires_at": 1e20}',
+            "out-of-range finite expires_at",
+        ),
+        # access_token is an integer (non-string); keep collection deterministic
+        (
+            b'{"access_token": 12345, "expires_at": 4102444800}',
+            "integer access_token",
+        ),
+        # Invalid UTF-8 bytes
+        (b"\xff\xfe{bad utf8}", "invalid UTF-8"),
+    ],
+)
+def test_load_token_malformed(tmp_path: Path, content: bytes, description: str):
+    """Malformed cache files should be treated as missing (return None)."""
+    from click.testing import CliRunner
+
+    from gptme.cli.auth import main as auth_main
+    from gptme.llm.llm_gptme import _load_token, get_api_key
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_bytes(content)
+
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        assert _load_token() is None, f"Expected None for: {description}"
+        config = _mock_config(env={"GPTME_CLOUD_API_KEY": "env-fallback-key"})
+        assert get_api_key(config) == "env-fallback-key"
+        result = CliRunner().invoke(auth_main, ["status"])
+        assert result.exit_code == 0, result.output
+        assert "Not logged in" in result.output
+
+
+def test_load_token_non_string_access_token_falls_back_to_env(tmp_path: Path):
+    """A token file with a non-string access_token should not be used; env var fallback applies."""
+    from gptme.llm.llm_gptme import get_api_key
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_path.write_text(
+        json.dumps({"access_token": 12345, "expires_at": time.time() + 3600})
+    )
+    config = _mock_config(env={"GPTME_CLOUD_API_KEY": "env-fallback-key"})
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        assert get_api_key(config) == "env-fallback-key"
+
+
 def test_get_api_key_from_token(tmp_path: Path):
     """Should prefer Device Flow token over env var."""
     from gptme.llm.llm_gptme import get_api_key
@@ -216,6 +295,55 @@ def test_get_base_url_from_env_supabase():
     config = _mock_config(env={"GPTME_CLOUD_BASE_URL": supabase_url})
     with patch("gptme.llm.llm_gptme._load_token", return_value=None):
         assert get_base_url(config) == supabase_url
+
+
+@pytest.mark.parametrize("invalid_url", [123, ["https://invalid.example"], {}])
+def test_token_non_string_url_fallbacks(tmp_path: Path, invalid_url: object) -> None:
+    """Malformed optional URLs must not break otherwise valid cached credentials."""
+    from gptme.llm.llm_gptme import (
+        DEFAULT_BASE_URL,
+        DEFAULT_MODELS_BASE_URL,
+        get_base_url,
+        get_models_url,
+    )
+
+    token_path = tmp_path / "gptme-cloud.json"
+    token_data = {
+        "access_token": "valid-token",
+        "expires_at": time.time() + 3600,
+        "base_url": invalid_url,
+        "server_url": invalid_url,
+    }
+    token_path.write_text(json.dumps(token_data))
+    with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
+        # With neither URL usable, use defaults or the usual env precedence.
+        assert get_base_url(_mock_config()) == DEFAULT_BASE_URL
+        assert get_models_url(_mock_config()) == DEFAULT_MODELS_BASE_URL
+        config = _mock_config(
+            env={
+                "GPTME_CLOUD_BASE_URL": "https://env.example/v1/",
+                "GPTME_CLOUD_MODELS_URL": "https://models.example/v1/",
+            }
+        )
+        assert get_base_url(config) == "https://env.example/v1"
+        assert get_models_url(config) == "https://models.example/v1"
+        base_only = _mock_config(
+            env={"GPTME_CLOUD_BASE_URL": "https://env.example/v1/"}
+        )
+        assert get_models_url(base_only) == "https://env.example/v1"
+
+        # A valid remaining server_url still wins over env overrides.
+        token_data["server_url"] = "https://token.example/"
+        token_path.write_text(json.dumps(token_data))
+        assert get_base_url(config) == "https://token.example/v1"
+        assert get_models_url(config) == "https://token.example/v1"
+
+        # An explicit base_url works even when server_url is malformed.
+        token_data["base_url"] = "https://explicit.example/messages/"
+        token_data["server_url"] = invalid_url
+        token_path.write_text(json.dumps(token_data))
+        assert get_base_url(config) == "https://explicit.example/messages"
+        assert get_models_url(_mock_config()) == DEFAULT_MODELS_BASE_URL
 
 
 def test_save_token(tmp_path: Path):
