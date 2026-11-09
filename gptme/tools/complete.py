@@ -436,16 +436,21 @@ def complete_hook(
                 for m in current_episode(manager.log.messages)
             )
         ):
-            manager.append(
-                Message(
-                    "system",
-                    "Session stop accepted.",
-                    ui_only=True,
-                    hide=True,
-                    metadata={"session_stop_outcome": exc.outcome or "completed"},
+            try:
+                manager.append(
+                    Message(
+                        "system",
+                        "Session stop accepted.",
+                        ui_only=True,
+                        hide=True,
+                        metadata={"session_stop_outcome": exc.outcome or "completed"},
+                    )
                 )
-            )
-            manager.write(sync=True)
+                manager.write(sync=True)
+            except OSError:
+                # Receipt persistence is best-effort; it must not replace the
+                # accepted stop and let the hook registry resume generation.
+                logger.warning("Could not persist accepted session stop", exc_info=True)
         raise
 
 

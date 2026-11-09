@@ -2109,6 +2109,36 @@ class TestSessionEndReviewRegressions:
             payload = _extract_session_end(list(session_end_metadata_hook(manager)))
             assert payload["outcome"] == "completed"
 
+    @pytest.mark.parametrize("operation", ["append", "write", "sync_write"])
+    def test_receipt_io_error_preserves_accepted_stop(
+        self, tmp_path, monkeypatch, operation
+    ):
+        from gptme.logmanager import LogManager
+
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "0")
+        manager = LogManager(logdir=tmp_path / "session", lock=False)
+        manager.append(_user("finish"))
+        manager.append(_assistant("```complete\n```"))
+        manager.append(execute_complete(None, None, None))
+
+        original_write = manager.write
+
+        def fail_io(*args, **kwargs):
+            if operation == "sync_write" and not kwargs.get("sync"):
+                return original_write(*args, **kwargs)
+            raise OSError("receipt storage unavailable")
+
+        monkeypatch.setattr(
+            manager, "write" if operation == "sync_write" else operation, fail_io
+        )
+        with pytest.raises(SessionCompleteException) as stopped:
+            list(
+                complete_hook(manager.log.messages, workspace=tmp_path, manager=manager)
+            )
+        assert str(stopped.value) == "Session completed via complete tool"
+        assert stopped.value.outcome is None
+
     def test_retry_exhaustion_is_not_success(self, tmp_path, monkeypatch):
         from gptme.logmanager import LogManager
         from gptme.tools.complete import session_end_metadata_hook
