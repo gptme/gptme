@@ -119,3 +119,29 @@ def test_partial_spool_never_claims_full_output(tmp_path, final: bool) -> None:
         assert "Partial output" in preview
     finally:
         stream.close()
+
+
+@pytest.mark.parametrize("operation", ["write", "fsync"])
+def test_failed_final_snapshot_does_not_break_later_output(
+    tmp_path, monkeypatch, operation: str
+) -> None:
+    job = BackgroundJob(1, "promoted", Mock(), time.time(), log_dir=tmp_path)
+    real_operation = getattr(os, operation)
+
+    def fail(*args):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(os, operation, fail)
+    complete_background_job(job, "retained line\n" * 3000, "error\n")
+    assert not job._final_log_written
+    # Repeated disk failures must not turn into a closed-file ValueError.
+    preview = format_job_output(job, *job.get_output(), complete=True)
+    assert "retained line" in preview
+    assert "Full output" not in preview
+    monkeypatch.setattr(os, operation, real_operation)
+    preview = format_job_output(job, *job.get_output(), complete=True)
+    assert "Full output" in preview
+    assert job.log_path is not None
+    assert "retained line" in job.log_path.read_text()
+    if job._snapshot_stream is not None:
+        job._snapshot_stream.close()

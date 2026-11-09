@@ -618,6 +618,7 @@ def _write_job_log_locked(
     if stderr:
         parts.append(f"\n--- stderr ---\n{stderr}")
     payload = "".join(parts).encode("utf-8", "surrogateescape")
+    written = False
     try:
         if job._snapshot_stream is None:
             name = f"job-{job.id}-{int(job.start_time)}.log"
@@ -626,6 +627,7 @@ def _write_job_log_locked(
             )
             job.log_path = job._snapshot_stream.path
         job._snapshot_stream.replace(payload)
+        written = True
     except (OSError, UnsafeOutputPathError) as e:
         logger.warning("Could not write background job log %s: %s", job.log_path, e)
         return None
@@ -637,6 +639,9 @@ def _write_job_log_locked(
                 logger.warning(
                     "Could not close background job log %s: %s", job.log_path, e
                 )
+            if not written:
+                # A later preview may retry, but never through this closed fd.
+                job._snapshot_stream = None
     return job.log_path
 
 
