@@ -1040,7 +1040,7 @@ def _session_wall_seconds(messages: "list[Message]") -> int:
     """Wall-clock duration covered by the conversation log, in whole seconds."""
     if not messages:
         return 0
-    started = min(m.timestamp for m in messages).timestamp()
+    started = min(m.timestamp.timestamp() for m in messages)
     return max(0, int(time.time() - started))
 
 

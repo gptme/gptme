@@ -1968,6 +1968,33 @@ class TestSessionEndMetadataHook:
             "wall_seconds",
         }
 
+    def test_resumed_session_with_mixed_timestamp_awareness(self, monkeypatch):
+        from dataclasses import replace
+        from datetime import UTC, datetime
+
+        from gptme.tools.complete import session_end_metadata_hook
+
+        loaded = Message.from_toml(
+            '[message]\nrole = "user"\ncontent = "go"\n'
+            'timestamp = "2026-11-09T10:00:00+00:00"\n'
+        )
+        accepted = replace(
+            _accepted_stop(),
+            timestamp=datetime.fromtimestamp(
+                loaded.timestamp.timestamp() + 30, tz=UTC
+            ).replace(tzinfo=None),
+        )
+        monkeypatch.setattr(
+            "gptme.tools.complete.time.time", lambda: loaded.timestamp.timestamp() + 60
+        )
+
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager([loaded, accepted])))
+        )
+
+        assert payload["outcome"] == "completed"
+        assert payload["wall_seconds"] == 60
+
     def test_policy_block_count_matches_helper(self, monkeypatch):
         from gptme.hooks._policy_block import POLICY_BLOCK_MARKER
         from gptme.tools.complete import (
