@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 import tomlkit
 from tomlkit import TOMLDocument
+from tomlkit.items import AoT
 
 if TYPE_CHECKING:
     from tomlkit.container import Container
-    from tomlkit.items import AoT
 
 from ..context.config import parse_context_budget as _parse_context_budget
 from ..util import path_with_tilde
@@ -1096,6 +1096,15 @@ def save_provider_config(
 
     if "providers" not in doc:
         doc.add("providers", tomlkit.aot())
+    elif not isinstance(doc["providers"], AoT):
+        # Defaults use providers = []; valid inline arrays need conversion too.
+        # Appending a regular table to a TOML Array would write invalid TOML.
+        normalized = tomlkit.aot()
+        for entry in doc["providers"]:
+            table = tomlkit.table()
+            table.update(entry)
+            normalized.append(table)
+        doc["providers"] = normalized
 
     providers = cast("AoT", doc["providers"])
     for idx, existing_provider in enumerate(providers):

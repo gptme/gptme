@@ -2864,6 +2864,67 @@ def test_set_config_value_creates_intermediate_sections(tmp_path, monkeypatch):
     assert result["user"]["name"] == "Alice"
 
 
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize(
+    "initial",
+    [
+        "providers = []\n",
+        'providers = [{name = "other", base_url = "http://localhost:9000/v1"}]\n',
+        '[[providers]]\nname = "other"\nbase_url = "http://localhost:9000/v1"\n',
+    ],
+)
+def test_save_provider_config_normalizes_provider_arrays(
+    tmp_path, monkeypatch, local, initial
+):
+    """The generated empty array and valid inline arrays must remain valid TOML."""
+    import gptme.config.user as user_mod
+    from gptme.config.models import ProviderConfig
+
+    main_file = tmp_path / "config.toml"
+    local_file = tmp_path / "config.local.toml"
+    main_file.write_text(initial if not local else "# main untouched\n")
+    if local:
+        local_file.write_text(initial)
+    target = local_file if local else main_file
+    monkeypatch.setattr(user_mod, "config_path", str(main_file))
+    monkeypatch.setattr(
+        user_mod, "get_user_config_paths", lambda: (main_file, local_file)
+    )
+    unrelated = '\n# Keep this setting\n[user]\nname = "Alice"\n'
+    target.write_text(target.read_text() + unrelated)
+
+    for model in ("first-model", "updated-model"):
+        user_mod.save_provider_config(
+            ProviderConfig(
+                name="fixture",
+                base_url="http://localhost:8000/v1",
+                default_model=model,
+            ),
+            reload=False,
+            local=local,
+        )
+        # Reparse the bytes, rather than trusting the in-memory TOML container.
+        text = target.read_text()
+        result = tomlkit.loads(text).unwrap()
+        expected = (
+            []
+            if initial.startswith("providers = []")
+            else [{"name": "other", "base_url": "http://localhost:9000/v1"}]
+        )
+        assert result["providers"] == expected + [
+            {
+                "name": "fixture",
+                "base_url": "http://localhost:8000/v1",
+                "default_model": model,
+            }
+        ]
+        assert result["user"]["name"] == "Alice"
+        assert "# Keep this setting" in text
+        assert "[[providers]]" in text
+    if local:
+        assert main_file.read_text() == "# main untouched\n"
+
+
 def test_save_provider_config_upserts_existing_provider(tmp_path, monkeypatch):
     """Repeated setup runs for the same provider should not append duplicates."""
     import gptme.config.user as user_mod
