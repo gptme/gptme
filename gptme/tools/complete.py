@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from xml.sax.saxutils import escape as xml_escape
 
-from ..constants import MAX_STEPS_STOP_PREFIX
 from ..hooks import HookType, StopPropagation
 from ..hooks._policy_block import POLICY_BLOCK_MARKER
 from ..hooks.confirm import ConfirmAction, get_confirmation
@@ -1002,9 +1001,10 @@ def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str | 
     for m in reversed(current_episode(messages)):
         if m.role in ("assistant", "user"):
             break  # A resumed/continued turn invalidates the previous stop.
-        if m.role == "system" and (
-            (m.metadata or {}).get("max_steps_stop") is True
-            or m.content.startswith(MAX_STEPS_STOP_PREFIX)
+        if (
+            m.role == "system"
+            and not m.call_id
+            and (m.metadata or {}).get("max_steps_stop") is True
         ):
             return OUTCOME_MAX_TURNS
         if m.role == "system" and m.ui_only:

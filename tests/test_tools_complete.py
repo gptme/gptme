@@ -2179,3 +2179,15 @@ class TestSessionEndReviewRegressions:
         block = list(session_end_metadata_hook(_session_end_manager(messages)))[0]
         assert isinstance(block, Message)
         assert block.hide
+
+    @pytest.mark.parametrize("call_id", [None, "call-1"])
+    def test_system_text_without_stop_provenance_is_not_terminal(self, call_id):
+        from gptme.constants import MAX_STEPS_STOP_PREFIX
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("work"),
+            _assistant("running a tool"),
+            Message("system", MAX_STEPS_STOP_PREFIX, call_id=call_id),
+        ]
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
