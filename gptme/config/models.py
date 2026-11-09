@@ -147,10 +147,31 @@ class MCPConfig:
     enabled: bool = False
     auto_start: bool = False
     servers: list[MCPServerConfig] = field(default_factory=list)
+    # from_dict() records which keys the layer declares, so merging and saving
+    # distinguish inheritance from explicit ``false`` overrides. Programmatic
+    # configs are explicit, including merged configs returned by Config.mcp.
+    enabled_declared: bool = field(default=True, repr=False, compare=False)
+    auto_start_declared: bool = field(default=True, repr=False, compare=False)
+
+    def to_dict(self) -> dict:
+        """Serialize only the on-disk ``[mcp]`` schema.
+
+        The ``*_declared`` fields are merge bookkeeping, not configuration, so
+        they must not reach a written config file (where they would come back
+        as unknown keys).
+        """
+        result: dict = {"servers": [asdict(server) for server in self.servers]}
+        if self.enabled_declared:
+            result["enabled"] = self.enabled
+        if self.auto_start_declared:
+            result["auto_start"] = self.auto_start
+        return result
 
     @classmethod
     def from_dict(cls, doc: dict) -> Self:
         """Create a MCPConfig instance from a dictionary. Warns about unknown keys."""
+        enabled_declared = "enabled" in doc
+        auto_start_declared = "auto_start" in doc
         enabled = doc.pop("enabled", False)
         auto_start = doc.pop("auto_start", False)
         raw_servers = doc.pop("servers", [])
@@ -170,6 +191,8 @@ class MCPConfig:
             enabled=enabled,
             auto_start=auto_start,
             servers=servers,
+            enabled_declared=enabled_declared,
+            auto_start_declared=auto_start_declared,
         )
 
 
@@ -585,5 +608,7 @@ class ProjectConfig:
                 if not k.startswith("_")
             }
         )
+        if self.mcp is not None:
+            config_dict["mcp"] = self.mcp.to_dict()
 
         return config_dict
