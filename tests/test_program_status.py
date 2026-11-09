@@ -421,3 +421,28 @@ def test_cli_max_steps_stop_outcome(
         assert chat._process_message_conversation(manager, False, "markdown", None)
 
     assert output.getvalue().endswith(status.encode_report(expected))
+
+
+def test_include_paths_outside_session_no_status_report(output, monkeypatch):
+    """include_paths() must not emit a working report outside a chat session.
+
+    gptme-util prompts expand calls include_paths without entering session_status,
+    so a working report here would leave the terminal permanently showing busy.
+    Fails before the fix: output captures a working escape on the first line.
+    """
+    from unittest.mock import patch
+
+    from gptme.message import Message
+    from gptme.util import context
+
+    url = "https://example.com"
+    msg = Message("user", url)
+
+    with patch.object(
+        context, "_resource_to_codeblock", return_value="<!-- fetched -->"
+    ):
+        context.include_paths(msg, pre_confirmed_urls=[url])
+
+    # _current should stay clear and nothing should have been written.
+    assert status._current.get() == ("clear", None)
+    assert output.getvalue() == ""

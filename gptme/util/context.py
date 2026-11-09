@@ -764,13 +764,16 @@ def _include_paths(
             files.append(file)
 
     # Process URLs (only confirmed ones in interactive mode)
-    # Report working before the fetch: approval may have left the status at
-    # idle (the blocked:permission scope restores the previous state on exit),
-    # so a slow URL fetch would otherwise appear idle to terminal consumers.
+    # Report working before the fetch, but only inside a chat session scope
+    # (state != "clear").  Outside a chat (e.g. ``gptme-util prompts expand``)
+    # there is no scope to restore the state on return, so reporting here would
+    # leave "working" on the terminal permanently.
     if confirmed_urls:
+        from .program_status import _current as _ps_current
         from .program_status import report as _report_status
 
-        _report_status("working")
+        if _ps_current.get()[0] != "clear":
+            _report_status("working")
     for url in urls_found:
         if confirmed_urls is not None and url not in confirmed_urls:
             logger.debug(f"Skipping unconfirmed URL: {url}")
