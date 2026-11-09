@@ -76,3 +76,48 @@ def test_summarize_context_savings_missing_file(tmp_path: Path):
     assert summary.saved_tokens_by_source == {}
     assert summary.calls_by_source == {}
     assert summary.max_saved_tokens == 0
+
+
+def test_summarize_context_savings_skips_non_numeric_saved_tokens(tmp_path: Path):
+    """A row with a non-numeric saved_tokens must be skipped, not crash the read.
+
+    Malformed rows are already tolerated for invalid JSON; a non-numeric
+    ``saved_tokens`` used to escape that guard and raise ValueError from
+    ``int()``, aborting the whole aggregation.
+    """
+    record_context_savings(
+        logdir=tmp_path,
+        source="shell",
+        original_tokens=1000,
+        kept_tokens=200,
+    )
+    with (tmp_path / CONTEXT_SAVINGS_FILENAME).open("a", encoding="utf-8") as f:
+        f.write('{"source": "read", "saved_tokens": "n/a"}\n')
+        f.write('{"source": "read", "saved_tokens": "12oops"}\n')
+
+    summary = summarize_context_savings(tmp_path)
+
+    assert summary.entries == 1
+    assert summary.total_saved_tokens == 800
+    assert summary.saved_tokens_by_source == {"shell": 800}
+    assert summary.max_saved_tokens == 800
+
+
+def test_summarize_context_savings_skips_non_object_rows(tmp_path: Path):
+    """Valid JSON that is not an object has no .get() and must be skipped."""
+    record_context_savings(
+        logdir=tmp_path,
+        source="shell",
+        original_tokens=1000,
+        kept_tokens=200,
+    )
+    with (tmp_path / CONTEXT_SAVINGS_FILENAME).open("a", encoding="utf-8") as f:
+        f.write("[1, 2, 3]\n")
+        f.write("42\n")
+        f.write("null\n")
+
+    summary = summarize_context_savings(tmp_path)
+
+    assert summary.entries == 1
+    assert summary.total_saved_tokens == 800
+    assert summary.saved_tokens_by_source == {"shell": 800}
