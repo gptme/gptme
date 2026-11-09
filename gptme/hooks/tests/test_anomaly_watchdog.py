@@ -24,6 +24,7 @@ import time
 import pytest
 
 from .. import anomaly_watchdog
+from .._policy_block import POLICY_BLOCK_MARKER, policy_block_message
 from ..anomaly_watchdog import (
     _check_novel_host,
     _check_scope_escape,
@@ -420,7 +421,6 @@ class TestWriteStorm:
         survives that; without it a refused write would still advance the
         window and could lock out later legitimate writes.
         """
-        from ...message import Message
 
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
         monkeypatch.setenv("GPTME_ANOMALY_WRITE_LIMIT", "5")
@@ -432,8 +432,8 @@ class TestWriteStorm:
                     tool_use=_fake_tool_use("save", args=["x.txt"]),
                     workspace=tmp_path,
                     result_msgs=(
-                        Message(
-                            "system",
+                        policy_block_message(
+                            "anomaly_watchdog",
                             f"{anomaly_watchdog._BLOCK_PREFIX}\n"
                             "scope_escape: /etc/secret",
                         ),
@@ -807,6 +807,47 @@ class TestConfirmHook:
         monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
         tool_use = _fake_tool_use("save", args=["inside.txt"])
         assert anomaly_watchdog_confirm(tool_use, workspace=tmp_path) is None
+
+    def test_block_mode_message_is_a_policy_block(self, monkeypatch, tmp_path):
+        """The blocked call's denial must route through the shared helper.
+
+        A bare skip reason leaves the agent treating the block as a transient
+        error worth retrying; the marker makes it countable by the block
+        budget and the FINALITY sentence says the block is intentional.
+        """
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+
+        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+
+        assert result is not None
+        reason = result.message or ""
+        assert reason.startswith(POLICY_BLOCK_MARKER)
+        assert anomaly_watchdog._BLOCK_PREFIX in reason
+        assert "intentional and final" in reason
+
+    def test_block_mode_message_counts_toward_the_block_budget(
+        self, monkeypatch, tmp_path
+    ):
+        """The watchdog is a policy-block site, so the budget must see it.
+
+        Without the marker a retry loop against this guard would never trip
+        the budget and the harness would keep nudging the agent onward.
+        """
+        from ...message import Message
+        from ...tools.complete import count_policy_blocks
+
+        monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "block")
+        monkeypatch.delenv("GPTME_ANOMALY_ALLOWED_DIRS", raising=False)
+        tool_use = _fake_tool_use("save", args=["/etc/passwd"])
+
+        result = anomaly_watchdog_confirm(tool_use, workspace=tmp_path)
+        assert result is not None
+        assert result.message is not None
+
+        messages = [Message("user", "do the task"), Message("system", result.message)]
+        assert count_policy_blocks(messages) == 1
 
     def test_warn_mode_confirm_falls_through(self, monkeypatch, tmp_path):
         monkeypatch.setenv("GPTME_ANOMALY_WATCHDOG", "warn")

@@ -36,6 +36,7 @@ from ..hooks import (
     register_hook,
 )
 from ..plugins.plugin import GptmePlugin
+from ._policy_block import POLICY_BLOCK_MARKER, policy_block_message
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -159,6 +160,11 @@ _MAX_DETAIL_LEN = 200
 # Skip reason prefix. The post hook reads it back to recognise a blocked call
 # (see ``_result_was_blocked``), so writer and reader share one constant.
 _BLOCK_PREFIX = "Blocked by anomaly_watchdog:"
+
+# The skip reason goes through the shared policy-block helper, which puts the
+# marker first. Read-back matches the whole composed prefix so it still
+# identifies *this* watchdog's block and not another block site's.
+_BLOCK_MESSAGE_PREFIX = f"{POLICY_BLOCK_MARKER} {_BLOCK_PREFIX}"
 
 
 def _tool_namespace(tool: str) -> str:
@@ -574,7 +580,7 @@ def _result_was_blocked(result_msgs: tuple[Message, ...] | None) -> bool:
     """
     for msg in result_msgs or ():
         content = msg.content
-        if isinstance(content, str) and content.startswith(_BLOCK_PREFIX):
+        if isinstance(content, str) and content.startswith(_BLOCK_MESSAGE_PREFIX):
             return True
     return False
 
@@ -627,8 +633,12 @@ def anomaly_watchdog_confirm(
 
     from ..hooks.confirm import ConfirmationResult
 
-    reason = _BLOCK_PREFIX + "\n" + "\n".join(blockable)
-    logger.info("anomaly_watchdog (block): %s", reason)
+    # Route through the shared helper so the denial carries the
+    # ``[policy-block]`` marker (counted by the block budget) and the FINALITY
+    # text. ``policy_block_message`` logs the block at WARNING.
+    reason = policy_block_message(
+        "anomaly_watchdog", _BLOCK_PREFIX + "\n" + "\n".join(blockable)
+    ).content
     _mark_rejected(tool_use)
     return ConfirmationResult.skip(reason)
 
