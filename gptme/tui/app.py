@@ -2767,7 +2767,9 @@ class GptmeApp(App):
         Binding(
             "ctrl+o", "toggle_details", "Expand/collapse outputs+thinking", show=True
         ),
-        Binding("ctrl+w", "show_work", "Show children/monitors", show=True),
+        Binding(
+            "ctrl+w", "show_work", "Show children/monitors", show=True, priority=True
+        ),
     ]
 
     def __init__(

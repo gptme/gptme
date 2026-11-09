@@ -392,6 +392,34 @@ async def test_work_screen_escape_returns_to_parent(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("draft", ["", "keep this draft"])
+async def test_work_shortcut_preserves_focused_input(
+    tmp_path: Path, draft: str
+) -> None:
+    """Ctrl+W opens the overview instead of deleting a word from the draft."""
+    from gptme.tui.app import ChatInput
+
+    manager = _make_manager(tmp_path)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        parent = app.screen
+        inp = app.query_one("#input", ChatInput)
+        inp.text = draft
+        inp.move_cursor((0, len(draft)))
+        assert app.focused is inp
+        await pilot.press("ctrl+w")
+        await pilot.pause()
+        assert isinstance(app.screen, WorkOverviewScreen)
+        assert inp.text == draft
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.screen is parent
+        assert app.focused is inp
+        assert inp.text == draft
+        assert app.manager is manager
+
+
+@pytest.mark.asyncio
 async def test_work_overview_no_children_shows_message(tmp_path):
     """WorkOverviewScreen with no children/watches shows the empty message."""
     app = GptmeApp(_make_manager(tmp_path), workspace=tmp_path)
