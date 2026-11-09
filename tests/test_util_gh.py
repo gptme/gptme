@@ -10,6 +10,7 @@ from gptme.util.gh import (
     _extract_failure_sections,
     _get_github_actions_status,
     _get_repo_from_git_remote,
+    _truncate_log_tail,
     comment_on_github,
     create_github_issue,
     get_github_issue_content,
@@ -705,6 +706,182 @@ class TestExtractFailureSections:
         result = _extract_failure_sections(text)
         assert result.startswith("[... 7 lines omitted ...]\n")
         assert "ERROR: late" in result
+
+    def test_passing_test_names_containing_failed_do_not_select_everything(self):
+        """``failed`` inside passing test ids is not an error signal.
+
+        Regression: the pattern set matched a bare case-insensitive "failed",
+        so on a real CI log (thousands of ``PASSED test_..._failed_...`` lines
+        and a ``0 failed, N passed`` summary) it selected nearly every line and
+        degenerated to identity, which made the caller's budget truncation the
+        only filter and discarding the actual failure block.
+        """
+        lines = [
+            f"PASSED tests/test_thing.py::test_handles_failed_upload[{i}]"
+            for i in range(500)
+        ]
+        lines.append("===== 0 failed, 500 passed in 12.00s =====")
+        lines.append("FAILED tests/test_thing.py::test_real_breakage - AssertionError")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "test_real_breakage" in result
+        assert len(result.splitlines()) < 20
+
+    @pytest.mark.parametrize(
+        "diagnostic",
+        [
+            "Migration failed: relation users does not exist",
+            "Migration failed (relation users does not exist)",
+            "connection failed unexpectedly",
+            "Build failure while compiling widget",
+        ],
+    )
+    def test_lowercase_failure_diagnostic_survives_distant_exit_trailer(
+        self, diagnostic
+    ):
+        lines = [diagnostic] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert diagnostic in result
+        assert "exit code 1" in result
+
+    def test_fatal_authentication_diagnostic_survives_distant_exit_trailer(self):
+        diagnostic = "fatal: Authentication failed for 'https://github.com/o/r.git/'"
+        lines = [diagnostic] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert diagnostic in result
+        assert "exit code 1" in result
+
+    @pytest.mark.parametrize(
+        "diagnostic",
+        [
+            "Failed to connect to database at db:5432",
+            "2026-11-07T00:00:00Z npm ERR! command failed to build",
+        ],
+    )
+    def test_failed_to_diagnostic_survives_distant_exit_trailer(self, diagnostic):
+        lines = [diagnostic] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert diagnostic in result
+        assert "exit code 1" in result
+
+    def test_rust_failures_heading_keeps_panic_location(self):
+        panic = "thread 'tests::check' panicked at src/lib.rs:10:5:"
+        lines = ["failures:", "", "---- tests::check stdout ----", panic]
+        lines += ["cleanup"] * 20
+        lines.append("test result: FAILED. 0 passed; 1 failed;")
+        result = _extract_failure_sections("\n".join(lines))
+        assert panic in result
+        assert "test result: FAILED" in result
+
+    def test_npm_error_keeps_failed_command_context(self):
+        lines = [
+            "npm ERR! command failed",
+            "npm ERR! command sh -c node scripts/build.js",
+        ] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "npm ERR! command failed" in result
+        assert "node scripts/build.js" in result
+        assert "exit code 1" in result
+
+    def test_ctest_failed_marker_keeps_diagnostic(self):
+        lines = [
+            "1/1 Test #1: widget ...***Failed 0.01 sec",
+            "expected 42, got 41",
+        ] + ["cleanup"] * 20
+        lines.append("The following tests FAILED:")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "expected 42, got 41" in result
+        assert "The following tests FAILED:" in result
+
+    def test_failed_asserting_keeps_assertion_and_location(self):
+        lines = [
+            "Failed asserting that false is true.",
+            "/app/tests/WidgetTest.php:42",
+        ] + ["cleanup"] * 20
+        lines.append("Process completed with exit code 1")
+        result = _extract_failure_sections("\n".join(lines))
+        assert "Failed asserting that false is true." in result
+        assert "/app/tests/WidgetTest.php:42" in result
+
+    def test_free_form_failure_prose_is_preserved(self):
+        # Graceful rollback does not mean success: retain the diagnostic rather
+        # than guessing whether arbitrary prose describes an expected failure.
+        prose = "db migration failed gracefully and rolled back"
+        lines = [prose] + ["still ok"] * 20 + ["ERROR: real failure"]
+        result = _extract_failure_sections("\n".join(lines))
+        assert prose in result
+        assert "ERROR: real failure" in result
+
+
+class TestTruncateLogTail:
+    def test_within_budget_is_unchanged(self):
+        assert _truncate_log_tail("a\nb\n", 100) == "a\nb\n"
+
+    def test_overflow_keeps_the_tail(self):
+        """CI puts the failure block last, so overflow must drop the head."""
+        text = "\n".join(f"setup line {i}" for i in range(1000)) + "\nTRACEBACK HERE"
+        result = _truncate_log_tail(text, 200)
+        assert result.endswith("TRACEBACK HERE")
+        assert "setup line 0" not in result
+        assert "chars omitted" in result
+
+    @pytest.mark.parametrize("ending", ["", "\n"])
+    def test_oversized_final_line_keeps_diagnostic_tail(self, ending):
+        text = "setup\n" + "x" * 500 + " AssertionError: diagnostic tail" + ending
+        result = _truncate_log_tail(text, 100)
+        assert result.endswith(text[-100:])
+        assert result.startswith(f"[... {len(text) - 100} chars omitted]\n")
+
+    def test_oversized_diagnostic_before_exit_trailer_keeps_its_suffix(self):
+        text = (
+            "AssertionError: "
+            + "x" * 2000
+            + " expected 42\nProcess completed with exit code 1"
+        )
+        result = _truncate_log_tail(text, 2000)
+        assert result.endswith(text[-2000:])
+        assert "expected 42" in result
+        assert "exit code 1" in result
+
+    def test_complete_line_at_exact_budget_boundary_is_preserved(self):
+        tail = "ERROR: root cause\nok"
+        result = _truncate_log_tail("setup\n" + tail, len(tail))
+        assert result == f"[... 6 chars omitted]\n{tail}"
+
+    def test_hint_is_surfaced_once(self):
+        result = _truncate_log_tail("x" * 500, 100, hint="use --log-failed")
+        assert result.count("use --log-failed") == 1
+        assert result.startswith("[... ")
+
+    def test_half_megabyte_log_still_delivers_the_failure_block(self):
+        """End-to-end: extraction plus the token budget must keep the traceback.
+
+        The two defects only bite together. On a real multi-hundred-kilobyte job
+        log a bare-substring pattern selected almost every line, so the caller's
+        budget was the only filter left — and it cut from the head, discarding
+        the failure block the log ends with. Assert the joint behaviour at the
+        scale the field failure was measured at, not just each half separately.
+        """
+        lines = [
+            f"PASSED tests/test_thing.py::test_handles_failed_upload_and_recovery[{i}]"
+            for i in range(8000)
+        ]
+        assert sum(len(line) + 1 for line in lines) > 500_000
+        lines.append("FAILED tests/test_thing.py::test_real_breakage - AssertionError")
+        lines.append("===== 1 failed, 8000 passed in 91.20s =====")
+
+        delivered = _truncate_log_tail(
+            _extract_failure_sections("\n".join(lines)),
+            4000,
+            hint="use `gh run view 123 --log-failed` for full logs",
+        )
+
+        assert "test_real_breakage" in delivered
+        assert "AssertionError" in delivered
+        assert len(delivered) < 4000
 
 
 # --- get_github_run_logs ---
