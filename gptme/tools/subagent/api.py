@@ -36,6 +36,7 @@ from .types import (
     _subagents,
     _subagents_lock,
     clarification_result_from_content,
+    preserved_notice,
     resolve_role_defaults,
     set_subagent_result_if_absent,
     update_subagent_result_with_branch,
@@ -650,6 +651,7 @@ def subagent(
 
                 worktree_path = Path(tempfile.mkdtemp(prefix=f"subagent-{agent_id}-"))
                 workspace = worktree_path
+                repo_path = None  # The fallback is not a Git worktree.
         else:
             import tempfile
 
@@ -1080,33 +1082,35 @@ def subagent(
                 except Exception as e:
                     # If subagent creation fails, notify with error status
                     logger.error(f"Subagent {agent_id} failed during execution: {e}")
-                    if not set_subagent_result_if_absent(
+                    cached = set_subagent_result_if_absent(
                         agent_id, ReturnType("failure", str(e))
-                    ):
-                        with _subagents_lock:
-                            sa = next(
-                                (s for s in _subagents if s.agent_id == agent_id), None
-                            )
-                        if sa:
-                            _exec._cleanup_isolation(sa)
+                    )
+                    # Preserve the location even when timeout/cancel won the cache
+                    # race. Cleanup must run before notifying callers of failure.
+                    with _subagents_lock:
+                        sa = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
+                        )
+                    preserved = _exec._cleanup_isolation(sa) if sa else None
+                    if preserved and sa:
+                        update_subagent_result_with_branch(
+                            agent_id,
+                            preserved,
+                            has_output_schema=bool(sa.output_schema),
+                        )
+                    if not cached:
                         return
                     try:
+                        notice = preserved_notice(preserved) if preserved else ""
                         notify_completion(
                             agent_id,
                             "failure",
-                            f"Execution failed: {e}",
+                            f"Execution failed: {e}{notice}",
                             parent_logdir=parent_logdir,
                             parent_branch=parent_branch,
                         )
                     except Exception as notify_err:
                         logger.warning(f"Failed to notify subagent error: {notify_err}")
-                    # Clean up worktree isolation even on failure
-                    with _subagents_lock:
-                        sa = next(
-                            (s for s in _subagents if s.agent_id == agent_id), None
-                        )
-                    if sa:
-                        _exec._cleanup_isolation(sa)
                     return
 
                 # Notify via hook system when complete (only if successful)
@@ -1133,9 +1137,7 @@ def subagent(
 
                         result = _ReturnType(
                             result.status,
-                            f"{result.result}\n\nChanges preserved on branch "
-                            f"{preserved_branch!r}"
-                            f" — merge with: git merge {preserved_branch}",
+                            f"{result.result}{preserved_notice(preserved_branch)}",
                             input_tokens=result.input_tokens,
                             output_tokens=result.output_tokens,
                             tool_uses=result.tool_uses,

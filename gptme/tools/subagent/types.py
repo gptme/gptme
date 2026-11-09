@@ -144,6 +144,20 @@ def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
         return True
 
 
+def preserved_notice(preserved: str) -> str:
+    """Render the caller-facing notice for preserved isolated work.
+
+    ``preserved`` is either a git branch name (worktree isolation) or the
+    absolute path of a preserved non-git isolation directory.
+    """
+    if Path(preserved).is_absolute():
+        return f"\n\nWork preserved in isolated workspace {preserved!r}"
+    return (
+        f"\n\nChanges preserved on branch {preserved!r}"
+        f" — merge with: git merge {preserved}"
+    )
+
+
 def update_subagent_result_with_branch(
     agent_id: str, branch: str, has_output_schema: bool = False
 ) -> None:
@@ -159,9 +173,7 @@ def update_subagent_result_with_branch(
     """
     if has_output_schema:
         return
-    suffix = (
-        f"\n\nChanges preserved on branch {branch!r} — merge with: git merge {branch}"
-    )
+    suffix = preserved_notice(branch)
     with _subagent_results_lock:
         existing = _subagent_results.get(agent_id)
         if existing is None:
