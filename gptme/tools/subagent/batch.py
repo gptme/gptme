@@ -424,7 +424,13 @@ class BatchJob:
         done_event = threading.Event()
         first_result: list[tuple[str, ReturnType]] = []
 
-        terminal_statuses = {"success", "failure", "clarification_needed", "cancelled"}
+        terminal_statuses = {
+            "success",
+            "failure",
+            "clarification_needed",
+            "cancelled",
+            "timeout",
+        }
         deadline = time.monotonic() + timeout
 
         def _wait_one_notify(agent_id: str) -> None:

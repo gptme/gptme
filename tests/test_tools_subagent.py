@@ -3739,6 +3739,44 @@ def test_batch_job_wait_any_returns_first():
     assert f"result from {first_id}" in result["result"]
 
 
+def test_batch_job_wait_any_returns_child_timeout():
+    """A child's deadline is a completed result, not the caller's wait expiry."""
+    from unittest.mock import patch
+
+    from gptme.tools.subagent.batch import BatchJob
+
+    job = BatchJob(agent_ids=["expired"])
+    with patch(
+        "gptme.tools.subagent.batch.subagent_wait",
+        return_value={"status": "timeout", "result": "Process killed after 1s timeout"},
+    ):
+        first_id, result = job.wait_any(timeout=1)
+
+    assert first_id == "expired"
+    assert result["status"] == "timeout"
+    assert result["result"] == "Process killed after 1s timeout"
+    assert job.results["expired"].status == "timeout"
+    # A subsequent wait must return the same cached terminal outcome.
+    assert job.wait_any(timeout=1) == (first_id, result)
+
+
+def test_subagent_wait_any_returns_child_timeout():
+    """The public wrapper also returns a completed child's timeout result."""
+    from unittest.mock import patch
+
+    from gptme.tools.subagent import subagent_wait_any
+
+    with patch(
+        "gptme.tools.subagent.batch.subagent_wait",
+        return_value={"status": "timeout", "result": "Process killed after 1s timeout"},
+    ):
+        first_id, result = subagent_wait_any(["expired"], timeout=1)
+
+    assert first_id == "expired"
+    assert result["status"] == "timeout"
+    assert result["result"] == "Process killed after 1s timeout"
+
+
 def test_batch_job_wait_any_already_done():
     """BatchJob.wait_any() should return immediately when a result is already cached."""
     from gptme.tools.subagent.batch import BatchJob
