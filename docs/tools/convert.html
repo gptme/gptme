@@ -727,6 +727,21 @@ This is not a durability or concurrent-path-mutation guarantee.</p>
 <dd><p>Image ↔ image format conversion via FFmpeg (primary) or ImageMagick.</p>
 </dd></dl>
 
+<dl class="py data">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.convert.</span></span><span class="sig-name descname"><span class="pre">MAX_DOCX_EXPANDED_BYTES</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">16777216</span></em></dt>
+<dd><p>Maximum total expanded package size before document conversion refuses it.
+A DOCX is a zip, so a small attachment can expand into a large working set:
+measured 2026-11-05, 110 KB of input declaring 25 MB of body XML cost 421 MB
+peak RSS and 9.2 s, while an ordinary 37 KB document cost 44 MB and 0.09 s.
+The bound is on <em>expanded</em> work, because input bytes do not predict it: the
+same expanded XML compressed into 46 KB or stored as 4 MB costs the same.
+Use the whole package, not a fixed body path: DOCX relationships can relocate
+the body, and backends also load styles, headers, media and other parts.
+This deliberately counts embedded media too; a small body is not proof that
+the package is cheap to load. Non-ZIP documents retain backend-owned handling.</p>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.convert.</span></span><span class="sig-name descname"><span class="pre">PDFToImageConverter</span></span></dt>
