@@ -458,6 +458,18 @@ class TestCheckConfig:
         config_results = [r for r in results if "User" in r.name]
         assert len(config_results) == 1
 
+    @patch("gptme.cli.doctor.get_config_info")
+    def test_user_config_message_states_what_was_checked(self, mock_info):
+        """The OK row reports file existence, not that the file parses."""
+        mock_info.return_value = {
+            "config_exists": True,
+            "config_path": "/nonexistent/config.toml",
+        }
+        results = _check_config()
+        user_result = [r for r in results if r.name == "Config: User"][0]
+        assert user_result.status == CheckStatus.OK
+        assert "not parsed" in user_result.message
+
 
 class TestCheckProxy:
     """Test _check_proxy function."""
@@ -1863,6 +1875,8 @@ class TestCheckMCP:
         server_result = [r for r in results if "test-mcp" in r.name][0]
         assert server_result.status == CheckStatus.OK
         assert "'npx' found" in server_result.message
+        # The row proves the launcher binary exists, not that the server starts.
+        assert "server not started" in server_result.message
 
     @patch("shutil.which", return_value=None)
     @patch("gptme.cli.doctor.get_config")

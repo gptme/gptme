@@ -679,7 +679,7 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
             CheckResult(
                 name="Config: User",
                 status=CheckStatus.OK,
-                message="Found",
+                message="File found (not parsed)",
                 details=config_info["config_path"] if verbose else None,
             )
         )
@@ -1424,7 +1424,7 @@ def _check_mcp_stdio_server(
             CheckResult(
                 name=f"MCP: {server_config.name}",
                 status=CheckStatus.OK,
-                message=f"Command '{command}' found",
+                message=f"Command '{command}' found (server not started)",
                 details=details,
             )
         ]
