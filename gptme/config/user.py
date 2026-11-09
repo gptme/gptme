@@ -10,6 +10,7 @@ import dataclasses
 import locale
 import logging
 import os
+import re
 from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -234,6 +235,12 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
     if not os.path.exists(path):
         return
     doc = _load_config_doc(path)
+    if str(Path(path).resolve()) in _encoding_unverified or getattr(
+        doc, "_providers_recovered", False
+    ):
+        # Cosmetic startup cleanup must not persist a guessed decoding or an
+        # in-memory provider repair. Only an explicit save may rewrite it.
+        return
     changed = False
     for key in keys:
         if key in doc:
@@ -345,7 +352,7 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
 
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        local_doc = tomlkit.loads(_read_config_text(local_path))
+        local_doc = _load_config_doc(str(local_path))
         if _get_nested_config_value(local_doc, "env", bare) is not None:
             return USER_CONFIG_SOURCE_LOCAL
 
@@ -371,7 +378,7 @@ def get_default_model_source(path: str | None = None) -> str | None:
     """
     config_file, local_path = get_user_config_paths(path)
     if local_path.exists():
-        local_doc = tomlkit.loads(_read_config_text(local_path))
+        local_doc = _load_config_doc(str(local_path))
         if _get_nested_config_value(local_doc, "models", "default") is not None:
             return USER_CONFIG_SOURCE_LOCAL
     main_doc = _load_config_doc(str(config_file))
@@ -576,7 +583,7 @@ def _load_user_config(path: str | None, runtime_doc: TOMLDocument | None) -> Use
     # Look for local config file in the same directory
     has_local = local_path.exists()
     if has_local:
-        local_config = tomlkit.loads(_read_config_text(local_path)).unwrap()
+        local_config = _load_config_doc(str(local_path)).unwrap()
         writable_keys.update(local_config)
         config = _merge_config_data(config, local_config)
 
@@ -825,6 +832,146 @@ def _strip_none(d: dict) -> dict:
     }
 
 
+def _split_outside_quotes(text: str) -> list[str]:
+    """Split provider entries at commas that fall outside quoted strings.
+
+    A URL value like ``base_url = "http://host/v1?a=1,b=2"`` must not be
+    split at the inner comma.  Walk the text, track double-quote depth
+    (TOML only uses double quotes for basic strings here), and emit a split
+    only when the comma is followed by ``word =`` outside any string or comment.
+    """
+    entries: list[str] = []
+    current: list[str] = []
+    in_string = False
+    in_comment = False
+    backslashes = 0
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if in_comment:
+            current.append(c)
+            if c == "\n":
+                in_comment = False
+        elif in_string:
+            current.append(c)
+            # Only an odd run of backslashes escapes the following quote.
+            if c == '"' and backslashes % 2 == 0:
+                in_string = False
+            backslashes = backslashes + 1 if c == "\\" else 0
+        elif c == '"':
+            in_string = True
+            current.append(c)
+        elif c == "#":
+            in_comment = True
+            current.append(c)
+        elif c == ",":
+            rest = text[i + 1 :].lstrip()
+            if re.match(r"\w+\s*=", rest):
+                entries.append("".join(current))
+                current = []
+            else:
+                current.append(c)
+        else:
+            current.append(c)
+        i += 1
+    if any(ch.strip() for ch in current):
+        entries.append("".join(current))
+    return entries
+
+
+def _repair_providers_corruption(raw: str, path: str) -> "tomlkit.TOMLDocument | None":
+    """Detect and auto-repair the ``providers = [...]`` inline-table corruption.
+
+    When gptme appended a tomlkit ``Table`` to a generated ``providers = []``
+    ``Array``, the resulting TOML was invalid (table key=value syntax inside
+    square brackets).  Detect that exact pattern and rewrite the providers block
+    as proper ``[[providers]]`` array-of-tables so the file parses again.
+
+    On success, returns the repaired ``TOMLDocument`` in memory only. Loading
+    must not overwrite a concurrent save or risk credentials during startup.
+    An explicit config save will persist the recovered document.
+    Returns ``None`` when the pattern is not recognised so
+    the caller can re-raise the original ``TOMLKitError``.
+    """
+    # Match the corrupted block: providers = [<multi-line table entries>]
+    # Valid empty arrays ("providers = []") and simple-value arrays won't match
+    # because they don't contain "key =" inside the brackets. Consume complete
+    # basic strings (including escapes) before looking for the closing bracket:
+    # a value such as "token]#suffix" is not an array boundary. Comments also
+    # consume to end-of-line, so their quotes and brackets cannot be syntax.
+    match = re.search(
+        r'^(providers\s*=\s*\[)((?:"(?:[^"\\]|\\.)*"|#[^\r\n]*|[^"\]#])*)(\])[ \t]*(?=#|\r?\n|$)',
+        raw,
+        re.DOTALL | re.MULTILINE,
+    )
+    if not match:
+        return None
+
+    # Ask TOML to determine the assignment's scope. A nested setting named
+    # providers is not the root-level provider array written by the old saver.
+    try:
+        prefix = tomlkit.loads(raw[: match.start()] + "providers = []\n")
+    except tomlkit.exceptions.TOMLKitError:
+        return None
+    if prefix.get("providers") != []:
+        return None
+
+    content = match.group(2)
+
+    # Require at least one key = "value" pair inside the brackets.
+    if not re.search(r'\w+\s*=\s*"', content):
+        return None
+
+    # Split into individual provider entries, respecting quoted strings.
+    # A base_url like "http://host/v1?a=1,b=2" must not split at the inner comma.
+    provider_texts = _split_outside_quotes(content)
+
+    aot = tomlkit.aot()
+    for ptext in provider_texts:
+        ptext = ptext.strip().strip(",").strip()
+        if not ptext:
+            continue
+        try:
+            parsed = tomlkit.loads(f"[__p__]\n{ptext}\n")
+        except tomlkit.exceptions.TOMLKitError:
+            return None  # Unrecognised structure — don't attempt a lossy repair
+        t = tomlkit.table()
+        for k, v in parsed["__p__"].items():
+            t.add(k, v)
+        aot.append(t)
+
+    if not aot:
+        return None
+
+    # Rebuild: remove the corrupted block and append the AoT at the end.
+    # Putting [[providers]] at the end avoids absorbing any root-level settings
+    # that follow the providers block into the last provider table.
+    aot_doc = tomlkit.document()
+    aot_doc.add("providers", aot)
+    replacement = tomlkit.dumps(aot_doc).strip()
+
+    pre = raw[: match.start()]
+    post = raw[match.end() :]
+    repaired = (pre + post).rstrip("\n") + "\n" + replacement + "\n"
+
+    try:
+        doc = tomlkit.loads(repaired)
+    except tomlkit.exceptions.TOMLKitError:
+        return None
+
+    # Keep this on the document, not a path registry: a later explicit save or
+    # external repair must not leave a stale cleanup prohibition for that path.
+    doc._providers_recovered = True  # type: ignore[attr-defined]
+    logger.warning(
+        "Using repaired providers in memory only for %s. "
+        "This was caused by a bug in an older version of gptme. "
+        "Save your config explicitly to persist the repair; "
+        "the original file has not been changed.",
+        path,
+    )
+    return doc
+
+
 def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     if path is None:
         path = config_path
@@ -845,7 +992,14 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
         logger.info(f"Created config file at {path}")
         doc = tomlkit.loads(toml)
         return doc
-    return tomlkit.loads(_read_config_text(path))
+    text = _read_config_text(path)
+    try:
+        return tomlkit.loads(text)
+    except tomlkit.exceptions.TOMLKitError:
+        repaired = _repair_providers_corruption(text, path)
+        if repaired is not None:
+            return repaired
+        raise
 
 
 def set_config_value(

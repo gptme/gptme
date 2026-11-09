@@ -2985,6 +2985,315 @@ def test_provider_config_save_load_roundtrip_non_ascii_name(tmp_path, monkeypatc
     assert loaded.providers[0].base_url == "http://localhost:9999/v1"
 
 
+def test_repair_providers_corruption_single(tmp_path, monkeypatch):
+    """_load_config_doc auto-repairs the providers = [...table...] corruption."""
+    import gptme.config.user as user_mod
+
+    # Reproduce the exact corrupted output written by an unfixed gptme:
+    # tomlkit serialises a Table appended to an Array as inline table syntax.
+    corrupted = (
+        'providers = [name = "myprovider"\n'
+        'base_url = "http://localhost:8080/v1"\n'
+        'default_model = "my-model"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert isinstance(result["providers"], list)
+    assert len(result["providers"]) == 1
+    assert result["providers"][0]["name"] == "myprovider"
+    assert result["providers"][0]["base_url"] == "http://localhost:8080/v1"
+    assert result["providers"][0]["default_model"] == "my-model"
+
+    # Loading recovers in memory only; an explicit save persists the repair.
+    assert config_file.read_text(encoding="utf-8") == corrupted
+    user_mod.set_config_value("env.MODEL", "myprovider/my-model", reload=False)
+    saved = tomlkit.loads(config_file.read_text(encoding="utf-8")).unwrap()
+    assert saved["providers"] == result["providers"]
+    assert saved["env"]["MODEL"] == "myprovider/my-model"
+
+
+def test_repair_providers_corruption_multiple(tmp_path, monkeypatch):
+    """_load_config_doc repairs two providers encoded in the corrupted format."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "first"\n'
+        'base_url = "http://localhost:8080/v1"\n'
+        ', name = "second"\n'
+        'base_url = "http://localhost:9090/v1"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert len(result["providers"]) == 2
+    names = [p["name"] for p in result["providers"]]
+    assert names == ["first", "second"]
+
+
+def test_repair_providers_corruption_preserves_other_settings(tmp_path, monkeypatch):
+    """Repair does not touch non-providers settings in the config file."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "local"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        'default_model = "llama3"\n'
+        "]\n"
+        "\n"
+        "[env]\n"
+        'ANTHROPIC_API_KEY = "sk-ant-test"\n'
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert result["providers"][0]["name"] == "local"
+    # Unrelated settings must survive the repair
+    assert result["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test"
+
+
+def test_repair_providers_corruption_root_settings_after_block(tmp_path, monkeypatch):
+    """Root settings that follow the corrupted block must stay at root, not inside a provider."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "local"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        "]\n"
+        "\n"
+        "[env]\n"
+        'MODEL = "local/llama3"\n'
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert result["providers"][0]["name"] == "local"
+    # [env] must be a root section, not absorbed into the provider table
+    assert "env" in result
+    assert result["env"]["MODEL"] == "local/llama3"
+    assert "env" not in result["providers"][0]
+
+
+def test_repair_providers_corruption_quoted_comma_in_url(tmp_path, monkeypatch):
+    """A comma inside a quoted URL value must not be treated as a provider separator."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "myprovider"\n'
+        'base_url = "http://localhost:8080/v1?opts=a,b=c"\n'
+        'default_model = "my-model"\n'
+        "]\n"
+    )
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+
+    assert len(result["providers"]) == 1
+    assert result["providers"][0]["base_url"] == "http://localhost:8080/v1?opts=a,b=c"
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+@pytest.mark.parametrize(
+    "api_key",
+    [
+        "key\\",
+        "key\\\\",
+        'key\\",b=c',
+        "token]#suffix",
+        'token"]#suffix',
+        "token]\nsuffix",
+    ],
+)
+def test_repair_providers_corruption_escaped_backslashes(tmp_path, api_key, newline):
+    """Repair preserves escaped strings and still separates the next provider."""
+    import gptme.config.user as user_mod
+
+    providers = [
+        {"name": "first", "base_url": "http://localhost:8080/v1", "api_key": api_key},
+        {"name": "second", "base_url": "http://localhost:9090/v1"},
+    ]
+    # Use the old writer's Array-of-Table mistake to generate real escaped TOML.
+    broken_array = tomlkit.array()
+    for provider in providers:
+        table = tomlkit.table()
+        table.update(provider)
+        broken_array.append(table)
+    corrupted = tomlkit.dumps({"providers": broken_array}).replace("\n", newline)
+    with pytest.raises(tomlkit.exceptions.TOMLKitError):
+        tomlkit.loads(corrupted)
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_bytes(corrupted.encode("utf-8"))
+    doc = user_mod._load_config_doc(str(config_file))
+
+    assert doc.unwrap()["providers"] == providers
+    assert config_file.read_bytes() == corrupted.encode("utf-8")
+    # Repeated loading must recover the same values without rewriting the file.
+    assert user_mod._load_config_doc(str(config_file)).unwrap() == doc.unwrap()
+    assert config_file.read_bytes() == corrupted.encode("utf-8")
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+@pytest.mark.parametrize(
+    "comment",
+    [
+        '# note, api_key = "fake"',
+        '# unmatched " quote, api_key = "fake"',
+        '# bracket ] and comma, api_key = "fake"',
+    ],
+)
+def test_repair_providers_corruption_comment_separators(
+    tmp_path, monkeypatch, newline, comment
+):
+    """Comment punctuation must not split providers or activate commented keys."""
+    import gptme.config.user as user_mod
+
+    corrupted = (
+        'providers = [name = "local"\n' + comment + "\n"
+        'base_url = "http://localhost/v1#fragment,a=b"\n'
+        ', name = "second"\nbase_url = "http://localhost:9090/v1"\n]\n'
+    ).replace("\n", newline)
+    expected = [
+        {"name": "local", "base_url": "http://localhost/v1#fragment,a=b"},
+        {"name": "second", "base_url": "http://localhost:9090/v1"},
+    ]
+    config_file = tmp_path / "config.toml"
+    original = corrupted.encode("utf-8")
+    config_file.write_bytes(original)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    assert doc.unwrap()["providers"] == expected
+    assert config_file.read_bytes() == original
+    cfg = user_mod.load_user_config(str(config_file))
+    assert [p.name for p in cfg.providers] == ["local", "second"]
+    assert all(p.api_key is None for p in cfg.providers)
+
+    user_mod.set_config_value("env.MODEL", "local/new-model", reload=False)
+    saved = tomlkit.loads(config_file.read_text(encoding="utf-8")).unwrap()
+    assert saved["providers"] == expected
+    assert saved["env"] == {"MODEL": "local/new-model"}
+
+
+def test_repair_providers_corruption_trailing_comment(tmp_path, monkeypatch):
+    """A comment survives in-memory recovery and a subsequent explicit save."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    corrupted = (
+        'providers = [name = "local"\nbase_url = "http://localhost/v1"\n'
+        '] # custom providers\nenv = { MODEL = "local/model" }\n'
+    )
+    config_file.write_text(corrupted, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    doc = user_mod._load_config_doc(str(config_file))
+    result = doc.unwrap()
+    assert result["providers"] == [{"name": "local", "base_url": "http://localhost/v1"}]
+    assert result["env"] == {"MODEL": "local/model"}
+    assert "# custom providers" in tomlkit.dumps(doc)
+    assert config_file.read_text(encoding="utf-8") == corrupted
+
+    user_mod.set_config_value("env.MODEL", "local/new-model", reload=False)
+    saved_text = config_file.read_text(encoding="utf-8")
+    saved = tomlkit.loads(saved_text).unwrap()
+    assert "# custom providers" in saved_text
+    assert saved["providers"] == result["providers"]
+    assert saved["env"] == {"MODEL": "local/new-model"}
+
+
+def test_repair_providers_corruption_legacy_encoding_stays_in_memory(
+    tmp_path, monkeypatch
+):
+    """Startup must not create a less-private backup of a legacy-encoded secret."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    corrupted = (
+        'providers = [name = "local"\nbase_url = "http://localhost/v1"\n'
+        'api_key = "sëcret"\n]\n'
+    ).encode("cp1252")
+    config_file.write_bytes(corrupted)
+    config_file.chmod(0o600)
+    monkeypatch.setattr(user_mod, "_legacy_codec_candidates", lambda: ["cp1252"])
+    monkeypatch.setattr(user_mod, "_encoding_unverified", set())
+
+    doc = user_mod._load_config_doc(str(config_file)).unwrap()
+
+    assert doc["providers"][0]["api_key"] == "sëcret"
+    assert config_file.read_bytes() == corrupted
+    assert list(tmp_path.iterdir()) == [config_file]
+
+    # Startup's cosmetic unknown-key cleanup must not persist the in-memory
+    # repair or fall back to creating the unsafe backup either.
+    config_file.write_bytes(b"stray_key = 1\n" + corrupted)
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    cfg = user_mod.load_user_config(str(config_file))
+    assert cfg.providers[0].api_key == "sëcret"
+    assert config_file.read_bytes() == b"stray_key = 1\n" + corrupted
+    assert list(tmp_path.iterdir()) == [config_file]
+
+
+@pytest.mark.parametrize("section", ["[plugin.foo]", "[env]", "[[mcp.servers]]"])
+def test_repair_providers_corruption_refuses_nested_setting(tmp_path, section):
+    """A nested setting named providers must never become global providers."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    corrupted = (
+        section + '\nproviders = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
+    ).encode()
+    config_file.write_bytes(corrupted)
+
+    with pytest.raises(tomlkit.exceptions.TOMLKitError):
+        user_mod._load_config_doc(str(config_file))
+    assert config_file.read_bytes() == corrupted
+
+
+def test_repair_providers_corruption_local_config(tmp_path, monkeypatch):
+    """Corruption in config.local.toml is auto-repaired the same as config.toml."""
+    import gptme.config.user as user_mod
+
+    # Empty main config
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("", encoding="utf-8")
+
+    corrupted_local = (
+        'providers = [name = "local"\n'
+        'base_url = "http://localhost:11434/v1"\n'
+        'default_model = "llama3"\n'
+        "]\n"
+    )
+    local_file = tmp_path / "config.local.toml"
+    local_file.write_text(corrupted_local, encoding="utf-8")
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    # load_user_config must not raise even with corrupted local config
+    cfg = user_mod.load_user_config(str(config_file))
+    assert any(p.name == "local" for p in cfg.providers)
+
+
 def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path, requires_symlinks):
     """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
     logdir = tmp_path / "conversation-save-transition"
@@ -3479,3 +3788,50 @@ def test_tui_statusline_config(tmp_path, caplog):
     assert load_user_config(str(path)).tui.statusline is None
     assert "statusline" in caplog.text
     assert "foo" in caplog.text
+
+
+@pytest.mark.parametrize("local", [False, True], ids=["main", "local"])
+def test_provider_recovery_never_opens_config_for_writing(tmp_path, monkeypatch, local):
+    """Startup and cosmetic cleanup cannot truncate a recovered secret config."""
+    import builtins
+
+    import gptme.config.user as user_mod
+
+    main = tmp_path / "config.toml"
+    main.write_text("", encoding="utf-8")
+    config_file = tmp_path / "config.local.toml" if local else main
+    corrupted = (
+        b'stray_key = 1\nproviders = [name = "local"\n'
+        b'base_url = "http://localhost/v1"\napi_key = "secret"\n]\n'
+    )
+    config_file.write_bytes(corrupted)
+    monkeypatch.setattr(user_mod, "config_path", str(main))
+
+    def read_only_open(path, mode="r", *args, **kwargs):
+        assert not any(flag in mode for flag in "wax+"), "startup attempted a write"
+        return builtins.open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(user_mod, "open", read_only_open, raising=False)
+    cfg = user_mod.load_user_config(str(main))
+    assert cfg.providers[0].api_key == "secret"
+    assert config_file.read_bytes() == corrupted
+    assert sorted(p.name for p in tmp_path.iterdir()) == (
+        ["config.local.toml", "config.toml"] if local else ["config.toml"]
+    )
+
+
+def test_stale_provider_recovery_cannot_overwrite_newer_save(tmp_path):
+    """A recovery based on an old read never publishes over a newer config."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    stale = 'providers = [name = "local"\nbase_url = "http://localhost/v1"\n]\n'
+    newer = (
+        b'[env]\nAPI_KEY = "new-secret"\n[[providers]]\n'
+        b'name = "local"\nbase_url = "http://localhost/v2"\n'
+    )
+    config_file.write_bytes(newer)
+    doc = user_mod._repair_providers_corruption(stale, str(config_file))
+    assert doc is not None
+    assert doc.unwrap()["providers"][0]["base_url"] == "http://localhost/v1"
+    assert config_file.read_bytes() == newer
