@@ -1340,6 +1340,27 @@ class TestOAuthTokenExpiry:
         assert "cannot be refreshed" in result.message
         assert result.fix_hint == "Run: gptme auth openai-subscription"
 
+    @pytest.mark.parametrize("refreshable", [False, True])
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor._oauth_token_expiry")
+    def test_grok_respects_runtime_refresh_margin(
+        self,
+        mock_expiry,
+        mock_config,
+        mock_providers,
+        refreshable,
+    ):
+        mock_providers.return_value = [("grok-subscription", "oauth")]
+        mock_config.return_value.get_env.return_value = None
+        mock_expiry.return_value = (time.time() + 100, refreshable)
+
+        result = next(
+            r for r in _check_api_keys() if r.name == "Auth: grok-subscription"
+        )
+        assert result.status == (CheckStatus.OK if refreshable else CheckStatus.WARNING)
+        assert "refresh" in result.message
+
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
     @patch("gptme.cli.doctor._oauth_token_expiry")

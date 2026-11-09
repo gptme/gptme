@@ -266,13 +266,15 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
         if provider in OAUTH_PROVIDERS:
             if provider in available_provider_map:
                 expiry, refreshable = _oauth_token_expiry(provider)
-                expired = expiry is not None and expiry <= time.time()
+                # Grok refreshes/rejects tokens five minutes before expiry.
+                refresh_margin = 300 if provider == "grok-subscription" else 0
+                expired = expiry is not None and expiry <= time.time() + refresh_margin
                 if expired and not refreshable:
                     results.append(
                         CheckResult(
                             name=f"Auth: {provider}",
                             status=CheckStatus.WARNING,
-                            message="Token expired and cannot be refreshed",
+                            message="Token expired or near expiry and cannot be refreshed",
                             fix_hint=f"Run: gptme auth {provider}",
                         )
                     )
@@ -282,7 +284,7 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
                             name=f"Auth: {provider}",
                             status=CheckStatus.OK,
                             message=(
-                                "Authenticated (OAuth; access token expired, "
+                                "Authenticated (OAuth; access token expired or near expiry, "
                                 "refreshable)"
                                 if expired
                                 else "Authenticated (OAuth)"
