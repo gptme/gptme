@@ -653,6 +653,12 @@ def _passthrough_gh(
             if details:
                 msg += "\n\n" + "\n\n".join(details)
             yield Message("system", msg)
+        elif len((result.stdout or "").strip()) > max_chars:
+            yield Message(
+                "system",
+                "Error: CLI output exceeds the response limit. Narrow the request "
+                "with --jq/--limit, or use the shell tool and redirect output to a file.",
+            )
         elif output:
             yield Message("system", output)
         else:
@@ -711,17 +717,17 @@ _NATIVE_REF_COMMANDS = {
 
 
 # Native read handlers that implement no flags beyond ``--repo``/``-R``.
-# ``run view`` also absorbs ``--log``/``--log-failed``: native extraction already
-# returns the failure block, and passing those flags through dumps megabyte logs.
+# ``run view`` also absorbs ``--log-failed``: native extraction already returns
+# the failure block. ``--log`` needs the CLI to include successful-job logs.
 _NATIVE_REPO_FLAG_ONLY = _NATIVE_REF_COMMANDS - {("pr", "merge")} | {("run", "view")}
-_NATIVE_RUN_VIEW_LOG_FLAGS = frozenset({"--log", "--log-failed"})
+_NATIVE_RUN_VIEW_LOG_FLAGS = frozenset({"--log-failed"})
 
 
 def _has_unsupported_flags(args: list[str]) -> bool:
     """True when a native read command carries a flag its handler does not implement.
 
     The native handlers understand ``--repo``/``-R``.  ``run view`` also absorbs
-    ``--log``/``--log-failed`` (native extraction is the capped failure view).
+    ``--log-failed`` (native extraction is the capped failure view).
     Any other flag (``--json``, ``--jq``, ``--job``, ...) was previously
     discarded, or read as a positional value (``pr checks --json`` became the
     commit SHA), so the caller got the native summary instead of what it asked
@@ -1015,7 +1021,7 @@ Native commands:
 - `gh run view <run-id>` extracts failed-job logs
 
 Read flags beyond `--repo`/`-R` (e.g. `--json`, `--jq`, `--job`) and other
-subcommands use the CLI. `run view --log`/`--log-failed` stay native (capped
+subcommands use the CLI. `run view --log-failed` stays native (capped
 failure extraction). A separate `url` supplies the target; flagged PR-specific
 `pr status` uses `pr view` (CLI `pr status` has no target).
 

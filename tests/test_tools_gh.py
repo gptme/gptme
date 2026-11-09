@@ -1610,7 +1610,6 @@ class TestUnsupportedFlagsPassThrough:
         "args",
         [
             ["run", "view", "123", "--log-failed"],
-            ["run", "view", "123", "--log"],
             ["run", "view", "--log-failed", "123", "-R", "o/r"],
         ],
     )
@@ -1628,6 +1627,27 @@ class TestUnsupportedFlagsPassThrough:
         assert messages[0].content == "logs"
 
     @patch("gptme.tools.gh.subprocess.run")
+    def test_run_view_full_logs_use_cli(self, mock_run):
+        mock_run.return_value = _mock_subprocess_run("successful job logs")
+        messages = list(execute_gh(None, ["run", "view", "123", "--log"], None))
+        mock_run.assert_called_once_with(
+            ["gh", "run", "view", "123", "--log"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert messages[0].content == "successful job logs"
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_oversized_json_fails_explicitly(self, mock_run):
+        mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
+        messages = list(_passthrough_gh(["pr", "view", "5", "--json", "body"], None))
+        assert messages[0].content.startswith("Error:")
+        assert "shell" in messages[0].content
+        assert '"body"' not in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
     def test_passthrough_tail_caps_large_cli_output(self, mock_run):
         from gptme.util.gh import DEFAULT_LOG_MAX_TOKENS
 
@@ -1637,8 +1657,8 @@ class TestUnsupportedFlagsPassThrough:
         )
         messages = list(_passthrough_gh(["issue", "list"], None))
         content = messages[0].content
-        assert tail in content
-        assert "chars omitted" in content
+        assert content.startswith("Error:")
+        assert "shell" in content
         assert len(content) < DEFAULT_LOG_MAX_TOKENS * 4 + 80
 
     @pytest.mark.parametrize(
