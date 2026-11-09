@@ -814,21 +814,26 @@ def _outer_closer_scan(
         fence = re.match(r"^(`{3,})(.*)$", line)
         if fence is None:
             continue
-        if not fence.group(2).strip():
+        tag = fence.group(2).strip()
+        # Extraction splits a closer joined to the next opener ("``````shell")
+        # into both: the line closes the open block, then opens a tagged one.
+        joined = bool(re.match(r"^`{6,}[^`\s]", line))
+        if not tag or joined:
             bare.add(i)
             if openers:
                 matching[openers.pop()] = i
-        elif _is_valid_lang_tag(fence.group(2).strip()):
+        if tag and (joined or _is_valid_lang_tag(tag)):
             openers.append(i)
             verdicts[i] = None
 
     suffix: list[bool | None] = [False] * (len(lines) + 1)
     for i in range(len(lines) - 1, -1, -1):
+        if i in verdicts:
+            closer = matching.get(i)
+            verdicts[i] = None if closer is None else suffix[closer + 1]
         if i in bare:
             suffix[i] = True
         elif i in verdicts:
-            closer = matching.get(i)
-            verdicts[i] = None if closer is None else suffix[closer + 1]
             suffix[i] = verdicts[i]
         else:
             suffix[i] = suffix[i + 1]

@@ -3115,6 +3115,17 @@ def test_nonexec_save_literal_fence_with_distant_outer_closer_unaffected() -> No
     assert list(_extract_codeblocks(markdown)) == [Codeblock("save a.md", content)]
 
 
+def test_nonexec_save_literal_fence_with_joined_outer_closer_unaffected() -> None:
+    """A closer joined to the next opener ("``````shell") still counts as the
+    outer closer, so an earlier literal fence must not truncate the save."""
+    content = "intro\n```\n" + "body\n" * 30 + "end"
+    markdown = f"```save a.md\n{content}\n``````shell\ncat a.md\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
 @pytest.mark.parametrize("tag", ["think", "thinking"])
 def test_save_then_prose_then_unclosed_reasoning_never_runs_command(tag: str) -> None:
     markdown = f"```save a\nhello\n```\nDone.\n<{tag}>\n```shell\nrm -rf x\n```\n"
