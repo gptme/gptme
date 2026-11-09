@@ -656,8 +656,11 @@ def _passthrough_gh(
         elif len((result.stdout or "").strip()) > max_chars:
             yield Message(
                 "system",
-                "Error: CLI output exceeds the response limit. Narrow the request "
-                "with --jq/--limit, or use the shell tool and redirect output to a file.",
+                "Command succeeded (exit 0), but stdout exceeded the response limit "
+                "and was omitted. Do not repeat a mutating command: its changes have "
+                "already been applied. Inspect the result with a read-only query "
+                "using --jq/--limit, or use the shell tool to redirect a read-only "
+                "query to a file.",
             )
         elif output:
             yield Message("system", output)

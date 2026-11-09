@@ -1640,10 +1640,10 @@ class TestUnsupportedFlagsPassThrough:
         assert messages[0].content == "successful job logs"
 
     @patch("gptme.tools.gh.subprocess.run")
-    def test_passthrough_oversized_json_fails_explicitly(self, mock_run):
+    def test_passthrough_oversized_json_is_not_returned_as_partial_json(self, mock_run):
         mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
         messages = list(_passthrough_gh(["pr", "view", "5", "--json", "body"], None))
-        assert messages[0].content.startswith("Error:")
+        assert messages[0].content.startswith("Command succeeded (exit 0)")
         assert "shell" in messages[0].content
         assert '"body"' not in messages[0].content
 
@@ -1657,9 +1657,22 @@ class TestUnsupportedFlagsPassThrough:
         )
         messages = list(_passthrough_gh(["issue", "list"], None))
         content = messages[0].content
-        assert content.startswith("Error:")
+        assert content.startswith("Command succeeded (exit 0)")
         assert "shell" in content
         assert len(content) < DEFAULT_LOG_MAX_TOKENS * 4 + 80
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_oversized_mutation_response_does_not_recommend_retry(self, mock_run):
+        mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
+        messages = list(
+            _passthrough_gh(["api", "repos/o/r/issues", "-f", "title=test"], None)
+        )
+        mock_run.assert_called_once()
+        content = messages[0].content
+        assert content.startswith("Command succeeded (exit 0)")
+        assert "Do not repeat" in content
+        assert "read-only" in content
+        assert not content.startswith("Error")
 
     @pytest.mark.parametrize(
         "repo_flag", [["--repo=o/r"], ["-Ro/r"], ["--repo", "o/r"]]
