@@ -963,9 +963,9 @@ def block_budget_hook(
 # Consumers (gptme-sessions, the judge pipeline, value heartbeat ledgers)
 # otherwise rebuild basic session metadata by walking whole transcripts. One
 # compact JSON line at the tail of the log turns that into a single parse.
-# Emitted as an HTML comment inside a ``ui_only`` system message: the comment
-# keeps it out of rendered prose, and ``ui_only`` keeps ``prepare_messages()``
-# from ever sending it to a provider on a resumed session.
+# Emitted as an HTML comment inside a hidden ``ui_only`` system message:
+# ``hide`` keeps it out of terminal prose, and ``ui_only`` keeps
+# ``prepare_messages()`` from sending it to a provider on a resumed session.
 SESSION_END_BLOCK_OPEN = "<!-- gptme:session-end "
 SESSION_END_BLOCK_CLOSE = " -->"
 
@@ -997,17 +997,16 @@ def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str | 
     there would put one in every interactive log and change the final message
     an interactive caller sees.
     """
-    if messages:
-        last = messages[-1]
-        if (last.metadata or {}).get("max_steps_stop") is True:
-            return OUTCOME_MAX_TURNS
-        if (last.content or "").startswith(MAX_STEPS_STOP_PREFIX):
-            return OUTCOME_MAX_TURNS
     # The acknowledgement precedes verification and cannot prove success.
     # Only complete_hook's accepted-stop receipt is authoritative.
     for m in reversed(current_episode(messages)):
         if m.role in ("assistant", "user"):
             break  # A resumed/continued turn invalidates the previous stop.
+        if m.role == "system" and (
+            (m.metadata or {}).get("max_steps_stop") is True
+            or m.content.startswith(MAX_STEPS_STOP_PREFIX)
+        ):
+            return OUTCOME_MAX_TURNS
         if m.role == "system" and m.ui_only:
             outcome = (m.metadata or {}).get("session_stop_outcome")
             if isinstance(outcome, str):
@@ -1061,7 +1060,7 @@ def session_end_metadata_hook(
         f"{json.dumps(payload, separators=(',', ':'))}"
         f"{SESSION_END_BLOCK_CLOSE}"
     )
-    yield Message("system", content, ui_only=True)
+    yield Message("system", content, ui_only=True, hide=True)
 
 
 def _env_flag(name: str, default: str) -> bool:

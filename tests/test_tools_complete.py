@@ -2149,3 +2149,33 @@ class TestSessionEndReviewRegressions:
             _assistant("new repair attempt"),
         ]
         assert not list(session_end_metadata_hook(_session_end_manager(messages)))
+
+    def test_post_turn_notice_does_not_hide_step_limit(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("work"),
+            _assistant("changed files"),
+            Message("system", "Stopped", metadata={"max_steps_stop": True}),
+            _system("Pre-commit checks passed"),
+        ]
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+        assert payload["outcome"] == "max_turns"
+
+    @pytest.mark.parametrize("role", ["user", "assistant"])
+    def test_quoted_step_limit_is_not_terminal(self, role):
+        from gptme.constants import MAX_STEPS_STOP_PREFIX
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [_user("go"), Message(role, MAX_STEPS_STOP_PREFIX)]
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
+
+    def test_metadata_is_hidden_from_terminal(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [_user("go"), _assistant("done"), _accepted_stop()]
+        block = list(session_end_metadata_hook(_session_end_manager(messages)))[0]
+        assert isinstance(block, Message)
+        assert block.hide
