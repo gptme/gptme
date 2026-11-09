@@ -13,6 +13,7 @@ from pathlib import Path
 from rich import print
 from rich.console import Console
 from rich.syntax import Syntax
+from rich.text import Text
 
 from ..message import Message
 from .clipboard import set_copytext
@@ -56,7 +57,7 @@ def print_preview(
         header: Optional header to display above the preview
     """
     print()
-    print(f"[bold white]{header or 'Preview'}[/bold white]")
+    print(Text(header or "Preview", style="bold white"))
 
     if copy:
         set_copytext(code)
@@ -96,6 +97,7 @@ def execute_with_confirmation(
         execute_fn: Function that performs the actual execution
         get_path_fn: Function to get the path from args/kwargs
         preview_fn: Optional function to prepare preview content
+        preview_header: Non-editable metadata displayed separately from content
         preview_lang: Language for syntax highlighting
         confirm_msg: Custom confirmation message
         allow_edit: Whether to allow editing the content
@@ -118,6 +120,7 @@ def execute_with_confirmation(
         # Get confirmation via hook system.
         result = get_confirmation(
             preview=preview_content or content,
+            preview_header=preview_header,
             workspace=confirmation_workspace,
             default_confirm=True,
         )
@@ -152,6 +155,7 @@ def execute_with_confirmation(
                 edited_preview = preview_fn(content, path) if preview_fn else None
                 edited_result = get_confirmation(
                     preview=edited_preview or content,
+                    preview_header=preview_header,
                     workspace=confirmation_workspace,
                     default_confirm=True,
                 )

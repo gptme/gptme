@@ -51,15 +51,17 @@ def resolve_roots(
     config_dir: Path | None = None,
 ) -> list[MemoryRoot]:
     env = os.environ if env is None else env
+    ws = (workspace or get_workspace()).resolve()
+    # Resolve configured paths against the workspace before availability checks
+    # and deduplication; server process cwd may belong to another conversation.
     explicit = env.get(ENV_DIRS, "").strip()
     if explicit:
         return _dedupe(
-            MemoryRoot("explicit", Path(p).expanduser())
+            MemoryRoot("explicit", (ws / Path(p).expanduser()).resolve())
             for p in explicit.split(os.pathsep)
             if p.strip()
         )
 
-    ws = (workspace or get_workspace()).resolve()
     candidates: list[MemoryRoot] = []
     project = ws / "memory"
     if project.is_dir():
@@ -67,7 +69,7 @@ def resolve_roots(
     candidates.append(MemoryRoot("cc", get_cc_memory_dir(ws)))
     agent_ws = env.get(ENV_AGENT_WORKSPACE, "").strip()
     if agent_ws:
-        agent = Path(agent_ws).expanduser() / "memory"
+        agent = (ws / Path(agent_ws).expanduser() / "memory").resolve()
         if agent.is_dir():
             candidates.append(MemoryRoot("agent", agent))
     candidates.append(MemoryRoot("user", (config_dir or get_config_dir()) / "memory"))
