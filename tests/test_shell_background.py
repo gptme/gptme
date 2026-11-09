@@ -241,6 +241,32 @@ class TestOutputCapture:
         stdout, _ = job.get_output()
         assert len(stdout) >= 100_000
 
+    def test_direct_job_spool_keeps_prefix_beyond_buffer(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Live spool must retain BEGIN/END after the RAM tail evicts the prefix."""
+        from pathlib import Path
+
+        from gptme.tools.shell_background import format_job_output
+
+        monkeypatch.setattr(
+            "gptme.tools.shell_background._current_log_dir", lambda: Path(tmp_path)
+        )
+        job = start_background_job(
+            f'{sys.executable} -c "'
+            "import sys; sys.stdout.write('BEGIN-MARKER\\n' + 'noisy output\\n' * 180000 + 'END-MARKER\\n'); sys.exit(2)\""
+        )
+        assert job.log_path is not None and job.log_path.exists()
+        assert job.process.wait(timeout=10) == 2
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        log = job.log_path.read_text()
+        assert "BEGIN-MARKER" in log
+        assert "END-MARKER" in log
+        preview = format_job_output(job, *job.get_output(), complete=True)
+        assert "Full output" in preview
+        assert "not retained" not in preview
+
     @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups only")
     def test_descendant_holding_pipes_does_not_stall_completion(self):
         """A detached descendant must not suppress the direct child's completion."""

@@ -30,6 +30,11 @@ from ..hooks.types import StopPropagation
 from ..message import Message
 from ..sandbox import apply_memory_limit
 from ..util.context import md_codeblock
+from ..util.output_storage import (
+    PrivateOutputFile,
+    UnsafeOutputPathError,
+    open_private_output_file,
+)
 
 _is_windows = os.name == "nt"
 
@@ -43,6 +48,9 @@ logger = logging.getLogger(__name__)
 
 # Maximum buffer size to prevent memory issues (1MB per buffer)
 _MAX_BUFFER_SIZE = 1024 * 1024
+
+# Incomplete last line / partial assignment held before spool commit.
+_SPOOL_PENDING_MAX = 64 * 1024
 
 # Tail of each stream shown in `output N`, promotion and completion messages.
 # Longer output is saved to a per-job log file (when the conversation has a
@@ -139,14 +147,69 @@ class BackgroundJob:
     log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
     _final_log_written: bool = field(default=False, repr=False)
+    _stdout_spool: PrivateOutputFile | None = field(default=None, repr=False)
+    _stderr_spool: PrivateOutputFile | None = field(default=None, repr=False)
+    _snapshot_stream: PrivateOutputFile | None = field(default=None, repr=False)
+    _spool_pending_stdout: str = field(default="", repr=False)
+    _spool_pending_stderr: str = field(default="", repr=False)
+    _spool_from_reader: bool = field(default=False, repr=False)
+    _capture_partial: bool = field(default=False, repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
     kill_reason: str | None = None
     # a kill after the completion message went out (a worker that outlived
     # the job's main process): delivered as a message of its own
     _late_kill_notice: str | None = field(default=None, repr=False)
 
+    def __post_init__(self) -> None:
+        self._open_spools()
+
+    def _can_spool_from_process(self) -> bool:
+        if (
+            self.log_dir is None
+            or self._output_callback is not None
+            or self.process is None
+        ):
+            return False
+        stdout = getattr(self.process, "stdout", None)
+        fileno = getattr(stdout, "fileno", None)
+        if stdout is None or not callable(fileno):
+            return False
+        try:
+            fd = fileno()
+        except Exception:
+            return False
+        return isinstance(fd, int) and fd >= 0
+
+    def _open_spools(self) -> None:
+        """Open exclusive live stream files when this job owns the pipes."""
+        if self._stdout_spool is not None or not self._can_spool_from_process():
+            return
+        assert self.log_dir is not None
+        base = f"job-{self.id}-{int(self.start_time)}"
+        stdout_spool: PrivateOutputFile | None = None
+        try:
+            stdout_spool = open_private_output_file(
+                self.log_dir, "shell-jobs", f"{base}.stdout.live"
+            )
+            self._stderr_spool = open_private_output_file(
+                self.log_dir, "shell-jobs", f"{base}.stderr.live"
+            )
+        except (OSError, UnsafeOutputPathError) as e:
+            logger.warning(
+                "Could not open background job spool under %s: %s", self.log_dir, e
+            )
+            if stdout_spool is not None:
+                stdout_spool.close()
+            self._stdout_spool = None
+            self._stderr_spool = None
+            return
+        self._stdout_spool = stdout_spool
+        self.log_path = stdout_spool.path
+        self._spool_from_reader = True
+
     def start_reader(self) -> None:
         """Start background thread to read output."""
+        self._open_spools()
         self._capture_finished.clear()
         self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self._reader_thread.start()
@@ -162,6 +225,8 @@ class BackgroundJob:
         """
         decoder = self._stdout_decoder if fd == stdout_fd else self._stderr_decoder
         text = decoder.decode(data, final=final)
+        if text or final:
+            self._spool_text(fd == stdout_fd, text, final=final)
         if not text:
             return
         with self._buffer_lock:
@@ -173,6 +238,53 @@ class BackgroundJob:
                 self._stderr_buffer_start += self._append_to_buffer_locked(
                     self.stderr_buffer, text
                 )
+
+    def _spool_text(self, is_stdout: bool, text: str, *, final: bool) -> None:
+        """Commit sanitized complete lines to the live stream before RAM eviction."""
+        stream = self._stdout_spool if is_stdout else self._stderr_spool
+        if stream is None:
+            return
+        pending_attr = "_spool_pending_stdout" if is_stdout else "_spool_pending_stderr"
+        pending = getattr(self, pending_attr) + text
+        if final:
+            to_write, leftover = pending, ""
+        else:
+            head, sep, tail = pending.rpartition("\n")
+            if not sep:
+                if len(pending) > _SPOOL_PENDING_MAX:
+                    to_write = "[omitted: pending sanitation window exceeded]\n"
+                    leftover = ""
+                    self._capture_partial = True
+                else:
+                    setattr(self, pending_attr, pending)
+                    return
+            else:
+                to_write, leftover = head + sep, tail
+                if len(leftover) > _SPOOL_PENDING_MAX:
+                    leftover = ""
+                    self._capture_partial = True
+                    to_write += "[omitted: pending sanitation window exceeded]\n"
+        setattr(self, pending_attr, leftover)
+        if not to_write:
+            return
+        try:
+            if is_stdout:
+                sanitized, _, _ = _sanitize_job_output(to_write, "", complete=final)
+            else:
+                _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
+            if sanitized:
+                stream.append(sanitized.encode("utf-8", "surrogateescape"))
+        except OSError as e:
+            logger.warning("Could not append job spool %s: %s", stream.path, e)
+            self._capture_partial = True
+            try:
+                stream.close()
+            except OSError:
+                pass
+            if is_stdout:
+                self._stdout_spool = None
+            else:
+                self._stderr_spool = None
 
     def _read_output(self) -> None:
         """Read stdout/stderr until the child exits, then drain briefly."""
@@ -237,6 +349,16 @@ class BackgroundJob:
         for fd in (stdout_fd, stderr_fd):
             if fd >= 0:
                 self._append_output(fd, stdout_fd, b"", final=True)
+        for stream in (self._stdout_spool, self._stderr_spool):
+            if stream is None:
+                continue
+            try:
+                stream.flush()
+            except OSError as e:
+                logger.warning(
+                    "Could not flush background job spool %s: %s", stream.path, e
+                )
+                self._capture_partial = True
         # Consumers can render the notification before this thread returns.
         # Capture is final now, even though the notifying thread is still alive.
         self._capture_finished.set()
@@ -462,13 +584,18 @@ def _write_job_log_locked(
     complete: bool = False,
 ) -> Path | None:
     assert job.log_dir is not None
-    if job.log_path is None:
-        job.log_path = (
-            job.log_dir
-            / "tool-outputs"
-            / "shell-jobs"
-            / f"job-{job.id}-{int(job.start_time)}.log"
-        )
+    if job._spool_from_reader and job._stdout_spool is not None:
+        if final:
+            try:
+                job._stdout_spool.flush()
+                if job._stderr_spool is not None:
+                    job._stderr_spool.flush()
+            except OSError as e:
+                logger.warning(
+                    "Could not flush background job spool %s: %s", job.log_path, e
+                )
+                return None
+        return job.log_path
     if not final:
         stdout, stderr = _omit_evicted_line(job, stdout, stderr)
     stdout, stderr, _ = _sanitize_job_output(stdout, stderr, complete=final or complete)
@@ -481,10 +608,16 @@ def _write_job_log_locked(
     parts.append(f"\n--- stdout ---\n{stdout}")
     if stderr:
         parts.append(f"\n--- stderr ---\n{stderr}")
+    payload = "".join(parts).encode("utf-8", "surrogateescape")
     try:
-        job.log_path.parent.mkdir(parents=True, exist_ok=True)
-        job.log_path.write_text("".join(parts), encoding="utf-8")
-    except OSError as e:
+        if job._snapshot_stream is None:
+            name = f"job-{job.id}-{int(job.start_time)}.log"
+            job._snapshot_stream = open_private_output_file(
+                job.log_dir, "shell-jobs", name
+            )
+            job.log_path = job._snapshot_stream.path
+        job._snapshot_stream.replace(payload)
+    except (OSError, UnsafeOutputPathError) as e:
         logger.warning("Could not write background job log %s: %s", job.log_path, e)
         return None
     return job.log_path
@@ -541,12 +674,19 @@ def format_job_output(
             truncated = True
             text = f"...(truncated, showing last {limit} of {len(text)} chars)...\n{text[-limit:]}"
         blocks.append(md_codeblock(name, text))
-    if truncated:
+    if truncated or job.log_path is not None:
         log_path = _write_job_log(
             job, *job.get_output(), final=False, complete=complete
         )
         dropped = job._stdout_buffer_start + job._stderr_buffer_start
-        if log_path is not None and (job._final_log_written or not dropped):
+        spool_complete = (
+            job._spool_from_reader
+            and job.log_path is not None
+            and not job._capture_partial
+        )
+        if log_path is not None and (
+            job._final_log_written or spool_complete or not dropped
+        ):
             blocks.append(f"Full output: `{log_path}`")
         elif log_path is not None:
             # The in-memory buffer already discarded the earliest output.

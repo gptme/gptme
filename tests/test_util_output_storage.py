@@ -15,6 +15,7 @@ from gptme.util.output_storage import (
     UnsafeOutputPathError,
     create_tool_result_summary,
     large_output_path,
+    open_private_output_file,
     save_large_output,
 )
 
@@ -374,3 +375,52 @@ def test_concurrent_same_content_saves_are_distinct(tmp_path: Path, monkeypatch)
     assert all(p.read_text() == "dup" for p in paths)
     leftovers = [p for p in paths[0].parent.iterdir() if p.name.endswith(".tmp")]
     assert leftovers == []
+
+
+def test_open_private_output_file_appends_and_keeps_distinct_collisions(
+    tmp_path: Path, writer_mode
+):
+    first = open_private_output_file(tmp_path, "shell-jobs", "job-1-1.stdout.live")
+    second = open_private_output_file(tmp_path, "shell-jobs", "job-1-1.stdout.live")
+    first.append(b"BEGIN\n")
+    first.append(b"END\n")
+    first.close()
+    second.append(b"other\n")
+    second.close()
+
+    assert first.path != second.path
+    assert first.path.read_bytes() == b"BEGIN\nEND\n"
+    assert second.path.read_bytes() == b"other\n"
+    if sys.platform != "win32":
+        assert stat.S_IMODE(first.path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(first.path.parent.stat().st_mode) == 0o700
+
+
+def test_open_private_output_file_replace_does_not_follow_symlink(
+    tmp_path: Path, writer_mode
+):
+    stream = open_private_output_file(tmp_path, "shell-jobs", "job.log")
+    victim = tmp_path / "victim.txt"
+    victim.write_text("do not touch")
+    stream.path.unlink()
+    stream.path.symlink_to(victim)
+    stream.replace(b"owned inode\n")
+    stream.close()
+    assert victim.read_text() == "do not touch"
+
+
+@posix_only
+@pytest.mark.parametrize("component", ["tool-outputs", "tool-outputs/shell-jobs"])
+def test_open_private_output_file_refuses_symlinked_parent(
+    tmp_path: Path, component: str, writer_mode
+):
+    logdir = tmp_path / "conv"
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    link = logdir / component
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(UnsafeOutputPathError):
+        open_private_output_file(logdir, "shell-jobs", "job.log")
+    assert list(target.iterdir()) == []

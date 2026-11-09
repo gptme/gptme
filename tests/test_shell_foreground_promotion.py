@@ -538,13 +538,12 @@ def test_explicit_timeout_beyond_hard_limit_still_promotes(
     assert "Promoted to background shell job #1" in messages[-1].content
 
 
-def test_log_of_trimmed_background_job_is_not_called_full(
+def test_log_of_trimmed_background_job_keeps_prefix_on_disk(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     import sys
 
     from gptme.tools.shell_background import (
-        _MAX_BUFFER_SIZE,
         format_job_output,
         start_background_job,
     )
@@ -552,18 +551,21 @@ def test_log_of_trimmed_background_job_is_not_called_full(
     monkeypatch.setattr(
         "gptme.tools.shell_background._current_log_dir", lambda: tmp_path
     )
+    marker = "BEGIN-MARKER"
     job = start_background_job(
-        f"{sys.executable} -c \"print('A' * {_MAX_BUFFER_SIZE + 100000})\""
+        f'{sys.executable} -c "'
+        f"import sys; sys.stdout.write({marker!r} + '\\n' + 'noisy output\\n' * 180000 + 'END-MARKER\\n')\""
     )
+    assert job.log_path is not None and job.log_path.exists()
     job.process.wait(timeout=10)
     assert job._reader_thread is not None
     job._reader_thread.join(timeout=5)
 
-    content = format_job_output(job, *job.get_output())
+    content = format_job_output(job, *job.get_output(), complete=True)
 
-    assert "Full output" not in content
-    assert "chars were not retained" in content
-    assert job.log_path is not None and job.log_path.exists()
+    assert "Full output" in content
+    assert "chars were not retained" not in content
+    assert job.log_path is not None and marker in job.log_path.read_text()
 
 
 def test_promoted_multiline_completion_preserves_output_boundaries(

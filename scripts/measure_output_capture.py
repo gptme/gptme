@@ -246,8 +246,9 @@ def main() -> None:
         and r["selective_answer_correct"]
         for r in rows
     )
-    assert not jobs["direct_log_has_begin"]
-    assert jobs["direct_preview_reports_loss"]
+    assert jobs["live_path_before_first_read"] != "None"
+    assert jobs["direct_log_has_begin"]
+    assert not jobs["direct_preview_reports_loss"]
     assert jobs["promoted_final_has_begin_and_end"]
     assert jobs["final_survives_later_snapshot"]
     print(json.dumps({"revision": revision, "workflows": rows, "jobs": jobs}, indent=2))
