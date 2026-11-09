@@ -1010,7 +1010,7 @@ Native commands:
 - `gh issue view <ref>` gets issue body and comments in one result
 - `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
 - `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
-- `gh pr checks <ref> [commit_sha]` waits until a check fails, all checks complete, or the 60s foreground wait budget is reached
+- `gh pr checks <ref> [commit_sha]` waits for failure, completion, or 60s
 - `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
 - `gh run view <run-id>` extracts failed-job logs
 
