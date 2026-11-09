@@ -58,6 +58,35 @@ def _make_token(tmp_path: Path, data: object) -> Path:
     return token
 
 
+def _doctor_problem_names() -> list[str]:
+    """Names reported by gptme-doctor's config-corruption check.
+
+    Calls the check directly rather than the whole doctor CLI: run_diagnostics()
+    probes providers, tools and PyPI, none of which this surface involves.
+    """
+    from gptme.cli.doctor import _check_config_corruption
+
+    return [result.name for result in _check_config_corruption(verbose=True)]
+
+
+def _doctor_problem_results() -> list:
+    from gptme.cli.doctor import _check_config_corruption
+
+    return _check_config_corruption(verbose=True)
+
+
+def _assert_reported(name: str) -> None:
+    """A corruption pattern is an ERROR carrying a repair hint in doctor."""
+    from gptme.cli.doctor import CheckStatus
+
+    results = _doctor_problem_results()
+    matching = [r for r in results if r.name == f"Config: {name}"]
+    assert matching, [r.name for r in results]
+    for result in matching:
+        assert result.status is CheckStatus.ERROR
+        assert result.fix_hint
+
+
 # ---------------------------------------------------------------------------
 # detect_config_problems
 # ---------------------------------------------------------------------------
@@ -86,9 +115,6 @@ def test_unreadable_config_is_reported(
 ) -> None:
     from pathlib import Path
 
-    from click.testing import CliRunner
-
-    from gptme.cli.main import main
     from gptme.config import user
     from gptme.llm import llm_gptme
 
@@ -109,10 +135,7 @@ def test_unreadable_config_is_reported(
 
     problems = detect_config_problems(tmp_path)
     assert [(p.name, p.path) for p in problems] == [("config-unreadable", cfg)]
-    result = CliRunner().invoke(main, ["--check-config"])
-    assert result.exit_code == 1, result.output
-    assert "config-unreadable" in result.output
-    assert "repair:" in result.output
+    _assert_reported("config-unreadable")
     assert cfg.read_bytes() == original
     assert not list(tmp_path.glob("*.bak"))
 
@@ -124,9 +147,6 @@ def test_config_beneath_unsearchable_directory_is_reported(
 ) -> None:
     from pathlib import Path
 
-    from click.testing import CliRunner
-
-    from gptme.cli.main import main
     from gptme.config import user
     from gptme.llm import llm_gptme
 
@@ -155,14 +175,13 @@ def test_config_beneath_unsearchable_directory_is_reported(
         with pytest.raises(PermissionError):
             cfg.read_text()
         problems = detect_config_problems(root)
-        result = CliRunner().invoke(main, ["--check-config"])
+        reported = _doctor_problem_results()
     finally:
         root.chmod(0o700)
 
     assert ("config-unreadable", cfg) in [(p.name, p.path) for p in problems]
-    assert result.exit_code == 1, result.output
-    assert "config-unreadable" in result.output
-    assert "repair:" in result.output
+    assert "Config: config-unreadable" in [r.name for r in reported]
+    assert all(r.fix_hint for r in reported)
     assert cfg.read_bytes() == original
     assert list(root.iterdir()) == [cfg]
 
@@ -178,9 +197,6 @@ def test_unsearchable_auth_directory_is_reported(
 ) -> None:
     from pathlib import Path
 
-    from click.testing import CliRunner
-
-    from gptme.cli.main import main
     from gptme.config import user
     from gptme.llm import llm_gptme
 
@@ -204,7 +220,7 @@ def test_unsearchable_auth_directory_is_reported(
     token.parent.chmod(0)
     try:
         problems = detect_config_problems(tmp_path if explicit_root else None)
-        result = CliRunner().invoke(main, ["--check-config"])
+        reported = _doctor_problem_results()
     finally:
         token.parent.chmod(0o700)
     assert len(problems) == 1
@@ -213,8 +229,8 @@ def test_unsearchable_auth_directory_is_reported(
     )
     assert problems[0].repair_cmd
     assert "fixture" not in problems[0].description
-    assert result.exit_code == 1, result.output
-    assert "auth-cache-invalid" in result.output
+    assert [r.name for r in reported] == ["Config: auth-cache-invalid"]
+    assert all("fixture" not in r.message for r in reported)
     assert token.read_bytes() == original
     assert list(token.parent.iterdir()) == [token]
     assert cfg.read_text() == CLEAN_PROVIDERS_TOML
@@ -388,21 +404,19 @@ def test_default_scan_finds_legacy_cache(
     assert path.read_text() == content
 
 
-def test_cli_invalid_config_never_reports_fixed(
+def test_doctor_fix_never_reports_fixed_for_unrecognized_invalid_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from click.testing import CliRunner
-
-    from gptme.cli.main import main
+    from gptme.cli.doctor import _repair_config_corruption
     from gptme.config import user
 
     original = CORRUPT_PROVIDERS_TOML + "broken = [\n"
     cfg = _make_config(tmp_path, original)
     monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
-    result = CliRunner().invoke(main, ["--check-config", "--fix"])
-    assert result.exit_code != 0
-    assert "Fixed " not in result.output
-    assert "config-invalid" in result.output or "could not repair" in result.output
+    repaired, failures = _repair_config_corruption()
+    assert repaired == []
+    assert failures == []
+    _assert_reported("config-invalid")
     assert cfg.read_text() == original
 
 
@@ -483,12 +497,10 @@ def test_default_cache_shadows_legacy(
     ]
 
 
-def test_cli_repair_success_and_read_only_check(
+def test_doctor_repair_success_and_read_only_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from click.testing import CliRunner
-
-    from gptme.cli.main import main
+    from gptme.cli.doctor import _repair_config_corruption
     from gptme.config import user
     from gptme.llm import llm_gptme
 
@@ -496,26 +508,28 @@ def test_cli_repair_success_and_read_only_check(
     cfg = _make_config(tmp_path, original)
     monkeypatch.setattr(user, "get_user_config_paths", lambda: (cfg, None))
     monkeypatch.setattr(llm_gptme, "_TOKEN_DIR", tmp_path / "auth")
-    runner = CliRunner()
-    check = runner.invoke(main, ["--check-config"])
-    assert check.exit_code == 1
-    assert "providers-not-array" in check.output
+
+    # The report is read-only: it must not touch the file it diagnoses.
+    _assert_reported("providers-not-array")
     assert cfg.read_text() == original
     assert not list(tmp_path.glob("*.bak"))
-    fixed = runner.invoke(main, ["--check-config", "--fix"])
-    assert fixed.exit_code == 0, fixed.output
-    assert "Fixed " in fixed.output
+
+    repaired, failures = _repair_config_corruption()
+    assert failures == []
+    assert len(repaired) == 1
+    assert repaired[0].startswith("Fixed ")
     assert tomllib.loads(cfg.read_text())["env"] == {"FOO": "bar"}
     assert len(list(tmp_path.glob("*.bak"))) == 1
     assert list(tmp_path.glob("*.bak"))[0].read_text() == original
+    assert _doctor_problem_names() == ["Config: Integrity"]
 
 
-def test_cli_reports_repair_failure(
+def test_doctor_reports_repair_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from click.testing import CliRunner
 
-    from gptme.cli.main import main
+    from gptme.cli import doctor
     from gptme.config import user, validate
     from gptme.llm import llm_gptme
 
@@ -527,11 +541,36 @@ def test_cli_reports_repair_failure(
         raise OSError("fixture write failure")
 
     monkeypatch.setattr(validate, "fix_providers_corruption", fail_repair)
-    result = CliRunner().invoke(main, ["--check-config", "--fix"])
-    assert result.exit_code == 2
+    repaired, failures = doctor._repair_config_corruption()
+    assert repaired == []
+    assert len(failures) == 1
+    assert "could not repair" in failures[0]
+    assert cfg.read_text() == CORRUPT_PROVIDERS_TOML
+
+    # A failed repair aborts before the diagnostics run, with a distinct exit
+    # code, so it is not confused with "diagnostics found errors" (exit 1).
+    def unexpected_diagnostics(verbose: bool = False):
+        raise AssertionError("diagnostics must not run after a failed repair")
+
+    monkeypatch.setattr(doctor, "run_diagnostics", unexpected_diagnostics)
+    result = CliRunner().invoke(doctor.main, ["--fix"])
+    assert result.exit_code == 2, result.output
     assert "could not repair" in result.output
     assert "Fixed " not in result.output
     assert cfg.read_text() == CORRUPT_PROVIDERS_TOML
+
+
+def test_main_entrypoint_carries_no_config_check_flags() -> None:
+    """The detector is reachable only via gptme-doctor (gptme/gptme#4813).
+
+    Erik: "We don't want to add more unrelated flags/options to the main
+    entrypoint."  Lock that so the surface cannot drift back.
+    """
+    from gptme.cli.main import main
+
+    options = {opt for param in main.params for opt in param.opts}
+    assert "--check-config" not in options
+    assert "--fix" not in options
 
 
 def test_unterminated_comment_array_returns_promptly(tmp_path: Path) -> None:

@@ -1,11 +1,10 @@
 """Read-only config corruption detector.
 
-Provides ``detect_config_problems()`` and ``fix_providers_corruption()`` for
- the ``--check-config`` / ``--check-config --fix`` CLI surface.
+Provides ``detect_config_problems()`` and ``fix_providers_corruption()``,
+surfaced by ``gptme-doctor`` (report) and ``gptme-doctor --fix`` (repair).
 
-This module must be imported lazily (inside the option handler) so that
-ordinary ``gptme --help`` / ``--version`` invocations stay within the
-existing import budget.
+Importers must import this module lazily so that it stays out of the import
+path of ordinary ``gptme`` startup.
 """
 
 from __future__ import annotations
@@ -194,7 +193,7 @@ def detect_config_problems(config_root: Path | None = None) -> list[ConfigProble
                             "syntax inside square brackets — not valid TOML. "
                             "Should be [[providers]] array-of-tables entries."
                         ),
-                        repair_cmd="gptme --check-config --fix",
+                        repair_cmd="gptme-doctor --fix",
                     )
                 )
             else:

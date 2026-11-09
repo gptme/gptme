@@ -775,22 +775,6 @@ def _resolve_resume_profile(persisted_name: str | None) -> Profile | None:
     envvar="GPTME_ALLOW_HOSTS",
     help="Comma-separated hostnames the agent may access via web tools (e.g. 'github.com,*.googleapis.com'). Default: unrestricted. Wildcard subdomains supported.",
 )
-@click.option(
-    "--check-config",
-    "check_config",
-    is_flag=True,
-    help=(
-        "Scan the user config and auth cache for known corruption patterns. "
-        "Exit 0 = clean, 1 = problem found, 2 = check failed. "
-        "Add --fix to repair detected issues in place."
-    ),
-)
-@click.option(
-    "--fix",
-    "fix_config",
-    is_flag=True,
-    help="With --check-config: repair detected corruption in place (providers rebuilt as array of tables, .bak copy left behind).",
-)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -819,53 +803,8 @@ def main(
     no_workspace: bool,
     output_schema: str | None,
     allow_hosts: str | None,
-    check_config: bool,
-    fix_config: bool,
 ):
     """Main entrypoint for the CLI."""
-    if check_config:
-        # Lazy import — this handler must not add to the import budget of
-        # ordinary `gptme --help` / `--version` invocations.
-        from ..config.validate import (  # fmt: skip
-            detect_config_problems,
-            fix_providers_corruption,
-        )
-
-        try:
-            problems = detect_config_problems()
-        except Exception as exc:  # pragma: no cover
-            print(f"Error: config check failed: {exc}", file=sys.stderr)
-            sys.exit(2)
-
-        if not problems:
-            print("No known configuration problems detected.")
-            sys.exit(0)
-
-        for p in problems:
-            print(f"problem: {p.name}")
-            print(f"  {p.description}")
-            print(f"repair: {p.repair_cmd}")
-
-        if fix_config:
-            fixed = False
-            for p in problems:
-                if p.name == "providers-not-array":
-                    try:
-                        bak = fix_providers_corruption(p.path)
-                    except (OSError, ValueError) as exc:
-                        print(
-                            f"Error: could not repair {p.path}: {exc}", file=sys.stderr
-                        )
-                        sys.exit(2)
-                    print(f"Fixed {p.path} (backup: {bak})")
-                    fixed = True
-            if fixed:
-                remaining = detect_config_problems()
-                sys.exit(0 if not remaining else 1)
-            sys.exit(1)
-
-        sys.exit(1)
-
     show_version = version or version_json
     dispatch_suppressed = click.get_current_context().meta.get(
         "shortcut_dispatch_suppressed", False

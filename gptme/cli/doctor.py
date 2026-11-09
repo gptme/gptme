@@ -666,6 +666,78 @@ def _check_python_deps(verbose: bool = False) -> list[CheckResult]:
     return results
 
 
+def _check_config_corruption(verbose: bool = False) -> list[CheckResult]:
+    """Report known config/auth-cache corruption that breaks gptme startup.
+
+    Without this, a ``config.toml`` that fails to parse still reports
+    "Config: User  Found", because the file exists. The detector is imported
+    lazily to keep it out of the startup import path.
+    """
+    from ..config.validate import detect_config_problems
+
+    try:
+        problems = detect_config_problems()
+    except Exception as exc:
+        return [
+            CheckResult(
+                name="Config: Integrity",
+                status=CheckStatus.ERROR,
+                message=f"Corruption check failed: {exc}",
+                fix_hint="Report this at https://github.com/gptme/gptme/issues",
+            )
+        ]
+
+    if not problems:
+        return [
+            CheckResult(
+                name="Config: Integrity",
+                status=CheckStatus.OK,
+                message="No known corruption patterns",
+            )
+        ]
+
+    return [
+        CheckResult(
+            name=f"Config: {problem.name}",
+            status=CheckStatus.ERROR,
+            message=problem.description,
+            details=str(problem.path) if verbose else None,
+            fix_hint=problem.repair_cmd,
+        )
+        for problem in problems
+    ]
+
+
+def _repair_config_corruption() -> tuple[list[str], list[str]]:
+    """Repair recognized config corruption in place.
+
+    Deterministic and non-interactive (a timestamped ``.bak`` is kept), so it
+    runs regardless of whether stdout is a terminal — unlike the interactive
+    provider repair below. Returns ``(repaired, failures)`` as message lines.
+    """
+    from ..config import validate
+
+    repaired: list[str] = []
+    failures: list[str] = []
+    try:
+        problems = validate.detect_config_problems()
+    except Exception as exc:
+        return repaired, [f"config corruption check failed: {exc}"]
+
+    for problem in problems:
+        if problem.name != "providers-not-array":
+            # Every other pattern needs a human decision (bad TOML we do not
+            # recognize, permissions, deleting a cached login).
+            continue
+        try:
+            backup = validate.fix_providers_corruption(problem.path)
+        except (OSError, ValueError) as exc:
+            failures.append(f"could not repair {problem.path}: {exc}")
+            continue
+        repaired.append(f"Fixed {problem.path} (backup: {backup})")
+    return repaired, failures
+
+
 def _check_config(verbose: bool = False) -> list[CheckResult]:
     """Check configuration file status."""
     results = []
@@ -716,6 +788,8 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
                 fix_hint="Create gptme.toml to configure this project",
             )
         )
+
+    results.extend(_check_config_corruption(verbose))
 
     return results
 
@@ -1864,27 +1938,49 @@ def _summarize_results(results: list[CheckResult]) -> dict[str, int]:
 def run_diagnostics(verbose: bool = False) -> tuple[list[CheckResult], dict[str, int]]:
     """Run all diagnostic checks.
 
+    One failing check never aborts the report: a diagnostic tool is most needed
+    when the environment is broken, and most checks load the user config, so a
+    config that fails to parse would otherwise take down the whole run — hiding
+    the Config row that names the corruption. A crash becomes an ERROR result.
+
     Returns:
         Tuple of (results list, summary dict)
     """
+    # Checks in run order, each paired with the category it reports under.
+    # Plugin discovery initializes the unified registry used by provider checks,
+    # so it must run before API-key and default-model validation. Resolved here
+    # rather than at module level so tests can patch individual checks.
+    diagnostics: list[tuple[str, Callable[[bool], list[CheckResult]]]] = [
+        ("Version", _check_python_version),
+        ("Version", _check_version),
+        ("Config", _check_config),
+        ("Proxy", _check_proxy),
+        ("Plugin", _check_plugins),
+        ("API Key", _check_api_keys),
+        ("Model", _check_default_model),
+        ("Tool", _check_tools),
+        ("Python", _check_python_deps),
+        ("Computer", _check_computer),
+        ("Browser", _check_browser),
+        ("MCP", _check_mcp),
+        ("Permissions", _check_permissions),
+    ]
+
     all_results: list[CheckResult] = []
 
-    # Run all checks
-    all_results.extend(_check_python_version(verbose))
-    all_results.extend(_check_version(verbose))
-    all_results.extend(_check_config(verbose))
-    all_results.extend(_check_proxy(verbose))
-    # Plugin discovery initializes the unified registry used by provider
-    # checks, so it must run before API-key and default-model validation.
-    all_results.extend(_check_plugins(verbose))
-    all_results.extend(_check_api_keys(verbose))
-    all_results.extend(_check_default_model(verbose))
-    all_results.extend(_check_tools(verbose))
-    all_results.extend(_check_python_deps(verbose))
-    all_results.extend(_check_computer(verbose))
-    all_results.extend(_check_browser(verbose))
-    all_results.extend(_check_mcp(verbose))
-    all_results.extend(_check_permissions(verbose))
+    for category, check in diagnostics:
+        try:
+            all_results.extend(check(verbose))
+        except Exception as exc:
+            logger.debug("%s check failed", category, exc_info=True)
+            all_results.append(
+                CheckResult(
+                    name=f"{category}: Check",
+                    status=CheckStatus.ERROR,
+                    message=f"Check could not run: {type(exc).__name__}: {exc}",
+                    fix_hint="Resolve the errors reported above, then rerun",
+                )
+            )
 
     return all_results, _summarize_results(all_results)
 
@@ -1974,7 +2070,10 @@ def print_results(
 @click.option(
     "--fix",
     is_flag=True,
-    help="Interactively repair provider authentication and model selection",
+    help=(
+        "Repair detected config corruption, then interactively repair provider "
+        "authentication and model selection"
+    ),
 )
 def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
     """Run system diagnostics for gptme.
@@ -1987,10 +2086,20 @@ def main(verbose: bool = False, output_json: bool = False, fix: bool = False):
         gptme-doctor              # Quick health check
         gptme-doctor --verbose    # Detailed output with paths and hints
         gptme-doctor --json       # Machine-readable output
-        gptme-doctor --fix        # Repair provider setup in a terminal
+        gptme-doctor --fix        # Repair config corruption and provider setup
     """
     if fix and output_json:
         raise click.UsageError("--fix cannot be used with --json")
+
+    if fix:
+        # Repair before diagnosing, so the report below reflects the result.
+        repaired, repair_failures = _repair_config_corruption()
+        for line in repaired:
+            click.echo(line)
+        for line in repair_failures:
+            click.echo(f"Error: {line}", err=True)
+        if repair_failures:
+            sys.exit(2)
 
     results, summary = run_diagnostics(verbose)
     interactive_repair = fix and _is_interactive_terminal()
