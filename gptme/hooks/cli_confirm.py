@@ -13,6 +13,7 @@ from rich.console import Console
 
 from ..util.ask_execute import print_confirmation_help, print_preview
 from ..util.clipboard import copy
+from ..util.program_status import program_status
 from ..util.prompt import prompt_alert
 from ..util.sound import print_bell
 from ..util.terminal import flush_stdin, terminal_state_title
@@ -114,12 +115,15 @@ def cli_confirm_hook(
 
     question = f"Execute {tool_use.tool}?"
 
-    with terminal_state_title("❓ waiting for confirmation"):
+    with (
+        program_status("blocked", "permission"),
+        terminal_state_title("❓ waiting for confirmation"),
+    ):
         prompt = f"{question} {choicestr}"
         answer = prompt_alert(prompt)
 
-    # Handle the response
-    return _handle_response(answer, content, editable, copiable, tool_use)
+        # Editing still waits on the user; keep the permission scope active.
+        return _handle_response(answer, content, editable, copiable, tool_use)
 
 
 def _handle_response(

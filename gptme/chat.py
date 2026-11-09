@@ -59,6 +59,13 @@ from .util.context_measurement import anchor_context_usage, input_log_digest
 from .util.cost import log_costs
 from .util.cost_display import print_inline_cost
 from .util.interrupt import clear_interruptible, set_interruptible
+from .util.program_status import (
+    mark_turn_cancelled,
+    mark_turn_done,
+    session_status,
+    turn_start,
+    turn_status,
+)
 from .util.reduce import ContextLimitError
 from .util.sound import print_bell
 from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
@@ -282,6 +289,7 @@ def chat(
         # _prev_tokens if any setup code above raises before reaching this point.
         _reset_token_accumulator()
         set_output_format(output_format)
+        skill_lifecycle.enter_context(session_status())
         if interactive:
             from .util.prompt import idle_prompt_scope
 
@@ -457,12 +465,7 @@ def _run_chat_loop(
 
                 if msg.role == "user":
                     _idle_autowake_blocked.set(False)
-                    if turn_pre_msgs := trigger_hook(
-                        HookType.TURN_PRE,
-                        manager=manager,
-                    ):
-                        for hook_msg in turn_pre_msgs:
-                            manager.append(hook_msg)
+                    _trigger_turn_pre(manager)
 
                 # Process the message and get response
                 if _process_message_conversation(
@@ -580,16 +583,7 @@ def _run_chat_loop(
 
                         # A real (non-command) prompt re-enables idle autowake.
                         _idle_autowake_blocked.set(False)
-
-                        # Trigger turn.pre hooks once per submitted user prompt,
-                        # after the prompt is appended and command handling has
-                        # declined to consume it.
-                        if turn_pre_msgs := trigger_hook(
-                            HookType.TURN_PRE,
-                            manager=manager,
-                        ):
-                            for hook_msg in turn_pre_msgs:
-                                manager.append(hook_msg)
+                        _trigger_turn_pre(manager)
 
                         # Process the message and get response
                         interrupted = _process_message_conversation(
@@ -785,6 +779,18 @@ def _park_remaining_prompts(
     return parked
 
 
+def _trigger_turn_pre(manager: LogManager) -> None:
+    """Run turn.pre hooks as the start of the turn's working state.
+
+    The turn is already being processed, so terminal consumers see it working
+    while slow hooks run; _process_message_conversation reports its outcome.
+    """
+    with turn_start():
+        turn_pre_msgs = trigger_hook(HookType.TURN_PRE, manager=manager)
+    for hook_msg in turn_pre_msgs or []:
+        manager.append(hook_msg)
+
+
 def _drain_external_prompt_queue(
     manager: LogManager, prompt_queue: list[Message]
 ) -> None:
@@ -801,6 +807,7 @@ def _drain_external_prompt_queue(
     logger.info("Loaded %d queued prompt(s) for %s", len(drained), manager.logdir.name)
 
 
+@turn_status(success_exceptions=(SessionCompleteException,))
 def _process_message_conversation(
     manager: LogManager,
     stream: bool,
@@ -870,12 +877,20 @@ def _process_message_conversation(
                     logdir=manager.logdir,
                 )
             )
-        except SessionCompleteException:
+        except SessionCompleteException as exc:
             # A completion signal raised inside step() or by a STEP_PRE hook
             # must still run post-turn hooks (pre-commit checks, autocommit)
             # before the session ends. A failing hook must not replace the
             # completion signal — chat() would skip SESSION_END and report a
             # failed run instead of the intended budget stop.
+            from .tools.subagent.drain import DrainCancelled
+
+            if isinstance(exc, DrainCancelled):
+                # Cancelled work is not a completed turn: the turn scope would
+                # otherwise report done, since DrainCancelled subclasses the
+                # completion signal (_run_chat_loop makes the same distinction,
+                # but only after this turn has already reported its outcome).
+                mark_turn_cancelled()
             try:
                 _trigger_turn_post(manager)
             except Exception:
@@ -956,6 +971,12 @@ def _process_message_conversation(
                 )
             )
             interrupted = True
+            if _turn_reply_completed(manager.log):
+                # The budget stopped a turn that had finished its work: a
+                # completion, not a user interrupt. A stop that cut pending
+                # tool calls short leaves the user at the prompt instead, so
+                # the decorator's idle default stands (same rule as the TUI).
+                mark_turn_done()
             _idle_autowake_blocked.set(True)
             break
 
@@ -1013,6 +1034,20 @@ def _trigger_turn_post(manager: "LogManager") -> None:
             manager.append(msg)
     # Returning to the prompt acknowledges this turn, including hook output.
     manager.write(sync=True)
+
+
+def _turn_reply_completed(log: Log) -> bool:
+    """True if the last assistant reply finished its work.
+
+    Nonempty and with no runnable tool left, as the TUI's own completion
+    check requires: the two interfaces must not disagree about whether a
+    step-budget stop ended completed or abandoned work.
+    """
+    last_content = next(
+        (m.content for m in reversed(log) if m.role == "assistant"),
+        "",
+    )
+    return bool(last_content.strip()) and not _has_pending_tooluse(log)
 
 
 def _has_pending_tooluse(log: Log) -> bool:

@@ -424,3 +424,30 @@ Example workflow:
 -----
 
 For further usage examples, see the :doc:`examples` page.
+
+Terminal agent status
+---------------------
+
+The classic CLI and Textual TUI (fullscreen and inline) report lifecycle state using OSC 7501 (Program Status
+Protocol), as supported by `herdr-core <https://github.com/herdrdev/herdr-core>`_.
+A supporting terminal consumer can distinguish working, completed, and
+waiting-for-permission or waiting-for-answer states without scraping output.
+The working state spans the whole turn, including tool execution. Normal chat
+input after a completed turn keeps the completed state; startup reports idle,
+as does a turn that was interrupted or whose tool execution was declined.
+Reports are cleared when the chat exits.
+
+Reports contain only the state, agent name, and blocking kind, not prompts or
+tool arguments. They are disabled for redirected output, JSON output, and
+quiet mode. Set ``GPTME_PROGRAM_STATUS=0`` to disable them explicitly.
+The TUI sends reports through its terminal driver, including tool and URL
+approval dialogs, background commands, errors, and interruptions. Server UI
+reporting is not included. Background CLI threads and inline subagent
+sessions cannot overwrite the parent terminal status (an inline subagent's
+permission and question prompts are still reported).
+
+Standard tmux does not interpret OSC 7501. It needs an output consumer
+(for example, one connected with ``pipe-pane``) to update pane options and
+status-line formats. Enabling ``allow-passthrough`` alone does not add tmux
+agent badges. OSC reports are untrusted terminal metadata, not an
+authentication or authorization mechanism.
