@@ -106,18 +106,99 @@ def test_watch_outcome_expired():
     assert w.outcome == "expired"
 
 
-def test_watch_outcome_cancelled(tmp_path):
-    """Explicit cancel sets outcome='cancelled'."""
+def test_watch_outcome_cancelled(tmp_path: Path) -> None:
+    """The cancel command, not test-side state mutation, sets the outcome."""
+    from gptme.logmanager import LogManager
+    from gptme.logmanager.manager import _current_log_var
+    from gptme.tools.watch import _watch
 
-    ld = tmp_path / "cancel-outcome"
-    ld.mkdir()
-    w = _make_watch("outcome-cancelled", logdir=ld)
-    with w.lock:
-        w.cancelled = True
-        if w.outcome is None:
-            w.outcome = "cancelled"
-        w.cancel_event.set()
+    manager = LogManager([], logdir=tmp_path / "cancel-outcome", lock=False)
+    w = _make_watch("outcome-cancelled", logdir=manager.logdir)
+    token = _current_log_var.set(manager)
+    try:
+        result = _watch(f"cancel {w.id}", None, None)
+    finally:
+        _current_log_var.reset(token)
+    assert result.content == f"Cancelled watch {w.id}."
+    assert w.cancelled
+    assert w.cancel_event.is_set()
     assert w.outcome == "cancelled"
+
+
+@pytest.mark.parametrize("terminal", ["fired", "expired", "cancelled"])
+def test_watch_stream_event_keeps_watch_armed(
+    terminal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stream progress must not preempt the eventual terminal outcome."""
+    from gptme.logmanager.manager import _current_log_var
+    from gptme.tools import watch as watch_mod
+
+    delivered: list[str] = []
+    monkeypatch.setattr(watch_mod, "_deliver", lambda w, text: delivered.append(text))
+    w = _make_watch(f"outcome-progress-{terminal}", kind="stream")
+    _fire(w, "progress line", once=False)
+    assert delivered == ["progress line"]
+    assert w.delivered == 1
+    assert not w.fired
+    assert w.outcome is None, "a stream line is not a terminal event"
+
+    if terminal == "cancelled":
+        token = _current_log_var.set(None)
+        try:
+            watch_mod._watch(f"cancel {w.id}", None, None)
+        finally:
+            _current_log_var.reset(token)
+    else:
+        _fire(w, "stream finished", expired=terminal == "expired")
+        assert w.fired
+    assert w.outcome == terminal
+
+
+@pytest.mark.parametrize("kind", ["until", "run", "stream"])
+def test_watch_worker_timeout_sets_expired(
+    kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deadline expiry inside a running worker must not look like success."""
+    import shlex
+    import subprocess
+    import sys
+
+    from gptme.tools import watch as watch_mod
+
+    delivered: list[str] = []
+    monkeypatch.setattr(watch_mod, "_deliver", lambda w, text: delivered.append(text))
+    w = _make_watch(f"outcome-worker-timeout-{kind}", kind=kind)
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    popen = subprocess.Popen
+    processes: list[subprocess.Popen[str]] = []
+
+    def start_process(*args, **kwargs) -> subprocess.Popen[str]:
+        proc = popen(*args, **kwargs)
+        processes.append(proc)
+        # Expire only AFTER launch: until's pre-probe check must not mask the
+        # in-flight probe timeout path. No sleeps or scheduling races needed.
+        w.deadline = time.time() - 1
+        return proc
+
+    monkeypatch.setattr(watch_mod.subprocess, "Popen", start_process)
+    try:
+        if kind == "until":
+            watch_mod._poll_until(w, "exec " + shlex.join(command), every=1)
+        else:
+            proc = start_process(command, stdout=subprocess.PIPE, text=True)
+            w.proc = proc
+            worker = watch_mod._poll_run if kind == "run" else watch_mod._poll_stream
+            worker(w, proc)
+        assert w.outcome == "expired"
+        assert w.fired
+        assert not w.cancelled
+        assert len(delivered) == 1
+        assert "expired without" in delivered[0]
+        assert processes and all(proc.poll() is not None for proc in processes)
+    finally:
+        for proc in processes:
+            watch_mod._kill_proc(proc)
+            watch_mod._close_stdout(proc)
 
 
 def test_watch_outcome_not_overwritten_on_double_fire():
@@ -323,8 +404,7 @@ async def test_work_overview_no_children_shows_message(tmp_path):
 
         content = app.screen.query_one("#work-overview-content", Static)
         rendered = str(content.render())
-        # Empty state: either "No children" or the actual summary (could list nothing)
-        assert rendered is not None
+        assert "(No children or monitors for this conversation)" in rendered
 
 
 @pytest.mark.asyncio
@@ -338,7 +418,7 @@ async def test_work_overview_shows_children(tmp_path):
 
     child = Subagent(
         agent_id="overview-test-child",
-        prompt="write tests",
+        prompt="write tests [/tmp] [bold]literally[/bold]",
         thread=None,
         logdir=tmp_path / "child-overview",
         model=None,
@@ -359,6 +439,7 @@ async def test_work_overview_shows_children(tmp_path):
             content = app.screen.query_one("#work-overview-content", Static)
             rendered = str(content.render())
             assert "overview-test-child" in rendered
+            assert "[/tmp] [bold]literally[/bold]" in rendered
     finally:
         with _subagents_lock:
             _subagents[:] = [
@@ -483,3 +564,104 @@ async def test_work_screen_does_not_acquire_writer_lock(tmp_path):
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_fd.close()
+
+
+@pytest.mark.asyncio
+async def test_work_overview_selection_scrolls_and_opens_selected_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Navigation visibly selects the same child that Enter opens, even below the fold."""
+    from textual.containers import VerticalScroll
+    from textual.widgets import Static
+
+    from gptme.tools.subagent.types import Subagent
+
+    manager = _make_manager(tmp_path)
+    children = []
+    for index in range(30):
+        logdir = tmp_path / f"child-{index}"
+        logdir.mkdir()
+        children.append(
+            Subagent(
+                agent_id=f"child-{index}",
+                prompt="inspect logs",
+                thread=None,
+                logdir=logdir,
+                model=None,
+                parent_logdir=manager.logdir.resolve(),
+                parent_branch=manager.current_branch,
+            )
+        )
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshot", lambda *a, **kw: list(children)
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        content = screen.query_one("#work-overview-content", Static)
+        assert "> " in str(content.render()).split("child-0")[0]
+        await pilot.press("down")
+        assert screen._cursor == 1
+        await pilot.press("up")
+        assert screen._cursor == 0
+        for _ in range(25):
+            screen.action_cursor_down()
+        await pilot.pause()
+        selected_line = next(
+            line for line in str(content.render()).splitlines() if "child-25 " in line
+        )
+        assert selected_line.startswith("> ")
+        scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
+        assert scroll.scroll_y > 0
+        # The selected physical row is inside the viewport, not merely scrolled.
+        from rich.text import Text
+
+        lines = str(content.render()).splitlines()
+        width = max(1, content.content_size.width)
+        selected_row = sum(
+            len(Text(line).wrap(app.console, width)) for line in lines[:26]
+        )
+        assert scroll.scroll_y <= selected_row < scroll.scroll_y + scroll.size.height
+        children.insert(0, children.pop())
+        await pilot.pause(1.2)
+        assert screen._children[screen._cursor].agent_id == "child-25"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, WorkScreen)
+        assert app.screen._logdir == tmp_path / "child-25"
+        await pilot.press("q")
+        await pilot.pause()
+        assert app.screen is screen
+
+
+@pytest.mark.asyncio
+async def test_work_overview_refreshes_while_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A watch outcome changes onscreen without closing and reopening the modal."""
+    from textual.widgets import Static
+
+    manager = _make_manager(tmp_path)
+    watch = Watch(
+        id="live-watch",
+        kind="until",
+        description="wait [/tmp]",
+        created=time.time(),
+        logdir=manager.logdir,
+        branch=manager.current_branch,
+    )
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshot", lambda *a, **kw: [watch])
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        content = screen.query_one("#work-overview-content", Static)
+        assert "[armed]" in str(content.render())
+        watch.outcome = "expired"
+        watch.fired = True
+        await pilot.pause(1.2)
+        assert "[expired]" in str(content.render())
+        assert "wait [/tmp]" in str(content.render())

@@ -116,6 +116,8 @@ from .statusline import LogStats, build_payload, run_statusline
 if TYPE_CHECKING:
     from textual.timer import Timer
 
+    from ..tools.subagent.types import Subagent
+
 logger = logging.getLogger(__name__)
 
 # Max messages rendered when resuming a long conversation
@@ -2209,7 +2211,13 @@ def _fmt_deadline(deadline: float | None) -> str:
     return f"{_fmt_elapsed(remaining)} left"
 
 
-def _build_work_summary(logdir: Path | None, branch: str | None) -> str:
+def _build_work_summary(
+    logdir: Path | None,
+    branch: str | None,
+    *,
+    children: list["Subagent"] | None = None,
+    cursor: int = 0,
+) -> str:
     """Build a plain-text summary of children and watches for this conversation.
 
     Returns an empty string when there is nothing to show.
@@ -2218,16 +2226,17 @@ def _build_work_summary(logdir: Path | None, branch: str | None) -> str:
     now = time.time()
 
     # --- children ---
-    try:
-        from ..tools.subagent import subagent_snapshot
+    if children is None:
+        try:
+            from ..tools.subagent import subagent_snapshot
 
-        children = subagent_snapshot(logdir, branch=branch) if logdir else []
-    except Exception:
-        children = []
+            children = subagent_snapshot(logdir, branch=branch) if logdir else []
+        except Exception:
+            children = []
 
     if children:
         lines.append("Children:")
-        for sa in children:
+        for index, sa in enumerate(children):
             status = sa.status().status
             elapsed = _fmt_elapsed(now - sa.started_at)
             icon = {
@@ -2241,7 +2250,8 @@ def _build_work_summary(logdir: Path | None, branch: str | None) -> str:
             }.get(status, "·")
             prompt_preview = (sa.prompt or "")[:60].replace("\n", " ")
             lines.append(
-                f"  {icon} {sa.agent_id}  [{status}] {elapsed}  {prompt_preview}"
+                f"{'> ' if index == cursor else '  '}{icon} {sa.agent_id}  "
+                f"[{status}] {elapsed}  {prompt_preview}"
             )
 
     # --- watches ---
@@ -2378,8 +2388,8 @@ class WorkOverviewScreen(ModalScreen):
     BINDINGS = [
         Binding("escape,q", "close", "Close"),
         Binding("enter", "open_child", "View transcript"),
-        Binding("j,down", "cursor_down", "Down"),
-        Binding("k,up", "cursor_up", "Up"),
+        Binding("j,down", "cursor_down", "Down", priority=True),
+        Binding("k,up", "cursor_up", "Up", priority=True),
     ]
 
     CSS = """
@@ -2410,10 +2420,11 @@ class WorkOverviewScreen(ModalScreen):
         super().__init__()
         self._logdir = logdir
         self._branch = branch
-        self._children: list = []  # Subagent objects
+        self._children: list[Subagent] = []
         self._cursor = 0
 
-    def compose(self) -> ComposeResult:
+    def _snapshot_summary(self) -> str:
+        selected = self._children[self._cursor] if self._children else None
         try:
             from ..tools.subagent import subagent_snapshot
 
@@ -2425,10 +2436,19 @@ class WorkOverviewScreen(ModalScreen):
         except Exception:
             self._children = []
 
-        summary = _build_work_summary(self._logdir, self._branch)
-        if not summary:
-            summary = "(No children or monitors for this conversation)"
+        if selected in self._children:
+            self._cursor = self._children.index(selected)
+        else:
+            self._cursor = min(self._cursor, max(0, len(self._children) - 1))
+        return (
+            _build_work_summary(
+                self._logdir, self._branch, children=self._children, cursor=self._cursor
+            )
+            or "(No children or monitors for this conversation)"
+        )
 
+    def compose(self) -> ComposeResult:
+        summary = self._snapshot_summary()
         with Vertical(id="work-overview-container"):
             yield Static(
                 Text(
@@ -2438,10 +2458,26 @@ class WorkOverviewScreen(ModalScreen):
                 id="work-overview-title",
             )
             with VerticalScroll(id="work-overview-scroll"):
-                yield Static(summary, id="work-overview-content")
+                yield Static(Text(summary), id="work-overview-content")
 
     def action_close(self) -> None:
         self.dismiss()
+
+    def on_mount(self) -> None:
+        self.set_interval(1.0, self._refresh_summary)
+
+    def _refresh_summary(self, *, scroll: bool = False) -> None:
+        summary = self._snapshot_summary()
+        content = self.query_one("#work-overview-content", Static)
+        content.update(Text(summary))
+        if scroll and self._children:
+            # Account for wrapped rows when keeping the selected child in view.
+            prefix = summary.splitlines()[: self._cursor + 1]
+            width = max(1, content.content_size.width)
+            row = sum(len(Text(line).wrap(self.app.console, width)) for line in prefix)
+            self.query_one("#work-overview-scroll", VerticalScroll).scroll_to(
+                y=row, animate=False
+            )
 
     def action_open_child(self) -> None:
         if not self._children:
@@ -2453,9 +2489,11 @@ class WorkOverviewScreen(ModalScreen):
 
     def action_cursor_down(self) -> None:
         self._cursor = min(self._cursor + 1, max(0, len(self._children) - 1))
+        self._refresh_summary(scroll=True)
 
     def action_cursor_up(self) -> None:
         self._cursor = max(0, self._cursor - 1)
+        self._refresh_summary(scroll=True)
 
 
 class GptmeApp(App):
