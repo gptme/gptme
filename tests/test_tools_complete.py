@@ -2169,6 +2169,45 @@ class TestSessionEndReviewRegressions:
         assert isinstance(block, Message)
         assert _should_prompt_for_input(Log([*messages, block]))
 
+    @pytest.mark.parametrize("outcome", ["completed", "max_turns", "policy_budget"])
+    def test_reopening_finished_log_does_not_emit_again(
+        self, tmp_path, monkeypatch, outcome
+    ):
+        from gptme.hooks._policy_block import POLICY_BLOCK_MARKER
+        from gptme.logmanager import LogManager
+        from gptme.tools.complete import session_end_metadata_hook
+
+        monkeypatch.setenv("GPTME_BLOCK_BUDGET", "1")
+        monkeypatch.setattr("gptme.tools.complete._effective_chat", lambda _: None)
+        manager = LogManager(logdir=tmp_path / "session", lock=False)
+        manager.append(_user("work"))
+        manager.append(_assistant("done"))
+        if outcome == "completed":
+            manager.append(_accepted_stop())
+        elif outcome == "max_turns":
+            manager.append(
+                Message("system", "Stopped", metadata={"max_steps_stop": True})
+            )
+        else:
+            manager.append(_system(f"{POLICY_BLOCK_MARKER} blocked once"))
+            manager.append(_system(f"{POLICY_BLOCK_MARKER} blocked twice"))
+        block = list(session_end_metadata_hook(manager))[0]
+        assert isinstance(block, Message)
+        manager.append(block)
+        manager.write(sync=True)
+
+        reopened = LogManager.load(manager.logdir, lock=False)
+        assert len(reopened.history_log.messages) == len(manager.history_log.messages)
+        reopened.append(_system("Session opened and closed without new work"))
+        assert not list(session_end_metadata_hook(reopened))
+
+        # An old end block must not suppress a newly accepted stop.
+        reopened.append(_user("more work"))
+        reopened.append(_assistant("finished again"))
+        reopened.append(_accepted_stop())
+        payload = _extract_session_end(list(session_end_metadata_hook(reopened)))
+        assert payload["outcome"] == "completed"
+
     def test_continued_turn_invalidates_previous_stop(self):
         from gptme.tools.complete import session_end_metadata_hook
 

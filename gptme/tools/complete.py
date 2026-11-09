@@ -1008,6 +1008,16 @@ def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str | 
             break  # A resumed/continued turn invalidates the previous stop.
         if (
             m.role == "system"
+            and m.ui_only
+            and not m.call_id
+            and m.content.startswith(SESSION_END_BLOCK_OPEN)
+            and m.content.endswith(SESSION_END_BLOCK_CLOSE)
+        ):
+            # Reopening and closing a finished log is not another run. Stop
+            # before rediscovering an already-reported receipt or budget.
+            return None
+        if (
+            m.role == "system"
             and not m.call_id
             and (m.metadata or {}).get("max_steps_stop") is True
         ):
