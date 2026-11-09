@@ -543,6 +543,7 @@ class SessionManager:
         )
         from ..tools.subagent.types import _completion_queue
         from ..tools.watch import (
+            format_watch_event,
             requeue_watch_event,
             take_queued_watch_events_with_branches,
         )
@@ -563,7 +564,7 @@ class SessionManager:
         failed_branches = set()
         for branch, events in by_branch.items():
             body = "\n".join(
-                f"Watch {watch_id} fired: {text}" for watch_id, text in events
+                format_watch_event(watch_id, text) for watch_id, text in events
             )
             if not cls.request_watch_wake(
                 conversation_id, Message("system", body), branch=branch

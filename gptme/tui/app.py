@@ -2698,7 +2698,7 @@ class GptmeApp(App):
             take_queued_completions,
             take_queued_progress,
         )
-        from ..tools.watch import take_queued_watch_events
+        from ..tools.watch import format_watch_event, take_queued_watch_events
 
         manager = self.manager
         branch = manager.current_branch
@@ -2713,7 +2713,7 @@ class GptmeApp(App):
             )
         ]
         terminal.extend(
-            Message("system", f"Watch {watch_id} fired: {text}")
+            Message("system", format_watch_event(watch_id, text))
             for watch_id, text in take_queued_watch_events(
                 manager.logdir, branch=branch
             )

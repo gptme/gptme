@@ -15,12 +15,14 @@ Package structure:
 # Re-export ToolUse for examples()
 from ..base import ToolFunction, ToolSpec, ToolUse
 from .api import (
+    SubagentSnapshot,
     subagent,
     subagent_cancel,
     subagent_continue,
     subagent_list,
     subagent_read_log,
     subagent_reply,
+    subagent_snapshots,
     subagent_status,
     subagent_steer,
     subagent_wait,
@@ -593,6 +595,9 @@ __all__ = [
     "subagent_parallel",
     "subagent_pipeline",
     "BatchJob",
+    # UI read model (owner-scoped, non-destructive)
+    "subagent_snapshots",
+    "SubagentSnapshot",
     # Types
     "SubtaskDef",
     "ReturnType",
