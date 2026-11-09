@@ -202,16 +202,30 @@ def _oauth_token_expiry(provider: str) -> tuple[float | None, bool]:
     present, so the interesting case is expired *and* unrefreshable: only then is
     the "Authenticated" claim wrong.
     """
-    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    if provider == "openai-subscription":
-        candidates = [config_dir / "gptme" / "oauth" / "openai_subscription.json"]
-    elif provider == "grok-subscription":
-        candidates = [
-            config_dir / "gptme" / "oauth" / "grok_subscription.json",
-            Path.home() / ".grok" / "auth.json",
-        ]
-    else:
+    if provider == "grok-subscription":
+        from ..llm.llm_grok_subscription import (
+            _load_grok_cli_tokens,
+            _load_stored_tokens,
+        )
+
+        # Reuse runtime's client-key filtering and source order, but never
+        # refresh here. Skip expired, unrefreshable sources just as get_auth
+        # does; a refreshable source is only a candidate, not proof of validity.
+        sources = [_load_grok_cli_tokens(), _load_stored_tokens()]
+        for auth in sources:
+            if auth is not None and (
+                time.time() < auth.expires_at - 300 or auth.refresh_token
+            ):
+                return auth.expires_at, bool(auth.refresh_token)
+        for auth in sources:
+            if auth is not None:
+                return auth.expires_at, bool(auth.refresh_token)
         return None, False
+    if provider != "openai-subscription":
+        return None, False
+
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    candidates = [config_dir / "gptme" / "oauth" / "openai_subscription.json"]
 
     for path in candidates:
         if not path.exists():
@@ -221,9 +235,6 @@ def _oauth_token_expiry(provider: str) -> tuple[float | None, bool]:
         except (OSError, ValueError):
             continue
         entries = [data]
-        if isinstance(data, dict) and not {"access_token", "key"} & data.keys():
-            # grok CLI auth.json is keyed by issuer::client_id
-            entries = [v for v in data.values() if isinstance(v, dict)]
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -564,7 +575,10 @@ def _is_interactive_terminal() -> bool:
 def _validate_oauth_for_repair(results: list[CheckResult]) -> None:
     """Validate or refresh OAuth credentials before interactive repair routing."""
     for result in results:
-        if not result.name.startswith("Auth: ") or result.status != CheckStatus.OK:
+        if not result.name.startswith("Auth: ") or result.status not in (
+            CheckStatus.OK,
+            CheckStatus.WARNING,
+        ):
             continue
 
         provider = result.name.removeprefix("Auth: ")
@@ -584,7 +598,9 @@ def _validate_oauth_for_repair(results: list[CheckResult]) -> None:
             result.message = f"Authentication failed: {str(exc).splitlines()[0]}"
             result.fix_hint = f"Re-authenticate with: gptme-auth {provider}"
         else:
+            result.status = CheckStatus.OK
             result.message = "Authenticated (OAuth token valid)"
+            result.fix_hint = None
 
 
 def _model_override_blocking_repair() -> str | None:
@@ -888,12 +904,28 @@ def _probe_proxy_connect(
     TLS, auth and upstream routing are deliberately not verified: a TCP
     handshake failing is the case that is both cheap and actionable.
     """
+    from queue import Empty, Queue
+    from threading import Thread
+
     target_port = port if port is not None else (443 if scheme == "https" else 80)
+    outcome: Queue[str | None] = Queue(maxsize=1)
+
+    def connect() -> None:
+        try:
+            with socket.create_connection((hostname, target_port), timeout=timeout):
+                outcome.put(None)
+        except OSError as exc:
+            outcome.put(str(exc) or exc.__class__.__name__)
+
+    # create_connection's timeout excludes DNS and resets per address. Bound
+    # the caller's total wait instead. A daemon avoids holding process exit on
+    # an OS resolver that cannot be cancelled; any late socket is still closed.
+    deadline = time.monotonic() + timeout
+    Thread(target=connect, daemon=True).start()
     try:
-        with socket.create_connection((hostname, target_port), timeout=timeout):
-            return None
-    except OSError as exc:
-        return str(exc) or exc.__class__.__name__
+        return outcome.get(timeout=max(0.0, deadline - time.monotonic()))
+    except Empty:
+        return f"TCP probe timed out after {timeout:g}s (including DNS lookup)"
 
 
 def _check_proxy(verbose: bool = False) -> list[CheckResult]:

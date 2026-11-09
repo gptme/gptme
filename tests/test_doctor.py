@@ -689,6 +689,37 @@ class TestCheckProxy:
             (("proxy.example.com", 8080), 2.0),
         ]
 
+    @pytest.mark.parametrize("operation", ["getaddrinfo", "create_connection"])
+    def test_probe_deadline_includes_dns_and_all_connections(self, operation):
+        import threading
+        import time
+
+        release = threading.Event()
+        finished = threading.Event()
+
+        def stalled_operation(*args, **kwargs):
+            try:
+                release.wait(0.5)
+                raise OSError("stalled network")
+            finally:
+                finished.set()
+
+        with patch(
+            f"gptme.cli.doctor.socket.{operation}",
+            side_effect=stalled_operation,
+        ):
+            try:
+                start = time.monotonic()
+                reason = _probe_proxy_connect(
+                    "proxy.example.com", 80, "http", timeout=0.02
+                )
+                elapsed = time.monotonic() - start
+                assert reason is not None and "timed out" in reason.lower()
+                assert elapsed < 0.3
+            finally:
+                release.set()
+                assert finished.wait(1)
+
     def test_probe_connect_reports_oserror(self):
         """A transport failure is surfaced as the reason string."""
         with patch(
@@ -1194,7 +1225,7 @@ class TestOAuthTokenExpiry:
         (grok_dir / "auth.json").write_text(
             json.dumps(
                 {
-                    "https://auth.x.ai::client": {
+                    "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
                         "key": "tok",
                         "refresh_token": "refresh",
                         "expires_at": "2026-11-09T12:00:00.000000Z",
@@ -1208,6 +1239,83 @@ class TestOAuthTokenExpiry:
         expiry, refreshable = _oauth_token_expiry("grok-subscription")
         assert refreshable is True
         assert expiry == pytest.approx(1794225600.0)
+
+    @pytest.mark.parametrize(
+        ("cli_expiry", "cli_refresh", "stored_expiry", "expected_expiry"),
+        [
+            (4000.0, None, 500.0, 4000.0),
+            (500.0, None, 4000.0, 4000.0),
+            (500.0, "refresh", 4000.0, 500.0),
+        ],
+    )
+    def test_grok_uses_runtime_source_priority(
+        self,
+        tmp_path,
+        monkeypatch,
+        cli_expiry,
+        cli_refresh,
+        stored_expiry,
+        expected_expiry,
+    ):
+        from datetime import datetime, timezone
+
+        from gptme.llm.llm_grok_subscription import GROK_AUTH_KEY
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setattr("time.time", lambda: 1000.0)
+        grok_dir = tmp_path / ".grok"
+        grok_dir.mkdir()
+        (grok_dir / "auth.json").write_text(
+            json.dumps(
+                {
+                    "https://auth.x.ai::unrelated-client": {
+                        "key": "unrelated",
+                        "expires_at": "2099-01-01T00:00:00Z",
+                    },
+                    GROK_AUTH_KEY: {
+                        "key": "cli",
+                        "refresh_token": cli_refresh,
+                        "expires_at": datetime.fromtimestamp(
+                            cli_expiry,
+                            tz=timezone.utc,
+                        ).isoformat(),
+                    },
+                }
+            )
+        )
+        oauth_dir = tmp_path / "gptme" / "oauth"
+        oauth_dir.mkdir(parents=True)
+        (oauth_dir / "grok_subscription.json").write_text(
+            json.dumps(
+                {
+                    "access_token": "stored",
+                    "expires_at": stored_expiry,
+                }
+            )
+        )
+
+        assert _oauth_token_expiry("grok-subscription") == (
+            expected_expiry,
+            bool(cli_refresh) if expected_expiry == cli_expiry else False,
+        )
+
+    def test_grok_ignores_unrelated_cli_client(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        grok_dir = tmp_path / ".grok"
+        grok_dir.mkdir()
+        (grok_dir / "auth.json").write_text(
+            json.dumps(
+                {
+                    "https://auth.x.ai::unrelated": {
+                        "key": "tok",
+                        "expires_at": "2099-01-01T00:00:00Z",
+                    },
+                }
+            )
+        )
+        assert _oauth_token_expiry("grok-subscription") == (None, False)
 
     def test_unknown_provider_has_no_expiry(self):
         assert _oauth_token_expiry("anthropic") == (None, False)
@@ -1882,11 +1990,39 @@ class TestOAuthRepairValidation:
         assert _provider_repair_needed(results)
         mock_get_auth.assert_called_once_with(timeout=5)
 
-    @patch("gptme.llm.llm_grok_subscription.get_auth")
-    def test_valid_oauth_is_confirmed(self, mock_get_auth):
+    @patch(
+        "gptme.llm.llm_openai_subscription.get_auth",
+        side_effect=ValueError("token expired without refresh token"),
+    )
+    def test_expired_warning_reaches_repair(self, mock_get_auth):
         results = [
             CheckResult(
-                "Auth: grok-subscription", CheckStatus.OK, "Authenticated (OAuth)"
+                "Auth: openai-subscription",
+                CheckStatus.WARNING,
+                "Token expired and cannot be refreshed",
+            ),
+            CheckResult(
+                "Model: Default",
+                CheckStatus.OK,
+                "openai-subscription/gpt-6-astra (models.default)",
+            ),
+        ]
+
+        _validate_oauth_for_repair(results)
+
+        mock_get_auth.assert_called_once_with(timeout=5)
+        assert results[0].status == CheckStatus.ERROR
+        assert _provider_repair_needed(results)
+
+    @pytest.mark.parametrize("status", [CheckStatus.OK, CheckStatus.WARNING])
+    @patch("gptme.llm.llm_grok_subscription.get_auth")
+    def test_valid_oauth_is_confirmed(self, mock_get_auth, status):
+        results = [
+            CheckResult(
+                "Auth: grok-subscription",
+                status,
+                "Stored OAuth credentials",
+                fix_hint="Re-authenticate",
             )
         ]
 
@@ -1894,6 +2030,7 @@ class TestOAuthRepairValidation:
 
         assert results[0].status == CheckStatus.OK
         assert "token valid" in results[0].message
+        assert results[0].fix_hint is None
         mock_get_auth.assert_called_once_with(timeout=5)
 
 
