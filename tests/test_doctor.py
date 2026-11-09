@@ -1937,6 +1937,37 @@ class TestCheckMCP:
         assert server_result.status == CheckStatus.OK
         assert "reachable" in server_result.message.lower()
 
+    @pytest.mark.parametrize(
+        ("code", "reason", "expected_status"),
+        [
+            (401, "Unauthorized", CheckStatus.WARNING),
+            (403, "Forbidden", CheckStatus.WARNING),
+            (404, "Not Found", CheckStatus.OK),
+            (500, "Internal Server Error", CheckStatus.OK),
+        ],
+    )
+    @patch("urllib.request.urlopen")
+    @patch("gptme.cli.doctor.get_config")
+    def test_mcp_http_server_status_mapping(
+        self, mock_config, mock_urlopen, code, reason, expected_status
+    ):
+        """Test that auth failures warn while other HTTP errors stay reachable."""
+        from email.message import Message
+        from urllib.error import HTTPError
+
+        server = MCPServerConfig(name="remote-mcp", url="http://localhost:8080/mcp")
+        mock_config.return_value.mcp = MCPConfig(enabled=True, servers=[server])
+        mock_urlopen.side_effect = HTTPError(server.url, code, reason, Message(), None)
+
+        results = _check_mcp()
+        server_result = [r for r in results if "remote-mcp" in r.name][0]
+        assert server_result.status == expected_status
+        if expected_status == CheckStatus.WARNING:
+            assert "credentials" in server_result.message.lower()
+            assert server_result.fix_hint is not None
+        else:
+            assert "reachable" in server_result.message.lower()
+
     @patch("shutil.which")
     @patch("gptme.cli.doctor.get_config")
     def test_mcp_multiple_servers(self, mock_config, mock_which):

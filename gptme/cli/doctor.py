@@ -1357,8 +1357,10 @@ def _check_mcp_http_server(
     server_config: MCPServerConfig, verbose: bool = False
 ) -> list[CheckResult]:
     """Check an HTTP-based MCP server."""
+    import urllib.error
     import urllib.request
 
+    name = f"MCP: {server_config.name}"
     try:
         req = urllib.request.Request(
             server_config.url,
@@ -1367,35 +1369,53 @@ def _check_mcp_http_server(
         )
         with urllib.request.urlopen(req, timeout=5):
             pass
-        return [
-            CheckResult(
-                name=f"MCP: {server_config.name}",
-                status=CheckStatus.OK,
-                message="HTTP server reachable",
-                details=server_config.url if verbose else None,
-            )
-        ]
-    except Exception as e:
-        # Accept any HTTP response (even 4xx/5xx) as "reachable"
+    except urllib.error.HTTPError as e:
+        # The server answered, so it is reachable. But 401/403 mean it rejected
+        # the configured credential: reporting that as healthy would hide a
+        # rotated token or a misplaced credential in the URL/headers.
         error_str = str(e)
-        if "HTTP Error" in error_str:
+        details = f"{server_config.url} ({error_str})" if verbose else None
+        if e.code in (401, 403):
             return [
                 CheckResult(
-                    name=f"MCP: {server_config.name}",
-                    status=CheckStatus.OK,
-                    message="HTTP server reachable",
-                    details=f"{server_config.url} ({error_str})" if verbose else None,
+                    name=name,
+                    status=CheckStatus.WARNING,
+                    message=(
+                        f"HTTP server reachable but rejected credentials ({error_str})"
+                    ),
+                    details=details,
+                    fix_hint=(
+                        "Check the server URL and headers in config: the "
+                        "credential may be missing, stale, or misplaced"
+                    ),
                 )
             ]
         return [
             CheckResult(
-                name=f"MCP: {server_config.name}",
+                name=name,
+                status=CheckStatus.OK,
+                message="HTTP server reachable",
+                details=details,
+            )
+        ]
+    except Exception as e:
+        return [
+            CheckResult(
+                name=name,
                 status=CheckStatus.ERROR,
                 message=f"Cannot reach server: {e}",
                 details=server_config.url if verbose else None,
                 fix_hint=f"Check that {server_config.url} is accessible",
             )
         ]
+    return [
+        CheckResult(
+            name=name,
+            status=CheckStatus.OK,
+            message="HTTP server reachable",
+            details=server_config.url if verbose else None,
+        )
+    ]
 
 
 def _check_mcp_stdio_server(
