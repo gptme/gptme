@@ -2471,13 +2471,16 @@ class WorkOverviewScreen(ModalScreen):
         content = self.query_one("#work-overview-content", Static)
         content.update(Text(summary))
         if scroll and self._children:
-            # Account for wrapped rows when keeping the selected child in view.
-            prefix = summary.splitlines()[: self._cursor + 1]
-            width = max(1, content.content_size.width)
-            row = sum(len(Text(line).wrap(self.app.console, width)) for line in prefix)
             self.query_one("#work-overview-scroll", VerticalScroll).scroll_to(
-                y=row, animate=False
+                y=self._selected_row(), animate=False
             )
+
+    def _selected_row(self) -> int:
+        # Account for wrapped rows when keeping the selected child in view.
+        content = self.query_one("#work-overview-content", Static)
+        prefix = str(content.render()).splitlines()[: self._cursor + 1]
+        width = max(1, content.content_size.width)
+        return sum(len(Text(line).wrap(self.app.console, width)) for line in prefix)
 
     def action_open_child(self) -> None:
         if not self._children:
@@ -2488,10 +2491,19 @@ class WorkOverviewScreen(ModalScreen):
             self.app.push_screen(WorkScreen(sa.logdir, sa.agent_id))
 
     def action_cursor_down(self) -> None:
-        self._cursor = min(self._cursor + 1, max(0, len(self._children) - 1))
+        if self._cursor >= len(self._children) - 1:
+            self.query_one("#work-overview-scroll", VerticalScroll).scroll_down(
+                animate=False
+            )
+            return
+        self._cursor += 1
         self._refresh_summary(scroll=True)
 
     def action_cursor_up(self) -> None:
+        scroll = self.query_one("#work-overview-scroll", VerticalScroll)
+        if not self._children or scroll.scroll_y > self._selected_row():
+            scroll.scroll_up(animate=False)
+            return
         self._cursor = max(0, self._cursor - 1)
         self._refresh_summary(scroll=True)
 

@@ -693,3 +693,55 @@ async def test_work_overview_refreshes_while_open(
         await pilot.pause(1.2)
         assert "[expired]" in str(content.render())
         assert "wait [/tmp]" in str(content.render())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("child_count", [0, 1])
+async def test_work_overview_scrolls_monitors_with_arrow_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, child_count: int
+) -> None:
+    """Monitor rows remain keyboard-accessible with or without child agents."""
+    from textual.containers import VerticalScroll
+
+    from gptme.tools.subagent.types import Subagent
+
+    manager = _make_manager(tmp_path)
+    children = [
+        Subagent(
+            agent_id="child",
+            prompt="inspect logs",
+            thread=None,
+            logdir=tmp_path / "child",
+            model=None,
+        )
+        for _ in range(child_count)
+    ]
+    watches = [
+        Watch(
+            id=f"monitor-{index}",
+            kind="timer",
+            description="wait for an event",
+            created=time.time(),
+        )
+        for index in range(30)
+    ]
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshot", lambda *a, **kw: children
+    )
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshot", lambda *a, **kw: watches)
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
+        assert scroll.max_scroll_y > 0
+        for _ in range(5):
+            await pilot.press("down")
+        await pilot.pause()
+        previous_y = scroll.scroll_y
+        assert previous_y > 0
+        await pilot.press("up")
+        await pilot.pause()
+        assert scroll.scroll_y < previous_y
+        assert screen._cursor == 0
