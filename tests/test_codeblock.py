@@ -3322,3 +3322,64 @@ def test_outer_closer_index_matches_forward_depth_scan() -> None:
         for start in range(len(lines)):
             assert indexed.get(start) is forward_scan(lines, start), (lines, start)
     assert _outer_closer_index([]) == {}
+
+
+@pytest.mark.parametrize("prose_lines", [1, 30])
+@pytest.mark.parametrize("outer_length", [4, 5])
+@pytest.mark.parametrize("literal_reasoning", ["", "<think>\nliteral\n</think>\n"])
+def test_long_outer_fence_before_six_backtick_command(
+    prose_lines: int, outer_length: int, literal_reasoning: str
+) -> None:
+    """Six backticks cannot split into a long outer closer plus a new opener."""
+    fence = "`" * outer_length
+    content = literal_reasoning + "hello"
+    markdown = (
+        f"{fence}save a.md\n{content}\n{fence}\n"
+        + "Narration.\n" * prose_lines
+        + "``````shell\ncat a.md\n```\n"
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content, fence=fence),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
+@pytest.mark.parametrize("outer_lengths", [(3, 4), (4, 3)])
+def test_joined_fence_scan_is_scoped_to_each_outer_length(
+    outer_lengths: tuple[int, int],
+) -> None:
+    """A scan for an earlier block must not supply a later width's verdicts."""
+    markdown = ""
+    expected = []
+    for outer_length in outer_lengths:
+        fence = "`" * outer_length
+        markdown += (
+            f"{fence}save a.md\nhello\n{fence}\nNarration.\n"
+            "``````shell\ncat a.md\n```\n"
+        )
+        if outer_length == 3:
+            expected.extend(
+                [
+                    Codeblock("save a.md", "hello\n```\nNarration."),
+                    Codeblock("shell", "cat a.md"),
+                ]
+            )
+        else:
+            expected.extend(
+                [Codeblock("save a.md", "hello"), Codeblock("shell", "cat a.md")]
+            )
+    assert list(_extract_codeblocks(markdown)) == expected
+
+
+@pytest.mark.parametrize("outer_length", [4, 5])
+@pytest.mark.parametrize("tail_lines", [3, 30])
+def test_long_outer_save_preserves_tail_before_actual_joined_fences(
+    outer_length: int, tail_lines: int
+) -> None:
+    fence = "`" * outer_length
+    content = f"intro\n{fence}\n" + "body\n" * tail_lines + "end"
+    markdown = f"{fence}save a.md\n{content}\n{fence}```shell\ncat a.md\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content),
+        Codeblock("shell", "cat a.md"),
+    ]

@@ -383,7 +383,7 @@ def _line_fence_states(
     language-tagged nested openers so thinking-tag checks agree with extraction.
     """
     lines = text.split("\n")
-    outer_closer_scan: tuple[dict[int, bool | None], list[bool | None]] | None = None
+    outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     # Suffix queries only need to know whether a tagged fence remains. Compute
     # its last position once rather than rescanning for every literal example.
     last_tagged_fence = next(
@@ -528,9 +528,11 @@ def _line_fence_states(
                             or nested_closer_idx is None
                         )
                     ):
-                        if outer_closer_scan is None:
-                            outer_closer_scan = _outer_closer_scan(lines)
-                        verdicts, suffix = outer_closer_scan
+                        if fence_len not in outer_closer_scans:
+                            outer_closer_scans[fence_len] = _outer_closer_scan(
+                                lines, fence_len
+                            )
+                        verdicts, suffix = outer_closer_scans[fence_len]
                         no_outer_closer_after = (
                             verdicts.get(following_tagged_idx)
                             if following_tagged_idx is not None
@@ -787,9 +789,9 @@ def _outer_closer_index(lines: list[str]) -> dict[int, bool | None]:
 
 
 def _outer_closer_scan(
-    lines: list[str],
+    lines: list[str], outer_fence_len: int = 3
 ) -> tuple[dict[int, bool | None], list[bool | None]]:
-    """Index outer-closer verdicts for tagged fence lines in linear time.
+    """Index outer-closer verdicts in linear time for one outer fence length.
 
     Returns `(verdicts, suffix)`. `suffix[k]` answers the same question for
     the text starting at line `k`: True if an unmatched bare closer remains,
@@ -817,7 +819,7 @@ def _outer_closer_scan(
         tag = fence.group(2).strip()
         # Extraction splits a closer joined to the next opener ("``````shell")
         # into both: the line closes the open block, then opens a tagged one.
-        joined = bool(re.match(r"^`{6,}[^`\s]", line))
+        joined = bool(re.match(r"^`{3,}\S", line[outer_fence_len:]))
         if not tag or joined:
             bare.add(i)
             if openers:
@@ -1020,7 +1022,7 @@ def _extract_codeblocks(
         return
 
     lines = markdown.split("\n")
-    outer_closer_scan: tuple[dict[int, bool | None], list[bool | None]] | None = None
+    outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     i = 0
 
     while i < len(lines):
@@ -1310,11 +1312,13 @@ def _extract_codeblocks(
                                     #           bare fence at i is literal content (original).
                                     # If NO  → no outer closer after the inner block, so the
                                     #           bare fence at i IS the outer closer; yield now.
-                                    if outer_closer_scan is None:
-                                        outer_closer_scan = _outer_closer_scan(lines)
-                                    outer_has_closer = outer_closer_scan[0].get(
-                                        lang_tagged_fence_j
-                                    )
+                                    if fence_len not in outer_closer_scans:
+                                        outer_closer_scans[fence_len] = (
+                                            _outer_closer_scan(lines, fence_len)
+                                        )
+                                    outer_has_closer = outer_closer_scans[fence_len][
+                                        0
+                                    ].get(lang_tagged_fence_j)
                                     if outer_has_closer is True:
                                         # Outer block has an explicit closer later.
                                         # Streaming: use the original increment so the
@@ -1374,11 +1378,14 @@ def _extract_codeblocks(
                                     # leave the block unclosed and drop it along with
                                     # every later block (gptme/gptme#4817). Otherwise a
                                     # later bare closer exists, so this one is content.
-                                    if outer_closer_scan is None:
-                                        outer_closer_scan = _outer_closer_scan(lines)
+                                    if fence_len not in outer_closer_scans:
+                                        outer_closer_scans[fence_len] = (
+                                            _outer_closer_scan(lines, fence_len)
+                                        )
                                     if (
                                         not was_ambiguous
-                                        and outer_closer_scan[1][i + 1] is False
+                                        and outer_closer_scans[fence_len][1][i + 1]
+                                        is False
                                     ):
                                         yield Codeblock(
                                             lang,
