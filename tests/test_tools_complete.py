@@ -1980,6 +1980,14 @@ class TestSessionEndMetadataHook:
         assert payload["policy_blocks"] == count_policy_blocks(messages) == 2
         assert payload["outcome"] == "policy_block_budget_exhausted"
 
+    def test_no_block_without_terminal_marker(self):
+        """Returning to the prompt is not a finished run: no block is written."""
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [_user("hello"), _assistant_with_usage(10, 5)]
+
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
+
     def test_max_turns_outcome(self):
         from gptme.constants import MAX_STEPS_STOP_PREFIX
         from gptme.tools.complete import session_end_metadata_hook

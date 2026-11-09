@@ -926,7 +926,6 @@ SESSION_END_BLOCK_CLOSE = " -->"
 OUTCOME_COMPLETED = "completed"
 OUTCOME_MAX_TURNS = "max_turns"
 OUTCOME_POLICY_BLOCK_BUDGET = "policy_block_budget_exhausted"
-OUTCOME_ENDED = "ended"
 
 
 def _session_usage_totals(messages: "list[Message]") -> tuple[int, int]:
@@ -944,8 +943,14 @@ def _session_usage_totals(messages: "list[Message]") -> tuple[int, int]:
     return input_tokens, output_tokens
 
 
-def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str:
-    """Classify why the session ended, from what the log actually recorded."""
+def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str | None:
+    """Classify why the session ended, from what the log actually recorded.
+
+    Returns ``None`` when the log carries no terminal marker. A conversation
+    that simply returns to the prompt is not a finished run: emitting a block
+    there would put one in every interactive log and change the final message
+    an interactive caller sees.
+    """
     if messages:
         last = messages[-1]
         if (last.metadata or {}).get("max_steps_stop") is True:
@@ -967,7 +972,7 @@ def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str:
     if budget and not (chat is not None and chat.interactive):
         if count_policy_blocks(messages) >= 2 * budget:
             return OUTCOME_POLICY_BLOCK_BUDGET
-    return OUTCOME_ENDED
+    return None
 
 
 def _session_wall_seconds(messages: "list[Message]") -> int:
@@ -990,9 +995,15 @@ def session_end_metadata_hook(
     completion signal, so it would need a separate flag to know the run is over.
     """
     messages = manager.history_log.messages
+    outcome = _session_outcome(manager, messages)
+    if outcome is None:
+        # No terminal marker: the conversation returned to the prompt or the
+        # harness stopped for a reason the log does not record. Nothing to
+        # report beyond what ``last_activity`` already carries.
+        return
     input_tokens, output_tokens = _session_usage_totals(messages)
     payload = {
-        "outcome": _session_outcome(manager, messages),
+        "outcome": outcome,
         "policy_blocks": count_policy_blocks(messages),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
