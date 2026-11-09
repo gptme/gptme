@@ -465,6 +465,7 @@ class TestProviderDocs:
             "nvidia",
             "requesty",
             "moonshot",
+            "runcrate",
             "local",
         ]
         for provider in expected_providers:

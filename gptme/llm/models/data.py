@@ -80,6 +80,7 @@ OPENAI_COMPAT_PROVIDERS: frozenset[str] = frozenset(
         "xai",
         "grok-subscription",
         "moonshot",
+        "runcrate",
         "requesty",
         "opencode-go",
         "openrouter",
@@ -894,6 +895,18 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     "nvidia": {},
+    # Runcrate: OpenAI-compatible API. Model keys use the full ID, which
+    # contains a slash (everything after "runcrate/").
+    # Context, output limit and capabilities are from
+    # https://api.runcrate.ai/v1/models. Prices are not set.
+    "runcrate": {
+        "deepseek-ai/DeepSeek-V4.1-Flash": {
+            "context": 1_048_576,
+            "max_output": 1_048_576,
+            "supports_reasoning": True,
+            "supports_vision": True,
+        },
+    },
     "azure": {},
     # Requesty — OpenAI-compatible LLM gateway, provider/model naming.
     # Model keys use the full sub-provider/model path (everything after "requesty/").

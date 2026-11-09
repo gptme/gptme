@@ -135,6 +135,25 @@ Use Moonshot's Kimi models with ``moonshot/<model>``, such as ``kimi-k3``,
 Kimi K3 accepts the ``low``, ``high``, and ``max`` levels of
 ``GPTME_THINKING_EFFORT``; see :ref:`reasoning-effort`.
 
+.. _runcrate:
+
+Runcrate
+~~~~~~~~
+
+Use models from `Runcrate <https://runcrate.ai/>`__, an AI cloud with an
+OpenAI-compatible API, with ``runcrate/<model-id>``. Model IDs contain a
+slash, for example ``deepseek-ai/DeepSeek-V4.1-Flash``, and the full list is at
+``https://api.runcrate.ai/v1/models``:
+
+.. code-block:: sh
+
+    export RUNCRATE_API_KEY="your-api-key"
+    gptme "hello" -m runcrate/deepseek-ai/DeepSeek-V4.1-Flash
+
+gptme has built-in metadata for ``deepseek-ai/DeepSeek-V4.1-Flash`` (context
+window and capabilities, no pricing). Other Runcrate model IDs use generic
+defaults for context size and pricing.
+
 .. _nvidia:
 
 NVIDIA

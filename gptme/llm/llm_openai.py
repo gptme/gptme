@@ -739,6 +739,14 @@ def init(provider: Provider, config: Config):
             base_url="https://api.moonshot.ai/v1",
             timeout=timeout,
         )
+    elif provider == "runcrate":
+        api_key = _get_provider_api_key(config, provider, "RUNCRATE_API_KEY")
+        _init_openai_client(
+            provider,
+            api_key=api_key,
+            base_url="https://api.runcrate.ai/v1",
+            timeout=timeout,
+        )
     elif provider == "nvidia":
         api_key = _get_provider_api_key(config, provider, "NVIDIA_API_KEY")
         _init_openai_client(

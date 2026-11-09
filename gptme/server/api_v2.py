@@ -2809,6 +2809,7 @@ def _probe_provider(provider_name: str) -> dict:
             "deepseek",
             "nvidia",
             "moonshot",
+            "runcrate",
         ):
             from ..llm.llm_openai import get_client as get_openai_client  # fmt: skip
             from ..llm.llm_openai import has_client  # fmt: skip

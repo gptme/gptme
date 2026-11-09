@@ -101,6 +101,9 @@ Each links to its setup details on :doc:`providers-supported`.
    * - :ref:`Moonshot <moonshot>`
      - ``moonshot/``
      - ``MOONSHOT_API_KEY``
+   * - :ref:`Runcrate <runcrate>`
+     - ``runcrate/``
+     - ``RUNCRATE_API_KEY``
    * - :ref:`NVIDIA <nvidia>`
      - ``nvidia/``
      - ``NVIDIA_API_KEY``

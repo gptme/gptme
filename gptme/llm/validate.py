@@ -39,6 +39,7 @@ PROVIDER_DOCS: dict[str, str] = {
     "nvidia": "https://build.nvidia.com/",
     "requesty": "https://app.requesty.ai/",
     "moonshot": "https://platform.moonshot.ai/console/api-keys",
+    "runcrate": "https://runcrate.ai/",
     "local": "https://gptme.org/docs/getting-started.html#local-models",
     "openai-subscription": "https://gptme.org/docs/providers-supported.html#openai-subscription",
     "grok-subscription": "https://gptme.org/docs/providers-supported.html#grok-subscription",

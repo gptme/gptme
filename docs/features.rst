@@ -149,7 +149,7 @@ with a single ``-m`` flag.
 - **OpenAI** — GPT-5 and o-series, via the Responses API
 - **Google** — Gemini
 - **xAI** — Grok
-- **DeepSeek**, **Groq**, **Moonshot**, **NVIDIA**, **Azure OpenAI**, **Requesty**
+- **DeepSeek**, **Groq**, **Moonshot**, **NVIDIA**, **Azure OpenAI**, **Requesty**, **Runcrate**
 - **OpenRouter** — 100+ models through a single API
 
 **Bring a subscription instead** — usually the cheapest way to run a frontier

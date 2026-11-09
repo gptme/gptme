@@ -226,11 +226,11 @@ behaviour silently:
 
 **How well populated is this?** Unevenly, and it is worth being explicit about:
 
-- ``default_tool_format`` is set to ``tool`` on 111 of the 134 models in the
+- ``default_tool_format`` is set to ``tool`` on 112 of the 135 models in the
   bundled registry. This is stamped **per provider**, not per model: every
   provider that talks the OpenAI-compatible function-calling API gets it
   (``openai``, ``openai-subscription``, ``gemini``, ``xai``, ``groq``,
-  ``deepseek``, ``opencode-go``, ``moonshot``, ``openrouter``, ``requesty``, and the
+  ``deepseek``, ``opencode-go``, ``moonshot``, ``runcrate``, ``openrouter``, ``requesty``, and the
   subscription/proxy variants). ``anthropic`` is excluded because it uses the
   Anthropic SDK rather than the OpenAI-compatible path, and ``mock`` is
   test-only. An explicit per-model value always wins over the provider stamp.

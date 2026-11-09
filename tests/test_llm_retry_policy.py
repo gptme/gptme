@@ -120,6 +120,7 @@ def test_openai_lazy_client_materializes_with_sdk_retries_disabled(monkeypatch):
         ("gemini", "GEMINI_API_KEY", {}),
         ("moonshot", "MOONSHOT_API_KEY", {}),
         ("nvidia", "NVIDIA_API_KEY", {}),
+        ("runcrate", "RUNCRATE_API_KEY", {}),
         (
             "azure",
             "AZURE_OPENAI_API_KEY",
