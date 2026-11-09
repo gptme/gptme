@@ -673,3 +673,68 @@ def test_preserved_notice_distinguishes_path_from_branch():
     branch_notice = preserved_notice("subagent-x-abc123")
     assert "Changes preserved on branch" in branch_notice
     assert "git merge subagent-x-abc123" in branch_notice
+
+
+def test_worktree_creation_failure_preserves_fallback_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_repo: Path
+) -> None:
+    """A failed worktree launch must treat the fallback as a non-git directory."""
+    git_worktree = importlib.import_module("gptme.util.git_worktree")
+    _patch_subagent_env(monkeypatch, tmp_path)
+    fallback = tmp_path / "fallback"
+    fallback.mkdir()
+    monkeypatch.setattr("tempfile.mkdtemp", lambda **kw: str(fallback))
+    monkeypatch.setattr(git_worktree, "get_git_root", lambda _: git_repo)
+
+    def fail_worktree(*args: object, **kwargs: object) -> Path:
+        raise RuntimeError("worktree unavailable")
+
+    def write_output(**kwargs: object) -> None:
+        (fallback / "result.txt").write_text("saved work\n")
+
+    monkeypatch.setattr(git_worktree, "create_worktree", fail_worktree)
+    monkeypatch.setattr(subagent_execution, "_create_subagent_thread", write_output)
+
+    subagent("fallback-output", "write output", isolation="worktree", workdir=git_repo)
+    _wait_for_agent("fallback-output")
+
+    assert (fallback / "result.txt").read_text() == "saved work\n"
+    with _subagent_results_lock:
+        result = _subagent_results["fallback-output"]
+    assert str(fallback) in (result.result or "")
+    assert "git merge" not in (result.result or "")
+
+
+@pytest.mark.parametrize("cancel_wins", [False, True])
+def test_thread_failure_reports_preserved_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cancel_wins: bool
+) -> None:
+    """Execution failure must report saved work, even after a cancellation race."""
+    git_worktree = importlib.import_module("gptme.util.git_worktree")
+    _patch_subagent_env(monkeypatch, tmp_path)
+    isolated = tmp_path / "isolated"
+    isolated.mkdir()
+    monkeypatch.setattr("tempfile.mkdtemp", lambda **kw: str(isolated))
+    monkeypatch.setattr(git_worktree, "get_git_root", lambda _: None)
+
+    def write_then_fail(**kwargs: object) -> None:
+        (isolated / "result.txt").write_text("partial work\n")
+        if cancel_wins:
+            with _subagent_results_lock:
+                _subagent_results["failure-output"] = ReturnType(
+                    "timeout", "Cancelled after deadline"
+                )
+        raise RuntimeError("model request failed")
+
+    monkeypatch.setattr(subagent_execution, "_create_subagent_thread", write_then_fail)
+    subagent("failure-output", "write output", isolated=True, workdir=tmp_path)
+    _wait_for_agent("failure-output")
+
+    assert (isolated / "result.txt").read_text() == "partial work\n"
+    with _subagent_results_lock:
+        result = _subagent_results["failure-output"]
+    assert result.status == ("timeout" if cancel_wins else "failure")
+    assert str(isolated) in (result.result or "")
+    assert ("Cancelled after deadline" if cancel_wins else "model request failed") in (
+        result.result or ""
+    )
