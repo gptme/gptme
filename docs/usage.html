@@ -652,6 +652,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#terminal-agent-status">Terminal agent status</a></li>
 </ul>
             </nav>
         </div>
@@ -1061,6 +1062,30 @@ def my_function(x: int, y: int) -> int:
 <p>For further usage examples, see the <a class="reference internal" href="examples.html"><span class="doc">Examples</span></a> page.</p>
 </section>
 </section>
+<section id="terminal-agent-status">
+<h2>Terminal agent status<a class="headerlink" href="#terminal-agent-status" title="Link to this heading">#</a></h2>
+<p>The classic CLI and Textual TUI (fullscreen and inline) report lifecycle state using OSC 7501 (Program Status
+Protocol), as supported by <a class="reference external" href="https://github.com/herdrdev/herdr-core">herdr-core</a>.
+A supporting terminal consumer can distinguish working, completed, and
+waiting-for-permission or waiting-for-answer states without scraping output.
+The working state spans the whole turn, including tool execution. Normal chat
+input after a completed turn keeps the completed state; startup reports idle,
+as does a turn that was interrupted or whose tool execution was declined.
+Reports are cleared when the chat exits.</p>
+<p>Reports contain only the state, agent name, and blocking kind, not prompts or
+tool arguments. They are disabled for redirected output, JSON output, and
+quiet mode. Set <code class="docutils literal notranslate"><span class="pre">GPTME_PROGRAM_STATUS=0</span></code> to disable them explicitly.
+The TUI sends reports through its terminal driver, including tool and URL
+approval dialogs, background commands, errors, and interruptions. Server UI
+reporting is not included. Background CLI threads and inline subagent
+sessions cannot overwrite the parent terminal status (an inline subagent’s
+permission and question prompts are still reported).</p>
+<p>Standard tmux does not interpret OSC 7501. It needs an output consumer
+(for example, one connected with <code class="docutils literal notranslate"><span class="pre">pipe-pane</span></code>) to update pane options and
+status-line formats. Enabling <code class="docutils literal notranslate"><span class="pre">allow-passthrough</span></code> alone does not add tmux
+agent badges. OSC reports are untrusted terminal metadata, not an
+authentication or authorization mechanism.</p>
+</section>
 </section>
 
 
@@ -1128,6 +1153,7 @@ def my_function(x: int, y: int) -> int:
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#terminal-agent-status">Terminal agent status</a></li>
 </ul>
   </nav></div>
 
