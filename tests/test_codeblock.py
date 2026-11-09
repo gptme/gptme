@@ -3280,6 +3280,20 @@ def test_recovered_save_pairs_use_linear_fence_work(
     assert validations <= 40 * pair_count, validations
 
 
+@pytest.mark.parametrize("tail_lines", [3, 30, 100])
+@pytest.mark.parametrize("literal_reasoning", ["", "<think>\nliteral\n</think>\n"])
+def test_nonexec_save_preserves_tail_before_joined_fences(
+    tail_lines: int, literal_reasoning: str
+) -> None:
+    """Extraction and thinking checks must retain content up to the joined closer."""
+    content = literal_reasoning + "intro\n```\n" + "body\n" * tail_lines + "end"
+    markdown = f"```save a.md\n{content}\n``````shell\ncat a.md\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
 def test_outer_closer_index_matches_forward_depth_scan() -> None:
     """The optimization must preserve all three outcomes, including invalid tags."""
     from itertools import product

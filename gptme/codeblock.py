@@ -830,7 +830,13 @@ def _outer_closer_scan(
     for i in range(len(lines) - 1, -1, -1):
         if i in verdicts:
             closer = matching.get(i)
-            verdicts[i] = None if closer is None else suffix[closer + 1]
+            # A joined line closes the outer block before opening the next
+            # one. Lookahead queries at that line must see the closer too,
+            # not just suffix queries that encounter it from farther away.
+            if i in bare:
+                verdicts[i] = True
+            else:
+                verdicts[i] = None if closer is None else suffix[closer + 1]
         if i in bare:
             suffix[i] = True
         elif i in verdicts:
