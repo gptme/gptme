@@ -149,6 +149,8 @@ class BackgroundJob:
     stderr_log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
     _final_log_written: bool = field(default=False, repr=False)
+    # A closed fallback snapshot may still lack an evicted RAM prefix.
+    _snapshot_log_finished: bool = field(default=False, repr=False)
     _stdout_spool: PrivateOutputFile | None = field(default=None, repr=False)
     _stderr_spool: PrivateOutputFile | None = field(default=None, repr=False)
     _snapshot_stream: PrivateOutputFile | None = field(default=None, repr=False)
@@ -388,7 +390,10 @@ class BackgroundJob:
                 self._capture_partial = True
         # Consumers can render the notification before this thread returns.
         # Capture is final now, even though the notifying thread is still alive.
-        self._capture_finished.set()
+        with _job_log_lock:
+            self._capture_finished.set()
+        if self._snapshot_stream is not None:
+            _write_job_log(self, *self.get_output(), final=False, complete=True)
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:
@@ -592,13 +597,20 @@ def _write_job_log(
     if job.log_dir is None:
         return None
     with _job_log_lock:
-        if job._final_log_written:
+        if job._final_log_written or job._snapshot_log_finished:
             return job.log_path
+        if not final and job._capture_finished.is_set():
+            # A preview may have sampled RAM before the reader finished.
+            stdout, stderr = job.get_output()
+            complete = True
         path = _write_job_log_locked(
             job, stdout, stderr, final=final, complete=complete
         )
-        if path is not None and final and not job._spool_from_reader:
-            job._final_log_written = True
+        if path is not None and not job._spool_from_reader:
+            if final:
+                job._final_log_written = True
+            elif job._capture_finished.is_set():
+                job._snapshot_log_finished = True
         return path
 
 
@@ -642,7 +654,9 @@ def _write_job_log_locked(
         logger.warning("Could not write background job log %s: %s", job.log_path, e)
         return None
     finally:
-        if final and job._snapshot_stream is not None:
+        if (
+            final or job._capture_finished.is_set()
+        ) and job._snapshot_stream is not None:
             try:
                 job._snapshot_stream.close()
             except OSError as e:

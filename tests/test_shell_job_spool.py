@@ -231,6 +231,59 @@ def test_live_spool_with_pending_line_does_not_claim_full_output(tmp_path) -> No
         stream.close()
 
 
+@pytest.mark.parametrize("preview_while_running", [False, True])
+@pytest.mark.parametrize("evicted", [False, True])
+def test_fallback_snapshot_closes_without_hiding_loss(
+    tmp_path, monkeypatch, preview_while_running: bool, evicted: bool
+) -> None:
+    import threading
+
+    from gptme.tools import shell_background as bg
+
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    process.stderr = None
+    process.poll.return_value = 0
+    job = BackgroundJob(1, "fallback", process, time.time(), log_dir=tmp_path)
+    real_open = bg.open_private_output_file
+
+    def open_stream(log_dir, category, name):
+        if name.endswith(".stderr.live"):
+            raise OSError("temporary stderr spool failure")
+        return real_open(log_dir, category, name)
+
+    monkeypatch.setattr(bg, "open_private_output_file", open_stream)
+    job._open_spools()
+    assert not job._spool_from_reader
+    job.stdout_buffer = ["retained line\n" * 3000]
+    job._stdout_buffer_start = 123 if evicted else 0
+    # Keep a live thread reference, as completion can render before it returns.
+    job._reader_thread = threading.current_thread()
+    if preview_while_running:
+        format_job_output(job, *job.get_output())
+        assert job._snapshot_stream is not None
+        assert not job._snapshot_stream._closed
+    monkeypatch.setattr(bg, "_wait_readable", lambda fds, timeout: fds)
+    monkeypatch.setattr(os, "read", lambda fd, size: b"")
+    try:
+        job._read_output()
+        if preview_while_running:
+            assert job._snapshot_stream is not None
+            assert job._snapshot_stream._closed
+        for _ in range(2):
+            preview = bg._completion_message(job).content
+            assert ("were not retained" in preview) == evicted
+            assert ("Full output" in preview) != evicted
+            assert job._snapshot_stream is not None
+            assert job._snapshot_stream._closed
+            assert job.log_path is not None
+            assert "retained line" in job.log_path.read_text()
+        assert len(list(tmp_path.glob("tool-outputs/shell-jobs/*.log"))) == 1
+    finally:
+        if job._snapshot_stream is not None:
+            job._snapshot_stream.close()
+
+
 @pytest.mark.parametrize("is_stdout", [True, False])
 def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_stdout):
     from gptme.config import ChatConfig, Config, UserConfig, _config_var
