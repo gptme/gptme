@@ -86,7 +86,22 @@ def summarize_context_savings(logdir: Path) -> ContextSavingsSummary:
             logger.warning("Skipping malformed context-savings row: %r", line[:200])
             continue
 
-        saved_tokens = int(row.get("saved_tokens") or 0)
+        # A syntactically valid line can still be the wrong shape: a bare list
+        # or scalar has no .get(), and saved_tokens may be non-numeric. Skip
+        # those rows instead of aborting the whole aggregation.
+        if not isinstance(row, dict):
+            logger.warning("Skipping non-object context-savings row: %r", line[:200])
+            continue
+
+        try:
+            saved_tokens = int(row.get("saved_tokens") or 0)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Skipping context-savings row with non-numeric saved_tokens: %r",
+                line[:200],
+            )
+            continue
+
         source = str(row.get("source") or "unknown")
         entries += 1
         total_saved_tokens += saved_tokens
