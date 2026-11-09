@@ -187,6 +187,26 @@ A community plugin ``gptme-provider-demonroute`` (with per-model ``ModelMeta``
 including accurate context and pricing) can be installed once published — see
 :doc:`providers-integration` for the plugin path.
 
+**Example: Standard Compute** (routed model plus pinned open and frontier models):
+
+.. code-block:: toml
+
+    [[providers]]
+    name = "standardcompute"
+    base_url = "https://api.stdcmpt.com/v1"
+    api_key_env = "STANDARDCOMPUTE_API_KEY"
+    default_model = "StandardCompute"
+
+.. code-block:: sh
+
+    STANDARDCOMPUTE_API_KEY="your-key" gptme "hello" -m standardcompute/StandardCompute
+
+The ``StandardCompute`` model sends each request to the cheapest enabled model
+that can handle it, with automatic fallback. To pin a model instead, use an id
+from ``GET https://api.stdcmpt.com/v1/models``, e.g.
+``-m standardcompute/deepseek/deepseek-v4-pro``. See `standardcompute.com
+<https://standardcompute.com>`_.
+
 vLLM and OpenAI-compatible servers
 -----------------------------------
 
