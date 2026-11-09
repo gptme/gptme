@@ -1,4 +1,6 @@
 #[cfg(desktop)]
+use std::collections::VecDeque;
+#[cfg(desktop)]
 use std::net::TcpListener;
 #[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -503,6 +505,18 @@ async fn spawn_server_sidecar(
     }
     owns_port.store(true, Ordering::Relaxed);
 
+    // Resolve the crash log path once here (before the async task moves `app`).
+    let crash_log_path = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("crash-log.jsonl"));
+
+    // Ring buffer for the last 10 stderr lines — written to the crash log on
+    // unexpected sidecar exit so the developer has immediate context.
+    let stderr_buf: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let stderr_buf_for_task = stderr_buf.clone();
+
     let state_for_output = state_arc.clone();
     let owns_port_for_output = owns_port.clone();
     tauri::async_runtime::spawn(async move {
@@ -519,8 +533,16 @@ async fn spawn_server_sidecar(
                 tauri_plugin_shell::process::CommandEvent::Stderr(data) => {
                     let output = String::from_utf8_lossy(&data);
                     for line in output.lines() {
-                        if !line.trim().is_empty() {
-                            log::warn!("[gptme-server] {}", line.trim());
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            log::warn!("[gptme-server] {}", trimmed);
+                            // Buffer last 10 lines for crash log context.
+                            if let Ok(mut buf) = stderr_buf_for_task.lock() {
+                                buf.push_back(trimmed.to_string());
+                                if buf.len() > 10 {
+                                    buf.pop_front();
+                                }
+                            }
                         }
                     }
                 }
@@ -536,9 +558,15 @@ async fn spawn_server_sidecar(
                     // rebind may already have stored a replacement sidecar by
                     // the time the old server's Terminated event arrives —
                     // blindly clearing would orphan the new child handle.
+                    // The slot still holding OUR pid also means nobody asked for
+                    // this exit: stop_server() and cleanup_server_process() both
+                    // take() the child before killing it, so a deliberate stop
+                    // finds the slot empty (or replaced) here.
+                    let mut unexpected_exit = false;
                     if let Ok(mut guard) = state_for_output.lock() {
                         match guard.as_ref() {
                             Some(current) if current.pid() == watched_pid => {
+                                unexpected_exit = true;
                                 *guard = None;
                             }
                             Some(_) => {
@@ -568,6 +596,19 @@ async fn spawn_server_sidecar(
                             server_port()
                         );
                     }
+                    // Local crash record for unexpected exits only (non-zero or
+                    // signal kill while the app still tracked the child).
+                    let is_crash = payload.code.map(|c| c != 0).unwrap_or(true);
+                    if unexpected_exit && is_crash {
+                        if let Some(ref path) = crash_log_path {
+                            let stderr_tail = stderr_buf
+                                .lock()
+                                .ok()
+                                .map(|b| b.iter().cloned().collect::<Vec<_>>().join("\n"))
+                                .unwrap_or_default();
+                            write_crash_log(path, payload.code, &stderr_tail);
+                        }
+                    }
                     break;
                 }
                 _ => {}
@@ -576,6 +617,41 @@ async fn spawn_server_sidecar(
     });
 
     Ok(())
+}
+
+/// Append one JSONL entry to `crash-log.jsonl` in the app config directory
+/// (`app_config_dir()`, e.g. `~/.config/org.gptme.tauri/` on Linux) when the
+/// sidecar exits unexpectedly. The file stays on the user's machine; nothing
+/// reads it automatically or sends it anywhere. Deleting it clears recorded history.
+#[cfg(desktop)]
+fn write_crash_log(crash_log_path: &std::path::Path, exit_code: Option<i32>, stderr_tail: &str) {
+    use std::io::Write;
+    if let Some(dir) = crash_log_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            log::warn!("Could not create crash log dir {}: {}", dir.display(), e);
+            return;
+        }
+    }
+    let entry = serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "exit_code": exit_code,
+        "stderr_tail": stderr_tail,
+        "platform": std::env::consts::OS,
+        "app_version": env!("CARGO_PKG_VERSION"),
+    });
+    let result = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(crash_log_path)
+        .and_then(|mut f| writeln!(f, "{}", entry));
+    match result {
+        Ok(()) => log::info!("Crash log written to {}", crash_log_path.display()),
+        Err(e) => log::warn!(
+            "Failed to write crash log {}: {}",
+            crash_log_path.display(),
+            e
+        ),
+    }
 }
 
 fn extract_auth_code(url: &url::Url) -> Option<String> {
@@ -1180,6 +1256,32 @@ mod tests {
     use tauri::Manager;
     #[cfg(desktop)]
     use tauri_plugin_shell::ShellExt;
+
+    #[cfg(desktop)]
+    #[test]
+    fn write_crash_log_appends_jsonl_entries() {
+        let dir = std::env::temp_dir().join(format!(
+            "gptme-crash-log-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let path = dir.join("nested").join("crash-log.jsonl");
+        write_crash_log(&path, Some(1), "boom\ntrace");
+        write_crash_log(&path, None, "");
+        let content = std::fs::read_to_string(&path).expect("crash log written");
+        let lines: Vec<serde_json::Value> = content
+            .lines()
+            .map(|l| serde_json::from_str(l).expect("valid JSON line"))
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["exit_code"], 1);
+        assert_eq!(lines[0]["stderr_tail"], "boom\ntrace");
+        assert!(lines[1]["exit_code"].is_null());
+        for k in ["timestamp", "platform", "app_version"] {
+            assert!(lines[0].get(k).is_some(), "missing {k}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[cfg(desktop)]
     fn build_test_app() -> tauri::App<MockRuntime> {
