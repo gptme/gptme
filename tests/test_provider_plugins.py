@@ -7,6 +7,8 @@ get_model() resolution for plugin providers, and init_llm() routing.
 from __future__ import annotations
 
 import importlib.metadata
+from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -65,6 +67,8 @@ def _make_plugin(
 def _make_entry_point(plugin: ProviderPlugin) -> MagicMock:
     ep = MagicMock(spec=importlib.metadata.EntryPoint)
     ep.name = plugin.name
+    # Match the existing first-party test doubles: no distribution to inspect.
+    del ep.dist
     ep.load.return_value = plugin
     return ep
 
@@ -148,6 +152,7 @@ class TestDiscoverProviderPlugins:
         """Entry points that don't export a ProviderPlugin are silently skipped."""
         ep = MagicMock(spec=importlib.metadata.EntryPoint)
         ep.name = "bad_plugin"
+        del ep.dist
         ep.load.return_value = "not_a_provider_plugin"
 
         valid_plugin = _make_plugin()
@@ -162,6 +167,7 @@ class TestDiscoverProviderPlugins:
         """Entry points that raise on load are silently skipped."""
         ep = MagicMock(spec=importlib.metadata.EntryPoint)
         ep.name = "broken_plugin"
+        del ep.dist
         ep.load.side_effect = ImportError("missing dependency")
 
         valid_plugin = _make_plugin()
@@ -193,6 +199,69 @@ class TestDiscoverProviderPlugins:
         with patch("importlib.metadata.entry_points", return_value=[]) as mock_eps:
             discover_provider_plugins()
         mock_eps.assert_called_once_with(group="gptme.providers")
+
+
+@pytest.mark.parametrize("combined_registry", [False, True])
+@pytest.mark.parametrize("source", ["VALUE = 42\n", "open('~/.ssh/id_rsa')\n", None])
+def test_provider_security_scan_before_import(tmp_path, source, combined_registry):
+    """Both discovery paths reject unsafe/opaque source before either group loads."""
+    from gptme.plugins.plugin import GptmePlugin
+    from gptme.plugins.registry import discover_all_plugins
+
+    module = tmp_path / "third_party.py"
+    if source is not None:
+        module.write_text(source)
+    dist = SimpleNamespace(
+        name="third-party",
+        files=[Path("third_party.py")] if source is not None else None,
+        locate_file=lambda path: tmp_path / path,
+    )
+    provider = _make_plugin(name="third_party")
+    legacy_load = MagicMock(return_value=provider)
+    unified_load = MagicMock(
+        return_value=GptmePlugin(name="third_party", provider=provider)
+    )
+    legacy = SimpleNamespace(
+        name="third_party", module="third_party", dist=dist, load=legacy_load
+    )
+    unified = SimpleNamespace(
+        name="third_party", module="third_party", dist=dist, load=unified_load
+    )
+
+    def entry_points(*, group):
+        return [unified] if group == "gptme.plugins" else [legacy]
+
+    with (
+        patch("importlib.metadata.entry_points", side_effect=entry_points),
+        patch("gptme.plugins.entrypoints.entry_points", side_effect=entry_points),
+    ):
+        result = (
+            discover_all_plugins() if combined_registry else discover_provider_plugins()
+        )
+
+    if source == "VALUE = 42\n":
+        assert [p.name for p in result] == ["third_party"]
+        legacy_load.assert_called_once_with()
+        if combined_registry:
+            unified_load.assert_called_once_with()
+    else:
+        assert not result
+        legacy_load.assert_not_called()
+        unified_load.assert_not_called()
+
+
+def test_provider_security_scanner_exception_fails_closed():
+    """A scanner exception must not turn into permission to import a provider."""
+    ep = _make_entry_point(_make_plugin())
+    with (
+        patch("importlib.metadata.entry_points", return_value=[ep]),
+        patch(
+            "gptme.plugins.security.scan_plugin_entry_point",
+            side_effect=RuntimeError("scan failed"),
+        ),
+    ):
+        assert discover_provider_plugins() == ()
+    ep.load.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

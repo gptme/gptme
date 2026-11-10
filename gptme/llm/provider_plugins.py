@@ -63,10 +63,36 @@ def _discover_provider_plugins_raw() -> tuple[ProviderPlugin, ...]:
     """
     from importlib.metadata import entry_points  # fmt: skip
 
+    from ..plugins.security import scan_plugin_entry_point
     from .models.types import ProviderPlugin  # fmt: skip
 
     plugins: list[ProviderPlugin] = []
     for ep in entry_points(group="gptme.providers"):
+        # This path also runs before registry initialization. Scanning only the
+        # unified group lets a dual-registered distribution bypass its rejection.
+        try:
+            scan = scan_plugin_entry_point(ep)
+        except Exception as exc:
+            logger.warning(
+                "Skipping provider plugin %r: security scan failed: %s", ep.name, exc
+            )
+            continue
+        if scan is not None:
+            if scan.findings:
+                logger.warning(
+                    "Skipping provider plugin %r: security scan blocked import: %s",
+                    ep.name,
+                    ", ".join(finding.verdict() for finding in scan.findings),
+                )
+                continue
+            if not scan.entry_point_scanned:
+                logger.warning(
+                    "Skipping provider plugin %r: security scan could not verify "
+                    "the entry-point module (%s file(s) scanned)",
+                    ep.name,
+                    scan.scanned_files,
+                )
+                continue
         try:
             plugin = ep.load()
         except Exception as exc:
