@@ -191,3 +191,44 @@ def test_spawn_clears_restored_result_at_registration(
     current.thread.join(5)
     assert not current.thread.is_alive()
     assert executed.is_set()
+
+
+@pytest.mark.parametrize("terminal_status", ["cancelled", "timeout"])
+def test_continuation_notifies_winning_durable_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, terminal_status: types.Status
+) -> None:
+    """A late continuation failure must not contradict a terminal winner."""
+    sa = types.Subagent("worker", "task", None, tmp_path, None)
+    (tmp_path / "conversation.jsonl").write_text("")
+    with types._subagents_lock:
+        types._subagents.append(sa)
+    started = threading.Event()
+    finish = threading.Event()
+    notifications: list[tuple[str, str]] = []
+
+    def execute(**kwargs: Any) -> None:
+        started.set()
+        assert finish.wait(5)
+        raise RuntimeError("late execution failure")
+
+    def notify(agent_id: str, status: str, summary: str, **kwargs: Any) -> None:
+        notifications.append((status, summary))
+
+    monkeypatch.setattr(api._exec, "_create_subagent_thread", execute)
+    monkeypatch.setattr(api, "notify_completion", notify)
+    api.subagent_continue("worker", "follow up")
+    with types._subagents_lock:
+        current = types._subagents[-1]
+    try:
+        assert started.wait(5)
+        winner = types.ReturnType(terminal_status, "orchestrator stopped the attempt")
+        assert types.set_subagent_result_if_absent("worker", winner)
+    finally:
+        finish.set()
+        assert current.thread is not None
+        current.thread.join(5)
+    assert not current.thread.is_alive()
+    assert persistence.load_subagent_outcome(current) == winner
+    assert len(notifications) == 1
+    assert notifications[0][0] == terminal_status
+    assert "orchestrator stopped the attempt" in notifications[0][1]

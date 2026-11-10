@@ -1667,6 +1667,10 @@ def subagent_continue(agent_id: str, message: str) -> None:
                         )
 
             set_subagent_result_if_absent(agent_id, result)
+            # Cancellation or timeout may have won while execution unwound.
+            # Notify the same terminal result that status and disk expose.
+            with _subagent_results_lock:
+                result = _subagent_results.get(agent_id, result)
             if not completion_notified:
                 notify_completion(
                     agent_id,
