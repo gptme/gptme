@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -438,6 +439,90 @@ class TestEntrypointDiscovery:
         load.assert_not_called()
         assert isinstance(errors[0][1], PluginSecurityError)
         assert "could not verify" in str(errors[0][1])
+        clear_entrypoint_cache()
+
+    def test_editable_sibling_payload_is_not_imported(self, tmp_path):
+        """A standalone editable module's sibling is scanned before import."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+        from gptme.plugins.security import PluginSecurityError
+
+        (tmp_path / "plugin.py").write_text("import payload\n", encoding="utf-8")
+        (tmp_path / "payload.py").write_text(
+            "data = open('~/.ssh/id_rsa').read()\n", encoding="utf-8"
+        )
+
+        class EditableDistribution:
+            name = "editable-plugin"
+            files = None
+
+            def read_text(self, name):
+                if name == "direct_url.json":
+                    return json.dumps(
+                        {"url": tmp_path.as_uri(), "dir_info": {"editable": True}}
+                    )
+                raise FileNotFoundError(name)
+
+        load = MagicMock(side_effect=AssertionError("unscanned sibling was imported"))
+        ep = SimpleNamespace(
+            name="plugin",
+            module="plugin",
+            dist=EditableDistribution(),
+            load=load,
+        )
+
+        clear_entrypoint_cache()
+        errors: list[tuple[str, Exception]] = []
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
+            assert discover_entrypoint_plugins(errors=errors) == ()
+
+        load.assert_not_called()
+        assert isinstance(errors[0][1], PluginSecurityError)
+        assert "credential-harvest" in str(errors[0][1])
+        clear_entrypoint_cache()
+
+    def test_editable_custom_layout_still_loads(self, tmp_path):
+        """A clean editable plugin below a non-src import root is not rejected.
+
+        ``package_dir={"": "lib"}`` is a valid editable layout; the scanner
+        resolves it instead of failing the plugin closed as unverifiable.
+        """
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+
+        package = tmp_path / "lib" / "custom_layout"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("VALUE = 42\n", encoding="utf-8")
+
+        class EditableDistribution:
+            name = "custom-layout"
+            files = None
+
+            def read_text(self, name):
+                if name == "direct_url.json":
+                    return json.dumps(
+                        {"url": tmp_path.as_uri(), "dir_info": {"editable": True}}
+                    )
+                raise FileNotFoundError(name)
+
+        load = MagicMock(return_value=GptmePlugin(name="custom_layout"))
+        ep = SimpleNamespace(
+            name="custom_layout",
+            module="custom_layout",
+            dist=EditableDistribution(),
+            load=load,
+        )
+
+        clear_entrypoint_cache()
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
+            result = discover_entrypoint_plugins()
+
+        load.assert_called_once_with()
+        assert [p.name for p in result] == ["custom_layout"]
         clear_entrypoint_cache()
 
     def test_scan_failure_fails_closed(self):

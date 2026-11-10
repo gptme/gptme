@@ -56,8 +56,11 @@ class _Pattern:
 
 
 def _pattern(regex: str, category: str, message: str, suffixes: set[str]) -> _Pattern:
+    # No re.DOTALL: matches are confined to one logical statement (see
+    # ``_logical_statements``), so a pattern cannot start in one statement and
+    # finish in an unrelated later one.
     return _Pattern(
-        re.compile(regex, re.IGNORECASE | re.DOTALL),
+        re.compile(regex, re.IGNORECASE),
         category,
         message,
         frozenset(suffixes),
@@ -118,6 +121,58 @@ def _code_portion(line: str, suffix: str) -> str:
     return line
 
 
+def _bracket_delta(line: str) -> int:
+    """Return the net bracket depth change of ``line`` outside string literals."""
+    depth = 0
+    quote: str | None = None
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if quote:
+            if char == "\\":
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        i += 1
+    return depth
+
+
+def _logical_statements(code_lines: list[str]) -> list[tuple[int, str]]:
+    """Group physical lines into logical statements.
+
+    Returns ``(first_line_number, text)`` pairs. A statement continues over a
+    newline while brackets are open, so an expression split across lines
+    (``open(\\n    "~/.ssh/id_rsa"\\n)``) is scanned as one unit. A newline at
+    bracket depth zero ends the statement, which keeps a match from spanning two
+    unrelated statements — ``subprocess.run(['echo'])`` followed by
+    ``HELP = 'systemctl enable …'`` is not an executed service install.
+    """
+    statements: list[tuple[int, str]] = []
+    current: list[str] = []
+    start = 1
+    depth = 0
+    for number, code in enumerate(code_lines, start=1):
+        if not current:
+            start = number
+        current.append(code.strip())
+        depth = max(0, depth + _bracket_delta(code))
+        if depth == 0:
+            statements.append((start, " ".join(current)))
+            current = []
+    if current:
+        statements.append((start, " ".join(current)))
+    return statements
+
+
 # High-severity subset of Bob's idea #524 MCP/skill malware scanner. Doctor
 # blocks import only for these narrow patterns; broader suspicious-code signals
 # remain better suited to an audit command with human review.
@@ -152,7 +207,12 @@ _PATTERNS = (
         {".js", ".ts", ".py"},
     ),
     _pattern(
-        r"(?:os\.system|subprocess\.(?:run|call|check_output|Popen)).*(?:crontab\s+-[el]|systemctl\s+enable|launchctl\s+load)",
+        # ``\W+`` (not ``\s+``) so an argv list — ``['systemctl', 'enable']`` —
+        # is caught too. The statement boundary keeps this from joining an
+        # unrelated later string (``HELP = 'systemctl enable …'``), which a
+        # DOTALL ``.*`` between the call and the keyword used to do.
+        r"(?:os\.system|subprocess\.(?:run|call|check_output|Popen)).*?"
+        r"(?:crontab\W+-[el]|systemctl\W+enable|launchctl\W+load)",
         "persistence",
         "installs a cron or system service",
         {".py"},
@@ -241,14 +301,18 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
     except OSError:
         return None
     suffix = path.suffix.lower()
-    # Blank comment-only lines so they cannot match, but keep them in the
-    # haystack so match offsets still map to original line numbers. Scan the
-    # whole file (not each line independently) so a split expression such as
-    # ``open(\n    "~/.ssh/id_rsa"\n)`` cannot evade the patterns.
-    haystack = "\n".join(
-        "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
-        for line in content.splitlines()
+    # Blank comment-only lines so they cannot match, then group the remaining
+    # code into logical statements. A split expression such as
+    # ``open(\n    "~/.ssh/id_rsa"\n)`` is scanned as one statement, while a
+    # pattern cannot start in one statement and finish in an unrelated later one.
+    statements = _logical_statements(
+        [
+            "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
+            for line in content.splitlines()
+        ]
     )
+    haystack = "\n".join(text for _, text in statements)
+    line_numbers = [number for number, _ in statements]
     findings: list[PluginSecurityFinding] = []
     for pattern in _PATTERNS:
         if suffix not in pattern.suffixes:
@@ -256,7 +320,7 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
         findings.extend(
             PluginSecurityFinding(
                 path=display,
-                line=haystack[: match.start()].count("\n") + 1,
+                line=line_numbers[haystack[: match.start()].count("\n")],
                 category=pattern.category,
                 message=pattern.message,
             )
@@ -288,36 +352,80 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
     return sources
 
 
+# How many nested directories between the project root recorded in
+# ``direct_url.json`` and the import root the build tool chose. ``src/`` and
+# ``package_dir={"": "lib"}`` layouts are one level down; deeper ones are rare
+# and a stale ``build/lib`` copy must not win over a shallower real module.
+_MAX_LAYOUT_DEPTH = 2
+
+
+def _find_editable_module(source_dir: Path, relative: str) -> Path | None:
+    """Locate a distribution-relative module inside an editable checkout.
+
+    The project root from ``direct_url.json`` is not necessarily the import
+    root: flat, ``src/``, and arbitrary ``package_dir`` mappings are all valid
+    editable layouts. Probe the project root and up to ``_MAX_LAYOUT_DEPTH``
+    nested directories, shallowest first, and return the first matching file.
+    """
+    for depth in range(_MAX_LAYOUT_DEPTH + 1):
+        pattern = "/".join(["*"] * depth + [relative]) if depth else relative
+        try:
+            matches = sorted(source_dir.glob(pattern))
+        except OSError:
+            return None
+        for match in matches:
+            if match.is_file():
+                return match
+    return None
+
+
+def _iter_import_root_sources(directory: Path) -> list[Path]:
+    """Return sources a standalone module beside ``directory`` may import.
+
+    A module that is not part of a package resolves ``import x`` against its
+    containing directory, which the editable install put on ``sys.path``. Every
+    file beside it and every sibling package is therefore reachable and must be
+    scanned. Only descend into directories that are packages, so a virtualenv or
+    ``node_modules`` tree is not walked.
+    """
+    sources: list[Path] = []
+    try:
+        children = sorted(directory.iterdir())
+    except OSError:
+        return sources
+    for child in children:
+        if child.is_file() and child.suffix.lower() in _SCANNABLE_SUFFIXES:
+            sources.append(child)
+        elif child.is_dir() and (child / "__init__.py").is_file():
+            sources.extend(_iter_scannable_sources(child))
+    return sources
+
+
 def _editable_scan_targets(
     source_dir: Path, relative_paths: frozenset[str]
 ) -> tuple[Path | None, list[Path]]:
     """Resolve an editable install's entry point and every file it can import.
 
     Returns the entry-point module path (``None`` when unresolved) and the source
-    files importing it may execute: the module itself plus every scannable file
-    in its top-level package. The entry point is frequently a submodule
-    (``pkg.cli:main``) rather than the package root, so the scan boundary is the
-    top-level package directory — the same code ``doctor`` subsequently imports.
-    Also probes a ``src/`` layout, since pip/uv editable installs of src-layout
-    projects put the importable package one level below the project root.
+    files importing it may execute: the module itself plus every file reachable
+    from it. The entry point is frequently a submodule (``pkg.cli:main``) rather
+    than the package root, so a module inside a package is scanned together with
+    its package directory — the same code ``doctor`` subsequently imports. A
+    standalone module is scanned together with its import root, since that is
+    where ``import <sibling>`` resolves.
     """
     for relative in sorted(relative_paths):
-        for root in (source_dir, source_dir / "src"):
-            candidate = root / relative
-            if not candidate.is_file():
-                continue
-            targets = [candidate]
-            # ``relative`` may be a submodule (``pkg.cli`` -> ``pkg/cli.py``),
-            # not just the package root, so scan from the top-level package
-            # directory: every sibling the entry point can import lives there.
-            package_root = root / Path(relative).parts[0]
-            if package_root.is_dir():
-                targets.extend(
-                    path
-                    for path in _iter_scannable_sources(package_root)
-                    if path != candidate
-                )
-            return candidate, targets
+        candidate = _find_editable_module(source_dir, relative)
+        if candidate is None:
+            continue
+        package_dir = candidate.parent
+        if (package_dir / "__init__.py").is_file():
+            reachable = _iter_scannable_sources(package_dir)
+        else:
+            reachable = _iter_import_root_sources(package_dir)
+        targets = [candidate]
+        targets.extend(path for path in reachable if path != candidate)
+        return candidate, targets
     return None, []
 
 
