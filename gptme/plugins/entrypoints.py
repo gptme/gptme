@@ -17,6 +17,7 @@ from functools import cache
 from importlib.metadata import entry_points
 
 from .plugin import GptmePlugin
+from .security import PluginSecurityError, scan_plugin_entry_point
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,39 @@ def _discover_entrypoint_plugins_cached(
         if enabled_normalized is not None and not (ep_names & enabled_normalized):
             logger.debug("Skipping entry-point plugin %r: not enabled", ep.name)
             continue
+        # Scan before importing: importing a plugin in order to inspect it
+        # executes the payload the check exists to catch. A third-party
+        # distribution with a high-confidence finding is never loaded.
+        try:
+            scan = scan_plugin_entry_point(ep)
+        except Exception as exc:
+            # Fail closed, like gptme-doctor: a scan that cannot run must not
+            # become an implicit allow. The distribution controls the metadata
+            # the scanner reads, so a crash is a bypass an author could trigger.
+            logger.warning("Skipping plugin %r: security scan failed: %s", ep.name, exc)
+            failures.append((ep.name, exc))
+            continue
+        if scan is not None:
+            if scan.findings:
+                blocked = "security scan blocked import: " + ", ".join(
+                    finding.verdict() for finding in scan.findings
+                )
+                logger.warning("Skipping plugin %r: %s", ep.name, blocked)
+                failures.append((ep.name, PluginSecurityError(blocked)))
+                continue
+            if not scan.entry_point_scanned:
+                # Clean only means something when the module that will be
+                # imported was actually inspected. Editable installs are
+                # resolved by the scanner via direct_url.json, so this does not
+                # disable locally-developed plugins; an installer that hides its
+                # entry-point module from the scan must not be imported blind.
+                unverified = (
+                    "security scan could not verify the entry-point module "
+                    f"({scan.scanned_files} file(s) scanned)"
+                )
+                logger.warning("Skipping plugin %r: %s", ep.name, unverified)
+                failures.append((ep.name, PluginSecurityError(unverified)))
+                continue
         try:
             start = time.monotonic()
             obj = ep.load()

@@ -7,8 +7,12 @@ it defeats the point of the check.
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import re
+import stat
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -30,12 +34,21 @@ class PluginSecurityFinding:
         )
 
 
+class PluginSecurityError(Exception):
+    """A plugin distribution failed the pre-import security scan.
+
+    Runtime discovery skips the plugin instead of importing it. Carries the
+    human-readable reason so tolerant callers can surface it.
+    """
+
+
 @dataclass(frozen=True)
 class PluginSecurityScan:
     """Result of scanning one plugin distribution."""
 
     scanned_files: int
     findings: tuple[PluginSecurityFinding, ...]
+    # Verification requires inspecting the entry module AND all selected sources.
     entry_point_scanned: bool = False
 
 
@@ -48,8 +61,11 @@ class _Pattern:
 
 
 def _pattern(regex: str, category: str, message: str, suffixes: set[str]) -> _Pattern:
+    # No re.DOTALL: matches are confined to one logical statement (see
+    # ``_logical_statements``), so a pattern cannot start in one statement and
+    # finish in an unrelated later one.
     return _Pattern(
-        re.compile(regex, re.IGNORECASE | re.DOTALL),
+        re.compile(regex, re.IGNORECASE),
         category,
         message,
         frozenset(suffixes),
@@ -110,6 +126,90 @@ def _code_portion(line: str, suffix: str) -> str:
     return line
 
 
+def _javascript_scan_text(content: str) -> str:
+    """Blank JS/TS comments without changing strings or physical line numbers.
+
+    In particular, brackets inside a block comment must not terminate a split
+    call. Keep string and regex literals intact so their comment delimiters
+    cannot erase executable code that follows them. This is lexical filtering,
+    not a JavaScript parser or a proof of safety.
+    """
+    tokens = re.compile(
+        r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"""
+        r"|//[^\r\n]*|/\*[\s\S]*?(?:\*/|\Z)"
+        r"|/(?![/*])(?:\\[^\r\n]|\[(?:\\[^\r\n]|[^\]\\\r\n])*\]|[^/\\\[\r\n])+/[a-z]*"
+    )
+    return tokens.sub(
+        lambda match: (
+            re.sub(r"[^\r\n]", " ", match.group())
+            if match.group().startswith(("//", "/*"))
+            else match.group()
+        ),
+        content,
+    )
+
+
+def _bracket_delta(line: str) -> int:
+    """Return the net bracket depth change of ``line`` outside string literals."""
+    depth = 0
+    quote: str | None = None
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if quote:
+            if char == "\\":
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in {'"', "'", "`"}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        i += 1
+    return depth
+
+
+def _logical_statements(code_lines: list[str]) -> list[tuple[str, list[int]]]:
+    """Group physical lines into logical statements.
+
+    Returns ``(text, physical_line_per_character)`` pairs. A statement continues over a
+    newline while brackets are open, so an expression split across lines
+    (``open(\\n    "~/.ssh/id_rsa"\\n)``) is scanned as one unit. Explicit backslash
+    continuations are joined without inserting whitespace, just as Python joins
+    them before tokenization. Otherwise a newline at bracket depth zero ends the
+    statement, which keeps a match from spanning two
+    unrelated statements — ``subprocess.run(['echo'])`` followed by
+    ``HELP = 'systemctl enable …'`` is not an executed service install.
+    """
+    statements: list[tuple[str, list[int]]] = []
+    current: list[str] = []
+    physical_lines: list[int] = []
+    depth = 0
+    continued = False
+    for number, code in enumerate(code_lines, start=1):
+        explicit_continuation = code.endswith("\\")
+        text = code[:-1] if explicit_continuation else code
+        if current and not continued:
+            current.append(" ")
+            physical_lines.append(number)
+        current.append(text)
+        physical_lines.extend([number] * len(text))
+        continued = explicit_continuation
+        depth = max(0, depth + _bracket_delta(code))
+        if depth == 0 and not continued:
+            statements.append(("".join(current), physical_lines))
+            current = []
+            physical_lines = []
+    if current:
+        statements.append(("".join(current), physical_lines))
+    return statements
+
+
 # High-severity subset of Bob's idea #524 MCP/skill malware scanner. Doctor
 # blocks import only for these narrow patterns; broader suspicious-code signals
 # remain better suited to an audit command with human review.
@@ -144,7 +244,12 @@ _PATTERNS = (
         {".js", ".ts", ".py"},
     ),
     _pattern(
-        r"(?:os\.system|subprocess\.(?:run|call|check_output|Popen)).*(?:crontab\s+-[el]|systemctl\s+enable|launchctl\s+load)",
+        # ``\W+`` (not ``\s+``) so an argv list — ``['systemctl', 'enable']`` —
+        # is caught too. The statement boundary keeps this from joining an
+        # unrelated later string (``HELP = 'systemctl enable …'``), which a
+        # DOTALL ``.*`` between the call and the keyword used to do.
+        r"(?:os\.system|subprocess\.(?:run|call|check_output|Popen)).*?"
+        r"(?:crontab\W+-[el]|systemctl\W+enable|launchctl\W+load)",
         "persistence",
         "installs a cron or system service",
         {".py"},
@@ -224,23 +329,89 @@ def _editable_source_dir(distribution: object) -> Path | None:
     return source if source.is_dir() else None
 
 
+def _python_scan_text(content: str) -> tuple[str, list[int]] | None:
+    """Flatten Python continuations without joining distinct statements.
+
+    Tokenization does not import or execute the plugin. Keep a physical line for
+    every retained character so diagnostics survive newline normalization.
+    """
+    chars = list(content)
+    lines: list[int] = []
+    offsets = [0]
+    for number, line in enumerate(io.StringIO(content), start=1):
+        lines.extend([number] * len(line))
+        offsets.append(offsets[-1] + len(line))
+
+    def offset(position: tuple[int, int]) -> int:
+        row, column = position
+        # tokenize synthesizes a final NEWLINE/NL even without a physical LF.
+        return min(len(content), offsets[min(row - 1, len(offsets) - 1)] + column)
+
+    previous = 0
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(content).readline):
+            start, end = offset(token.start), offset(token.end)
+            # Explicit continuations are absent from the token stream. Remove
+            # them only in gaps, never inside string literals or comments.
+            gap = previous
+            while gap < start - 1:
+                if content[gap : gap + 2] == "\\\n":
+                    chars[gap] = chars[gap + 1] = ""
+                    gap += 2
+                else:
+                    gap += 1
+            if token.type == tokenize.COMMENT:
+                chars[start:end] = [" "] * (end - start)
+            elif token.type in {tokenize.NL, tokenize.STRING} or (
+                tokenize.tok_name[token.type] == "FSTRING_MIDDLE"
+            ):
+                for index in range(start, end):
+                    if chars[index] in {"\n", "\r"}:
+                        chars[index] = " "
+            previous = end
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None
+    return "".join(chars), [line for char, line in zip(chars, lines) if char]
+
+
 def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None:
     """Scan one source file; ``None`` when it cannot be inspected."""
+    suffix = path.suffix.lower()
     try:
         if not path.is_file() or path.stat().st_size > _MAX_FILE_BYTES:
             return None
-        content = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        if suffix == ".py":
+            # Match Python's own coding-cookie/BOM decoding. Replacement UTF-8
+            # can change token boundaries in valid non-UTF-8 source.
+            with tokenize.open(path) as source:
+                content = source.read()
+        else:
+            content = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, UnicodeError, SyntaxError, LookupError):
         return None
-    suffix = path.suffix.lower()
-    # Blank comment-only lines so they cannot match, but keep them in the
-    # haystack so match offsets still map to original line numbers. Scan the
-    # whole file (not each line independently) so a split expression such as
-    # ``open(\n    "~/.ssh/id_rsa"\n)`` cannot evade the patterns.
-    haystack = "\n".join(
-        "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
-        for line in content.splitlines()
-    )
+    # Blank comment-only lines so they cannot match, then group the remaining
+    # code into logical statements. A split expression such as
+    # ``open(\n    "~/.ssh/id_rsa"\n)`` is scanned as one statement, while a
+    # pattern cannot start in one statement and finish in an unrelated later one.
+    if suffix == ".py":
+        normalized = _python_scan_text(content)
+        if normalized is None:
+            return None
+        haystack, physical_lines = normalized
+    else:
+        if suffix in {".js", ".ts"}:
+            content = _javascript_scan_text(content)
+        statements = _logical_statements(
+            [
+                "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
+                for line in content.splitlines()
+            ]
+        )
+        haystack = "\n".join(text for text, _ in statements)
+        physical_lines = []
+        for _, line_numbers in statements:
+            physical_lines.extend(line_numbers)
+            physical_lines.append(line_numbers[-1] if line_numbers else 1)
     findings: list[PluginSecurityFinding] = []
     for pattern in _PATTERNS:
         if suffix not in pattern.suffixes:
@@ -248,13 +419,48 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
         findings.extend(
             PluginSecurityFinding(
                 path=display,
-                line=haystack[: match.start()].count("\n") + 1,
+                line=physical_lines[match.start()],
                 category=pattern.category,
                 message=pattern.message,
             )
             for match in pattern.regex.finditer(haystack)
         )
     return findings
+
+
+def _walk_source_files(directory: Path) -> list[Path]:
+    """Enumerate files through directory links, failing on cycles or I/O errors.
+
+    Recursive glob silently skips linked directories (and some read failures).
+    That is unsafe for both editable candidate discovery and package scanning:
+    the omitted tree may be the code the interpreter actually imports. Track
+    ancestors rather than globally deduplicating, since two aliases of a source
+    are still ambiguous editable layouts.
+    """
+    files: list[Path] = []
+    pending = [(directory, frozenset[tuple[int, int]]())]
+    while pending:
+        current, ancestors = pending.pop()
+        info = current.stat()
+        identity = (info.st_dev, info.st_ino)
+        if identity in ancestors:
+            raise OSError(f"Directory cycle while scanning {current}")
+        with os.scandir(current) as entries:
+            for entry in entries:
+                # These trees are excluded from source inspection too. Prune
+                # before stat: irrelevant dangling links/cycles must not reject
+                # an otherwise verifiable editable package.
+                if entry.name.lower() in _SKIP_PARTS or entry.name.endswith(
+                    ".dist-info"
+                ):
+                    continue
+                path = current / entry.name
+                info = entry.stat(follow_symlinks=True)
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append((path, ancestors | {identity}))
+                else:
+                    files.append(path)
+    return sorted(files)
 
 
 def _iter_scannable_sources(directory: Path) -> list[Path]:
@@ -264,10 +470,7 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
     install is scanned to the same depth as a wheel install.
     """
     sources: list[Path] = []
-    try:
-        paths = sorted(directory.rglob("*"))
-    except OSError:
-        return sources
+    paths = _walk_source_files(directory)
     for path in paths:
         if not path.is_file() or path.suffix.lower() not in _SCANNABLE_SUFFIXES:
             continue
@@ -280,37 +483,94 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
     return sources
 
 
+def _find_editable_module(
+    source_dir: Path, relative_paths: frozenset[str]
+) -> tuple[str, Path] | None:
+    """Locate a distribution-relative module inside an editable checkout.
+
+    The project root from ``direct_url.json`` is not necessarily the import
+    root: flat, ``src/``, and arbitrary ``package_dir`` mappings are all valid
+    editable layouts. Search all depths for competing copies: a bounded search
+    can mistake a shallow stale copy for the actual, deeper import target.
+    Without executing the editable shim we cannot choose between multiple
+    copies; reject ambiguity instead of trusting a stale copy. This enumerates
+    candidates only; source inspection remains limited to the selected package.
+    """
+    # A module.py and a module/__init__.py are competing forms of the same
+    # entry point, even when each form has only one matching layout.
+    candidates: list[tuple[str, Path]] = []
+    try:
+        files = _walk_source_files(source_dir)
+    except OSError:
+        return None
+    for relative in sorted(relative_paths):
+        parts = Path(relative).parts
+        candidates.extend(
+            (relative, path)
+            for path in files
+            if path.relative_to(source_dir).parts[-len(parts) :] == parts
+            and path.is_file()
+        )
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _iter_import_root_sources(directory: Path) -> list[Path]:
+    """Return sources a standalone module beside ``directory`` may import.
+
+    A module that is not part of a package resolves ``import x`` against its
+    containing directory, which the editable install put on ``sys.path``. Every
+    file beside it and every sibling package is therefore reachable and must be
+    scanned. Namespace packages lack an initializer, so descend into every
+    identifier-named directory, not just ones containing ``__init__.py``.
+    Dot-directories (including ``.venv``) are not Python import names.
+    """
+    sources: list[Path] = []
+    try:
+        children = sorted(directory.iterdir())
+    except OSError:
+        return sources
+    for child in children:
+        if child.is_file() and child.suffix.lower() in _SCANNABLE_SUFFIXES:
+            sources.append(child)
+        elif (
+            child.is_dir()
+            and child.name.isidentifier()
+            and child.name.lower() not in _SKIP_PARTS
+        ):
+            sources.extend(_iter_scannable_sources(child))
+    return sources
+
+
 def _editable_scan_targets(
     source_dir: Path, relative_paths: frozenset[str]
 ) -> tuple[Path | None, list[Path]]:
     """Resolve an editable install's entry point and every file it can import.
 
     Returns the entry-point module path (``None`` when unresolved) and the source
-    files importing it may execute: the module itself plus every scannable file
-    in its top-level package. The entry point is frequently a submodule
-    (``pkg.cli:main``) rather than the package root, so the scan boundary is the
-    top-level package directory — the same code ``doctor`` subsequently imports.
-    Also probes a ``src/`` layout, since pip/uv editable installs of src-layout
-    projects put the importable package one level below the project root.
+    files importing it may execute: the module itself plus every file reachable
+    from it. The entry point is frequently a submodule (``pkg.cli:main``) rather
+    than the package root, so a module inside a package is scanned together with
+    its top-level package, including parent initializers and siblings. A
+    standalone module is scanned together with its import root, since that is
+    where ``import <sibling>`` resolves.
     """
-    for relative in sorted(relative_paths):
-        for root in (source_dir, source_dir / "src"):
-            candidate = root / relative
-            if not candidate.is_file():
-                continue
-            targets = [candidate]
-            # ``relative`` may be a submodule (``pkg.cli`` -> ``pkg/cli.py``),
-            # not just the package root, so scan from the top-level package
-            # directory: every sibling the entry point can import lives there.
-            package_root = root / Path(relative).parts[0]
-            if package_root.is_dir():
-                targets.extend(
-                    path
-                    for path in _iter_scannable_sources(package_root)
-                    if path != candidate
-                )
-            return candidate, targets
-    return None, []
+    resolved = _find_editable_module(source_dir, relative_paths)
+    if resolved is None:
+        return None, []
+    relative, candidate = resolved
+    # Strip the entire module-relative path, not just its basename: importing
+    # pkg.sub.cli executes pkg/__init__.py before the nested module. This
+    # also covers namespace packages, which need not have an __init__.py.
+    parts = Path(relative).parts
+    import_root = candidate.parents[len(parts) - 1]
+    package_root = import_root / parts[0]
+    if package_root.is_dir():
+        reachable = _iter_scannable_sources(package_root)
+    else:
+        reachable = _iter_import_root_sources(import_root)
+    targets = [candidate]
+    targets.extend(path for path in reachable if path != candidate)
+    return candidate, targets
 
 
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
@@ -325,8 +585,9 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     a clean result only means something when the code that will be imported was
     actually inspected. A third-party distribution whose file list is unavailable
     (``files is None``, e.g. installers that omit ``RECORD``) or whose executable
-    module was skipped (over the size limit, unreadable) must not be reported as
-    verified.
+    module or a selected sibling was skipped (over the size limit, unreadable)
+    must not be reported as verified. Python can import some byte sequences its
+    strict source reader cannot decode, so an unreadable sibling is not harmless.
     """
     # importlib.metadata.EntryPoint always has a ``dist`` attribute (it may be
     # None). Test doubles and other non-distribution objects omit it entirely;
@@ -341,16 +602,16 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     if name.lower().replace("_", "-") == "gptme":
         return None
 
-    files = getattr(distribution, "files", None)
-    if files is None:
-        # No file list to scan: return an unverified (not clean) result so the
-        # caller fails closed rather than importing unscanned third-party code.
-        return PluginSecurityScan(0, (), entry_point_scanned=False)
+    # Missing RECORD is not a clean scan, but editable source metadata can
+    # still resolve the module below. Keep the result unverified unless that
+    # fallback actually inspects the entry point.
+    files = getattr(distribution, "files", None) or ()
 
     entry_candidates = _entry_point_module_paths(entry_point)
     findings: list[PluginSecurityFinding] = []
     scanned_files = 0
     entry_point_scanned = False
+    scan_complete = True
     for package_path in files:
         relative = Path(str(package_path))
         if relative.suffix.lower() not in _SCANNABLE_SUFFIXES:
@@ -365,6 +626,7 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
             Path(distribution.locate_file(package_path)), relative.as_posix()
         )
         if file_findings is None:
+            scan_complete = False
             continue
         scanned_files += 1
         if relative.as_posix() in entry_candidates:
@@ -383,10 +645,13 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
             for candidate in targets:
                 file_findings = _scan_source(candidate, candidate.as_posix())
                 if file_findings is None:
+                    scan_complete = False
                     continue
                 scanned_files += 1
                 findings.extend(file_findings)
                 if candidate == module_path:
                     entry_point_scanned = True
 
-    return PluginSecurityScan(scanned_files, tuple(findings), entry_point_scanned)
+    return PluginSecurityScan(
+        scanned_files, tuple(findings), entry_point_scanned and scan_complete
+    )
