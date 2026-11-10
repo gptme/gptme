@@ -17,6 +17,11 @@ from functools import cache
 from importlib.metadata import entry_points
 
 from .plugin import GptmePlugin
+from .security import (
+    PluginSecurityBlocked,
+    PluginSecurityUnverified,
+    scan_plugin_entry_point,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +62,37 @@ def _discover_entrypoint_plugins_cached(
         if enabled_normalized is not None and not (ep_names & enabled_normalized):
             logger.debug("Skipping entry-point plugin %r: not enabled", ep.name)
             continue
+
+        # Scan the third-party distribution before importing it: ``ep.load()``
+        # executes module-level code, which is exactly what the scan exists to
+        # inspect. A scan that cannot run must not become an implicit allow.
+        try:
+            scan = scan_plugin_entry_point(ep)
+        except Exception as exc:
+            logger.warning("Skipping plugin %r: security scan failed: %s", ep.name, exc)
+            failures.append((ep.name, exc))
+            continue
+        if scan is not None:
+            if scan.findings:
+                verdicts = "; ".join(finding.verdict() for finding in scan.findings)
+                logger.warning(
+                    "Skipping plugin %r: security scan blocked import: %s",
+                    ep.name,
+                    verdicts,
+                )
+                failures.append((ep.name, PluginSecurityBlocked(verdicts)))
+                continue
+            # Clean only means something when the module that will be imported
+            # was actually inspected (see gptme-doctor, which fails closed here).
+            if not scan.entry_point_scanned:
+                message = (
+                    "security scan could not verify the entry-point module "
+                    f"({scan.scanned_files} file(s) scanned)"
+                )
+                logger.warning("Skipping plugin %r: %s", ep.name, message)
+                failures.append((ep.name, PluginSecurityUnverified(message)))
+                continue
+
         try:
             start = time.monotonic()
             obj = ep.load()
@@ -95,8 +131,9 @@ def discover_entrypoint_plugins(
             which can take seconds for plugins with heavy dependencies.
             Plugins whose manifest name differs from both must be enabled
             under their entry-point or package name.
-        errors: Optional sink. When given, every entry point that failed to
-            load or could not be coerced into a plugin is appended as
+        errors: Optional sink. When given, every entry point that was blocked
+            by the pre-import security scan, failed to load, or could not be
+            coerced into a plugin is appended as
             ``(entry_point_name, exception)``. Tolerant runtime callers omit
             it; diagnostics (gptme-doctor) pass a list so a broken installed
             plugin is visible instead of silently dropped.

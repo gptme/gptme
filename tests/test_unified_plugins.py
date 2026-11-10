@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -171,6 +173,16 @@ class TestRegistrars:
 # --- Entry-point discovery ---
 
 
+def _entry_point(name: str, module: str, load: object) -> SimpleNamespace:
+    """Minimal entry-point double without distribution metadata.
+
+    Real :class:`importlib.metadata.EntryPoint` objects carry ``dist``;
+    doubles without it model gptme's own entry points, which the pre-import
+    security scan deliberately skips.
+    """
+    return SimpleNamespace(name=name, module=module, load=load)
+
+
 class TestEntrypointDiscovery:
     def test_discovers_gptme_plugin_instances(self):
         """Entry points that export GptmePlugin are discovered."""
@@ -181,9 +193,7 @@ class TestEntrypointDiscovery:
 
         clear_entrypoint_cache()
         plugin = GptmePlugin(name="test_ep")
-        mock_ep = MagicMock()
-        mock_ep.name = "test_ep"
-        mock_ep.load.return_value = plugin
+        mock_ep = _entry_point("test_ep", "test_ep", MagicMock(return_value=plugin))
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins()
@@ -205,9 +215,9 @@ class TestEntrypointDiscovery:
         # Factory is not a GptmePlugin instance itself
         factory.__class__ = type("factory", (), {})
 
-        mock_ep = MagicMock()
-        mock_ep.name = "factory_plugin"
-        mock_ep.load.return_value = factory
+        mock_ep = _entry_point(
+            "factory_plugin", "factory_plugin", MagicMock(return_value=factory)
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins()
@@ -224,9 +234,9 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        mock_ep = MagicMock()
-        mock_ep.name = "bad_plugin"
-        mock_ep.load.return_value = "not a plugin"
+        mock_ep = _entry_point(
+            "bad_plugin", "bad_plugin", MagicMock(return_value="not a plugin")
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins()
@@ -242,9 +252,9 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        mock_ep = MagicMock()
-        mock_ep.name = "broken"
-        mock_ep.load.side_effect = ImportError("missing dep")
+        mock_ep = _entry_point(
+            "broken", "broken", MagicMock(side_effect=ImportError("missing dep"))
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins()
@@ -260,10 +270,9 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        mock_ep = MagicMock()
-        mock_ep.name = "broken"
-        mock_ep.module = "broken"
-        mock_ep.load.side_effect = ImportError("missing dep")
+        mock_ep = _entry_point(
+            "broken", "broken", MagicMock(side_effect=ImportError("missing dep"))
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             assert discover_entrypoint_plugins() == ()
@@ -285,13 +294,12 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        enabled_ep = MagicMock()
-        enabled_ep.name = "wanted"
-        enabled_ep.module = "wanted_pkg.plugin"
-        enabled_ep.load.return_value = GptmePlugin(name="wanted")
-        disabled_ep = MagicMock()
-        disabled_ep.name = "heavy"
-        disabled_ep.module = "heavy_pkg"
+        enabled_ep = _entry_point(
+            "wanted",
+            "wanted_pkg.plugin",
+            MagicMock(return_value=GptmePlugin(name="wanted")),
+        )
+        disabled_ep = _entry_point("heavy", "heavy_pkg", MagicMock())
 
         with patch(
             "gptme.plugins.entrypoints.entry_points",
@@ -312,15 +320,151 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        mock_ep = MagicMock()
-        mock_ep.name = "tts"
-        mock_ep.module = "gptme_tts.plugin"
-        mock_ep.load.return_value = GptmePlugin(name="gptme-tts")
+        mock_ep = _entry_point(
+            "tts",
+            "gptme_tts.plugin",
+            MagicMock(return_value=GptmePlugin(name="gptme-tts")),
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins(frozenset({"gptme-tts"}))
 
         assert [p.name for p in result] == ["gptme-tts"]
+        clear_entrypoint_cache()
+
+    def test_malicious_entry_point_is_not_imported(self, tmp_path):
+        """A blocked pattern in third-party source prevents ep.load()."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+        from gptme.plugins.security import PluginSecurityBlocked
+
+        class FakeDistribution:
+            name = "dangerous-plugin"
+            files = [Path("dangerous_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "dangerous_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text(
+            "secret = open('~/.ssh/id_rsa').read()\n", encoding="utf-8"
+        )
+        load = MagicMock(side_effect=AssertionError("malicious plugin was imported"))
+        ep = SimpleNamespace(
+            name="dangerous_plugin",
+            module="dangerous_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        clear_entrypoint_cache()
+        errors: list[tuple[str, Exception]] = []
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
+            result = discover_entrypoint_plugins(errors=errors)
+
+        assert result == ()
+        load.assert_not_called()
+        assert len(errors) == 1
+        assert isinstance(errors[0][1], PluginSecurityBlocked)
+        assert "credential-harvest" in str(errors[0][1])
+        clear_entrypoint_cache()
+
+    def test_clean_entry_point_still_loads(self, tmp_path):
+        """Clean third-party source is scanned and then imported normally."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+
+        class FakeDistribution:
+            name = "clean-plugin"
+            files = [Path("clean_plugin/__init__.py")]
+
+            def locate_file(self, path):
+                return tmp_path / path
+
+        plugin_file = tmp_path / "clean_plugin" / "__init__.py"
+        plugin_file.parent.mkdir()
+        plugin_file.write_text("VALUE = 42\n", encoding="utf-8")
+        load = MagicMock(return_value=GptmePlugin(name="clean_plugin"))
+        ep = SimpleNamespace(
+            name="clean_plugin",
+            module="clean_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        clear_entrypoint_cache()
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
+            result = discover_entrypoint_plugins()
+
+        assert [p.name for p in result] == ["clean_plugin"]
+        load.assert_called_once_with()
+        clear_entrypoint_cache()
+
+    def test_scanner_failure_does_not_import(self):
+        """A scan that raises must not become an implicit allow."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+
+        class ExplodingDistribution:
+            name = "broken-metadata"
+
+            @property
+            def files(self):
+                raise RuntimeError("metadata corrupt")
+
+        load = MagicMock(side_effect=AssertionError("unscanned plugin was imported"))
+        ep = SimpleNamespace(
+            name="broken_metadata",
+            module="broken_metadata",
+            dist=ExplodingDistribution(),
+            load=load,
+        )
+
+        clear_entrypoint_cache()
+        errors: list[tuple[str, Exception]] = []
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
+            result = discover_entrypoint_plugins(errors=errors)
+
+        assert result == ()
+        load.assert_not_called()
+        assert isinstance(errors[0][1], RuntimeError)
+        clear_entrypoint_cache()
+
+    def test_unverified_entry_point_does_not_import(self):
+        """A distribution with no file list cannot be verified, so it is skipped."""
+        from gptme.plugins.entrypoints import (
+            clear_entrypoint_cache,
+            discover_entrypoint_plugins,
+        )
+        from gptme.plugins.security import PluginSecurityUnverified
+
+        class FakeDistribution:
+            name = "no-records-plugin"
+            files = None
+
+        load = MagicMock(side_effect=AssertionError("unverified plugin was imported"))
+        ep = SimpleNamespace(
+            name="no_records_plugin",
+            module="no_records_plugin",
+            dist=FakeDistribution(),
+            load=load,
+        )
+
+        clear_entrypoint_cache()
+        errors: list[tuple[str, Exception]] = []
+        with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
+            result = discover_entrypoint_plugins(errors=errors)
+
+        assert result == ()
+        load.assert_not_called()
+        assert isinstance(errors[0][1], PluginSecurityUnverified)
         clear_entrypoint_cache()
 
 

@@ -39,6 +39,18 @@ class PluginSecurityScan:
     entry_point_scanned: bool = False
 
 
+class PluginSecurityError(Exception):
+    """Base class for scans that prevent importing a plugin entry point."""
+
+
+class PluginSecurityBlocked(PluginSecurityError):
+    """The scan found a blocked pattern in the code that would be imported."""
+
+
+class PluginSecurityUnverified(PluginSecurityError):
+    """The scan could not inspect the code that would be imported."""
+
+
 @dataclass(frozen=True)
 class _Pattern:
     regex: re.Pattern[str]

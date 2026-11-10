@@ -730,6 +730,18 @@ The plugin registry merges three sources in order:
 
 If the same plugin name appears in multiple sources, folder plugins take precedence over entry-point plugins (to support editable installs where both are present). The ``plugins.enabled`` allowlist in ``gptme.toml`` can filter which plugins are loaded.
 
+.. rubric:: Pre-import Security Scan
+
+Before importing a third-party entry point, gptme statically scans the
+distribution's source for high-confidence malware patterns (credential
+harvesting, reverse shells, obfuscated ``exec``). A plugin whose source contains
+a blocked pattern is skipped, as is one whose entry-point module cannot be
+inspected (no file list, unreadable or oversized source). gptme's own entry
+points and folder plugins are not scanned. Run ``gptme-doctor`` to see which
+installed plugins were blocked and why. The scan reads source files, so it adds
+a one-time startup cost proportional to the size of installed plugins (~90 ms per
+0.4 MB package measured on a laptop CPU).
+
 .. rubric:: Factory Functions
 
 Entry points can reference either a ``GptmePlugin`` instance directly, or a callable (factory) that returns one:
