@@ -920,6 +920,28 @@ class TestCancellationFinalityGuard:
         blocker = sa.continuation_blocker()
         assert blocker is None
 
+    def test_in_memory_cancelled_blocks_when_persist_failed(self, tmp_path: Path):
+        """Guard blocks when in-memory cache says cancelled even with no outcome file."""
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            _subagent_results,
+            _subagent_results_lock,
+        )
+
+        subagent_dir = tmp_path / "subagent-cancel-agent-kl78"
+        sa = self._register_with_log(subagent_dir, agent_id="cancel-agent-kl78")
+        # Simulate a failed persist: write directly to the in-memory cache only.
+        with _subagent_results_lock:
+            _subagent_results["cancel-agent-kl78"] = ReturnType(
+                "cancelled", "cancelled"
+            )
+        # No outcome file exists — persist "failed".
+        assert not (subagent_dir / OUTCOME_FILENAME).exists()
+
+        blocker = sa.continuation_blocker()
+        assert blocker is not None
+        assert "cancelled" in blocker
+
     def test_cancelled_outcome_survives_restart(self, tmp_path: Path):
         """After a restart continuation_blocker still refuses a cancelled outcome."""
         subagent_dir = tmp_path / "subagent-cancel-agent-ij90"

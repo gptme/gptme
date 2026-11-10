@@ -548,6 +548,16 @@ class Subagent:
                 "cannot be continued; any preserved work is reported in its result."
             )
         if not allow_cancelled:
+            # Check in-memory cache first so a failed persist does not let the
+            # same-process caller bypass the cancellation guard.
+            with _subagent_results_lock:
+                cached = _subagent_results.get(self.agent_id)
+            if cached is not None and cached.status == "cancelled":
+                return (
+                    f"Subagent '{self.agent_id}' was cancelled and cannot be "
+                    "continued. Pass allow_cancelled=True to override."
+                )
+            # Fall back to the persisted outcome for cross-restart durability.
             # Lazy import avoids a circular dependency: persistence imports from types.
             from .persistence import load_subagent_outcome
 
