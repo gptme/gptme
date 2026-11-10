@@ -45,8 +45,9 @@ def test_restore_cannot_poison_continuation(
 
     def delayed_load(sa: types.Subagent) -> types.ReturnType | None:
         result = real_load(sa)
-        outcome_loaded.set()
-        assert finish_restore.wait(5)
+        if threading.current_thread() is lookup_thread:
+            outcome_loaded.set()
+            assert finish_restore.wait(5)
         return result
 
     def execute(**kwargs: Any) -> None:
@@ -264,3 +265,49 @@ def test_queued_cancellation_survives_restart_without_log(
             ("worker", "cancelled")
         ]
     assert api.subagent_status("worker")["status"] == "cancelled"
+
+
+@pytest.mark.parametrize("lookup", ["id", "list"])
+def test_concurrent_lookup_never_observes_unrestored_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lookup: str
+) -> None:
+    logdir = tmp_path / "subagent-worker-ab12"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text("")
+    sa = types.Subagent("worker", "task", None, logdir, None)
+    persistence.persist_subagent_meta(sa)
+    persistence.persist_subagent_outcome(sa, types.ReturnType("timeout", "deadline"))
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    loading = threading.Event()
+    finish = threading.Event()
+    real_load = persistence.load_subagent_outcome
+    errors: list[BaseException] = []
+
+    def delayed_load(sa: types.Subagent) -> types.ReturnType | None:
+        outcome = real_load(sa)
+        if threading.current_thread() is first:
+            loading.set()
+            assert finish.wait(5)
+        return outcome
+
+    def first_lookup() -> None:
+        try:
+            if lookup == "id":
+                api.subagent_status("worker")
+            else:
+                api.subagent_list()
+        except BaseException as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=first_lookup)
+    monkeypatch.setattr(persistence, "load_subagent_outcome", delayed_load)
+    first.start()
+    try:
+        assert loading.wait(5)
+        assert api.subagent_status("worker")["status"] == "timeout"
+    finally:
+        finish.set()
+        first.join(5)
+    assert not first.is_alive()
+    assert not errors
+    assert api.subagent_status("worker")["status"] == "timeout"

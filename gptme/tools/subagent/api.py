@@ -24,7 +24,6 @@ from .persistence import (
     load_subagent_by_id,
     persist_subagent_meta,
     remove_subagent_meta,
-    restore_subagent_outcome,
     scan_rehydrate_subagents,
 )
 from .types import (
@@ -60,13 +59,24 @@ def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
     loaded = load_subagent_by_id(agent_id)
     if loaded is None:
         return None
+    return _register_rehydrated_subagent(loaded, newest=newest)
+
+
+def _register_rehydrated_subagent(loaded: Subagent, *, newest: bool = True) -> Subagent:
+    """Publish a disk entry and its outcome together, without locking disk I/O."""
+    from .persistence import load_subagent_outcome
+
+    outcome = load_subagent_outcome(loaded)
     with _subagents_lock:
-        seq = list(reversed(_subagents)) if newest else list(_subagents)
-        sa = next((s for s in seq if s.agent_id == agent_id), None)
-        if sa is not None:
-            return sa
-        _subagents.append(loaded)
-    restore_subagent_outcome(loaded)
+        seq = reversed(_subagents) if newest else iter(_subagents)
+        current = next((s for s in seq if s.agent_id == loaded.agent_id), None)
+        if current is not None:
+            # A concurrent lookup, spawn or continuation won while we read disk.
+            return current
+        with _subagent_results_lock:
+            if outcome is not None:
+                _subagent_results.setdefault(loaded.agent_id, outcome)
+            _subagents.append(loaded)
     return loaded
 
 
@@ -97,16 +107,8 @@ def _maybe_rehydrate_registry() -> None:
                 len(rehydrated),
                 ", ".join(sa.agent_id for sa in rehydrated),
             )
-            with _subagents_lock:
-                existing_ids = {s.agent_id for s in _subagents}
-                restored: list[Subagent] = []
-                for sa in rehydrated:
-                    if sa.agent_id not in existing_ids:
-                        _subagents.append(sa)
-                        existing_ids.add(sa.agent_id)
-                        restored.append(sa)
-            for sa in restored:
-                restore_subagent_outcome(sa)
+            for sa in rehydrated:
+                _register_rehydrated_subagent(sa)
         _types._registry_rehydrated = True
 
 
