@@ -3067,6 +3067,99 @@ def test_nonexec_patch_block_followed_by_shell_block_yields_both() -> None:
     assert blocks[1] == Codeblock("shell", "cat f")
 
 
+@pytest.mark.parametrize(
+    "lang", ["save /tmp/x.json", "append notes.md", "patch f.py", "text"]
+)
+def test_nonexec_block_followed_only_by_prose_is_extracted(lang: str) -> None:
+    """gptme/gptme#4817: a closed non-exec block followed by prose to EOF.
+
+    Nothing after the closer can close the block, so treating it as literal
+    content left the block unclosed and the message yielded no codeblocks.
+    """
+    markdown = f"```{lang}\nhello\n```\nI saved the file, that is all.\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock(lang, "hello")]
+
+
+@pytest.mark.parametrize("prose_lines", [19, 30, 100])
+def test_nonexec_save_followed_by_distant_command(prose_lines: int) -> None:
+    """gptme/gptme#4817: a later block beyond the 20-line lookahead window."""
+    markdown = (
+        "```save a.md\n# Title\n```\n"
+        + "Some explanation.\n" * prose_lines
+        + "```shell\ncat a.md\n```\n"
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", "# Title"),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
+def test_nonexec_save_with_tagged_example_then_prose_is_extracted() -> None:
+    """A tagged nested example is unambiguous; the final closer still recovers."""
+    content = "# T\n```bash\nls\n```\nmore"
+    markdown = f"```save R.md\n{content}\n```\nDone.\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("save R.md", content)]
+
+
+def test_nonexec_save_with_bare_example_then_prose_stays_fail_closed() -> None:
+    """After a bare fence was guessed to open a nested example, a final fence
+    before prose may merge blocks or truncate a save: extract nothing."""
+    markdown = "```save R.md\n# T\n```\nexample\n```\nmore\n```\nDone, saved.\n"
+    assert list(_extract_codeblocks(markdown)) == []
+
+
+def test_nonexec_save_literal_fence_with_distant_outer_closer_unaffected() -> None:
+    """A bare fence in content stays literal when a later outer closer exists."""
+    content = "intro\n```\n" + "body\n" * 30 + "end"
+    markdown = f"```save a.md\n{content}\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("save a.md", content)]
+
+
+def test_nonexec_save_literal_fence_with_joined_outer_closer_unaffected() -> None:
+    """A closer joined to the next opener ("``````shell") still counts as the
+    outer closer, so an earlier literal fence must not truncate the save."""
+    content = "intro\n```\n" + "body\n" * 30 + "end"
+    markdown = f"```save a.md\n{content}\n``````shell\ncat a.md\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+def test_save_then_prose_then_unclosed_reasoning_never_runs_command(tag: str) -> None:
+    markdown = f"```save a\nhello\n```\nDone.\n<{tag}>\n```shell\nrm -rf x\n```\n"
+    assert all(b.lang != "shell" for b in _extract_codeblocks(markdown))
+
+
+def test_streaming_save_then_prose_never_exposes_prefix() -> None:
+    markdown = "```save a\nhello\nworld\n```\nDone, that is all.\n"
+    for end in range(1, len(markdown) + 1):
+        blocks = list(_extract_codeblocks(markdown[:end], streaming=True))
+        assert all(b == Codeblock("save a", "hello\nworld") for b in blocks), (
+            end,
+            blocks,
+        )
+
+
+def test_issue_4817_tooluse_end_to_end() -> None:
+    """The live failure: save, narration, then several verification commands."""
+    from gptme.tools import init_tools
+    from gptme.tools.base import ToolUse
+
+    init_tools(["save", "shell"])
+    content = (
+        '```save final.json\n{"a": 1}\n```\nLet me verify.\n'
+        "```shell\ncat final.json\n```\n```shell\nls\n```\n"
+    )
+    tools = [(t.tool, t.content) for t in ToolUse.iter_from_content(content)]
+    assert tools == [
+        ("save", '{"a": 1}'),
+        ("shell", "cat final.json"),
+        ("shell", "ls"),
+    ]
+
+
 def test_nonexec_save_block_explicit_outer_closer_unaffected() -> None:
     """Regression: a save block with a bare fence in its content (followed by a
     language-tagged inner block) must still yield the full block when the outer
@@ -3187,6 +3280,20 @@ def test_recovered_save_pairs_use_linear_fence_work(
     assert validations <= 40 * pair_count, validations
 
 
+@pytest.mark.parametrize("tail_lines", [3, 30, 100])
+@pytest.mark.parametrize("literal_reasoning", ["", "<think>\nliteral\n</think>\n"])
+def test_nonexec_save_preserves_tail_before_joined_fences(
+    tail_lines: int, literal_reasoning: str
+) -> None:
+    """Extraction and thinking checks must retain content up to the joined closer."""
+    content = literal_reasoning + "intro\n```\n" + "body\n" * tail_lines + "end"
+    markdown = f"```save a.md\n{content}\n``````shell\ncat a.md\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
 def test_outer_closer_index_matches_forward_depth_scan() -> None:
     """The optimization must preserve all three outcomes, including invalid tags."""
     from itertools import product
@@ -3215,3 +3322,138 @@ def test_outer_closer_index_matches_forward_depth_scan() -> None:
         for start in range(len(lines)):
             assert indexed.get(start) is forward_scan(lines, start), (lines, start)
     assert _outer_closer_index([]) == {}
+
+
+@pytest.mark.parametrize("prose_lines", [1, 30])
+@pytest.mark.parametrize("outer_length", [4, 5])
+@pytest.mark.parametrize("literal_reasoning", ["", "<think>\nliteral\n</think>\n"])
+def test_long_outer_fence_before_six_backtick_command(
+    prose_lines: int, outer_length: int, literal_reasoning: str
+) -> None:
+    """Six backticks cannot split into a long outer closer plus a new opener."""
+    fence = "`" * outer_length
+    content = literal_reasoning + "hello"
+    markdown = (
+        f"{fence}save a.md\n{content}\n{fence}\n"
+        + "Narration.\n" * prose_lines
+        + "``````shell\ncat a.md\n```\n"
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content, fence=fence),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
+@pytest.mark.parametrize("outer_lengths", [(3, 4), (4, 3)])
+def test_joined_fence_scan_is_scoped_to_each_outer_length(
+    outer_lengths: tuple[int, int],
+) -> None:
+    """A scan for an earlier block must not supply a later width's verdicts."""
+    markdown = ""
+    expected = []
+    for outer_length in outer_lengths:
+        fence = "`" * outer_length
+        markdown += (
+            f"{fence}save a.md\nhello\n{fence}\nNarration.\n"
+            "``````shell\ncat a.md\n```\n"
+        )
+        if outer_length == 3:
+            expected.extend(
+                [
+                    Codeblock("save a.md", "hello\n```\nNarration."),
+                    Codeblock("shell", "cat a.md"),
+                ]
+            )
+        else:
+            expected.extend(
+                [Codeblock("save a.md", "hello"), Codeblock("shell", "cat a.md")]
+            )
+    assert list(_extract_codeblocks(markdown)) == expected
+
+
+@pytest.mark.parametrize("outer_length", [4, 5])
+@pytest.mark.parametrize("tail_lines", [3, 30])
+def test_long_outer_save_preserves_tail_before_actual_joined_fences(
+    outer_length: int, tail_lines: int
+) -> None:
+    fence = "`" * outer_length
+    content = f"intro\n{fence}\n" + "body\n" * tail_lines + "end"
+    markdown = f"{fence}save a.md\n{content}\n{fence}```shell\ncat a.md\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content),
+        Codeblock("shell", "cat a.md"),
+    ]
+
+
+@pytest.mark.parametrize("tail_lines", [3, 30])
+def test_distant_tagged_fence_inside_shell_heredoc_is_not_recovered_closer(
+    tail_lines: int,
+) -> None:
+    content = (
+        "cat <<EOF > a.md\n```\n" + "body\n" * tail_lines + "```text\nEOF\necho done"
+    )
+    markdown = f"```shell\n{content}\n```\n"
+    assert list(_extract_codeblocks(markdown)) == [Codeblock("shell", content)]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("tail_lines", [3, 30, 100])
+@pytest.mark.parametrize("outer_length", [3, 4])
+def test_save_preserves_tail_before_concatenated_thinking_closer(
+    tag: str, tail_lines: int, outer_length: int
+) -> None:
+    """The suffix index must recognize the same thinking closers as extraction."""
+    fence = "`" * outer_length
+    content = f"intro\n{fence}\n" + "body\n" * tail_lines + "end"
+    markdown = f"{fence}save a.md\n{content}\n{fence}<{tag}>\nplanning"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content, fence=fence)
+    ]
+
+
+@pytest.mark.parametrize("prose_lines", [1, 30])
+@pytest.mark.parametrize("confirmed_close", [False, True])
+def test_joined_fence_after_ambiguous_bare_fence_prefers_literal_content(
+    prose_lines: int, confirmed_close: bool
+) -> None:
+    """Without a blank boundary, narration and a literal save tail are identical.
+
+    Prefer the joined outer closer so literal file content is not truncated.
+    A blank line after the earlier fence unambiguously ends the save instead.
+    """
+    narration = "Checking:\n" * prose_lines
+    boundary = "\n" if confirmed_close else ""
+    markdown = (
+        f"```save a.json\n{{}}\n```\n{boundary}{narration}``````shell\necho ok\n```"
+    )
+    expected_content = "{}" if confirmed_close else "{}\n```\n" + narration.rstrip("\n")
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.json", expected_content),
+        Codeblock("shell", "echo ok"),
+    ]
+
+
+@pytest.mark.parametrize("outer_length", [3, 4, 5])
+@pytest.mark.parametrize("trailing_length", [3, 4, 5, 6])
+@pytest.mark.parametrize("content", ["hello", "<think>\nliteral\n</think>\nhello"])
+def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
+    outer_length: int, trailing_length: int, content: str
+) -> None:
+    """Only an exact-width bare fence can continue an outer save."""
+    fence = "`" * outer_length
+    narration = "Narration.\n" * 30
+    markdown = (
+        f"{fence}save a.md\n{content}\n{fence}\n"
+        + narration
+        + "`" * trailing_length
+        + "\n"
+    )
+    # Matching-width controls must retain the literal fence and the full tail.
+    expected = (
+        f"{content}\n{fence}\n{narration.rstrip()}"
+        if outer_length == trailing_length
+        else content
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", expected, fence=fence)
+    ]

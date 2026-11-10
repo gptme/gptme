@@ -383,7 +383,7 @@ def _line_fence_states(
     language-tagged nested openers so thinking-tag checks agree with extraction.
     """
     lines = text.split("\n")
-    outer_closer_index: dict[int, bool | None] | None = None
+    outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     # Suffix queries only need to know whether a tagged fence remains. Compute
     # its last position once rather than rescanning for every literal example.
     last_tagged_fence = next(
@@ -413,6 +413,8 @@ def _line_fence_states(
     ipy_td = ipy_ts = ipy_s = ipy_d = False
     qs_single = qs_double = qs_ansi = False
     heredoc_terminator: str | None = None
+    # Mirrors extraction's `ambiguous_fence_kept` for the current outer block.
+    ambiguous_fence_kept = False
     for i, line in enumerate(lines):
         if depth == 0:
             scan = line[3:] if re.match(r"^`{6}[^`\s]", line) else line
@@ -422,11 +424,18 @@ def _line_fence_states(
                 outer_lang = scan[fence_len:].strip()
                 states.append((0, True, ""))
                 depth = 1
+                ambiguous_fence_kept = False
                 ipy_td = ipy_ts = ipy_s = ipy_d = False
                 qs_single = qs_double = qs_ansi = False
                 heredoc_terminator = None
                 continue
             states.append((0, False, ""))
+            continue
+
+        # A confirmed heredoc body is verbatim shell input, including fences
+        # and thinking tags. Do not apply ambiguous markdown recovery to it.
+        if heredoc_terminator is not None and line.strip() != heredoc_terminator:
+            states.append((depth, False, outer_lang))
             continue
 
         if depth == 1 and line.startswith("`" * fence_len):
@@ -440,6 +449,7 @@ def _line_fence_states(
                 fence_len = len(rest_match.group(1))
                 outer_lang = rest[fence_len:].strip()
                 depth = 1
+                ambiguous_fence_kept = False
                 ipy_td = ipy_ts = ipy_s = ipy_d = False
                 qs_single = qs_double = qs_ansi = False
                 heredoc_terminator = None
@@ -510,6 +520,32 @@ def _line_fence_states(
                             has_following_tagged_fence = True
                             following_tagged_idx = j
                             break
+                    # Mirror extraction's recovered-closer rule: with no
+                    # confirmed nested closer, this fence closes the outer
+                    # block when nothing after it can (either the window hit
+                    # a tagged block with no outer closer after it, or no
+                    # fence is in the window and none remains before EOF).
+                    no_outer_closer_after = False
+                    if (
+                        not streaming
+                        and not has_closing_fence
+                        and (
+                            following_tagged_idx is not None
+                            or nested_closer_idx is None
+                        )
+                    ):
+                        if fence_len not in outer_closer_scans:
+                            outer_closer_scans[fence_len] = _outer_closer_scan(
+                                lines, fence_len
+                            )
+                        verdicts, suffix = outer_closer_scans[fence_len]
+                        no_outer_closer_after = (
+                            verdicts.get(following_tagged_idx)
+                            if following_tagged_idx is not None
+                            else None
+                            if ambiguous_fence_kept
+                            else suffix[i + 1]
+                        ) is False
                     states.append((depth, True, outer_lang))
                     next_line = lines[i + 1]
                     opener_pos = bisect_left(thinking_opener_lines, i + 1)
@@ -632,24 +668,19 @@ def _line_fence_states(
                             outer_lang = ""
                         else:
                             depth += 1
-                    elif (
-                        not streaming
-                        and not has_closing_fence
-                        and following_tagged_idx is not None
-                        and (
-                            outer_closer_index
-                            if outer_closer_index is not None
-                            else (outer_closer_index := _outer_closer_index(lines))
-                        ).get(following_tagged_idx)
-                        is False
-                    ):
+                    elif no_outer_closer_after:
                         # Match extraction's recovered save boundary before
-                        # classifying later reasoning tags as literal content.
+                        # classifying later reasoning tags as literal content:
+                        # either the window hit a tagged block with no outer
+                        # closer after it, or no fence follows in the window
+                        # and none can close the outer block before EOF.
                         depth = 0
                         fence_len = 0
                         outer_lang = ""
                     elif has_closing_fence or streaming:
                         depth += 1
+                    if depth:
+                        ambiguous_fence_kept = True
                     continue
                 if (
                     depth == 1
@@ -759,7 +790,18 @@ def _unclosed_standalone_after(
 
 
 def _outer_closer_index(lines: list[str]) -> dict[int, bool | None]:
-    """Index outer-closer verdicts for tagged fence lines in linear time.
+    """Index outer-closer verdicts for tagged fence lines in linear time."""
+    return _outer_closer_scan(lines)[0]
+
+
+def _outer_closer_scan(
+    lines: list[str], outer_fence_len: int = 3
+) -> tuple[dict[int, bool | None], list[bool | None]]:
+    """Index outer-closer verdicts in linear time for one outer fence length.
+
+    Returns `(verdicts, suffix)`. `suffix[k]` answers the same question for
+    the text starting at line `k`: True if an unmatched bare closer remains,
+    False if none does (EOF), None if an unclosed tagged block intervenes.
 
     A True verdict means a later unmatched bare closer continues the outer
     save/patch, so its earlier candidate closer is literal content. False
@@ -780,25 +822,43 @@ def _outer_closer_index(lines: list[str]) -> dict[int, bool | None]:
         fence = re.match(r"^(`{3,})(.*)$", line)
         if fence is None:
             continue
-        if not fence.group(2).strip():
-            bare.add(i)
+        tag = fence.group(2).strip()
+        # Extraction splits a closer joined to the next opener ("``````shell")
+        # into both: the line closes the open block, then opens a tagged one.
+        rest = line[outer_fence_len:]
+        joined = bool(re.match(r"^`{3,}\S", rest))
+        # Extraction also accepts a closer concatenated with a reasoning tag.
+        # It closes the outer block but does not open another fenced block.
+        thinking_close = rest.startswith(("<think>", "<thinking>"))
+        if not tag or joined or thinking_close:
+            # Nested tagged blocks accept any bare width, but only an exact
+            # outer-width fence (or a joined closer) can continue the save.
+            if len(fence.group(1)) == outer_fence_len or joined or thinking_close:
+                bare.add(i)
             if openers:
                 matching[openers.pop()] = i
-        elif _is_valid_lang_tag(fence.group(2).strip()):
+        if tag and (joined or _is_valid_lang_tag(tag)):
             openers.append(i)
             verdicts[i] = None
 
     suffix: list[bool | None] = [False] * (len(lines) + 1)
     for i in range(len(lines) - 1, -1, -1):
+        if i in verdicts:
+            closer = matching.get(i)
+            # A joined line closes the outer block before opening the next
+            # one. Lookahead queries at that line must see the closer too,
+            # not just suffix queries that encounter it from farther away.
+            if i in bare:
+                verdicts[i] = True
+            else:
+                verdicts[i] = None if closer is None else suffix[closer + 1]
         if i in bare:
             suffix[i] = True
         elif i in verdicts:
-            closer = matching.get(i)
-            verdicts[i] = None if closer is None else suffix[closer + 1]
             suffix[i] = verdicts[i]
         else:
             suffix[i] = suffix[i + 1]
-    return verdicts
+    return verdicts, suffix
 
 
 def _extract_codeblocks(
@@ -975,7 +1035,7 @@ def _extract_codeblocks(
         return
 
     lines = markdown.split("\n")
-    outer_closer_index: dict[int, bool | None] | None = None
+    outer_closer_scans: dict[int, tuple[dict[int, bool | None], list[bool | None]]] = {}
     i = 0
 
     while i < len(lines):
@@ -1003,6 +1063,10 @@ def _extract_codeblocks(
 
             # Track nesting depth to handle nested code blocks
             nesting_depth = 1
+            # Set once a depth-1 bare fence was kept open by the nested-block
+            # heuristic. After such a guess, a final fence before prose is no
+            # longer a trustworthy closer (it may merge several blocks).
+            ambiguous_fence_kept = False
             # For exec langs: track heredoc state so embedded fences inside a heredoc
             # body (e.g. a shell script writing a markdown file) are treated as literal
             # content and never as block closers.
@@ -1027,6 +1091,16 @@ def _extract_codeblocks(
             # Collect content until we find the matching closing ```
             while i < len(lines):
                 line = lines[i]
+
+                # Confirmed heredoc payload is literal, even when it resembles
+                # a joined fence or has no later markdown outer closer.
+                if (
+                    heredoc_terminator is not None
+                    and line.strip() != heredoc_terminator
+                ):
+                    content_lines.append(line)
+                    i += 1
+                    continue
 
                 # Recover from malformed adjacent fences where a closing fence for the
                 # current block is directly concatenated with the opening fence of the
@@ -1214,6 +1288,10 @@ def _extract_codeblocks(
                             elif nesting_depth == 1:
                                 # At depth 1, look ahead to see if there's a matching closing fence.
                                 # This distinguishes real nested blocks from bare backticks in content.
+                                # Paths that yield break out of the block, so this
+                                # flag only survives when the fence was kept open.
+                                was_ambiguous = ambiguous_fence_kept
+                                ambiguous_fence_kept = True
                                 has_closing_fence = False
                                 lang_tagged_fence_j: int | None = None
                                 for j in range(i + 1, min(i + 20, len(lines))):
@@ -1257,11 +1335,13 @@ def _extract_codeblocks(
                                     #           bare fence at i is literal content (original).
                                     # If NO  → no outer closer after the inner block, so the
                                     #           bare fence at i IS the outer closer; yield now.
-                                    if outer_closer_index is None:
-                                        outer_closer_index = _outer_closer_index(lines)
-                                    outer_has_closer = outer_closer_index.get(
-                                        lang_tagged_fence_j
-                                    )
+                                    if fence_len not in outer_closer_scans:
+                                        outer_closer_scans[fence_len] = (
+                                            _outer_closer_scan(lines, fence_len)
+                                        )
+                                    outer_has_closer = outer_closer_scans[fence_len][
+                                        0
+                                    ].get(lang_tagged_fence_j)
                                     if outer_has_closer is True:
                                         # Outer block has an explicit closer later.
                                         # Streaming: use the original increment so the
@@ -1314,7 +1394,30 @@ def _extract_codeblocks(
                                     nesting_depth += 1
                                     content_lines.append(line)
                                 else:
-                                    # No matching fence found, treat as literal content
+                                    # No fence inside the lookahead window. If nothing
+                                    # after this line can close the outer block (only
+                                    # prose, or complete tagged blocks, until EOF), this
+                                    # fence IS the closer: treating it as literal would
+                                    # leave the block unclosed and drop it along with
+                                    # every later block (gptme/gptme#4817). Otherwise a
+                                    # later bare closer exists, so this one is content.
+                                    if fence_len not in outer_closer_scans:
+                                        outer_closer_scans[fence_len] = (
+                                            _outer_closer_scan(lines, fence_len)
+                                        )
+                                    if (
+                                        not was_ambiguous
+                                        and outer_closer_scans[fence_len][1][i + 1]
+                                        is False
+                                    ):
+                                        yield Codeblock(
+                                            lang,
+                                            "\n".join(content_lines),
+                                            start=start_line,
+                                            fence="`" * fence_len,
+                                        )
+                                        i += 1
+                                        break
                                     content_lines.append(line)
                             else:
                                 content_lines.append(line)
