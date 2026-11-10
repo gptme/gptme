@@ -1288,6 +1288,33 @@ def _terminate_subprocess(
         _kill_recorded_shell_groups(shell_pgid_file, after_ticks=cli_start)
 
 
+def _checkpoint_notice(logdir: Path, started_at: float) -> str:
+    """Describe the latest committed yield checkpoint for a timed-out attempt.
+
+    Only a checkpoint already on disk is reported; expiry never writes one.
+    The checkpoint says which attempt committed it: one from an earlier attempt
+    of the same conversation is what a continuation would resume from, not
+    evidence that this attempt reached a yield.
+    """
+    from ..yield_checkpoint import CHECKPOINT_FILENAME, load_checkpoint
+
+    record = load_checkpoint(logdir)
+    if record is None:
+        return ""
+    origin = (
+        "this attempt" if record["created_at"] >= started_at else "an earlier attempt"
+    )
+    lines = [
+        f"\nLatest committed checkpoint (from {origin}):",
+        f"Waiting for: {record['wait_for']}",
+        f"Next action: {record['next_action']}",
+    ]
+    if record["artifacts"]:
+        lines.append("Artifacts: " + ", ".join(record["artifacts"]))
+    lines.append(f"Checkpoint: {logdir / CHECKPOINT_FILENAME}")
+    return "\n".join(lines)
+
+
 def _monitor_subprocess(
     subagent: "Subagent",
 ) -> None:
@@ -1346,6 +1373,7 @@ def _monitor_subprocess(
         # rendering "❌ failed" instead of "⏱️ timed out" to the parent).
         status: Status = "timeout"
         result = f"Process killed after {subagent.timeout}s timeout"
+        result += _checkpoint_notice(subagent.logdir, subagent.started_at)
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
         # A timeout is a terminal result: report wall-clock seconds since spawn
         # so usage reporting is not silently incomplete on this path.

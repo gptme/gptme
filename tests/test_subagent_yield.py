@@ -9,6 +9,7 @@ import queue
 import subprocess
 import sys
 import textwrap
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from gptme.tools.complete import SessionCompleteException
 from gptme.tools.subagent.api import subagent_continue
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.types import (
+    ReturnType,
     Subagent,
     _completion_queue,
     _subagent_results,
@@ -805,3 +807,104 @@ def test_real_subprocess_yield_survives_parent_restart(tmp_path, monkeypatch):
     # Still one conversation: the yield is history, the completion is terminal.
     log = Log.read_jsonl(logdir / "conversation.jsonl")
     assert sum("```yield" in m.content for m in log.messages) == 1
+
+
+TIMEOUT_CHILD = textwrap.dedent(
+    """
+    import json
+    import sys
+    import time
+    from pathlib import Path
+
+    import gptme.tools.yield_checkpoint as y
+
+    logdir, payload = Path(sys.argv[1]), sys.argv[2]
+    if payload:
+        y.write_checkpoint(logdir, y.parse_checkpoint_payload(payload))
+    (logdir / "ready").write_text("")
+    time.sleep(60)  # never finishes: the parent's deadline must expire
+    """
+)
+
+
+def _run_to_deadline(logdir: Path, payload: dict | None, **kwargs) -> ReturnType:
+    # Establish the attempt before the child can commit a checkpoint.
+    kwargs.setdefault("started_at", time.time())
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            TIMEOUT_CHILD,
+            str(logdir),
+            json.dumps(payload) if payload else "",
+        ]
+    )
+    sa = _subagent(
+        logdir, process=process, execution_mode="subprocess", timeout=2, **kwargs
+    )
+    with _subagents_lock:
+        _subagents.append(sa)
+    # The monitor's deadline starts when it begins waiting, so let the child
+    # commit first: a slow interpreter start must not race the 2s deadline.
+    deadline = time.monotonic() + 60
+    while not (logdir / "ready").exists():
+        assert process.poll() is None, "child exited before it was ready"
+        assert time.monotonic() < deadline, "child never became ready"
+        time.sleep(0.05)
+    _monitor_subprocess(sa)
+    assert process.returncode is not None
+    with _subagent_results_lock:
+        return _subagent_results["yielder"]
+
+
+@pytest.mark.parametrize("child_commits_before_popen_returns", [False, True])
+def test_real_subprocess_timeout_reports_checkpoint_from_this_attempt(
+    tmp_path, monkeypatch, child_commits_before_popen_returns
+):
+    """Deadline expiry stays ``timeout`` and names the checkpoint already on disk."""
+    if child_commits_before_popen_returns:
+        real_popen = subprocess.Popen
+
+        def popen_after_child_ready(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            deadline = time.monotonic() + 60
+            while not (tmp_path / "ready").exists():
+                assert process.poll() is None, "child exited before it was ready"
+                assert time.monotonic() < deadline, "child never became ready"
+                time.sleep(0.05)
+            return process
+
+        monkeypatch.setattr(subprocess, "Popen", popen_after_child_ready)
+
+    result = _run_to_deadline(tmp_path, PAYLOAD)
+
+    assert result.status == "timeout"
+    text = str(result.result)
+    assert "Latest committed checkpoint (from this attempt)" in text
+    assert "Waiting for: CI green on PR #1" in text
+    assert "Next action: merge PR #1" in text
+    assert "Artifacts: PR #1, report.txt" in text
+    assert str(tmp_path / CHECKPOINT_FILENAME) in text
+
+
+def test_real_subprocess_timeout_labels_earlier_attempt_checkpoint(
+    tmp_path, monkeypatch
+):
+    """A prior attempt's checkpoint is reported as such, not as this attempt's yield."""
+    _commit(monkeypatch, tmp_path)
+    before = (tmp_path / CHECKPOINT_FILENAME).read_bytes()
+
+    result = _run_to_deadline(tmp_path, None)
+
+    assert result.status == "timeout"
+    assert "Latest committed checkpoint (from an earlier attempt)" in str(result.result)
+    # Expiry reports the record; it never rewrites it.
+    assert (tmp_path / CHECKPOINT_FILENAME).read_bytes() == before
+
+
+def test_real_subprocess_timeout_without_checkpoint_manufactures_none(tmp_path):
+    result = _run_to_deadline(tmp_path, None)
+
+    assert result.status == "timeout"
+    assert "checkpoint" not in str(result.result).lower()
+    assert load_checkpoint(tmp_path) is None
