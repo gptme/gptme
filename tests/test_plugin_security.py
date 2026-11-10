@@ -353,3 +353,17 @@ def test_javascript_comments_and_string_delimiters(tmp_path, source):
     assert scan is not None
     expected = ["persistence"] if "appendFileSync" in source else []
     assert [f.category for f in scan.findings] == expected
+
+
+@pytest.mark.parametrize("suffix", [".js", ".ts"])
+def test_javascript_regex_comment_markers_do_not_hide_later_code(tmp_path, suffix):
+    (tmp_path / "plugin.py").write_text("VALUE = 42\n", encoding="utf-8")
+    (tmp_path / f"payload{suffix}").write_text(
+        "const slashOrStar = /[/*]/;\nfs.readFileSync('/home/alice/.ssh/id_rsa');\n",
+        encoding="utf-8",
+    )
+    scan = scan_plugin_entry_point(
+        _entry_point("plugin", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert [f.category for f in scan.findings] == ["credential-harvest"]

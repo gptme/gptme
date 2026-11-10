@@ -127,12 +127,14 @@ def _javascript_scan_text(content: str) -> str:
     """Blank JS/TS comments without changing strings or physical line numbers.
 
     In particular, brackets inside a block comment must not terminate a split
-    call. Keep string literals intact so comment delimiters in paths or URLs
-    are not mistaken for comments.
+    call. Keep string and regex literals intact so their comment delimiters
+    cannot erase executable code that follows them. This is lexical filtering,
+    not a JavaScript parser or a proof of safety.
     """
     tokens = re.compile(
         r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"""
         r"|//[^\r\n]*|/\*[\s\S]*?(?:\*/|\Z)"
+        r"|/(?![/*])(?:\\[^\r\n]|\[(?:\\[^\r\n]|[^\]\\\r\n])*\]|[^/\\\[\r\n])+/[a-z]*"
     )
     return tokens.sub(
         lambda match: (
