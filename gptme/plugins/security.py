@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
+import stat
 import tokenize
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,10 +174,10 @@ def _bracket_delta(line: str) -> int:
     return depth
 
 
-def _logical_statements(code_lines: list[str]) -> list[tuple[int, str]]:
+def _logical_statements(code_lines: list[str]) -> list[tuple[str, list[int]]]:
     """Group physical lines into logical statements.
 
-    Returns ``(first_line_number, text)`` pairs. A statement continues over a
+    Returns ``(text, physical_line_per_character)`` pairs. A statement continues over a
     newline while brackets are open, so an expression split across lines
     (``open(\\n    "~/.ssh/id_rsa"\\n)``) is scanned as one unit. Explicit backslash
     continuations are joined without inserting whitespace, just as Python joins
@@ -184,27 +186,27 @@ def _logical_statements(code_lines: list[str]) -> list[tuple[int, str]]:
     unrelated statements — ``subprocess.run(['echo'])`` followed by
     ``HELP = 'systemctl enable …'`` is not an executed service install.
     """
-    statements: list[tuple[int, str]] = []
+    statements: list[tuple[str, list[int]]] = []
     current: list[str] = []
-    start = 1
+    physical_lines: list[int] = []
     depth = 0
     continued = False
     for number, code in enumerate(code_lines, start=1):
-        if not current:
-            start = number
         explicit_continuation = code.endswith("\\")
         text = code[:-1] if explicit_continuation else code
-        if continued:
-            current[-1] += text
-        else:
-            current.append(text)
+        if current and not continued:
+            current.append(" ")
+            physical_lines.append(number)
+        current.append(text)
+        physical_lines.extend([number] * len(text))
         continued = explicit_continuation
         depth = max(0, depth + _bracket_delta(code))
         if depth == 0 and not continued:
-            statements.append((start, " ".join(current)))
+            statements.append(("".join(current), physical_lines))
             current = []
+            physical_lines = []
     if current:
-        statements.append((start, " ".join(current)))
+        statements.append(("".join(current), physical_lines))
     return statements
 
 
@@ -405,10 +407,11 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
                 for line in content.splitlines()
             ]
         )
-        haystack = "\n".join(text for _, text in statements)
-        physical_lines = [
-            number for number, text in statements for _ in range(len(text) + 1)
-        ]
+        haystack = "\n".join(text for text, _ in statements)
+        physical_lines = []
+        for _, line_numbers in statements:
+            physical_lines.extend(line_numbers)
+            physical_lines.append(line_numbers[-1] if line_numbers else 1)
     findings: list[PluginSecurityFinding] = []
     for pattern in _PATTERNS:
         if suffix not in pattern.suffixes:
@@ -425,6 +428,41 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
     return findings
 
 
+def _walk_source_files(directory: Path) -> list[Path]:
+    """Enumerate files through directory links, failing on cycles or I/O errors.
+
+    Recursive glob silently skips linked directories (and some read failures).
+    That is unsafe for both editable candidate discovery and package scanning:
+    the omitted tree may be the code the interpreter actually imports. Track
+    ancestors rather than globally deduplicating, since two aliases of a source
+    are still ambiguous editable layouts.
+    """
+    files: list[Path] = []
+    pending = [(directory, frozenset[tuple[int, int]]())]
+    while pending:
+        current, ancestors = pending.pop()
+        info = current.stat()
+        identity = (info.st_dev, info.st_ino)
+        if identity in ancestors:
+            raise OSError(f"Directory cycle while scanning {current}")
+        with os.scandir(current) as entries:
+            for entry in entries:
+                # These trees are excluded from source inspection too. Prune
+                # before stat: irrelevant dangling links/cycles must not reject
+                # an otherwise verifiable editable package.
+                if entry.name.lower() in _SKIP_PARTS or entry.name.endswith(
+                    ".dist-info"
+                ):
+                    continue
+                path = current / entry.name
+                info = entry.stat(follow_symlinks=True)
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append((path, ancestors | {identity}))
+                else:
+                    files.append(path)
+    return sorted(files)
+
+
 def _iter_scannable_sources(directory: Path) -> list[Path]:
     """Return scannable source files under ``directory``, recursively.
 
@@ -432,10 +470,7 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
     install is scanned to the same depth as a wheel install.
     """
     sources: list[Path] = []
-    try:
-        paths = sorted(directory.rglob("*"))
-    except OSError:
-        return sources
+    paths = _walk_source_files(directory)
     for path in paths:
         if not path.is_file() or path.suffix.lower() not in _SCANNABLE_SUFFIXES:
             continue
@@ -464,12 +499,18 @@ def _find_editable_module(
     # A module.py and a module/__init__.py are competing forms of the same
     # entry point, even when each form has only one matching layout.
     candidates: list[tuple[str, Path]] = []
+    try:
+        files = _walk_source_files(source_dir)
+    except OSError:
+        return None
     for relative in sorted(relative_paths):
-        try:
-            matches = sorted(source_dir.rglob(relative))
-        except OSError:
-            return None
-        candidates.extend((relative, match) for match in matches if match.is_file())
+        parts = Path(relative).parts
+        candidates.extend(
+            (relative, path)
+            for path in files
+            if path.relative_to(source_dir).parts[-len(parts) :] == parts
+            and path.is_file()
+        )
     return candidates[0] if len(candidates) == 1 else None
 
 

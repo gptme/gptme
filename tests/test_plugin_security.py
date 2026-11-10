@@ -8,6 +8,7 @@ far an editable install's importable source reaches. Discovery-level behaviour
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -218,8 +219,10 @@ def test_deep_editable_copy_cannot_be_hidden_by_shallow_copy(tmp_path, layout):
     assert not scan.entry_point_scanned
 
 
-@pytest.mark.parametrize("payload", ["deep-copy", "fstring"])
-def test_new_security_cases_never_reach_entrypoint_load(tmp_path, monkeypatch, payload):
+@pytest.mark.parametrize("payload", ["deep-copy", "fstring", "linked-copy"])
+def test_new_security_cases_never_reach_entrypoint_load(
+    tmp_path, monkeypatch, payload, request
+):
     from gptme.llm.provider_plugins import clear_plugin_cache, discover_provider_plugins
     from gptme.plugins.entrypoints import (
         clear_entrypoint_cache,
@@ -230,7 +233,15 @@ def test_new_security_cases_never_reach_entrypoint_load(tmp_path, monkeypatch, p
     package = tmp_path / "src/pkg"
     package.mkdir(parents=True)
     source = "VALUE = 42\n"
-    if payload == "deep-copy":
+    if payload == "linked-copy":
+        request.getfixturevalue("requires_symlinks")
+        hidden = tmp_path.parent / f"{tmp_path.name}-external/lib/pkg"
+        hidden.mkdir(parents=True)
+        (hidden / "__init__.py").write_text(
+            "open('/home/alice/.ssh/id_rsa')\n", encoding="utf-8"
+        )
+        (tmp_path / "linked").symlink_to(hidden.parent, target_is_directory=True)
+    elif payload == "deep-copy":
         hidden = tmp_path / "deep/a/b/pkg"
         hidden.mkdir(parents=True)
         (hidden / "__init__.py").write_text(
@@ -422,7 +433,14 @@ def test_undecodable_importable_sibling_invalidates_scan(
     """Importable bytes must not disappear from a verified source scan."""
     (tmp_path / "plugin.py").write_text("import payload\n", encoding="utf-8")
     payload = b'# header\n# header\n# \xff\nopen("/home/alice/.ssh/id_rsa")\n'
-    compile(payload, "payload.py", "exec")  # Python accepts this; never execute it.
+    # CPython <=3.14 accepts invalid UTF-8 in a comment after the first two
+    # lines; 3.15 rejects it. Keep testing fail-closed scanning on both, while
+    # verifying importability on the versions where this was a real bypass.
+    if sys.version_info < (3, 15):
+        compile(payload, "payload.py", "exec")  # Never execute the payload.
+    else:
+        with pytest.raises(SyntaxError):
+            compile(payload, "payload.py", "exec")
     (tmp_path / "payload.py").write_bytes(payload)
     files = [Path("payload.py"), Path("plugin.py")]
     if not payload_first:
@@ -499,3 +517,88 @@ def test_javascript_regex_comment_markers_do_not_hide_later_code(tmp_path, suffi
     )
     assert scan is not None
     assert [f.category for f in scan.findings] == ["credential-harvest"]
+
+
+@pytest.mark.parametrize("duplicate", [True, False])
+def test_linked_editable_source_is_not_hidden(tmp_path, requires_symlinks, duplicate):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    external = tmp_path / "external/lib/pkg"
+    external.mkdir(parents=True)
+    (external / "__init__.py").write_text("open('~/.ssh/id_rsa')\n")
+    (checkout / "linked").symlink_to(tmp_path / "external", target_is_directory=True)
+    if duplicate:
+        clean = checkout / "src/pkg"
+        clean.mkdir(parents=True)
+        (clean / "__init__.py").write_text("VALUE = 42\n")
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(checkout))
+    )
+    assert scan is not None
+    if duplicate:
+        assert not scan.entry_point_scanned
+    else:
+        assert scan.entry_point_scanned
+        assert [f.category for f in scan.findings] == ["credential-harvest"]
+
+
+def test_editable_directory_cycle_is_unverified(tmp_path, requires_symlinks):
+    package = tmp_path / "src/pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("VALUE = 42\n")
+    (tmp_path / "loop").symlink_to(tmp_path, target_is_directory=True)
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert not scan.entry_point_scanned
+
+
+def test_editable_package_scans_linked_sibling(tmp_path, requires_symlinks):
+    checkout = tmp_path / "checkout"
+    package = checkout / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("from .payload import creds\n")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "creds.py").write_text("open('~/.ssh/id_rsa')\n")
+    (package / "payload").symlink_to(external, target_is_directory=True)
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(checkout))
+    )
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert [f.category for f in scan.findings] == ["credential-harvest"]
+
+
+@pytest.mark.parametrize("suffix", [".js", ".ts"])
+def test_grouped_javascript_reports_physical_line(tmp_path, suffix):
+    (tmp_path / "plugin.py").write_text("VALUE = 42\n")
+    (tmp_path / f"payload{suffix}").write_text(
+        "function init() {\n const x = 1;\n fs.readFileSync('/home/alice/.ssh/id_rsa');\n}\n"
+    )
+    scan = scan_plugin_entry_point(
+        _entry_point("plugin", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert [f.category for f in scan.findings] == ["credential-harvest"]
+    assert scan.findings[0].line == 3
+
+
+@pytest.mark.parametrize("ignored", [".git", "__pycache__", "pkg.dist-info"])
+def test_ignored_metadata_links_do_not_block_editable_scan(
+    tmp_path, requires_symlinks, ignored
+):
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("VALUE = 42\n")
+    metadata = tmp_path / ignored
+    metadata.mkdir()
+    (metadata / "loop").symlink_to(metadata, target_is_directory=True)
+    (metadata / "missing").symlink_to(tmp_path / "absent")
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert scan.findings == ()
