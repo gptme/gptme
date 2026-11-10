@@ -942,7 +942,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f78fdddc0e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1efa3640e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2574,6 +2574,15 @@ Use ``subagent_reply(agent_id, reply)`` to answer and re-spawn the subagent.
 The re-spawned subagent receives the original prompt plus the Q&amp;A so it can
 complete the task without losing context.
 
+<span class="gu">## External Waits</span>
+
+A subagent whose remaining work depends on an external condition (CI, a
+review) can end its attempt with a ``yield`` block. It commits a checkpoint
+(``wait_for``, ``next_action``, ``artifacts``) to its conversation directory and
+the attempt reports ``blocked_external``. Nothing polls the condition: check it
+yourself, then call ``subagent_continue(agent_id, message)`` to resume the same
+conversation.
+
 The following Python functions are available:
 
 <span class="sb">```txt</span>
@@ -3033,6 +3042,25 @@ Verb options: --timeout on run/until/stream/timer/tmux (unit required: 30s, 5m �
 <span class="s">until gh pr checks 42 --repo gptme/gptme --every 60s --timeout 30m</span>
 <span class="sb">```</span>
 
+<span class="gu">## yield</span>
+
+<span class="gs">**Description:**</span> Checkpoint and end this attempt while an external condition is pending
+
+<span class="gs">**Instructions:**</span> Use this block when your remaining work depends on something outside your
+control (CI, a review, a deploy) and nothing more can be done until it happens.
+Write a JSON object with what you are waiting for, what to do once it is met,
+and the artifacts you already produced (branch, commit, PR, file paths):
+
+<span class="sb">```yield</span>
+<span class="s">{"wait_for": "CI green on PR #123", "next_action": "merge PR #123 and update the changelog", "artifacts": ["PR #123", "branch feat/x"]}</span>
+<span class="sb">```</span>
+
+The checkpoint is saved and this attempt ends as ``blocked_external``. The
+parent checks the condition and continues this same conversation later, so do
+not redo work recorded in ``artifacts``. If the checkpoint is not committed you
+will be told why and must not assume you have yielded. Use ``complete`` when
+done and ``clarify`` when you need an answer from the parent.
+
 <span class="gu">## ipython</span>
 
 <span class="gs">**Description:**</span> Execute Python code
@@ -3068,7 +3096,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 20397</p>
+<p>Tokens: 20731</p>
 </dd></dl>
 
 <dl class="py function">
