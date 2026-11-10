@@ -311,9 +311,12 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
         logger.warning("Failed to scan logs dir %s: %s", logs_dir, e)
         return None
     for entry in entries:
-        if not entry.is_dir():
-            continue
+        # Filter by name before touching the filesystem: the logs dir holds every
+        # conversation, so a stat per entry made each cold lookup of an unknown
+        # id cost ~1s at 20k logs while the name check costs ~2ms.
         if entry != exact and not entry.name.startswith(prefix):
+            continue
+        if not entry.is_dir():
             continue
         sa = load_subagent_meta(entry)
         if (

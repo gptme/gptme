@@ -324,6 +324,36 @@ class TestScanRehydrate:
         assert loaded.logdir == subagent_dir
         assert load_subagent_by_id("work", tmp_path) is None
 
+    def test_load_by_id_does_not_stat_unrelated_logdirs(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """An id lookup must not stat every conversation in the logs dir."""
+        for i in range(50):
+            (tmp_path / f"2026-11-10-conversation-{i}").mkdir()
+        subagent_dir = tmp_path / "subagent-worker-a7k2"
+        _completed_log(subagent_dir)
+        persist_subagent_meta(
+            Subagent(
+                agent_id="worker",
+                prompt="hello",
+                thread=None,
+                logdir=subagent_dir,
+                model=None,
+            )
+        )
+        checked: list[str] = []
+        real_is_dir = Path.is_dir
+
+        def counting_is_dir(self: Path, *args, **kwargs) -> bool:
+            if self.parent == tmp_path:
+                checked.append(self.name)
+            return real_is_dir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "is_dir", counting_is_dir)
+        loaded = load_subagent_by_id("worker", tmp_path)
+        assert loaded is not None
+        assert checked == ["subagent-worker-a7k2"]
+
     def test_load_by_id_prefers_newest_started_at(self, tmp_path: Path):
         older = tmp_path / "subagent-worker-old1"
         newer = tmp_path / "subagent-worker-new2"
