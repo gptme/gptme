@@ -24,6 +24,7 @@ from .persistence import (
     load_subagent_by_id,
     persist_subagent_meta,
     remove_subagent_meta,
+    restore_subagent_outcome,
     scan_rehydrate_subagents,
 )
 from .types import (
@@ -65,7 +66,8 @@ def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
         if sa is not None:
             return sa
         _subagents.append(loaded)
-        return loaded
+    restore_subagent_outcome(loaded)
+    return loaded
 
 
 def _maybe_rehydrate_registry() -> None:
@@ -97,10 +99,14 @@ def _maybe_rehydrate_registry() -> None:
             )
             with _subagents_lock:
                 existing_ids = {s.agent_id for s in _subagents}
+                restored: list[Subagent] = []
                 for sa in rehydrated:
                     if sa.agent_id not in existing_ids:
                         _subagents.append(sa)
                         existing_ids.add(sa.agent_id)
+                        restored.append(sa)
+            for sa in restored:
+                restore_subagent_outcome(sa)
         _types._registry_rehydrated = True
 
 

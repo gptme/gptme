@@ -6,6 +6,11 @@ so ``subagent_status`` / ``subagent_wait`` / ``subagent_continue`` still work.
 Completed agents keep their metadata — removing it on completion would make
 resume-after-restart impossible.
 
+The terminal outcome of each attempt is persisted separately in
+``subagent-outcome.json``, keyed by the attempt's ``started_at``. Without it a
+restarted parent can only infer the outcome from the conversation log, which
+reports a child killed at its deadline (or cancelled) as a generic failure.
+
 Rehydrated entries have no live ``thread``/``process`` handles. Thread-mode
 children die with the parent, so treating them as terminal is correct.
 Reattaching a subprocess that outlived the parent is out of scope: status()
@@ -22,11 +27,13 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
-from .types import Subagent
+from .types import ReturnType, Subagent, _subagent_results, _subagent_results_lock
 
 logger = logging.getLogger(__name__)
 
 META_FILENAME = "subagent-meta.json"
+# Terminal attempt outcome, keyed by the attempt's ``started_at`` generation.
+OUTCOME_FILENAME = "subagent-outcome.json"
 
 # Runtime objects that cannot round-trip through JSON.
 _RUNTIME_FIELDS = frozenset(
@@ -88,39 +95,127 @@ def _dict_to_subagent(data: dict[str, Any]) -> Subagent:
     return Subagent(**payload)
 
 
+def _atomic_write_json(logdir: Path, filename: str, payload: str) -> None:
+    """Write *payload* to ``logdir/filename`` via a same-directory temp file.
+
+    ``os.replace`` onto the destination means readers never see a truncated
+    rewrite. Raises ``OSError`` on failure; callers decide how to report it.
+    """
+    logdir.mkdir(parents=True, exist_ok=True)
+    dest = logdir / filename
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=logdir,
+            prefix=f".{Path(filename).stem}-",
+            suffix=".tmp",
+            delete=False,
+        ) as tf:
+            tmp_path = tf.name
+            tf.write(payload)
+            tf.flush()
+            os.fsync(tf.fileno())
+        os.replace(tmp_path, dest)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            Path(tmp_path).unlink(missing_ok=True)
+
+
 def persist_subagent_meta(sa: Subagent) -> None:
     """Atomically write ``subagent-meta.json`` into the subagent's logdir.
 
-    Write to a same-directory temp file and ``os.replace`` onto the destination
-    so readers never see a truncated rewrite. An interrupted
-    ``Path.write_text`` can leave invalid JSON and make a completed child
-    undiscoverable after restart.
+    An interrupted ``Path.write_text`` can leave invalid JSON and make a
+    completed child undiscoverable after restart, hence the atomic write.
     """
     try:
-        sa.logdir.mkdir(parents=True, exist_ok=True)
-        dest = sa.logdir / META_FILENAME
         payload = json.dumps(_subagent_to_dict(sa), indent=2, default=str)
-        tmp_path: str | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=sa.logdir,
-                prefix=".subagent-meta-",
-                suffix=".tmp",
-                delete=False,
-            ) as tf:
-                tmp_path = tf.name
-                tf.write(payload)
-                tf.flush()
-                os.fsync(tf.fileno())
-            os.replace(tmp_path, dest)
-            tmp_path = None
-        finally:
-            if tmp_path is not None:
-                Path(tmp_path).unlink(missing_ok=True)
+        _atomic_write_json(sa.logdir, META_FILENAME, payload)
     except OSError as e:
         logger.warning("Failed to persist subagent meta for %s: %s", sa.agent_id, e)
+
+
+def persist_subagent_outcome(sa: Subagent, result: ReturnType) -> bool:
+    """Durably record *result* as the terminal outcome of *sa*'s current attempt.
+
+    The in-memory result cache does not survive a parent restart, and
+    ``_read_log()`` can only guess an outcome from the conversation: a child
+    killed at its deadline has no ``complete`` call, so after a restart the
+    original ``timeout``/``cancelled`` cause would be lost. The outcome is keyed
+    by ``started_at`` (a continuation gets a fresh one), so an outcome from an
+    earlier attempt never masks a later attempt in the same logdir.
+
+    Returns False when the write failed; the in-memory cache is unaffected.
+    """
+    payload = {
+        "agent_id": sa.agent_id,
+        "generation": sa.started_at,
+        "status": result.status,
+        "result": result.result,
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "tool_uses": result.tool_uses,
+        "duration_s": result.duration_s,
+    }
+    try:
+        _atomic_write_json(
+            sa.logdir, OUTCOME_FILENAME, json.dumps(payload, indent=2, default=str)
+        )
+    except OSError as e:
+        logger.warning("Failed to persist subagent outcome for %s: %s", sa.agent_id, e)
+        return False
+    return True
+
+
+def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
+    """Load the persisted terminal outcome for *sa*'s current attempt, if any.
+
+    Returns None when no outcome exists, it is unreadable, or it belongs to a
+    different attempt generation (a continuation has started since).
+    """
+    path = sa.logdir / OUTCOME_FILENAME
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise TypeError("subagent outcome must be a JSON object")
+        if data.get("agent_id") != sa.agent_id:
+            return None
+        if float(data["generation"]) != sa.started_at:
+            return None
+        result = data.get("result")
+        if result is not None and not isinstance(result, str | dict):
+            raise TypeError("subagent outcome result must be str, dict or null")
+        return ReturnType(
+            data["status"],
+            result,
+            input_tokens=data.get("input_tokens"),
+            output_tokens=data.get("output_tokens"),
+            tool_uses=data.get("tool_uses"),
+            duration_s=data.get("duration_s"),
+        )
+    except (json.JSONDecodeError, OSError, TypeError, KeyError, ValueError) as e:
+        logger.warning("Failed to load subagent outcome from %s: %s", sa.logdir, e)
+        return None
+
+
+def restore_subagent_outcome(sa: Subagent) -> bool:
+    """Seed the result cache from *sa*'s persisted outcome after a restart.
+
+    Never overwrites a result already cached in this process. Returns True when
+    a persisted outcome was restored.
+    """
+    outcome = load_subagent_outcome(sa)
+    if outcome is None:
+        return False
+    with _subagent_results_lock:
+        if sa.agent_id in _subagent_results:
+            return False
+        _subagent_results[sa.agent_id] = outcome
+    return True
 
 
 def remove_subagent_meta(logdir: Path) -> None:

@@ -135,13 +135,33 @@ _registry_rehydrated = False
 _registry_rehydrate_lock = threading.Lock()
 
 
+def _persist_cached_outcome(agent_id: str, result: "ReturnType") -> None:
+    """Mirror a cached terminal result to the owning subagent's logdir.
+
+    Status reads after a parent restart reload it instead of re-deriving the
+    outcome from the conversation log, which cannot recover a timeout or
+    cancellation cause.
+    """
+    with _subagents_lock:
+        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
+    if sa is None:
+        return
+    from .persistence import persist_subagent_outcome
+
+    persist_subagent_outcome(sa, result)
+
+
 def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
-    """Cache a subagent result unless another terminal result already exists."""
+    """Cache a subagent result unless another terminal result already exists.
+
+    The winning result is also persisted, so it survives a parent restart.
+    """
     with _subagent_results_lock:
         if agent_id in _subagent_results:
             return False
         _subagent_results[agent_id] = result
-        return True
+    _persist_cached_outcome(agent_id, result)
+    return True
 
 
 def preserved_notice(preserved: str) -> str:
@@ -184,7 +204,7 @@ def update_subagent_result_with_branch(
             amended = suffix.lstrip("\n")
         else:
             return  # structured (dict) result — cannot amend inline
-        _subagent_results[agent_id] = ReturnType(
+        updated = ReturnType(
             existing.status,
             amended,
             input_tokens=existing.input_tokens,
@@ -192,6 +212,8 @@ def update_subagent_result_with_branch(
             tool_uses=existing.tool_uses,
             duration_s=existing.duration_s,
         )
+        _subagent_results[agent_id] = updated
+    _persist_cached_outcome(agent_id, updated)
 
 
 # ---------------------------------------------------------------------------
