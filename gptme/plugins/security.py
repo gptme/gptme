@@ -30,6 +30,14 @@ class PluginSecurityFinding:
         )
 
 
+class PluginSecurityError(Exception):
+    """A plugin distribution failed the pre-import security scan.
+
+    Runtime discovery skips the plugin instead of importing it. Carries the
+    human-readable reason so tolerant callers can surface it.
+    """
+
+
 @dataclass(frozen=True)
 class PluginSecurityScan:
     """Result of scanning one plugin distribution."""

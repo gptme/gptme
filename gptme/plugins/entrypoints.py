@@ -17,6 +17,7 @@ from functools import cache
 from importlib.metadata import entry_points
 
 from .plugin import GptmePlugin
+from .security import PluginSecurityError, scan_plugin_entry_point
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,37 @@ def _discover_entrypoint_plugins_cached(
         if enabled_normalized is not None and not (ep_names & enabled_normalized):
             logger.debug("Skipping entry-point plugin %r: not enabled", ep.name)
             continue
+        # Scan before importing: importing a plugin in order to inspect it
+        # executes the payload the check exists to catch. A third-party
+        # distribution with a high-confidence finding is never loaded.
+        try:
+            scan = scan_plugin_entry_point(ep)
+        except Exception as exc:
+            # A scanner bug must not disable every plugin in every session;
+            # gptme-doctor reports the same failure as an error verdict.
+            logger.warning(
+                "Security scan of plugin %r failed, loading anyway: %s", ep.name, exc
+            )
+            scan = None
+        if scan is not None:
+            if scan.findings:
+                blocked = "security scan blocked import: " + ", ".join(
+                    finding.verdict() for finding in scan.findings
+                )
+                logger.warning("Skipping plugin %r: %s", ep.name, blocked)
+                failures.append((ep.name, PluginSecurityError(blocked)))
+                continue
+            if not scan.entry_point_scanned:
+                # gptme-doctor fails closed here; the runtime only warns.
+                # Editable installs ship no source file list, so blocking an
+                # unverified scan would disable every locally-developed plugin.
+                logger.warning(
+                    "Plugin %r could not be verified before import "
+                    "(%d file(s) scanned); loading anyway — run gptme-doctor "
+                    "to inspect the unverified entry point",
+                    ep.name,
+                    scan.scanned_files,
+                )
         try:
             start = time.monotonic()
             obj = ep.load()
