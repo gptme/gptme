@@ -3431,3 +3431,29 @@ def test_joined_fence_after_ambiguous_bare_fence_prefers_literal_content(
         Codeblock("save a.json", expected_content),
         Codeblock("shell", "echo ok"),
     ]
+
+
+@pytest.mark.parametrize("outer_length", [3, 4, 5])
+@pytest.mark.parametrize("trailing_length", [3, 4, 5, 6])
+@pytest.mark.parametrize("content", ["hello", "<think>\nliteral\n</think>\nhello"])
+def test_nonexec_save_ignores_distant_bare_fence_of_other_width(
+    outer_length: int, trailing_length: int, content: str
+) -> None:
+    """Only an exact-width bare fence can continue an outer save."""
+    fence = "`" * outer_length
+    narration = "Narration.\n" * 30
+    markdown = (
+        f"{fence}save a.md\n{content}\n{fence}\n"
+        + narration
+        + "`" * trailing_length
+        + "\n"
+    )
+    # Matching-width controls must retain the literal fence and the full tail.
+    expected = (
+        f"{content}\n{fence}\n{narration.rstrip()}"
+        if outer_length == trailing_length
+        else content
+    )
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", expected, fence=fence)
+    ]

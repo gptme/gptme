@@ -831,7 +831,10 @@ def _outer_closer_scan(
         # It closes the outer block but does not open another fenced block.
         thinking_close = rest.startswith(("<think>", "<thinking>"))
         if not tag or joined or thinking_close:
-            bare.add(i)
+            # Nested tagged blocks accept any bare width, but only an exact
+            # outer-width fence (or a joined closer) can continue the save.
+            if len(fence.group(1)) == outer_fence_len or joined or thinking_close:
+                bare.add(i)
             if openers:
                 matching[openers.pop()] = i
         if tag and (joined or _is_valid_lang_tag(tag)):
