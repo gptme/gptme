@@ -112,3 +112,101 @@ def test_is_running_uses_process_poll_when_process_present(tmp_path):
 
     mock_proc.poll.return_value = 0  # exited
     assert sa.is_running() is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_launcher_rejects_busy_lease_without_starting_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A losing parent must not queue a second writer behind the active child."""
+    import fcntl
+
+    from gptme.tools.subagent import execution
+
+    lock_path = tmp_path / WRITER_LOCK_FILENAME
+    with lock_path.open("w+b") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        monkeypatch.setattr(execution.tempfile, "tempdir", str(tmp_path))
+        monkeypatch.setattr(
+            execution.subprocess,
+            "Popen",
+            lambda *a, **kw: pytest.fail("busy lease must not launch a child"),
+        )
+        # Bound the old blocking implementation so the regression fails instead
+        # of hanging pytest. The fixed implementation returns before release.
+        release = threading.Timer(1, lambda: fcntl.flock(holder, fcntl.LOCK_UN))
+        release.start()
+        try:
+            with pytest.raises(BlockingIOError):
+                execution._run_subagent_subprocess(
+                    "continue", tmp_path, None, tmp_path, resume=True
+                )
+            assert not list(tmp_path.glob("gptme-prompt-*.txt"))
+        finally:
+            release.cancel()
+            release.join()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_real_launcher_hands_lease_to_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise real Popen/pass_fds, without inference or a child-side flock."""
+    from gptme.tools.subagent import execution
+
+    ready = tmp_path / "ready"
+    release = tmp_path / "release"
+    real_popen = subprocess.Popen
+    script = (
+        "import pathlib, sys, time; "
+        "pathlib.Path(sys.argv[1]).touch(); "
+        "\nwhile not pathlib.Path(sys.argv[2]).exists(): time.sleep(0.01)"
+    )
+
+    def launch_stub(cmd: list[str], **kwargs) -> subprocess.Popen:
+        return real_popen(
+            [sys.executable, "-c", script, str(ready), str(release)], **kwargs
+        )
+
+    monkeypatch.setattr(execution.subprocess, "Popen", launch_stub)
+    proc = execution._run_subagent_subprocess(
+        "continue", tmp_path, None, tmp_path, resume=True
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while (
+            not ready.exists() and proc.poll() is None and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert ready.exists(), "child did not reach readiness before exit/deadline"
+        # Launcher has returned and closed its own descriptor. Only the child's
+        # inherited fd can keep this lease held.
+        assert _make_sa(tmp_path).is_running()
+        release.touch()
+        assert proc.wait(timeout=5) == 0
+        assert not _make_sa(tmp_path).is_running()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_launcher_failure_releases_lease_and_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Popen failure must not strand the lease or the temporary prompt."""
+    from gptme.tools.subagent import execution
+
+    monkeypatch.setattr(execution.tempfile, "tempdir", str(tmp_path))
+
+    def fail_launch(*args, **kwargs) -> subprocess.Popen:
+        raise OSError("launch failed")
+
+    monkeypatch.setattr(execution.subprocess, "Popen", fail_launch)
+    with pytest.raises(OSError, match="launch failed"):
+        execution._run_subagent_subprocess(
+            "continue", tmp_path, None, tmp_path, resume=True
+        )
+    assert not _make_sa(tmp_path).is_running()
+    assert not list(tmp_path.glob("gptme-prompt-*.txt"))

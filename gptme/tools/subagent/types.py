@@ -574,6 +574,9 @@ class Subagent:
         if self.execution_mode == "subprocess":
             if self.process:
                 return self.process.poll() is None
+            if self.thread and self.thread.is_alive():
+                # Queued launchers have no process or writer lease yet.
+                return True
             # Cross-restart check: the child holds the writer lock for its entire
             # lifetime. If the lock file exists and is held, the child is alive.
             # This path activates when we rehydrated from disk (no process ref).

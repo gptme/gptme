@@ -923,16 +923,16 @@ def _run_subagent_subprocess(
 
     lock_fd = None
     pass_fds: tuple[int, ...] = ()
-    if _fcntl is not None:
-        lock_path = logdir / WRITER_LOCK_FILENAME
-        lock_path.touch(exist_ok=True)
-        lock_fd = lock_path.open("r+b")
-        # Blocking acquire: wait for any previous holder (should not exist for a
-        # fresh launch, but re-launch after a restart must wait for the old child).
-        _fcntl.flock(lock_fd, _fcntl.LOCK_EX)
-        pass_fds = (lock_fd.fileno(),)
-
     try:
+        if _fcntl is not None:
+            lock_path = logdir / WRITER_LOCK_FILENAME
+            lock_fd = lock_path.open("a+b")
+            # A racing parent must fail, not queue another writer that could
+            # start long after its cancellation or timeout. Close the fd and
+            # remove the prompt in finally on contention or any launch error.
+            _fcntl.flock(lock_fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+            pass_fds = (lock_fd.fileno(),)
+
         with (
             open(tmpfile_path) as stdin_file,
             open(stderr_path, "w") as stderr_file,
