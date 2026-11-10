@@ -1561,6 +1561,16 @@ to re-spawn with the question answered.</p></li>
 
 <dl class="py method">
 <dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">continuation_blocker</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/constants.html#None" title="(in Python v3.15)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Why a finished run cannot resume in its conversation, or None if it can.</p>
+<p>Shared by <code class="docutils literal notranslate"><span class="pre">subagent_continue()</span></code> and the timeout completion notice so
+the parent is only told to continue a child that would be accepted.
+Liveness is checked separately: a notice is emitted from inside a run
+that is still unwinding.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
 <span class="sig-name descname"><span class="pre">is_running</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></span></span></dt>
 <dd><p>Check if the subagent is still running.</p>
 </dd></dl>
@@ -1934,7 +1944,7 @@ releases its concurrency slot.</p>
 <dd><p>Continue a finished subagent in its existing conversation.</p>
 <p>Thread and subprocess children append the follow-up to their original gptme
 conversation log. ACP children reload their durable ACP session before the
-prompt. Isolated children cannot be continued after their workspace cleanup.</p>
+prompt. Isolated children cannot be continued.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
