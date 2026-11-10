@@ -1340,7 +1340,11 @@ def _monitor_subprocess(
 
     # Determine status based on return code
     if _timed_out:
-        status: Status = "failure"
+        # A wall-clock deadline is a timeout, not a failure. The max_time
+        # watchdog and the batch deadline both already report "timeout"; this
+        # path used to disagree, reporting expiry as a generic failure (and so
+        # rendering "❌ failed" instead of "⏱️ timed out" to the parent).
+        status: Status = "timeout"
         result = f"Process killed after {subagent.timeout}s timeout"
         result += _stderr_failure_tail(subagent.logdir / _SUBPROCESS_STDERR_FILENAME)
         # A timeout is a terminal result: report wall-clock seconds since spawn

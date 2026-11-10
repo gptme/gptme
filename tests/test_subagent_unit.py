@@ -1186,7 +1186,7 @@ class TestSubagentCancel:
         assert (cached.tool_uses, cached.duration_s) == (7, 1.5)
         assert (cached.input_tokens, cached.output_tokens) == (3, 4)
 
-    def test_subprocess_monitor_timeout_remains_failure_after_clean_exit(
+    def test_subprocess_monitor_timeout_remains_timeout_after_clean_exit(
         self, tmp_path
     ):
         mock_proc = MagicMock()
@@ -1204,7 +1204,7 @@ class TestSubagentCancel:
         mock_proc.terminate.assert_called_once()
         mock_proc.kill.assert_not_called()
         assert mock_proc.wait.call_args_list[-1].kwargs == {"timeout": 5}
-        assert _subagent_results[sa.agent_id].status == "failure"
+        assert _subagent_results[sa.agent_id].status == "timeout"
         assert "timeout" in (_subagent_results[sa.agent_id].result or "")
         # A timeout is a terminal result: usage reporting must still carry
         # wall-clock duration rather than returning None.
@@ -1231,7 +1231,7 @@ class TestSubagentCancel:
         mock_proc.kill.assert_called_once()
         assert mock_proc.wait.call_args_list[-1].args == ()
         assert mock_proc.wait.call_args_list[-1].kwargs == {}
-        assert _subagent_results[sa.agent_id].status == "failure"
+        assert _subagent_results[sa.agent_id].status == "timeout"
 
     def test_subprocess_monitor_preserves_cancelled_result(self):
         mock_proc = MagicMock()
