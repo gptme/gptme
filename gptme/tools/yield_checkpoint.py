@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ..message import Message
-from .base import ToolSpec
+from .base import Parameter, ToolSpec
 from .complete import SessionCompleteException
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,11 @@ def find_yield_block(content: str) -> str | None:
     """Return a yield block's payload, independent of which tools are loaded."""
     match = _YIELD_BLOCK_RE.search(content)
     return match.group(1) if match else None
+
+
+def is_commit_receipt(message: Message) -> bool:
+    """True for the system message execute_yield emits after a committed write."""
+    return message.role == "system" and message.content.startswith(_COMMITTED_PREFIX)
 
 
 class CheckpointError(ValueError):
@@ -139,8 +144,10 @@ def execute_yield(
     kwargs: dict[str, str] | None,
 ) -> Message:
     """Commit the checkpoint; the session stops only if this succeeded."""
+    # Markdown blocks deliver the payload as ``code``; native tool calls as kwargs.
+    content = code if code is not None else (kwargs or {}).get("checkpoint")
     try:
-        payload = parse_checkpoint_payload(code)
+        payload = parse_checkpoint_payload(content)
         logdir = _current_logdir()
         if logdir is None:
             raise CheckpointError("no conversation directory for this session")
@@ -168,25 +175,18 @@ def yield_hook(
     if False:
         yield
 
-    # Only the latest assistant message and its tool results count: an earlier
-    # committed yield in a continued conversation must not stop the new attempt.
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-        if message.role == "user":
+    # Key on the commit receipt, not the block syntax, so markdown and native
+    # tool calls behave alike. Only results of the latest assistant message
+    # count: an earlier committed yield in a continued conversation must not
+    # stop the new attempt.
+    for message in reversed(messages):
+        if message.role != "system":
             return
-        if message.role != "assistant":
-            continue
-        if find_yield_block(message.content) is None:
-            return
-        if any(
-            later.role == "system" and later.content.startswith(_COMMITTED_PREFIX)
-            for later in messages[index + 1 :]
-        ):
+        if is_commit_receipt(message):
             logger.info("Yield checkpoint committed — stopping subagent attempt")
             raise SessionCompleteException(
                 "Session yielded: checkpoint committed, waiting on external condition"
             )
-        return
 
 
 tool = ToolSpec(
@@ -210,6 +210,17 @@ will be told why and must not assume you have yielded. Use ``complete`` when
 done and ``clarify`` when you need an answer from the parent.
 """.strip(),
     block_types=["yield"],
+    parameters=[
+        Parameter(
+            name="checkpoint",
+            type="string",
+            description=(
+                'JSON object: {"wait_for": str, "next_action": str, '
+                '"artifacts": [str, ...]}'
+            ),
+            required=True,
+        ),
+    ],
     execute=execute_yield,
     available=True,
     hooks={

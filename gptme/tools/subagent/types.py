@@ -544,27 +544,38 @@ class Subagent:
             return ReturnType("running")
         return self._read_log()
 
-    def _yield_result(self, terminal_msg: "Message") -> ReturnType | None:
-        """Return the outcome of a terminal ``yield`` block, or None if absent."""
+    def _yield_result(
+        self, terminal_msg: "Message", trailing: "list[Message]"
+    ) -> ReturnType | None:
+        """Return the outcome of a terminal yield, or None if the attempt did not yield.
+
+        ``trailing`` holds the system messages after ``terminal_msg``: a native
+        tool call leaves no ``yield`` block, only the commit receipt.
+        """
         from ..yield_checkpoint import (
             CHECKPOINT_FILENAME,
             CheckpointError,
             find_yield_block,
+            is_commit_receipt,
             load_checkpoint,
             parse_checkpoint_payload,
         )
 
         block = find_yield_block(terminal_msg.content)
-        if block is None:
+        committed = any(is_commit_receipt(m) for m in trailing)
+        if block is None and not committed:
             return None
-        try:
-            payload = parse_checkpoint_payload(block)
-        except CheckpointError:
-            payload = None
+        payload: dict | None = {}
+        if block is not None:
+            try:
+                payload = parse_checkpoint_payload(block)
+            except CheckpointError:
+                payload = None
         record = load_checkpoint(self.logdir)
         if (
             payload is None
             or record is None
+            or not committed
             or any(record[key] != value for key, value in payload.items())
             or record["created_at"] < terminal_msg.timestamp.timestamp()
         ):
@@ -665,7 +676,7 @@ class Subagent:
         # the durable record, not the block: it must carry the same payload and
         # postdate the yielding message, so a failed write, or a record left by
         # an earlier attempt, can never read back as a resumable yield.
-        yield_result = self._yield_result(terminal_msg)
+        yield_result = self._yield_result(terminal_msg, log[terminal_index + 1 :])
         if yield_result is not None:
             return ReturnType(
                 yield_result.status,

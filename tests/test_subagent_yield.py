@@ -197,23 +197,35 @@ class TestReadLogYield:
         assert load_checkpoint(tmp_path) is None
 
     def test_mismatched_checkpoint_is_not_resumable(self, tmp_path, monkeypatch):
-        _commit(monkeypatch, tmp_path, {**PAYLOAD, "wait_for": "something else"})
+        receipt = _commit(monkeypatch, tmp_path, {**PAYLOAD, "wait_for": "other"})
         _write_log(
-            tmp_path, [Message("user", "task"), Message("assistant", _yield_block())]
+            tmp_path,
+            [Message("user", "task"), Message("assistant", _yield_block()), receipt],
         )
         assert _subagent(tmp_path).status().status == "failure"
 
     def test_checkpoint_from_earlier_attempt_is_not_resumable(
         self, tmp_path, monkeypatch
     ):
-        _commit(monkeypatch, tmp_path)
+        receipt = _commit(monkeypatch, tmp_path)
         later = Message(
             "assistant",
             _yield_block(),
             timestamp=datetime.now() + timedelta(hours=1),  # noqa: DTZ005
         )
-        _write_log(tmp_path, [Message("user", "task"), later])
+        _write_log(tmp_path, [Message("user", "task"), later, receipt])
         assert _subagent(tmp_path).status().status == "failure"
+
+    def test_native_tool_call_yield(self, tmp_path, monkeypatch):
+        """A native call leaves no yield block; the commit receipt identifies it."""
+        call = Message("assistant", "Waiting on CI.")
+        monkeypatch.setattr(yield_mod, "_current_logdir", lambda: tmp_path)
+        receipt = execute_yield(None, None, {"checkpoint": json.dumps(PAYLOAD)})
+        assert receipt.content.startswith("Checkpoint committed:")
+        _write_log(tmp_path, [Message("user", "task"), call, receipt])
+        with pytest.raises(SessionCompleteException):
+            list(yield_hook([Message("user", "task"), call, receipt]))
+        assert _subagent(tmp_path).status().status == "blocked_external"
 
 
 CHILD = textwrap.dedent(
