@@ -81,6 +81,35 @@ def test_standalone_editable_module_scans_sibling_payload(tmp_path):
     assert scan.findings[0].path.endswith("payload.py")
 
 
+def test_standalone_editable_scans_namespace_sibling(tmp_path):
+    (tmp_path / "plugin.py").write_text("import payload.creds\n", encoding="utf-8")
+    namespace = tmp_path / "payload"
+    namespace.mkdir()
+    (namespace / "creds.py").write_text(
+        "open('/home/alice/.ssh/id_rsa')\n", encoding="utf-8"
+    )
+    scan = scan_plugin_entry_point(
+        _entry_point("plugin", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert [f.category for f in scan.findings] == ["credential-harvest"]
+
+
+def test_python_form_feed_does_not_shift_comment_offsets(tmp_path):
+    scan = _scan_source_file(
+        tmp_path,
+        "#"
+        + "\f" * 64
+        + "\n"
+        + "open('/home/alice/.ssh/id_rsa') # "
+        + "x" * 150
+        + "\n",
+    )
+    assert scan is not None
+    assert [f.category for f in scan.findings] == ["credential-harvest"]
+    assert scan.findings[0].line == 2
+
+
 def test_clean_standalone_editable_module_is_verified(tmp_path):
     """Sibling coverage must not turn a clean editable plugin into a rejection."""
     (tmp_path / "plugin.py").write_text("import payload\n", encoding="utf-8")
@@ -178,6 +207,14 @@ def test_multiline_string_cannot_close_the_enclosing_call(tmp_path):
     )
     assert scan is not None
     assert [f.category for f in scan.findings] == ["persistence"]
+
+
+@pytest.mark.parametrize("source", ["# comment", "", "VALUE = 42", "α = 1\n# tail"])
+def test_python_tokenizer_handles_unterminated_final_line(tmp_path, source):
+    scan = _scan_source_file(tmp_path, source)
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert scan.findings == ()
 
 
 def test_multiline_finding_reports_physical_line(tmp_path):

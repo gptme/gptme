@@ -312,13 +312,14 @@ def _python_scan_text(content: str) -> tuple[str, list[int]] | None:
     chars = list(content)
     lines: list[int] = []
     offsets = [0]
-    for number, line in enumerate(content.splitlines(keepends=True), start=1):
+    for number, line in enumerate(io.StringIO(content), start=1):
         lines.extend([number] * len(line))
         offsets.append(offsets[-1] + len(line))
 
     def offset(position: tuple[int, int]) -> int:
         row, column = position
-        return offsets[min(row - 1, len(offsets) - 1)] + column
+        # tokenize synthesizes a final NEWLINE/NL even without a physical LF.
+        return min(len(content), offsets[min(row - 1, len(offsets) - 1)] + column)
 
     previous = 0
     try:
@@ -446,8 +447,9 @@ def _iter_import_root_sources(directory: Path) -> list[Path]:
     A module that is not part of a package resolves ``import x`` against its
     containing directory, which the editable install put on ``sys.path``. Every
     file beside it and every sibling package is therefore reachable and must be
-    scanned. Only descend into directories that are packages, so a virtualenv or
-    ``node_modules`` tree is not walked.
+    scanned. Namespace packages lack an initializer, so descend into every
+    identifier-named directory, not just ones containing ``__init__.py``.
+    Dot-directories (including ``.venv``) are not Python import names.
     """
     sources: list[Path] = []
     try:
@@ -457,7 +459,11 @@ def _iter_import_root_sources(directory: Path) -> list[Path]:
     for child in children:
         if child.is_file() and child.suffix.lower() in _SCANNABLE_SUFFIXES:
             sources.append(child)
-        elif child.is_dir() and (child / "__init__.py").is_file():
+        elif (
+            child.is_dir()
+            and child.name.isidentifier()
+            and child.name.lower() not in _SKIP_PARTS
+        ):
             sources.extend(_iter_scannable_sources(child))
     return sources
 
