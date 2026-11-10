@@ -1523,7 +1523,9 @@ def _acp_result(response: Any, chunks: list[str]) -> ReturnType:
     return ReturnType("failure", text)
 
 
-def subagent_continue(agent_id: str, message: str) -> None:
+def subagent_continue(
+    agent_id: str, message: str, *, allow_cancelled: bool = False
+) -> None:
     """Continue a finished subagent in its existing conversation.
 
     Thread and subprocess children append the follow-up to their original gptme
@@ -1533,6 +1535,9 @@ def subagent_continue(agent_id: str, message: str) -> None:
     Args:
         agent_id: The completed subagent to continue.
         message: Follow-up instruction for the child.
+        allow_cancelled: When True, allows continuing a subagent whose persisted
+            outcome is ``cancelled``. Defaults to False so cancellation is final
+            unless the caller explicitly opts in.
     """
     sa = _find_subagent(agent_id)
 
@@ -1545,7 +1550,9 @@ def subagent_continue(agent_id: str, message: str) -> None:
         raise ValueError(
             f"Subagent '{agent_id}' is still running. Use subagent_steer() instead."
         )
-    if (blocker := sa.continuation_blocker()) is not None:
+    if (
+        blocker := sa.continuation_blocker(allow_cancelled=allow_cancelled)
+    ) is not None:
         raise ValueError(blocker)
     try:
         workspace = sa.workdir or Path.cwd()

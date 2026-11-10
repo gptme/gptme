@@ -830,3 +830,135 @@ class TestDurableAttemptOutcome:
         assert outcome is not None
         assert outcome.status == "timeout"
         assert "subagent/branch-agent" in str(outcome.result)
+
+
+class TestCancellationFinalityGuard:
+    """Cancelled outcome blocks continuation unless allow_cancelled=True.
+
+    Cancellation must be durable and final: a restarted parent that loads a
+    persisted ``cancelled`` outcome must refuse ``subagent_continue`` unless
+    the caller explicitly opts in with ``allow_cancelled=True``.
+    gptme/gptme#4555 acceptance — implemented after #4841 merged.
+    """
+
+    def setup_method(self):
+        _reset_subagent_registry()
+
+    def teardown_method(self):
+        _reset_subagent_registry()
+
+    def _register_with_log(
+        self, logdir: Path, agent_id: str = "cancel-agent"
+    ) -> Subagent:
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        logdir.mkdir(parents=True, exist_ok=True)
+        Log([Message("assistant", "working on it")]).write_jsonl(
+            logdir / "conversation.jsonl"
+        )
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="do the work",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        persist_subagent_meta(sa)
+        return sa
+
+    def test_cancelled_outcome_blocks_continuation(self, tmp_path: Path):
+        """continuation_blocker returns an error message for a cancelled outcome."""
+        subagent_dir = tmp_path / "subagent-cancel-agent-ab12"
+        sa = self._register_with_log(subagent_dir)
+        persist_subagent_outcome(
+            sa, ReturnType("cancelled", "cancelled by orchestrator")
+        )
+
+        blocker = sa.continuation_blocker()
+        assert blocker is not None
+        assert "cancelled" in blocker
+        assert "allow_cancelled=True" in blocker
+
+    def test_allow_cancelled_overrides_guard(self, tmp_path: Path):
+        """continuation_blocker returns None when allow_cancelled=True."""
+        subagent_dir = tmp_path / "subagent-cancel-agent-cd34"
+        sa = self._register_with_log(subagent_dir, agent_id="cancel-agent-cd34")
+        persist_subagent_outcome(
+            sa, ReturnType("cancelled", "cancelled by orchestrator")
+        )
+
+        blocker = sa.continuation_blocker(allow_cancelled=True)
+        assert blocker is None
+
+    def test_non_cancelled_outcome_not_blocked(self, tmp_path: Path):
+        """continuation_blocker does not block for timeout or failure outcomes."""
+        from typing import cast
+
+        from gptme.tools.subagent.types import Status
+
+        for status in ("timeout", "failure", "success"):
+            _reset_subagent_registry()
+            agent_id = f"agent-{status}-ef56"
+            subagent_dir = tmp_path / f"subagent-{agent_id}"
+            sa = self._register_with_log(subagent_dir, agent_id=agent_id)
+            persist_subagent_outcome(
+                sa, ReturnType(cast(Status, status), f"ended as {status}")
+            )
+
+            blocker = sa.continuation_blocker()
+            assert blocker is None, f"expected no blocker for status={status!r}"
+
+    def test_no_outcome_file_not_blocked(self, tmp_path: Path):
+        """continuation_blocker does not block when no outcome file exists."""
+        subagent_dir = tmp_path / "subagent-cancel-agent-gh78"
+        sa = self._register_with_log(subagent_dir, agent_id="cancel-agent-gh78")
+        # No persist_subagent_outcome call — outcome file absent.
+
+        blocker = sa.continuation_blocker()
+        assert blocker is None
+
+    def test_in_memory_cancelled_blocks_when_persist_failed(self, tmp_path: Path):
+        """Guard blocks when in-memory cache says cancelled even with no outcome file."""
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            _subagent_results,
+            _subagent_results_lock,
+        )
+
+        subagent_dir = tmp_path / "subagent-cancel-agent-kl78"
+        sa = self._register_with_log(subagent_dir, agent_id="cancel-agent-kl78")
+        # Simulate a failed persist: write directly to the in-memory cache only.
+        with _subagent_results_lock:
+            _subagent_results["cancel-agent-kl78"] = ReturnType(
+                "cancelled", "cancelled"
+            )
+        # No outcome file exists — persist "failed".
+        assert not (subagent_dir / OUTCOME_FILENAME).exists()
+
+        blocker = sa.continuation_blocker()
+        assert blocker is not None
+        assert "cancelled" in blocker
+
+    def test_cancelled_outcome_survives_restart(self, tmp_path: Path):
+        """After a restart continuation_blocker still refuses a cancelled outcome."""
+        subagent_dir = tmp_path / "subagent-cancel-agent-ij90"
+        sa = self._register_with_log(subagent_dir, agent_id="cancel-agent-ij90")
+        persist_subagent_outcome(sa, ReturnType("cancelled", "cancelled"))
+        _reset_subagent_registry()
+
+        # Re-load the subagent (simulates parent restart).
+        reloaded = load_subagent_meta(subagent_dir)
+        assert reloaded is not None
+
+        # Inject into registry so continuation_blocker can call load_subagent_outcome.
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        with _subagents_lock:
+            _subagents.append(reloaded)
+
+        blocker = reloaded.continuation_blocker()
+        assert blocker is not None
+        assert "cancelled" in blocker

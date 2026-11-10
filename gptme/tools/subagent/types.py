@@ -524,13 +524,18 @@ class Subagent:
             logger.debug("Could not read token stats for %s: %s", self.agent_id, e)
             return None, None
 
-    def continuation_blocker(self) -> str | None:
+    def continuation_blocker(self, *, allow_cancelled: bool = False) -> str | None:
         """Why a finished run cannot resume in its conversation, or None if it can.
 
         Shared by ``subagent_continue()`` and the timeout completion notice so
         the parent is only told to continue a child that would be accepted.
         Liveness is checked separately: a notice is emitted from inside a run
         that is still unwinding.
+
+        Args:
+            allow_cancelled: When False (default), a persisted ``cancelled``
+                outcome blocks continuation. Set to True to override and resume
+                a cancelled attempt anyway.
         """
         if self.execution_mode == "acp":
             if self.acp_session_id is None:
@@ -542,6 +547,26 @@ class Subagent:
                 f"Subagent '{self.agent_id}' ran in an isolated workspace and "
                 "cannot be continued; any preserved work is reported in its result."
             )
+        if not allow_cancelled:
+            # Check in-memory cache first so a failed persist does not let the
+            # same-process caller bypass the cancellation guard.
+            with _subagent_results_lock:
+                cached = _subagent_results.get(self.agent_id)
+            if cached is not None and cached.status == "cancelled":
+                return (
+                    f"Subagent '{self.agent_id}' was cancelled and cannot be "
+                    "continued. Pass allow_cancelled=True to override."
+                )
+            # Fall back to the persisted outcome for cross-restart durability.
+            # Lazy import avoids a circular dependency: persistence imports from types.
+            from .persistence import load_subagent_outcome
+
+            outcome = load_subagent_outcome(self)
+            if outcome is not None and outcome.status == "cancelled":
+                return (
+                    f"Subagent '{self.agent_id}' was cancelled and cannot be "
+                    "continued. Pass allow_cancelled=True to override."
+                )
         return None
 
     def is_running(self) -> bool:
