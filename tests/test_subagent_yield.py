@@ -128,6 +128,46 @@ class TestExecuteYield:
         assert record is not None and record["wait_for"] == PAYLOAD["wait_for"]
         assert [p.name for p in tmp_path.iterdir()] == [CHECKPOINT_FILENAME]
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory barrier")
+    @pytest.mark.parametrize("fail_directory_sync", [False, True])
+    def test_syncs_directory_before_acknowledging(
+        self, tmp_path, monkeypatch, fail_directory_sync
+    ):
+        import os
+        import stat
+
+        real_fsync = os.fsync
+        events = []
+
+        def fsync(fd):
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                # The new name must be installed before its namespace barrier.
+                record = load_checkpoint(tmp_path)
+                assert record is not None
+                assert record["wait_for"] == PAYLOAD["wait_for"]
+                events.append("directory")
+                if fail_directory_sync:
+                    raise OSError("directory sync failed")
+            else:
+                events.append("file")
+            real_fsync(fd)
+
+        monkeypatch.setattr(yield_mod.os, "fsync", fsync)
+        msg = _commit(monkeypatch, tmp_path)
+        assert events == ["file", "directory"]
+        assert msg.content.startswith(
+            "Checkpoint NOT committed:"
+            if fail_directory_sync
+            else "Checkpoint committed:"
+        )
+        if fail_directory_sync:
+            messages = [Message("assistant", _yield_block()), msg]
+            assert list(yield_hook(messages)) == []
+            monkeypatch.setattr(yield_mod.os, "fsync", real_fsync)
+            _write_log(tmp_path, [Message("user", "task"), *messages])
+            assert _subagent(tmp_path).status().status == "failure"
+        assert not list(tmp_path.glob("*.tmp"))
+
     def test_without_conversation_dir(self, monkeypatch):
         monkeypatch.setattr(yield_mod, "_current_logdir", lambda: None)
         msg = execute_yield(json.dumps(PAYLOAD), None, None)
@@ -362,6 +402,56 @@ class TestReadLogYield:
         with _subagent_results_lock:
             _subagent_results.clear()
         assert _subagent(tmp_path).status().status == "success"
+
+    @pytest.mark.parametrize("tool_format", ["markdown", "tool"])
+    @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
+    def test_xml_completion_example_does_not_mask_yield(
+        self, tmp_path, monkeypatch, tool_format, xml_style
+    ):
+        from gptme.tools.base import ToolUse
+
+        example = (
+            "<tool-use><complete>Done</complete></tool-use>"
+            if xml_style == "gptme"
+            else '<function_calls><invoke name="complete">Done</invoke></function_calls>'
+        )
+        call = ToolUse("yield", [], json.dumps(PAYLOAD))
+        if tool_format == "tool":
+            call = ToolUse(
+                "yield", None, None, kwargs={"checkpoint": json.dumps(PAYLOAD)}
+            )
+        message = Message(
+            "assistant",
+            f"Example only:\n```xml\n{example}\n```\n\n"
+            + call.to_output(tool_format).replace("@yield:", "@yield(yield-call):", 1),
+        )
+        receipt = _commit(monkeypatch, tmp_path)
+        _write_log(tmp_path, [Message("user", "task"), message, receipt])
+        assert _subagent(tmp_path).status().status == "blocked_external"
+        process = subprocess.Popen([sys.executable, "-c", "pass"])
+        sa = _subagent(tmp_path, process=process, execution_mode="subprocess")
+        _monitor_subprocess(sa)
+        assert sa.status().status == "blocked_external"
+        _, _, status, *_ = _completion_queue.get_nowait()
+        assert status == "blocked_external"
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        assert _subagent(tmp_path).status().status == "blocked_external"
+
+    @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
+    def test_real_xml_completion_after_identical_example(
+        self, tmp_path, monkeypatch, xml_style
+    ):
+        call = (
+            "<tool-use><complete>Done</complete></tool-use>"
+            if xml_style == "gptme"
+            else '<function_calls><invoke name="complete">Done</invoke></function_calls>'
+        )
+        message = Message("assistant", f"Example:\n```xml\n{call}\n```\n\n{call}")
+        _write_log(tmp_path, [Message("user", "task"), message])
+        result = _subagent(tmp_path).status()
+        assert result.status == "success"
+        assert result.result == f"Done\n\nFull log: {tmp_path}"
 
     def test_committed_yield_reports_blocked_external(self, tmp_path, monkeypatch):
         block = Message("assistant", _yield_block())

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from ..codeblock import Codeblock
+from ..logmanager.durability import sync_directory
 from ..message import Message
 from .base import Parameter, ToolFormat, ToolSpec, ToolUse
 from .complete import SessionCompleteException
@@ -116,7 +117,12 @@ def _validate_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def write_checkpoint(logdir: Path, payload: dict[str, Any]) -> Path:
-    """Atomically write the checkpoint record; the old record survives a failure."""
+    """Write and sync a checkpoint; failures before replace preserve the old record.
+
+    A namespace-barrier failure after replace cannot roll back the new record,
+    but is not acknowledged as a committed yield. Directory-sync portability
+    follows the transcript durability policy (no portable Windows barrier).
+    """
     record = {
         "schema": CHECKPOINT_SCHEMA_VERSION,
         "conversation": logdir.name,
@@ -133,6 +139,7 @@ def write_checkpoint(logdir: Path, payload: dict[str, Any]) -> Path:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_name, path)
+        sync_directory(logdir)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise

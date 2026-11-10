@@ -674,13 +674,25 @@ class Subagent:
 
         # Check for a complete tool call in the terminal assistant message.
         # Try parsing as ToolUse first
-        tool_uses = list(ToolUse.iter_from_content(terminal_msg.content))
+        tool_uses = list(
+            ToolUse.iter_from_content(
+                terminal_msg.content, tool_format_override="markdown"
+            )
+        )
         # A child's native tool format need not match the parent's current format.
         native_tools = list(
             ToolUse.iter_from_content(terminal_msg.content, tool_format_override="tool")
         )
+        # The XML parser accepts tags inside fenced documentation. Hide those
+        # examples before the cross-format fallback; masking preserves offsets
+        # and still recognizes real XML calls following an identical example.
+        from ..base import _codeblock_char_ranges
+
+        xml_content = terminal_msg.content
+        for start, end in reversed(_codeblock_char_ranges(xml_content)):
+            xml_content = xml_content[:start] + " " * (end - start) + xml_content[end:]
         xml_tools = list(
-            ToolUse.iter_from_content(terminal_msg.content, tool_format_override="xml")
+            ToolUse.iter_from_content(xml_content, tool_format_override="xml")
         )
         complete_tool = next(
             (
