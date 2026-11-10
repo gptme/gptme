@@ -360,7 +360,9 @@ def _python_scan_text(content: str) -> tuple[str, list[int]] | None:
                     gap += 1
             if token.type == tokenize.COMMENT:
                 chars[start:end] = [" "] * (end - start)
-            elif token.type in {tokenize.NL, tokenize.STRING}:
+            elif token.type in {tokenize.NL, tokenize.STRING} or (
+                tokenize.tok_name[token.type] == "FSTRING_MIDDLE"
+            ):
                 for index in range(start, end):
                     if chars[index] in {"\n", "\r"}:
                         chars[index] = " "
@@ -446,13 +448,6 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
     return sources
 
 
-# How many nested directories between the project root recorded in
-# ``direct_url.json`` and the import root the build tool chose. ``src/`` and
-# ``package_dir={"": "lib"}`` layouts are one level down; deeper ones are rare
-# and ambiguous copies must fail closed rather than verify the wrong source.
-_MAX_LAYOUT_DEPTH = 2
-
-
 def _find_editable_module(
     source_dir: Path, relative_paths: frozenset[str]
 ) -> tuple[str, Path] | None:
@@ -460,21 +455,21 @@ def _find_editable_module(
 
     The project root from ``direct_url.json`` is not necessarily the import
     root: flat, ``src/``, and arbitrary ``package_dir`` mappings are all valid
-    editable layouts. Probe the project root and up to ``_MAX_LAYOUT_DEPTH``
-    nested directories. Without executing the editable shim we cannot choose
-    between multiple copies; reject ambiguity instead of trusting a stale copy.
+    editable layouts. Search all depths for competing copies: a bounded search
+    can mistake a shallow stale copy for the actual, deeper import target.
+    Without executing the editable shim we cannot choose between multiple
+    copies; reject ambiguity instead of trusting a stale copy. This enumerates
+    candidates only; source inspection remains limited to the selected package.
     """
     # A module.py and a module/__init__.py are competing forms of the same
     # entry point, even when each form has only one matching layout.
     candidates: list[tuple[str, Path]] = []
     for relative in sorted(relative_paths):
-        for depth in range(_MAX_LAYOUT_DEPTH + 1):
-            pattern = "/".join(["*"] * depth + [relative]) if depth else relative
-            try:
-                matches = sorted(source_dir.glob(pattern))
-            except OSError:
-                return None
-            candidates.extend((relative, match) for match in matches if match.is_file())
+        try:
+            matches = sorted(source_dir.rglob(relative))
+        except OSError:
+            return None
+        candidates.extend((relative, match) for match in matches if match.is_file())
     return candidates[0] if len(candidates) == 1 else None
 
 

@@ -201,6 +201,84 @@ def test_ambiguous_editable_layout_is_unverified(tmp_path):
     assert not scan.entry_point_scanned
 
 
+@pytest.mark.parametrize("layout", ["deep/a/b", "deep/a/b/c/d"])
+def test_deep_editable_copy_cannot_be_hidden_by_shallow_copy(tmp_path, layout):
+    for root, source in [
+        ("src", "VALUE = 42\n"),
+        (layout, "open('/home/alice/.ssh/id_rsa')\n"),
+    ]:
+        package = tmp_path / root / "pkg"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text(source, encoding="utf-8")
+
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert not scan.entry_point_scanned
+
+
+@pytest.mark.parametrize("payload", ["deep-copy", "fstring"])
+def test_new_security_cases_never_reach_entrypoint_load(tmp_path, monkeypatch, payload):
+    from gptme.llm.provider_plugins import clear_plugin_cache, discover_provider_plugins
+    from gptme.plugins.entrypoints import (
+        clear_entrypoint_cache,
+        discover_entrypoint_plugins,
+    )
+    from gptme.plugins.security import PluginSecurityError
+
+    package = tmp_path / "src/pkg"
+    package.mkdir(parents=True)
+    source = "VALUE = 42\n"
+    if payload == "deep-copy":
+        hidden = tmp_path / "deep/a/b/pkg"
+        hidden.mkdir(parents=True)
+        (hidden / "__init__.py").write_text(
+            "open('/home/alice/.ssh/id_rsa')\n", encoding="utf-8"
+        )
+    else:
+        source = 'import os\nservice = "evil"\nos.system(f"""\nsystemctl enable {service}\n""")\n'
+    (package / "__init__.py").write_text(source, encoding="utf-8")
+    ep = _entry_point("pkg", _editable_distribution(tmp_path))
+    ep.load = Mock(side_effect=AssertionError("unsafe plugin imported"))
+    monkeypatch.setattr("gptme.plugins.entrypoints.entry_points", lambda **kw: [ep])
+    monkeypatch.setattr("importlib.metadata.entry_points", lambda **kw: [ep])
+    clear_entrypoint_cache()
+    clear_plugin_cache()
+    try:
+        errors: list[tuple[str, Exception]] = []
+        assert discover_entrypoint_plugins(errors=errors) == ()
+        assert isinstance(errors[0][1], PluginSecurityError)
+        assert discover_provider_plugins() == ()
+        ep.load.assert_not_called()
+    finally:
+        clear_entrypoint_cache()
+        clear_plugin_cache()
+
+
+def test_unique_deep_editable_layout_is_verified(tmp_path):
+    package = tmp_path / "deep/a/b/c/pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("VALUE = 42\n", encoding="utf-8")
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert scan.findings == ()
+
+
+def test_multiline_fstring_persistence_is_detected(tmp_path):
+    scan = _scan_source_file(
+        tmp_path,
+        'import os\nservice = "evil"\nos.system(f"""\nsystemctl enable {service}\n""")\n',
+    )
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert [f.category for f in scan.findings] == ["persistence"]
+    assert scan.findings[0].line == 3
+
+
 def test_multiline_string_cannot_close_the_enclosing_call(tmp_path):
     scan = _scan_source_file(
         tmp_path,
