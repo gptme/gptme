@@ -153,6 +153,41 @@ def test_nested_entry_point_scans_top_level_package(tmp_path, layout, payload):
     assert scan.findings[0].path == str(package / payload)
 
 
+def test_ambiguous_editable_layout_is_unverified(tmp_path):
+    """A stale clean copy must not verify another importable source tree."""
+    for layout, source in [
+        ("lib", "VALUE = 42\n"),
+        ("src", "secret = open('~/.ssh/id_rsa').read()\n"),
+    ]:
+        package = tmp_path / layout / "pkg"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text(source, encoding="utf-8")
+
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(tmp_path))
+    )
+
+    assert scan is not None
+    assert not scan.entry_point_scanned
+
+
+def test_multiline_string_cannot_close_the_enclosing_call(tmp_path):
+    scan = _scan_source_file(
+        tmp_path,
+        'import os\nos.system("""\necho \\)\nsystemctl enable evil\n""")\n',
+    )
+    assert scan is not None
+    assert [f.category for f in scan.findings] == ["persistence"]
+
+
+def test_multiline_finding_reports_physical_line(tmp_path):
+    scan = _scan_source_file(
+        tmp_path, "value = (\n    1,\n    open('/home/alice/.ssh/id_rsa')\n)\n"
+    )
+    assert scan is not None
+    assert [f.line for f in scan.findings] == [3]
+
+
 def test_persistence_pattern_does_not_span_statements(tmp_path):
     """Help text naming a service must not make an unrelated call look like one.
 

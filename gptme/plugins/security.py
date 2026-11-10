@@ -7,8 +7,10 @@ it defeats the point of the check.
 
 from __future__ import annotations
 
+import io
 import json
 import re
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -301,6 +303,48 @@ def _editable_source_dir(distribution: object) -> Path | None:
     return source if source.is_dir() else None
 
 
+def _python_scan_text(content: str) -> tuple[str, list[int]] | None:
+    """Flatten Python continuations without joining distinct statements.
+
+    Tokenization does not import or execute the plugin. Keep a physical line for
+    every retained character so diagnostics survive newline normalization.
+    """
+    chars = list(content)
+    lines: list[int] = []
+    offsets = [0]
+    for number, line in enumerate(content.splitlines(keepends=True), start=1):
+        lines.extend([number] * len(line))
+        offsets.append(offsets[-1] + len(line))
+
+    def offset(position: tuple[int, int]) -> int:
+        row, column = position
+        return offsets[min(row - 1, len(offsets) - 1)] + column
+
+    previous = 0
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(content).readline):
+            start, end = offset(token.start), offset(token.end)
+            # Explicit continuations are absent from the token stream. Remove
+            # them only in gaps, never inside string literals or comments.
+            gap = previous
+            while gap < start - 1:
+                if content[gap : gap + 2] == "\\\n":
+                    chars[gap] = chars[gap + 1] = ""
+                    gap += 2
+                else:
+                    gap += 1
+            if token.type == tokenize.COMMENT:
+                chars[start:end] = [" "] * (end - start)
+            elif token.type in {tokenize.NL, tokenize.STRING}:
+                for index in range(start, end):
+                    if chars[index] in {"\n", "\r"}:
+                        chars[index] = " "
+            previous = end
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None
+    return "".join(chars), [line for char, line in zip(chars, lines) if char]
+
+
 def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None:
     """Scan one source file; ``None`` when it cannot be inspected."""
     try:
@@ -314,14 +358,22 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
     # code into logical statements. A split expression such as
     # ``open(\n    "~/.ssh/id_rsa"\n)`` is scanned as one statement, while a
     # pattern cannot start in one statement and finish in an unrelated later one.
-    statements = _logical_statements(
-        [
-            "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
-            for line in content.splitlines()
+    if suffix == ".py":
+        normalized = _python_scan_text(content)
+        if normalized is None:
+            return None
+        haystack, physical_lines = normalized
+    else:
+        statements = _logical_statements(
+            [
+                "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
+                for line in content.splitlines()
+            ]
+        )
+        haystack = "\n".join(text for _, text in statements)
+        physical_lines = [
+            number for number, text in statements for _ in range(len(text) + 1)
         ]
-    )
-    haystack = "\n".join(text for _, text in statements)
-    line_numbers = [number for number, _ in statements]
     findings: list[PluginSecurityFinding] = []
     for pattern in _PATTERNS:
         if suffix not in pattern.suffixes:
@@ -329,7 +381,7 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
         findings.extend(
             PluginSecurityFinding(
                 path=display,
-                line=line_numbers[haystack[: match.start()].count("\n")],
+                line=physical_lines[match.start()],
                 category=pattern.category,
                 message=pattern.message,
             )
@@ -364,7 +416,7 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
 # How many nested directories between the project root recorded in
 # ``direct_url.json`` and the import root the build tool chose. ``src/`` and
 # ``package_dir={"": "lib"}`` layouts are one level down; deeper ones are rare
-# and a stale ``build/lib`` copy must not win over a shallower real module.
+# and ambiguous copies must fail closed rather than verify the wrong source.
 _MAX_LAYOUT_DEPTH = 2
 
 
@@ -374,18 +426,18 @@ def _find_editable_module(source_dir: Path, relative: str) -> Path | None:
     The project root from ``direct_url.json`` is not necessarily the import
     root: flat, ``src/``, and arbitrary ``package_dir`` mappings are all valid
     editable layouts. Probe the project root and up to ``_MAX_LAYOUT_DEPTH``
-    nested directories, shallowest first, and return the first matching file.
+    nested directories. Without executing the editable shim we cannot choose
+    between multiple copies; reject ambiguity instead of trusting a stale copy.
     """
+    candidates: list[Path] = []
     for depth in range(_MAX_LAYOUT_DEPTH + 1):
         pattern = "/".join(["*"] * depth + [relative]) if depth else relative
         try:
             matches = sorted(source_dir.glob(pattern))
         except OSError:
             return None
-        for match in matches:
-            if match.is_file():
-                return match
-    return None
+        candidates.extend(match for match in matches if match.is_file())
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _iter_import_root_sources(directory: Path) -> list[Path]:
