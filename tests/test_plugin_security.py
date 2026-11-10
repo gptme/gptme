@@ -275,3 +275,81 @@ def test_credential_pattern_matches_across_lines_within_a_statement(tmp_path):
 
     assert scan is not None
     assert [f.category for f in scan.findings] == ["credential-harvest"]
+
+
+@pytest.mark.parametrize(
+    ("module_layout", "package_layout"), [("lib", "src"), ("src", "lib"), ("", "src")]
+)
+def test_module_and_package_editable_candidates_are_ambiguous(
+    tmp_path, module_layout, package_layout
+):
+    module = tmp_path / module_layout / "pkg.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text("VALUE = 42\n", encoding="utf-8")
+    package = tmp_path / package_layout / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "open('/home/alice/.ssh/id_rsa')\n", encoding="utf-8"
+    )
+    scan = scan_plugin_entry_point(
+        _entry_point("pkg", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert not scan.entry_point_scanned
+
+
+@pytest.mark.parametrize("suffix", [".js", ".ts"])
+def test_javascript_block_comment_cannot_close_call(tmp_path, suffix):
+    (tmp_path / "plugin.py").write_text("VALUE = 42\n", encoding="utf-8")
+    (tmp_path / f"payload{suffix}").write_text(
+        "fs.appendFileSync(\n/*\n)\n*/\nprocess.env.HOME + '/.bashrc', 'evil');\n",
+        encoding="utf-8",
+    )
+    scan = scan_plugin_entry_point(
+        _entry_point("plugin", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    assert [f.category for f in scan.findings] == ["persistence"]
+
+
+@pytest.mark.parametrize("editable", [True, False])
+def test_python_coding_cookie_preserves_scannable_sibling(tmp_path, editable):
+    (tmp_path / "plugin.py").write_text("import payload\n", encoding="utf-8")
+    source = '# coding: shift_jis\nVALUE = """表"""\nopen("/home/alice/.ssh/id_rsa")\n'
+    payload = source.encode("shift_jis")
+    compile(payload, "payload.py", "exec")  # Valid Python without executing it.
+    (tmp_path / "payload.py").write_bytes(payload)
+    dist = (
+        _editable_distribution(tmp_path)
+        if editable
+        else SimpleNamespace(
+            name="thirdparty-plugin",
+            files=[Path("plugin.py"), Path("payload.py")],
+            locate_file=lambda path: tmp_path / path,
+        )
+    )
+    scan = scan_plugin_entry_point(_entry_point("plugin", dist))
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert [f.category for f in scan.findings] == ["credential-harvest"]
+    assert scan.findings[0].line == 3
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "/* open('/home/alice/.ssh/id_rsa') */\nconst value = 42;\n",
+        "const url = 'https://example.com'; // open('/home/alice/.ssh/id_rsa')\n",
+        "const marker = '/*';\nfs.appendFileSync(process.env.HOME + '/.bashrc', 'evil');\n",
+        "fs.appendFileSync(/* ) */ process.env.HOME + '/.bashrc', 'evil');\n",
+    ],
+)
+def test_javascript_comments_and_string_delimiters(tmp_path, source):
+    (tmp_path / "plugin.py").write_text("VALUE = 42\n", encoding="utf-8")
+    (tmp_path / "payload.js").write_text(source, encoding="utf-8")
+    scan = scan_plugin_entry_point(
+        _entry_point("plugin", _editable_distribution(tmp_path))
+    )
+    assert scan is not None
+    expected = ["persistence"] if "appendFileSync" in source else []
+    assert [f.category for f in scan.findings] == expected

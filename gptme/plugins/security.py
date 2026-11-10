@@ -123,6 +123,27 @@ def _code_portion(line: str, suffix: str) -> str:
     return line
 
 
+def _javascript_scan_text(content: str) -> str:
+    """Blank JS/TS comments without changing strings or physical line numbers.
+
+    In particular, brackets inside a block comment must not terminate a split
+    call. Keep string literals intact so comment delimiters in paths or URLs
+    are not mistaken for comments.
+    """
+    tokens = re.compile(
+        r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`"""
+        r"|//[^\r\n]*|/\*[\s\S]*?(?:\*/|\Z)"
+    )
+    return tokens.sub(
+        lambda match: (
+            re.sub(r"[^\r\n]", " ", match.group())
+            if match.group().startswith(("//", "/*"))
+            else match.group()
+        ),
+        content,
+    )
+
+
 def _bracket_delta(line: str) -> int:
     """Return the net bracket depth change of ``line`` outside string literals."""
     depth = 0
@@ -348,13 +369,19 @@ def _python_scan_text(content: str) -> tuple[str, list[int]] | None:
 
 def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None:
     """Scan one source file; ``None`` when it cannot be inspected."""
+    suffix = path.suffix.lower()
     try:
         if not path.is_file() or path.stat().st_size > _MAX_FILE_BYTES:
             return None
-        content = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        if suffix == ".py":
+            # Match Python's own coding-cookie/BOM decoding. Replacement UTF-8
+            # can change token boundaries in valid non-UTF-8 source.
+            with tokenize.open(path) as source:
+                content = source.read()
+        else:
+            content = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, UnicodeError, SyntaxError, LookupError):
         return None
-    suffix = path.suffix.lower()
     # Blank comment-only lines so they cannot match, then group the remaining
     # code into logical statements. A split expression such as
     # ``open(\n    "~/.ssh/id_rsa"\n)`` is scanned as one statement, while a
@@ -365,6 +392,8 @@ def _scan_source(path: Path, display: str) -> list[PluginSecurityFinding] | None
             return None
         haystack, physical_lines = normalized
     else:
+        if suffix in {".js", ".ts"}:
+            content = _javascript_scan_text(content)
         statements = _logical_statements(
             [
                 "" if _is_comment_only(line, suffix) else _code_portion(line, suffix)
@@ -421,7 +450,9 @@ def _iter_scannable_sources(directory: Path) -> list[Path]:
 _MAX_LAYOUT_DEPTH = 2
 
 
-def _find_editable_module(source_dir: Path, relative: str) -> Path | None:
+def _find_editable_module(
+    source_dir: Path, relative_paths: frozenset[str]
+) -> tuple[str, Path] | None:
     """Locate a distribution-relative module inside an editable checkout.
 
     The project root from ``direct_url.json`` is not necessarily the import
@@ -430,14 +461,17 @@ def _find_editable_module(source_dir: Path, relative: str) -> Path | None:
     nested directories. Without executing the editable shim we cannot choose
     between multiple copies; reject ambiguity instead of trusting a stale copy.
     """
-    candidates: list[Path] = []
-    for depth in range(_MAX_LAYOUT_DEPTH + 1):
-        pattern = "/".join(["*"] * depth + [relative]) if depth else relative
-        try:
-            matches = sorted(source_dir.glob(pattern))
-        except OSError:
-            return None
-        candidates.extend(match for match in matches if match.is_file())
+    # A module.py and a module/__init__.py are competing forms of the same
+    # entry point, even when each form has only one matching layout.
+    candidates: list[tuple[str, Path]] = []
+    for relative in sorted(relative_paths):
+        for depth in range(_MAX_LAYOUT_DEPTH + 1):
+            pattern = "/".join(["*"] * depth + [relative]) if depth else relative
+            try:
+                matches = sorted(source_dir.glob(pattern))
+            except OSError:
+                return None
+            candidates.extend((relative, match) for match in matches if match.is_file())
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -481,24 +515,23 @@ def _editable_scan_targets(
     standalone module is scanned together with its import root, since that is
     where ``import <sibling>`` resolves.
     """
-    for relative in sorted(relative_paths):
-        candidate = _find_editable_module(source_dir, relative)
-        if candidate is None:
-            continue
-        # Strip the entire module-relative path, not just its basename: importing
-        # pkg.sub.cli executes pkg/__init__.py before the nested module. This
-        # also covers namespace packages, which need not have an __init__.py.
-        parts = Path(relative).parts
-        import_root = candidate.parents[len(parts) - 1]
-        package_root = import_root / parts[0]
-        if package_root.is_dir():
-            reachable = _iter_scannable_sources(package_root)
-        else:
-            reachable = _iter_import_root_sources(import_root)
-        targets = [candidate]
-        targets.extend(path for path in reachable if path != candidate)
-        return candidate, targets
-    return None, []
+    resolved = _find_editable_module(source_dir, relative_paths)
+    if resolved is None:
+        return None, []
+    relative, candidate = resolved
+    # Strip the entire module-relative path, not just its basename: importing
+    # pkg.sub.cli executes pkg/__init__.py before the nested module. This
+    # also covers namespace packages, which need not have an __init__.py.
+    parts = Path(relative).parts
+    import_root = candidate.parents[len(parts) - 1]
+    package_root = import_root / parts[0]
+    if package_root.is_dir():
+        reachable = _iter_scannable_sources(package_root)
+    else:
+        reachable = _iter_import_root_sources(import_root)
+    targets = [candidate]
+    targets.extend(path for path in reachable if path != candidate)
+    return candidate, targets
 
 
 def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
