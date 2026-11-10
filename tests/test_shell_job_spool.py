@@ -124,8 +124,9 @@ def test_partial_spool_never_claims_full_output(tmp_path, final: bool) -> None:
 
 
 @pytest.mark.parametrize("operation", ["write", "fsync"])
+@pytest.mark.parametrize("evicted", [False, True])
 def test_failed_final_snapshot_does_not_break_later_output(
-    tmp_path, monkeypatch, operation: str
+    tmp_path, monkeypatch, operation: str, evicted: bool
 ) -> None:
     job = BackgroundJob(1, "promoted", Mock(), time.time(), log_dir=tmp_path)
     real_operation = getattr(os, operation)
@@ -134,7 +135,9 @@ def test_failed_final_snapshot_does_not_break_later_output(
         raise OSError("simulated disk failure")
 
     monkeypatch.setattr(os, operation, fail)
-    complete_background_job(job, "retained line\n" * 3000, "error\n")
+    complete_background_job(
+        job, "retained line\n" * (100000 if evicted else 3000), "error\n"
+    )
     assert not job._final_log_written
     # Repeated disk failures must not turn into a closed-file ValueError.
     preview = format_job_output(job, *job.get_output(), complete=True)
@@ -142,11 +145,17 @@ def test_failed_final_snapshot_does_not_break_later_output(
     assert "Full output" not in preview
     monkeypatch.setattr(os, operation, real_operation)
     preview = format_job_output(job, *job.get_output(), complete=True)
-    assert "Full output" in preview
+    assert ("Full output" in preview) != evicted
+    assert ("were not retained" in preview) == evicted
     assert job.log_path is not None
     assert "retained line" in job.log_path.read_text()
-    if job._snapshot_stream is not None:
-        job._snapshot_stream.close()
+    assert job._snapshot_stream is not None
+    with pytest.raises(OSError, match="Bad file descriptor"):
+        os.fstat(job._snapshot_stream._fd)
+    saved = job.log_path.read_text()
+    # Completion retries must finalize once, not rewrite on every preview.
+    assert _write_job_log(job, "replacement", "", final=False) == job.log_path
+    assert job.log_path.read_text() == saved
 
 
 def test_registered_pipe_process_preserves_supplied_final_output(

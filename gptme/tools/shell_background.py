@@ -849,6 +849,11 @@ def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> Non
             job._stderr_buffer_start += job._append_to_buffer_locked(
                 job.stderr_buffer, stderr
             )
+    # A failed final write can be retried by completion rendering. Publish the
+    # finished capture only after RAM holds the final output, so that retry
+    # closes its snapshot and later previews do not reopen it.
+    with _job_log_lock:
+        job._capture_finished.set()
     _notify_completion(job)
 
 
