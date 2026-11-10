@@ -556,14 +556,14 @@ class Subagent:
             CHECKPOINT_FILENAME,
             CheckpointError,
             find_yield_block,
-            is_commit_receipt,
+            last_yield_committed,
             load_checkpoint,
             parse_checkpoint_payload,
         )
 
         block = find_yield_block(terminal_msg.content)
-        committed = any(is_commit_receipt(m) for m in trailing)
-        if block is None and not committed:
+        committed = last_yield_committed(trailing)
+        if block is None and committed is None:
             return None
         payload: dict | None = {}
         if block is not None:

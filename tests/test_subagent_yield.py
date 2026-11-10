@@ -244,6 +244,66 @@ class TestReadLogYield:
         assert result.status == "blocked_external"
         assert "second condition" in str(result.result)
 
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+    @pytest.mark.parametrize("last_succeeds", [False, True])
+    def test_last_write_result_controls_saved_outcome(
+        self, tmp_path, monkeypatch, tool_format, last_succeeds
+    ):
+        from gptme.tools.base import ToolUse
+
+        calls = []
+        for index in range(2):
+            call = ToolUse("yield", [], json.dumps(PAYLOAD))
+            if tool_format == "tool":
+                call = ToolUse(
+                    "yield",
+                    None,
+                    None,
+                    kwargs={"checkpoint": json.dumps(PAYLOAD)},
+                )
+            calls.append(
+                call.to_output(tool_format).replace(
+                    "@yield:", f"@yield(call-{index}):", 1
+                )
+            )
+        message = Message("assistant", "\n".join(calls))
+        replace = yield_mod.os.replace
+
+        def fail(*args, **kwargs):
+            raise OSError("disk full")
+
+        receipts = []
+        for succeeds in (not last_succeeds, last_succeeds):
+            monkeypatch.setattr(yield_mod.os, "replace", replace if succeeds else fail)
+            receipts.append(_commit(monkeypatch, tmp_path))
+        monkeypatch.setattr(yield_mod.os, "replace", replace)
+        messages = [
+            Message("user", "task"),
+            message,
+            *receipts,
+            Message("system", "Other tool output after the yields."),
+        ]
+        if last_succeeds:
+            with pytest.raises(SessionCompleteException):
+                list(yield_hook(messages))
+        else:
+            assert list(yield_hook(messages)) == []
+        # A matching, fresh checkpoint survives even when the final write fails.
+        assert load_checkpoint(tmp_path) is not None
+        _write_log(tmp_path, messages)
+        expected = "blocked_external" if last_succeeds else "failure"
+        assert _subagent(tmp_path).status().status == expected
+        process = subprocess.Popen([sys.executable, "-c", "pass"])
+        sa = _subagent(tmp_path, process=process, execution_mode="subprocess")
+        _monitor_subprocess(sa)
+        assert process.returncode == 0
+        assert sa.status().status == expected
+        _, _, status, *_ = _completion_queue.get_nowait()
+        assert status == expected
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        assert _subagent(tmp_path).status().status == expected
+
     def test_committed_yield_reports_blocked_external(self, tmp_path, monkeypatch):
         block = Message("assistant", _yield_block())
         committed = _commit(monkeypatch, tmp_path)

@@ -70,6 +70,20 @@ def is_commit_receipt(message: Message) -> bool:
     return message.role == "system" and message.content.startswith(_COMMITTED_PREFIX)
 
 
+def last_yield_committed(messages: list[Message]) -> bool | None:
+    """Return the latest yield receipt's outcome, limited to this assistant turn."""
+    for message in reversed(messages):
+        if message.role != "system":
+            break
+        # The last yield result wins, matching checkpoint overwrite order. A
+        # rejected later call must let the child repair and retry its payload.
+        if message.content.startswith(_NOT_COMMITTED_PREFIX):
+            return False
+        if is_commit_receipt(message):
+            return True
+    return None
+
+
 class CheckpointError(ValueError):
     """The yield payload is invalid or the checkpoint could not be written."""
 
@@ -197,18 +211,11 @@ def yield_hook(
     # tool calls behave alike. Only results of the latest assistant message
     # count: an earlier committed yield in a continued conversation must not
     # stop the new attempt.
-    for message in reversed(messages):
-        if message.role != "system":
-            return
-        # The last yield result wins, matching checkpoint overwrite order. A
-        # rejected later call must let the child repair and retry its payload.
-        if message.content.startswith(_NOT_COMMITTED_PREFIX):
-            return
-        if is_commit_receipt(message):
-            logger.info("Yield checkpoint committed — stopping subagent attempt")
-            raise SessionCompleteException(
-                "Session yielded: checkpoint committed, waiting on external condition"
-            )
+    if last_yield_committed(messages):
+        logger.info("Yield checkpoint committed — stopping subagent attempt")
+        raise SessionCompleteException(
+            "Session yielded: checkpoint committed, waiting on external condition"
+        )
 
 
 tool = ToolSpec(
