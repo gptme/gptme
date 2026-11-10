@@ -662,12 +662,19 @@ def _notification_branch(
 def _timeout_is_resumable(agent_id: str) -> bool:
     """Whether a timed-out child can resume in the same conversation.
 
-    Only the in-memory registry is consulted: the notice is formatted on
-    delivery paths that must not hit disk, and an unknown child stays silent.
+    Unknown or reused IDs cannot identify the originating run, so omit the
+    hint. The optional conversation-path check must never suppress delivery
+    of the timeout notice if the filesystem is unavailable.
     """
     with _subagents_lock:
-        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
-    return sa is not None and sa.continuation_blocker() is None
+        matches = [s for s in _subagents if s.agent_id == agent_id]
+        if len(matches) != 1:
+            return False
+        try:
+            return matches[0].continuation_blocker() is None
+        except OSError:
+            logger.debug("Could not check continuation for %s", agent_id, exc_info=True)
+            return False
 
 
 def _completion_message(agent_id: str, status: Status, summary: str) -> Message:

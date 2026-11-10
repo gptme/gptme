@@ -8498,6 +8498,31 @@ class TestTimeoutCompletionContinuationHint:
         msg = _completion_message(sa.agent_id, "timeout", "killed after 1200s")
         assert "subagent_continue" not in msg.content
 
+    def test_timeout_survives_unreadable_conversation_path(self, tmp_path, monkeypatch):
+        sa = self._register(tmp_path, "unreadable-timeout")
+
+        def fail_exists(path):
+            raise OSError("stat unavailable")
+
+        with monkeypatch.context() as mp:
+            mp.setattr(Path, "exists", fail_exists)
+            msg = _completion_message(sa.agent_id, "timeout", "killed after 1200s")
+        assert (
+            "⏱️ Subagent 'unreadable-timeout' timed out: killed after 1200s"
+            in msg.content
+        )
+        assert "subagent_continue" not in msg.content
+
+    @pytest.mark.parametrize("newest_isolated", [False, True])
+    def test_timeout_omits_continuation_for_reused_id(self, tmp_path, newest_isolated):
+        self._register(tmp_path, "reused-timeout", isolated=not newest_isolated)
+        newer_root = tmp_path / "newer"
+        newer_root.mkdir()
+        self._register(newer_root, "reused-timeout", isolated=newest_isolated)
+        msg = _completion_message("reused-timeout", "timeout", "old run timed out")
+        assert "timed out: old run timed out" in msg.content
+        assert "subagent_continue" not in msg.content
+
     def test_timeout_omits_continuation_for_unknown_child(self):
         msg = _completion_message("never-registered", "timeout", "gone")
         assert "subagent_continue" not in msg.content
