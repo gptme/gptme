@@ -14,10 +14,12 @@ from pathlib import Path
 
 import pytest
 
+import gptme.tools.subagent.execution as subagent_execution
 import gptme.tools.yield_checkpoint as yield_mod
 from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.tools.complete import SessionCompleteException
+from gptme.tools.subagent.api import subagent_continue
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.types import (
     Subagent,
@@ -244,8 +246,32 @@ CHILD = textwrap.dedent(
 )
 
 
-def test_real_subprocess_yield_survives_parent_restart(tmp_path):
-    """Artifact → committed yield → blocked_external → parent restart → same verdict."""
+CONTINUATION_CHILD = textwrap.dedent(
+    """
+    import sys
+    from pathlib import Path
+
+    from gptme.logmanager import Log
+    from gptme.message import Message
+
+    logdir, workspace, prompt = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+    log = Log.read_jsonl(logdir / "conversation.jsonl")
+    # Same conversation: the previous attempt's yield is in this child's history.
+    if not any("```yield" in m.content for m in log.messages):
+        sys.exit(4)
+    # The recorded artifact is reused, not republished.
+    if (workspace / "report.txt").read_text() != "published\\n":
+        sys.exit(5)
+    messages = list(log.messages)
+    messages.append(Message("user", prompt))
+    messages.append(Message("assistant", "```complete\\nmerged PR #1\\n```"))
+    Log(messages).write_jsonl(logdir / "conversation.jsonl")
+    """
+)
+
+
+def test_real_subprocess_yield_survives_parent_restart(tmp_path, monkeypatch):
+    """Artifact → yield → blocked_external → restart → continue the same conversation."""
     logdir = tmp_path / "conv"
     workspace = tmp_path / "workspace"
     logdir.mkdir()
@@ -277,3 +303,40 @@ def test_real_subprocess_yield_survives_parent_restart(tmp_path):
     after = restarted.status()
     assert after.status == "blocked_external"
     assert "merge PR #1" in str(after.result)
+
+    # Continue the same conversation once the (local) condition is settled.
+    artifact_mtime = (workspace / "report.txt").stat().st_mtime_ns
+    with _subagents_lock:
+        _subagents[:] = [restarted]
+    launched: list[str] = []
+
+    def run_child(prompt, logdir, resume, **kwargs):
+        assert resume is True
+        launched.append(prompt)
+        return subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                CONTINUATION_CHILD,
+                str(logdir),
+                str(workspace),
+                prompt,
+            ]
+        )
+
+    monkeypatch.setattr(subagent_execution, "_run_subagent_subprocess", run_child)
+    subagent_continue("yielder", "CI is green, finish up")
+    with _subagents_lock:
+        continued = next(s for s in _subagents if s.agent_id == "yielder")
+    assert continued.thread is not None
+    continued.thread.join(timeout=30)
+    assert not continued.thread.is_alive()
+
+    assert launched == ["CI is green, finish up"]
+    final = continued.status()
+    assert final.status == "success", final.result
+    assert "merged PR #1" in str(final.result)
+    assert (workspace / "report.txt").stat().st_mtime_ns == artifact_mtime
+    # Still one conversation: the yield is history, the completion is terminal.
+    log = Log.read_jsonl(logdir / "conversation.jsonl")
+    assert sum("```yield" in m.content for m in log.messages) == 1
