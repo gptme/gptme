@@ -503,7 +503,11 @@ def isolate_logs_home(
     Tests that need a specific root override ``GPTME_LOGS_HOME`` themselves.
     Created outside ``tmp_path`` because some tests audit every entry there.
     """
-    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path_factory.mktemp("logs-home")))
+    # Numbered mktemp scans the whole pytest root on every call. Keep these
+    # per-test directories in a separate subtree and allocate without a scan.
+    root = tmp_path_factory.getbasetemp() / "logs-home"
+    root.mkdir(exist_ok=True)
+    monkeypatch.setenv("GPTME_LOGS_HOME", tempfile.mkdtemp(dir=root))
 
 
 @pytest.fixture(autouse=True)
