@@ -304,6 +304,65 @@ class TestReadLogYield:
             _subagent_results.clear()
         assert _subagent(tmp_path).status().status == expected
 
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+    @pytest.mark.parametrize("committed", [False, True])
+    @pytest.mark.parametrize("completion_signal", ["call", "receipt", "both"])
+    def test_completion_takes_precedence_over_yield(
+        self, tmp_path, monkeypatch, tool_format, committed, completion_signal
+    ):
+        from gptme.tools.base import ToolUse
+        from gptme.tools.complete import execute_complete
+
+        calls = []
+        for name, content in (("yield", json.dumps(PAYLOAD)), ("complete", "Done")):
+            call = ToolUse(name, [], content)
+            if tool_format == "tool":
+                call = ToolUse(
+                    name,
+                    None,
+                    None,
+                    kwargs={"checkpoint": content} if name == "yield" else {},
+                )
+            calls.append(
+                call.to_output(tool_format).replace(
+                    f"@{name}:", f"@{name}({name}-call):", 1
+                )
+            )
+        # Native providers can leave only prose plus the completion receipt.
+        message = Message(
+            "assistant", "Done" if completion_signal == "receipt" else "\n".join(calls)
+        )
+        receipt = (
+            _commit(monkeypatch, tmp_path)
+            if committed
+            else Message("system", "Checkpoint NOT committed: disk full")
+        )
+        _write_log(
+            tmp_path,
+            [
+                Message("user", "task"),
+                message,
+                receipt,
+                *(
+                    [execute_complete(None, None, None)]
+                    if completion_signal != "call"
+                    else []
+                ),
+                Message("system", "Unrelated trailing bookkeeping"),
+            ],
+        )
+        assert _subagent(tmp_path).status().status == "success"
+        process = subprocess.Popen([sys.executable, "-c", "pass"])
+        sa = _subagent(tmp_path, process=process, execution_mode="subprocess")
+        _monitor_subprocess(sa)
+        assert process.returncode == 0
+        assert sa.status().status == "success"
+        _, _, status, *_ = _completion_queue.get_nowait()
+        assert status == "success"
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        assert _subagent(tmp_path).status().status == "success"
+
     def test_committed_yield_reports_blocked_external(self, tmp_path, monkeypatch):
         block = Message("assistant", _yield_block())
         committed = _commit(monkeypatch, tmp_path)

@@ -672,21 +672,6 @@ class Subagent:
                 duration_s=duration_s,
             )
 
-        # A yield ends the attempt only through a committed checkpoint. Trust
-        # the durable record, not the block: it must carry the same payload and
-        # postdate the yielding message, so a failed write, or a record left by
-        # an earlier attempt, can never read back as a resumable yield.
-        yield_result = self._yield_result(terminal_msg, log[terminal_index + 1 :])
-        if yield_result is not None:
-            return ReturnType(
-                yield_result.status,
-                yield_result.result,
-                input_tokens=in_tok,
-                output_tokens=out_tok,
-                tool_uses=n_tool_uses,
-                duration_s=duration_s,
-            )
-
         # Check for a complete tool call in the terminal assistant message.
         # Try parsing as ToolUse first
         tool_uses = list(ToolUse.iter_from_content(terminal_msg.content))
@@ -694,8 +679,16 @@ class Subagent:
         native_tools = list(
             ToolUse.iter_from_content(terminal_msg.content, tool_format_override="tool")
         )
+        xml_tools = list(
+            ToolUse.iter_from_content(terminal_msg.content, tool_format_override="xml")
+        )
         complete_tool = next(
-            (tu for tu in tool_uses + native_tools if tu.tool == "complete"), None
+            (
+                tu
+                for tu in tool_uses + native_tools + xml_tools
+                if tu.tool == "complete"
+            ),
+            None,
         )
 
         if complete_tool:
@@ -782,6 +775,22 @@ class Subagent:
             return ReturnType(
                 "success",
                 f"Task completed successfully. Full log: {self.logdir}",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                tool_uses=n_tool_uses,
+                duration_s=duration_s,
+            )
+
+        # Completion takes precedence over yield, matching the generation hook
+        # priorities. A yield ends the attempt only through a committed checkpoint.
+        # Trust the durable record, not the block: it must carry the same payload
+        # and postdate the yielding message, so a failed write, or a record left
+        # by an earlier attempt, can never read back as a resumable yield.
+        yield_result = self._yield_result(terminal_msg, log[terminal_index + 1 :])
+        if yield_result is not None:
+            return ReturnType(
+                yield_result.status,
+                yield_result.result,
                 input_tokens=in_tok,
                 output_tokens=out_tok,
                 tool_uses=n_tool_uses,
