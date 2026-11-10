@@ -526,6 +526,15 @@ The parent receives a hook notification:
 Use ``subagent_reply(agent_id, reply)`` to answer and re-spawn the subagent.
 The re-spawned subagent receives the original prompt plus the Q&A so it can
 complete the task without losing context.
+
+## External Waits
+
+A subagent whose remaining work depends on an external condition (CI, a
+review) can end its attempt with a ``yield`` block. It commits a checkpoint
+(``wait_for``, ``next_action``, ``artifacts``) to its conversation directory and
+the attempt reports ``blocked_external``. Nothing polls the condition: check it
+yourself, then call ``subagent_continue(agent_id, message)`` to resume the same
+conversation.
 """.strip()
 
 tool = ToolSpec(

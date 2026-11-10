@@ -28,6 +28,7 @@ from ..base import ToolUse
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager  # fmt: skip
+    from ...message import Message  # fmt: skip
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ Status = Literal[
     "timeout",
     "budget_exceeded",
     "cancelled",
+    "blocked_external",
 ]
 Role = Literal["general", "explore", "implement", "verify"]
 
@@ -542,6 +544,58 @@ class Subagent:
             return ReturnType("running")
         return self._read_log()
 
+    def _yield_result(
+        self, terminal_msg: "Message", trailing: "list[Message]"
+    ) -> ReturnType | None:
+        """Return the outcome of a terminal yield, or None if the attempt did not yield.
+
+        ``trailing`` holds the system messages after ``terminal_msg``: a native
+        tool call leaves no ``yield`` block, only the commit receipt.
+        """
+        from ..yield_checkpoint import (
+            CHECKPOINT_FILENAME,
+            CheckpointError,
+            find_yield_block,
+            last_yield_committed,
+            load_checkpoint,
+            parse_checkpoint_payload,
+        )
+
+        block = find_yield_block(terminal_msg.content)
+        committed = last_yield_committed(trailing)
+        if block is None and committed is None:
+            return None
+        payload: dict | None = {}
+        if block is not None:
+            try:
+                payload = parse_checkpoint_payload(block)
+            except CheckpointError:
+                payload = None
+        record = load_checkpoint(self.logdir)
+        if (
+            payload is None
+            or record is None
+            or not committed
+            or any(record[key] != value for key, value in payload.items())
+            or record["created_at"] < terminal_msg.timestamp.timestamp()
+        ):
+            return ReturnType(
+                "failure",
+                "Subagent ended on a yield whose checkpoint was not committed. "
+                f"Full log: {self.logdir}",
+            )
+        return ReturnType(
+            "blocked_external",
+            f"Waiting for: {record['wait_for']}\n"
+            f"Next action: {record['next_action']}\n"
+            + (
+                "Artifacts: " + ", ".join(record["artifacts"]) + "\n"
+                if record["artifacts"]
+                else ""
+            )
+            + f"Checkpoint: {self.logdir / CHECKPOINT_FILENAME}",
+        )
+
     def _read_log(self) -> ReturnType:
         """Read result from cache or conversation log, bypassing thread-liveness check.
 
@@ -620,13 +674,27 @@ class Subagent:
 
         # Check for a complete tool call in the terminal assistant message.
         # Try parsing as ToolUse first
-        tool_uses = list(ToolUse.iter_from_content(terminal_msg.content))
+        tool_uses = list(
+            ToolUse.iter_from_content(
+                terminal_msg.content, tool_format_override="markdown"
+            )
+        )
         # A child's native tool format need not match the parent's current format.
         native_tools = list(
             ToolUse.iter_from_content(terminal_msg.content, tool_format_override="tool")
         )
+        # Skip XML groups quoted in fences, but preserve fences inside real
+        # completion answers. Yield recognition shares the same boundary rule.
+        from ..yield_checkpoint import iter_xml_signal_calls
+
+        xml_tools = list(iter_xml_signal_calls(terminal_msg.content))
         complete_tool = next(
-            (tu for tu in tool_uses + native_tools if tu.tool == "complete"), None
+            (
+                tu
+                for tu in tool_uses + native_tools + xml_tools
+                if tu.tool == "complete"
+            ),
+            None,
         )
 
         if complete_tool:
@@ -713,6 +781,22 @@ class Subagent:
             return ReturnType(
                 "success",
                 f"Task completed successfully. Full log: {self.logdir}",
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                tool_uses=n_tool_uses,
+                duration_s=duration_s,
+            )
+
+        # Completion takes precedence over yield, matching the generation hook
+        # priorities. A yield ends the attempt only through a committed checkpoint.
+        # Trust the durable record, not the block: it must carry the same payload
+        # and postdate the yielding message, so a failed write, or a record left
+        # by an earlier attempt, can never read back as a resumable yield.
+        yield_result = self._yield_result(terminal_msg, log[terminal_index + 1 :])
+        if yield_result is not None:
+            return ReturnType(
+                yield_result.status,
+                yield_result.result,
                 input_tokens=in_tok,
                 output_tokens=out_tok,
                 tool_uses=n_tool_uses,

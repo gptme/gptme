@@ -670,6 +670,13 @@ def _completion_message(agent_id: str, status: Status, summary: str) -> Message:
         )
     elif status == "timeout":
         content = f"⏱️ Subagent '{agent_id}' timed out: {summary}"
+    elif status == "blocked_external":
+        content = (
+            f"⏸️ Subagent '{agent_id}' yielded, blocked on an external condition: "
+            f"{summary}\n"
+            f"Once the condition is met, call subagent_continue('{agent_id}', "
+            "'<message>') to resume the same conversation."
+        )
     else:
         content = f"❌ Subagent '{agent_id}' failed: {summary}"
     return Message("system", content)

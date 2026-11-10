@@ -430,6 +430,7 @@ class BatchJob:
             "clarification_needed",
             "cancelled",
             "timeout",
+            "blocked_external",
         }
         deadline = time.monotonic() + timeout
 
