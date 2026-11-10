@@ -349,11 +349,10 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     if name.lower().replace("_", "-") == "gptme":
         return None
 
-    files = getattr(distribution, "files", None)
-    if files is None:
-        # No file list to scan: return an unverified (not clean) result so the
-        # caller fails closed rather than importing unscanned third-party code.
-        return PluginSecurityScan(0, (), entry_point_scanned=False)
+    # Missing RECORD is not a clean scan, but editable source metadata can
+    # still resolve the module below. Keep the result unverified unless that
+    # fallback actually inspects the entry point.
+    files = getattr(distribution, "files", None) or ()
 
     entry_candidates = _entry_point_module_paths(entry_point)
     findings: list[PluginSecurityFinding] = []

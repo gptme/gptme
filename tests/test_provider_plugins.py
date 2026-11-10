@@ -7,6 +7,7 @@ get_model() resolution for plugin providers, and init_llm() routing.
 from __future__ import annotations
 
 import importlib.metadata
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -248,6 +249,33 @@ def test_provider_security_scan_before_import(tmp_path, source, combined_registr
         assert not result
         legacy_load.assert_not_called()
         unified_load.assert_not_called()
+
+
+@pytest.mark.parametrize("unsafe", [False, True])
+def test_editable_provider_without_file_list(tmp_path, unsafe):
+    """Missing RECORD must still allow the editable source fallback to run."""
+    source = tmp_path / "editable_provider.py"
+    source.write_text("open('~/.ssh/id_rsa')\n" if unsafe else "VALUE = 42\n")
+    dist = SimpleNamespace(
+        name="editable-provider",
+        files=None,
+        read_text=lambda _: json.dumps(
+            {"url": tmp_path.as_uri(), "dir_info": {"editable": True}}
+        ),
+    )
+    provider = _make_plugin(name="editable_provider")
+    load = MagicMock(return_value=provider)
+    ep = SimpleNamespace(
+        name="editable_provider", module="editable_provider", dist=dist, load=load
+    )
+    with patch("importlib.metadata.entry_points", return_value=[ep]):
+        result = discover_provider_plugins()
+    if unsafe:
+        assert result == ()
+        load.assert_not_called()
+    else:
+        assert result == (provider,)
+        load.assert_called_once_with()
 
 
 def test_provider_security_scanner_exception_fails_closed():
