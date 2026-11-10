@@ -28,6 +28,7 @@ from ..base import ToolUse
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager  # fmt: skip
+    from ...message import Message  # fmt: skip
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ Status = Literal[
     "timeout",
     "budget_exceeded",
     "cancelled",
+    "blocked_external",
 ]
 Role = Literal["general", "explore", "implement", "verify"]
 
@@ -542,6 +544,47 @@ class Subagent:
             return ReturnType("running")
         return self._read_log()
 
+    def _yield_result(self, terminal_msg: "Message") -> ReturnType | None:
+        """Return the outcome of a terminal ``yield`` block, or None if absent."""
+        from ..yield_checkpoint import (
+            CHECKPOINT_FILENAME,
+            CheckpointError,
+            find_yield_block,
+            load_checkpoint,
+            parse_checkpoint_payload,
+        )
+
+        block = find_yield_block(terminal_msg.content)
+        if block is None:
+            return None
+        try:
+            payload = parse_checkpoint_payload(block)
+        except CheckpointError:
+            payload = None
+        record = load_checkpoint(self.logdir)
+        if (
+            payload is None
+            or record is None
+            or any(record[key] != value for key, value in payload.items())
+            or record["created_at"] < terminal_msg.timestamp.timestamp()
+        ):
+            return ReturnType(
+                "failure",
+                "Subagent ended on a yield whose checkpoint was not committed. "
+                f"Full log: {self.logdir}",
+            )
+        return ReturnType(
+            "blocked_external",
+            f"Waiting for: {record['wait_for']}\n"
+            f"Next action: {record['next_action']}\n"
+            + (
+                "Artifacts: " + ", ".join(record["artifacts"]) + "\n"
+                if record["artifacts"]
+                else ""
+            )
+            + f"Checkpoint: {self.logdir / CHECKPOINT_FILENAME}",
+        )
+
     def _read_log(self) -> ReturnType:
         """Read result from cache or conversation log, bypassing thread-liveness check.
 
@@ -612,6 +655,21 @@ class Subagent:
             return ReturnType(
                 clarification_result.status,
                 clarification_result.result,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                tool_uses=n_tool_uses,
+                duration_s=duration_s,
+            )
+
+        # A yield ends the attempt only through a committed checkpoint. Trust
+        # the durable record, not the block: it must carry the same payload and
+        # postdate the yielding message, so a failed write, or a record left by
+        # an earlier attempt, can never read back as a resumable yield.
+        yield_result = self._yield_result(terminal_msg)
+        if yield_result is not None:
+            return ReturnType(
+                yield_result.status,
+                yield_result.result,
                 input_tokens=in_tok,
                 output_tokens=out_tok,
                 tool_uses=n_tool_uses,

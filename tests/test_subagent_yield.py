@@ -1,0 +1,279 @@
+"""Tests for the subagent ``yield`` checkpoint operation (gptme/gptme#4555).
+
+No inference: the child is either simulated in-process or run as a real local
+Python subprocess that drives the yield tool exactly as a session would.
+"""
+
+import json
+import queue
+import subprocess
+import sys
+import textwrap
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+import gptme.tools.yield_checkpoint as yield_mod
+from gptme.logmanager import Log
+from gptme.message import Message
+from gptme.tools.complete import SessionCompleteException
+from gptme.tools.subagent.execution import _monitor_subprocess
+from gptme.tools.subagent.types import (
+    Subagent,
+    _completion_queue,
+    _subagent_results,
+    _subagent_results_lock,
+    _subagents,
+    _subagents_lock,
+)
+from gptme.tools.yield_checkpoint import (
+    CHECKPOINT_FILENAME,
+    execute_yield,
+    load_checkpoint,
+    yield_hook,
+)
+
+PAYLOAD = {
+    "wait_for": "CI green on PR #1",
+    "next_action": "merge PR #1",
+    "artifacts": ["PR #1", "report.txt"],
+}
+
+
+def _yield_block(payload: dict = PAYLOAD) -> str:
+    return f"```yield\n{json.dumps(payload)}\n```"
+
+
+@pytest.fixture(autouse=True)
+def _clean_registry():
+    def clear():
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        while True:
+            try:
+                _completion_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    clear()
+    yield
+    clear()
+
+
+def _subagent(logdir: Path, agent_id: str = "yielder", **kwargs) -> Subagent:
+    return Subagent(
+        agent_id=agent_id,
+        prompt="task",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        **kwargs,
+    )
+
+
+def _write_log(logdir: Path, messages: list[Message]) -> None:
+    logdir.mkdir(parents=True, exist_ok=True)
+    Log(messages).write_jsonl(logdir / "conversation.jsonl")
+
+
+def _commit(monkeypatch, logdir: Path, payload: dict = PAYLOAD) -> Message:
+    monkeypatch.setattr(yield_mod, "_current_logdir", lambda: logdir)
+    return execute_yield(json.dumps(payload), None, None)
+
+
+class TestExecuteYield:
+    def test_commits_checkpoint_atomically(self, tmp_path, monkeypatch):
+        msg = _commit(monkeypatch, tmp_path)
+        assert msg.content.startswith("Checkpoint committed:")
+        record = load_checkpoint(tmp_path)
+        assert record is not None
+        assert record["wait_for"] == PAYLOAD["wait_for"]
+        assert record["artifacts"] == PAYLOAD["artifacts"]
+        assert record["conversation"] == tmp_path.name
+        # No temp files left behind by the atomic write.
+        assert [p.name for p in tmp_path.iterdir()] == [CHECKPOINT_FILENAME]
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "not json",
+            "[]",
+            json.dumps({"next_action": "x"}),
+            json.dumps({"wait_for": " ", "next_action": "x"}),
+            json.dumps({"wait_for": "x", "next_action": "y", "artifacts": "PR"}),
+            json.dumps({"wait_for": "x", "next_action": "y", "artifacts": [1]}),
+        ],
+    )
+    def test_invalid_payload_commits_nothing(self, tmp_path, monkeypatch, content):
+        monkeypatch.setattr(yield_mod, "_current_logdir", lambda: tmp_path)
+        msg = execute_yield(content, None, None)
+        assert msg.content.startswith("Checkpoint NOT committed:")
+        assert not (tmp_path / CHECKPOINT_FILENAME).exists()
+
+    def test_failed_write_keeps_previous_checkpoint(self, tmp_path, monkeypatch):
+        _commit(monkeypatch, tmp_path)
+
+        def fail(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(yield_mod.os, "replace", fail)
+        msg = _commit(monkeypatch, tmp_path, {**PAYLOAD, "wait_for": "other"})
+        assert msg.content.startswith("Checkpoint NOT committed:")
+        record = load_checkpoint(tmp_path)
+        assert record is not None and record["wait_for"] == PAYLOAD["wait_for"]
+        assert [p.name for p in tmp_path.iterdir()] == [CHECKPOINT_FILENAME]
+
+    def test_without_conversation_dir(self, monkeypatch):
+        monkeypatch.setattr(yield_mod, "_current_logdir", lambda: None)
+        msg = execute_yield(json.dumps(PAYLOAD), None, None)
+        assert msg.content.startswith("Checkpoint NOT committed:")
+
+
+class TestYieldHook:
+    def test_stops_after_committed_yield(self, tmp_path, monkeypatch):
+        committed = _commit(monkeypatch, tmp_path)
+        messages = [
+            Message("user", "task"),
+            Message("assistant", _yield_block()),
+            committed,
+        ]
+        with pytest.raises(SessionCompleteException):
+            list(yield_hook(messages))
+
+    def test_keeps_running_after_failed_yield(self):
+        messages = [
+            Message("user", "task"),
+            Message("assistant", _yield_block()),
+            Message("system", "Checkpoint NOT committed: write failed."),
+        ]
+        assert list(yield_hook(messages)) == []
+
+    def test_earlier_attempt_yield_does_not_stop_continuation(
+        self, tmp_path, monkeypatch
+    ):
+        committed = _commit(monkeypatch, tmp_path)
+        messages = [
+            Message("assistant", _yield_block()),
+            committed,
+            Message("user", "CI is green, continue"),
+            Message("assistant", "Merging now."),
+        ]
+        assert list(yield_hook(messages)) == []
+
+
+class TestReadLogYield:
+    def test_committed_yield_reports_blocked_external(self, tmp_path, monkeypatch):
+        block = Message("assistant", _yield_block())
+        committed = _commit(monkeypatch, tmp_path)
+        _write_log(tmp_path, [Message("user", "task"), block, committed])
+
+        result = _subagent(tmp_path).status()
+
+        assert result.status == "blocked_external"
+        assert isinstance(result.result, str)
+        assert "CI green on PR #1" in result.result
+        assert "merge PR #1" in result.result
+        assert str(tmp_path / CHECKPOINT_FILENAME) in result.result
+
+    def test_uncommitted_yield_is_not_resumable(self, tmp_path):
+        _write_log(
+            tmp_path, [Message("user", "task"), Message("assistant", _yield_block())]
+        )
+        result = _subagent(tmp_path).status()
+        assert result.status == "failure"
+        assert "not committed" in str(result.result)
+
+    def test_non_finite_checkpoint_time_is_rejected(self, tmp_path, monkeypatch):
+        _commit(monkeypatch, tmp_path)
+        path = tmp_path / CHECKPOINT_FILENAME
+        record = json.loads(path.read_text())
+        record["created_at"] = float("inf")
+        path.write_text(json.dumps(record))
+        assert load_checkpoint(tmp_path) is None
+
+    def test_mismatched_checkpoint_is_not_resumable(self, tmp_path, monkeypatch):
+        _commit(monkeypatch, tmp_path, {**PAYLOAD, "wait_for": "something else"})
+        _write_log(
+            tmp_path, [Message("user", "task"), Message("assistant", _yield_block())]
+        )
+        assert _subagent(tmp_path).status().status == "failure"
+
+    def test_checkpoint_from_earlier_attempt_is_not_resumable(
+        self, tmp_path, monkeypatch
+    ):
+        _commit(monkeypatch, tmp_path)
+        later = Message(
+            "assistant",
+            _yield_block(),
+            timestamp=datetime.now() + timedelta(hours=1),  # noqa: DTZ005
+        )
+        _write_log(tmp_path, [Message("user", "task"), later])
+        assert _subagent(tmp_path).status().status == "failure"
+
+
+CHILD = textwrap.dedent(
+    """
+    import json, sys
+    from pathlib import Path
+
+    import gptme.tools.yield_checkpoint as y
+    from gptme.logmanager import Log
+    from gptme.message import Message
+    from gptme.tools.complete import SessionCompleteException
+
+    logdir, workspace = Path(sys.argv[1]), Path(sys.argv[2])
+    payload = json.loads(sys.argv[3])
+
+    # The attempt's real work: publish an artifact once.
+    (workspace / "report.txt").write_text("published\\n")
+
+    messages = [Message("user", "write the report, then wait for CI")]
+    messages.append(Message("assistant", "```yield\\n" + json.dumps(payload) + "\\n```"))
+    y._current_logdir = lambda: logdir
+    messages.append(y.execute_yield(json.dumps(payload), None, None))
+    Log(messages).write_jsonl(logdir / "conversation.jsonl")
+    try:
+        list(y.yield_hook(messages))
+    except SessionCompleteException:
+        sys.exit(0)
+    sys.exit(3)  # the session would have kept running
+    """
+)
+
+
+def test_real_subprocess_yield_survives_parent_restart(tmp_path):
+    """Artifact → committed yield → blocked_external → parent restart → same verdict."""
+    logdir = tmp_path / "conv"
+    workspace = tmp_path / "workspace"
+    logdir.mkdir()
+    workspace.mkdir()
+    process = subprocess.Popen(
+        [sys.executable, "-c", CHILD, str(logdir), str(workspace), json.dumps(PAYLOAD)]
+    )
+    sa = _subagent(logdir, process=process, execution_mode="subprocess")
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    _monitor_subprocess(sa)
+
+    assert process.returncode == 0
+    with _subagent_results_lock:
+        result = _subagent_results["yielder"]
+    assert result.status == "blocked_external"
+    _parent_logdir, agent_id, status, summary, *_ = _completion_queue.get_nowait()
+    assert (agent_id, status) == ("yielder", "blocked_external")
+    assert "CI green on PR #1" in summary
+    # The caller-managed workspace and its artifact are untouched.
+    assert (workspace / "report.txt").read_text() == "published\n"
+
+    # Parent restart: in-memory results are gone; the verdict is re-derived from
+    # the conversation plus the durable checkpoint, not from cached state.
+    with _subagent_results_lock:
+        _subagent_results.clear()
+    restarted = _subagent(logdir, execution_mode="subprocess")
+    after = restarted.status()
+    assert after.status == "blocked_external"
+    assert "merge PR #1" in str(after.result)

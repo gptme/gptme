@@ -784,6 +784,7 @@ def run_task(task: str, timeout: int, model: str | None, as_json: bool):
         "failure": "✗",
         "timeout": "⏱",
         "clarification_needed": "?",
+        "blocked_external": "⏸",
     }.get(status, "?")
 
     click.echo(f"{status_icon} Status: {status}")

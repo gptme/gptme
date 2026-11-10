@@ -88,7 +88,7 @@ def _effective_child_tool_format(model: str | None) -> ToolFormat | None:
     return _declared_child_tool_format(model)
 
 
-_SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
+_SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress", "yield")
 _SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
 _SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
@@ -820,14 +820,14 @@ def _run_subagent_subprocess(
         profile_obj = get_profile(profile)
         if profile_obj and profile_obj.tools is not None:
             tool_allowlist = list(profile_obj.tools)
-            for tool_name in ("complete", "clarify", "progress"):
+            for tool_name in _SUBAGENT_SIGNAL_TOOLS:
                 if tool_name not in tool_allowlist:
                     tool_allowlist.append(tool_name)
             cmd.extend(["--tools", ",".join(tool_allowlist)])
         else:
-            cmd.extend(["--tools", "+complete,+clarify,+progress"])
+            cmd.extend(["--tools", "+complete,+clarify,+progress,+yield"])
     else:
-        cmd.extend(["--tools", "+complete,+clarify,+progress"])
+        cmd.extend(["--tools", "+complete,+clarify,+progress,+yield"])
 
     # Map context_mode/context_include to the --context CLI flag
     if context_mode == "selective" and context_include:
@@ -1355,8 +1355,8 @@ def _monitor_subprocess(
         # Get result from conversation log (primary source for subprocess mode)
         try:
             log_status = subagent.status()
-            if log_status.status == "clarification_needed":
-                status = "clarification_needed"
+            if log_status.status in ("clarification_needed", "blocked_external"):
+                status = log_status.status
             result = log_status.result
             input_tokens = log_status.input_tokens
             output_tokens = log_status.output_tokens

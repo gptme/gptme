@@ -931,7 +931,7 @@ def test_subprocess_command_includes_required_flags():
     assert "--model" in cmd
     assert "test-model" in cmd
     assert "--tools" in cmd
-    assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify,+progress"
+    assert cmd[cmd.index("--tools") + 1] == "+complete,+clarify,+progress,+yield"
     assert "Test task" not in cmd  # Prompt passed via stdin, not argv
     assert stderr_path == Path(tmpdir) / "logs" / "stderr.log"
 
@@ -970,7 +970,7 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     assert captured_cmd[captured_cmd.index("--agent-profile") + 1] == "explorer"
     assert "--tools" in captured_cmd
     assert captured_cmd[captured_cmd.index("--tools") + 1] == (
-        "read,chats,complete,clarify,progress"
+        "read,chats,complete,clarify,progress,yield"
     )
 
 
@@ -1007,7 +1007,7 @@ def test_subprocess_no_profile_includes_complete_and_clarify():
     assert "--tools" in captured_cmd
     assert (
         captured_cmd[captured_cmd.index("--tools") + 1]
-        == "+complete,+clarify,+progress"
+        == "+complete,+clarify,+progress,+yield"
     )
 
 
@@ -1054,7 +1054,7 @@ def test_subprocess_profile_without_toollist_includes_complete_and_clarify():
     assert "--tools" in captured_cmd
     assert (
         captured_cmd[captured_cmd.index("--tools") + 1]
-        == "+complete,+clarify,+progress"
+        == "+complete,+clarify,+progress,+yield"
     )
 
 
@@ -1943,12 +1943,14 @@ def test_create_subagent_thread_loads_signal_tools_for_default_profile(tmp_path)
         "complete",
         "clarify",
         "progress",
+        "yield",
     ]
     assert {tool.name for tool in loaded_tools} == {
         "shell",
         "complete",
         "clarify",
         "progress",
+        "yield",
     }
 
 
