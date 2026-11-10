@@ -19,16 +19,18 @@ import json
 import logging
 import math
 import os
+import re
 import tempfile
 import time
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ..codeblock import Codeblock
 from ..logmanager.durability import sync_directory
 from ..message import Message
-from .base import Parameter, ToolFormat, ToolSpec, ToolUse
+from .base import Parameter, ToolFormat, ToolSpec, ToolUse, _codeblock_char_ranges
 from .complete import SessionCompleteException
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,26 @@ CHECKPOINT_FILENAME = "subagent-checkpoint.json"
 CHECKPOINT_SCHEMA_VERSION = 1
 _COMMITTED_PREFIX = "Checkpoint committed:"
 _NOT_COMMITTED_PREFIX = "Checkpoint NOT committed:"
+
+
+def iter_xml_signal_calls(content: str) -> Generator[ToolUse, None, None]:
+    """Parse unfenced XML call groups without modifying their payloads.
+
+    Isolating each group also avoids the shared XML parser's first-occurrence
+    offsets confusing an actual call with an identical preceding example.
+    Fences inside a real call are answer content, not quoted call groups.
+    """
+    fences = _codeblock_char_ranges(content)
+    groups = re.finditer(
+        r"<(tool-use|function_calls)>.*?</\1>", content, flags=re.DOTALL
+    )
+    for group in groups:
+        if any(start <= group.start() < end for start, end in fences):
+            continue
+        for call in ToolUse.iter_from_content(
+            group.group(), tool_format_override="xml"
+        ):
+            yield replace(call, start=group.start() + (call.start or 0))
 
 
 def find_yield_block(content: str) -> str | None:
@@ -54,7 +76,12 @@ def find_yield_block(content: str) -> str | None:
     ]
     formats: tuple[ToolFormat, ...] = ("xml", "tool")
     for fmt in formats:
-        for call in ToolUse.iter_from_content(content, tool_format_override=fmt):
+        parsed = (
+            iter_xml_signal_calls(content)
+            if fmt == "xml"
+            else ToolUse.iter_from_content(content, tool_format_override=fmt)
+        )
+        for call in parsed:
             if call.tool != "yield" or (fmt == "tool" and call.kwargs is None):
                 continue
             payload = (

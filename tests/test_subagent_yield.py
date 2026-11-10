@@ -453,6 +453,70 @@ class TestReadLogYield:
         assert result.status == "success"
         assert result.result == f"Done\n\nFull log: {tmp_path}"
 
+    @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
+    @pytest.mark.parametrize("lxml_available", [False, True])
+    @pytest.mark.parametrize("prose", ["", "Here is the result:\n"])
+    @pytest.mark.parametrize("with_example", [False, True])
+    def test_xml_completion_preserves_fenced_answer(
+        self, tmp_path, monkeypatch, xml_style, lxml_available, prose, with_example
+    ):
+        import gptme.tools.base as base
+
+        if lxml_available and not base._LXML_AVAILABLE:
+            pytest.skip("lxml is not installed")
+        monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml_available)
+        answer = prose + '```json\n{"result": "kept"}\n```'
+        call = (
+            f"<tool-use>\n<complete>\n{answer}\n</complete>\n</tool-use>"
+            if xml_style == "gptme"
+            else f'<function_calls>\n<invoke name="complete">\n{answer}\n</invoke>\n</function_calls>'
+        )
+        # An identical example before the real call must neither win nor cause
+        # its fenced payload to be removed from the actual completion.
+        content = (
+            f"Example:\n````xml\n{call}\n````\n\n" if with_example else ""
+        ) + call
+        _write_log(tmp_path, [Message("user", "task"), Message("assistant", content)])
+        result = _subagent(tmp_path).status()
+        assert result.status == "success"
+        assert result.result == f"{answer}\n\nFull log: {tmp_path}"
+
+    @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
+    @pytest.mark.parametrize("lxml_available", [False, True])
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+    def test_xml_yield_example_does_not_replace_real_payload(
+        self, tmp_path, monkeypatch, xml_style, lxml_available, tool_format
+    ):
+        import gptme.tools.base as base
+
+        if lxml_available and not base._LXML_AVAILABLE:
+            pytest.skip("lxml is not installed")
+        monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml_available)
+        example_payload = json.dumps({**PAYLOAD, "wait_for": "example only"})
+        example = (
+            f"<tool-use><yield>{example_payload}</yield></tool-use>"
+            if xml_style == "gptme"
+            else f'<function_calls><invoke name="yield">{example_payload}</invoke></function_calls>'
+        )
+        call = base.ToolUse("yield", [], json.dumps(PAYLOAD))
+        if tool_format == "tool":
+            call = base.ToolUse(
+                "yield", None, None, kwargs={"checkpoint": json.dumps(PAYLOAD)}
+            )
+        message = Message(
+            "assistant",
+            call.to_output(tool_format).replace("@yield:", "@yield(real):", 1)
+            + f"\n\nExample only:\n```xml\n{example}\n```",
+        )
+        receipt = _commit(monkeypatch, tmp_path)
+        assert yield_mod.find_yield_block(message.content) == json.dumps(PAYLOAD)
+        with pytest.raises(SessionCompleteException):
+            list(yield_hook([message, receipt]))
+        _write_log(tmp_path, [Message("user", "task"), message, receipt])
+        result = _subagent(tmp_path).status()
+        assert result.status == "blocked_external"
+        assert str(PAYLOAD["wait_for"]) in str(result.result)
+
     def test_committed_yield_reports_blocked_external(self, tmp_path, monkeypatch):
         block = Message("assistant", _yield_block())
         committed = _commit(monkeypatch, tmp_path)

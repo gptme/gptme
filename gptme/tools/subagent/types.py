@@ -683,17 +683,11 @@ class Subagent:
         native_tools = list(
             ToolUse.iter_from_content(terminal_msg.content, tool_format_override="tool")
         )
-        # The XML parser accepts tags inside fenced documentation. Hide those
-        # examples before the cross-format fallback; masking preserves offsets
-        # and still recognizes real XML calls following an identical example.
-        from ..base import _codeblock_char_ranges
+        # Skip XML groups quoted in fences, but preserve fences inside real
+        # completion answers. Yield recognition shares the same boundary rule.
+        from ..yield_checkpoint import iter_xml_signal_calls
 
-        xml_content = terminal_msg.content
-        for start, end in reversed(_codeblock_char_ranges(xml_content)):
-            xml_content = xml_content[:start] + " " * (end - start) + xml_content[end:]
-        xml_tools = list(
-            ToolUse.iter_from_content(xml_content, tool_format_override="xml")
-        )
+        xml_tools = list(iter_xml_signal_calls(terminal_msg.content))
         complete_tool = next(
             (
                 tu
