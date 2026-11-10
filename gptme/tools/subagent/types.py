@@ -135,20 +135,30 @@ _registry_rehydrated = False
 _registry_rehydrate_lock = threading.Lock()
 
 
-def _persist_cached_outcome(agent_id: str, result: "ReturnType") -> None:
-    """Mirror a cached terminal result to the owning subagent's logdir.
+# Serializes outcome writes so the file always ends at the latest cached value.
+_outcome_persist_lock = threading.Lock()
+
+
+def _persist_cached_outcome(agent_id: str) -> None:
+    """Mirror the cached terminal result to the owning subagent's logdir.
 
     Status reads after a parent restart reload it instead of re-deriving the
     outcome from the conversation log, which cannot recover a timeout or
-    cancellation cause.
+    cancellation cause. The value is re-read under the persist lock, so a slow
+    first write cannot overwrite a later amendment (e.g. a preserved branch).
     """
-    with _subagents_lock:
-        sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
-    if sa is None:
-        return
     from .persistence import persist_subagent_outcome
 
-    persist_subagent_outcome(sa, result)
+    with _outcome_persist_lock:
+        with _subagent_results_lock:
+            result = _subagent_results.get(agent_id)
+        if result is None:
+            return
+        with _subagents_lock:
+            sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
+        if sa is None:
+            return
+        persist_subagent_outcome(sa, result)
 
 
 def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
@@ -160,7 +170,7 @@ def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
         if agent_id in _subagent_results:
             return False
         _subagent_results[agent_id] = result
-    _persist_cached_outcome(agent_id, result)
+    _persist_cached_outcome(agent_id)
     return True
 
 
@@ -204,7 +214,7 @@ def update_subagent_result_with_branch(
             amended = suffix.lstrip("\n")
         else:
             return  # structured (dict) result — cannot amend inline
-        updated = ReturnType(
+        _subagent_results[agent_id] = ReturnType(
             existing.status,
             amended,
             input_tokens=existing.input_tokens,
@@ -212,8 +222,7 @@ def update_subagent_result_with_branch(
             tool_uses=existing.tool_uses,
             duration_s=existing.duration_s,
         )
-        _subagent_results[agent_id] = updated
-    _persist_cached_outcome(agent_id, updated)
+    _persist_cached_outcome(agent_id)
 
 
 # ---------------------------------------------------------------------------

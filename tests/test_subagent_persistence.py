@@ -790,3 +790,19 @@ class TestDurableAttemptOutcome:
         assert restore_subagent_outcome(sa) is False
         with _subagent_results_lock:
             assert _subagent_results["live-agent"].status == "success"
+
+    def test_branch_amendment_is_persisted(self, tmp_path: Path):
+        from gptme.tools.subagent.types import (
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        subagent_dir = tmp_path / "subagent-branch-agent-mn34"
+        sa = self._register(subagent_dir, agent_id="branch-agent")
+        set_subagent_result_if_absent("branch-agent", ReturnType("timeout", "deadline"))
+        update_subagent_result_with_branch("branch-agent", "subagent/branch-agent")
+
+        outcome = load_subagent_outcome(sa)
+        assert outcome is not None
+        assert outcome.status == "timeout"
+        assert "subagent/branch-agent" in str(outcome.result)
