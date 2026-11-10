@@ -96,9 +96,13 @@ jobs:
           sparse-checkout: .github/actions/setup-tauri-apt
           persist-credentials: false
 
+      # The action owns the real deadline: 180s when the apt-archive cache hits
+      # and 720s when it misses, with an attributable log line either way. This
+      # step ceiling is only a backstop, so it must stay above the miss budget
+      # (the previous flat 8-minute ceiling cut cold-cache downloads mid-flight).
       - name: Install Linux dependencies
         uses: ./.workflow-actions/.github/actions/setup-tauri-apt
-        timeout-minutes: 8
+        timeout-minutes: 15
 
       - name: Create placeholder sidecar for tauri-build
         run: |
@@ -140,7 +144,7 @@ jobs:
 
       - name: Install Linux dependencies
         uses: ./.workflow-actions/.github/actions/setup-tauri-apt
-        timeout-minutes: 8
+        timeout-minutes: 15
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -191,7 +195,7 @@ jobs:
 
       - name: Install Linux dependencies
         uses: ./.workflow-actions/.github/actions/setup-tauri-apt
-        timeout-minutes: 8
+        timeout-minutes: 15
         with:
           extra-packages: xvfb webkit2gtk-driver
 
@@ -303,7 +307,7 @@ jobs:
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
         uses: ./.workflow-actions/.github/actions/setup-tauri-apt
-        timeout-minutes: 8
+        timeout-minutes: 15
         with:
           extra-packages: libglib2.0-bin
 
@@ -436,7 +440,7 @@ jobs:
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         uses: ./.workflow-actions/.github/actions/setup-tauri-apt
-        timeout-minutes: 8
+        timeout-minutes: 15
         with:
           packages: python3-dev build-essential libffi-dev
 
@@ -524,7 +528,7 @@ jobs:
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-24.04'
         uses: ./.workflow-actions/.github/actions/setup-tauri-apt
-        timeout-minutes: 8
+        timeout-minutes: 15
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
