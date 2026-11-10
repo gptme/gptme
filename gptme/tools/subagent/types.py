@@ -524,6 +524,26 @@ class Subagent:
             logger.debug("Could not read token stats for %s: %s", self.agent_id, e)
             return None, None
 
+    def continuation_blocker(self) -> str | None:
+        """Why a finished run cannot resume in its conversation, or None if it can.
+
+        Shared by ``subagent_continue()`` and the timeout completion notice so
+        the parent is only told to continue a child that would be accepted.
+        Liveness is checked separately: a notice is emitted from inside a run
+        that is still unwinding.
+        """
+        if self.execution_mode == "acp":
+            if self.acp_session_id is None:
+                return f"ACP subagent '{self.agent_id}' has no session ID to continue."
+        elif not (self.logdir / "conversation.jsonl").exists():
+            return f"Subagent '{self.agent_id}' has no conversation log to continue."
+        if self.isolated:
+            return (
+                f"Subagent '{self.agent_id}' ran in an isolated workspace and "
+                "cannot be continued; any preserved work is reported in its result."
+            )
+        return None
+
     def is_running(self) -> bool:
         """Check if the subagent is still running."""
         if self.execution_mode == "subprocess" and self.process:
