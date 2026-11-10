@@ -200,6 +200,10 @@ def yield_hook(
     for message in reversed(messages):
         if message.role != "system":
             return
+        # The last yield result wins, matching checkpoint overwrite order. A
+        # rejected later call must let the child repair and retry its payload.
+        if message.content.startswith(_NOT_COMMITTED_PREFIX):
+            return
         if is_commit_receipt(message):
             logger.info("Yield checkpoint committed — stopping subagent attempt")
             raise SessionCompleteException(

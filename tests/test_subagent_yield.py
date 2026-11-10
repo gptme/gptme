@@ -153,6 +153,25 @@ class TestYieldHook:
         ]
         assert list(yield_hook(messages)) == []
 
+    @pytest.mark.parametrize("last_succeeds", [False, True])
+    def test_last_yield_result_controls_stop(
+        self, tmp_path, monkeypatch, last_succeeds
+    ):
+        monkeypatch.setattr(yield_mod, "_current_logdir", lambda: tmp_path)
+        payloads = [json.dumps(PAYLOAD), "[]"]
+        if last_succeeds:
+            payloads.reverse()
+        messages = [
+            Message("assistant", "\n".join(f"```yield\n{p}\n```" for p in payloads)),
+            *(execute_yield(p, None, None) for p in payloads),
+            Message("system", "Other tool output after the yields."),
+        ]
+        if last_succeeds:
+            with pytest.raises(SessionCompleteException):
+                list(yield_hook(messages))
+        else:
+            assert list(yield_hook(messages)) == []
+
     def test_earlier_attempt_yield_does_not_stop_continuation(
         self, tmp_path, monkeypatch
     ):
