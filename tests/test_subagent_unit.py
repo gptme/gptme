@@ -8486,6 +8486,7 @@ class TestTimeoutCompletionContinuationHint:
         msg = _completion_message(sa.agent_id, "timeout", "killed after 1200s")
         assert "⏱️ Subagent 'resumable-timeout' timed out" in msg.content
         assert "subagent_continue('resumable-timeout'" in msg.content
+        assert "Once its execution has stopped" in msg.content
 
     def test_timeout_omits_continuation_for_isolated_child(self, tmp_path):
         sa = self._register(tmp_path, "isolated-timeout", isolated=True)

@@ -690,7 +690,8 @@ def _completion_message(agent_id: str, status: Status, summary: str) -> Message:
         content = f"⏱️ Subagent '{agent_id}' timed out: {summary}"
         if _timeout_is_resumable(agent_id):
             content += (
-                f"\nIts conversation is intact. Call subagent_continue('{agent_id}', "
+                "\nIts conversation is intact. Once its execution has stopped, "
+                f"call subagent_continue('{agent_id}', "
                 "'<next instruction>') to resume it instead of redoing its work."
             )
     elif status == "blocked_external":
