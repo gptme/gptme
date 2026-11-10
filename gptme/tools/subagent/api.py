@@ -730,17 +730,16 @@ def subagent(
             _sem.acquire()
             try:
                 with _subagent_results_lock:
-                    if agent_id in _subagent_results:
-                        logger.info(
-                            f"Skipping cancelled queued ACP subagent {agent_id}"
+                    cancelled = agent_id in _subagent_results
+                if cancelled:
+                    logger.info(f"Skipping cancelled queued ACP subagent {agent_id}")
+                    with _subagents_lock:
+                        sa = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
                         )
-                        with _subagents_lock:
-                            sa = next(
-                                (s for s in _subagents if s.agent_id == agent_id), None
-                            )
-                        if sa:
-                            _exec._cleanup_isolation(sa)
-                        return
+                    if sa:
+                        _exec._cleanup_isolation(sa)
+                    return
 
                 import asyncio
 
@@ -1053,17 +1052,16 @@ def subagent(
             _sem.acquire()
             try:
                 with _subagent_results_lock:
-                    if agent_id in _subagent_results:
-                        logger.info(
-                            f"Skipping cancelled queued thread subagent {agent_id}"
+                    cancelled = agent_id in _subagent_results
+                if cancelled:
+                    logger.info(f"Skipping cancelled queued thread subagent {agent_id}")
+                    with _subagents_lock:
+                        sa = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
                         )
-                        with _subagents_lock:
-                            sa = next(
-                                (s for s in _subagents if s.agent_id == agent_id), None
-                            )
-                        if sa:
-                            _exec._cleanup_isolation(sa)
-                        return
+                    if sa:
+                        _exec._cleanup_isolation(sa)
+                    return
                 try:
                     _exec._create_subagent_thread(
                         prompt=prompt,
