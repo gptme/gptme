@@ -118,6 +118,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "xai": "XAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
+    "nvidia": "NVIDIA_API_KEY",
     "azure": "AZURE_OPENAI_API_KEY",
 }
 
