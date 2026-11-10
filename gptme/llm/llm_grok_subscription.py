@@ -66,7 +66,6 @@ def _get_token_storage_path() -> Path:
     """Get path to store gptme-managed grok subscription tokens."""
     config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     token_dir = config_dir / "gptme" / "oauth"
-    token_dir.mkdir(parents=True, exist_ok=True)
     return token_dir / "grok_subscription.json"
 
 
@@ -153,11 +152,8 @@ def _load_grok_cli_tokens() -> SubscriptionAuth | None:
 
 def _load_stored_tokens() -> SubscriptionAuth | None:
     """Load tokens stored by gptme (from a previous ``gptme auth grok-subscription``)."""
-    token_path = _get_token_storage_path()
-    if not token_path.exists():
-        return None
-
     try:
+        token_path = _get_token_storage_path()
         data = json.loads(token_path.read_text())
         return SubscriptionAuth(
             access_token=data["access_token"],
@@ -172,6 +168,7 @@ def _load_stored_tokens() -> SubscriptionAuth | None:
 def _save_tokens(auth: SubscriptionAuth) -> None:
     """Save tokens to gptme's token storage."""
     token_path = _get_token_storage_path()
+    token_path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "access_token": auth.access_token,
         "refresh_token": auth.refresh_token,

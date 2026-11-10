@@ -8,11 +8,14 @@ Usage:
 """
 
 import importlib.util
+import json
 import logging
 import os
 import shutil
+import socket
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -177,6 +180,73 @@ def _status_emoji(status: CheckStatus) -> str:
     }[status]
 
 
+def _parse_token_expiry(value: object) -> float | None:
+    """Parse a stored expiry (unix timestamp or ISO 8601) to a unix timestamp."""
+    from datetime import datetime
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _oauth_token_expiry(provider: str) -> tuple[float | None, bool]:
+    """Read an OAuth provider's token expiry and refreshability, without network I/O.
+
+    ``list_available_providers`` only proves a token file exists. An access token
+    that expired hours ago is normal and self-healing when a refresh token is
+    present, so the interesting case is expired *and* unrefreshable: only then is
+    the "Authenticated" claim wrong.
+    """
+    if provider == "grok-subscription":
+        from ..llm.llm_grok_subscription import (
+            _load_grok_cli_tokens,
+            _load_stored_tokens,
+        )
+
+        # Reuse runtime's client-key filtering and source order, but never
+        # refresh here. Skip expired, unrefreshable sources just as get_auth
+        # does; a refreshable source is only a candidate, not proof of validity.
+        sources = [_load_grok_cli_tokens(), _load_stored_tokens()]
+        for auth in sources:
+            if auth is not None and (
+                time.time() < auth.expires_at - 300 or auth.refresh_token
+            ):
+                return auth.expires_at, bool(auth.refresh_token)
+        for auth in sources:
+            if auth is not None:
+                return auth.expires_at, bool(auth.refresh_token)
+        return None, False
+    if provider != "openai-subscription":
+        return None, False
+
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    candidates = [config_dir / "gptme" / "oauth" / "openai_subscription.json"]
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        entries = [data]
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if not (entry.get("access_token") or entry.get("key")):
+                continue
+            return (
+                _parse_token_expiry(entry.get("expires_at")),
+                bool(entry.get("refresh_token")),
+            )
+    return None, False
+
+
 def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
     """Check API key configuration and validity."""
     results = []
@@ -195,14 +265,33 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
         # Handle OAuth-based providers separately
         if provider in OAUTH_PROVIDERS:
             if provider in available_provider_map:
-                results.append(
-                    CheckResult(
-                        name=f"Auth: {provider}",
-                        status=CheckStatus.OK,
-                        message="Authenticated (OAuth)",
-                        details="Token file present" if verbose else None,
+                expiry, refreshable = _oauth_token_expiry(provider)
+                # Grok refreshes/rejects tokens five minutes before expiry.
+                refresh_margin = 300 if provider == "grok-subscription" else 0
+                expired = expiry is not None and expiry <= time.time() + refresh_margin
+                if expired and not refreshable:
+                    results.append(
+                        CheckResult(
+                            name=f"Auth: {provider}",
+                            status=CheckStatus.WARNING,
+                            message="Token expired or near expiry and cannot be refreshed",
+                            fix_hint=f"Run: gptme auth {provider}",
+                        )
                     )
-                )
+                else:
+                    results.append(
+                        CheckResult(
+                            name=f"Auth: {provider}",
+                            status=CheckStatus.OK,
+                            message=(
+                                "Authenticated (OAuth; access token expired or near expiry, "
+                                "refreshable)"
+                                if expired
+                                else "Authenticated (OAuth)"
+                            ),
+                            details="Token file present" if verbose else None,
+                        )
+                    )
             else:
                 results.append(
                     CheckResult(
@@ -488,7 +577,10 @@ def _is_interactive_terminal() -> bool:
 def _validate_oauth_for_repair(results: list[CheckResult]) -> None:
     """Validate or refresh OAuth credentials before interactive repair routing."""
     for result in results:
-        if not result.name.startswith("Auth: ") or result.status != CheckStatus.OK:
+        if not result.name.startswith("Auth: ") or result.status not in (
+            CheckStatus.OK,
+            CheckStatus.WARNING,
+        ):
             continue
 
         provider = result.name.removeprefix("Auth: ")
@@ -508,7 +600,9 @@ def _validate_oauth_for_repair(results: list[CheckResult]) -> None:
             result.message = f"Authentication failed: {str(exc).splitlines()[0]}"
             result.fix_hint = f"Re-authenticate with: gptme-auth {provider}"
         else:
+            result.status = CheckStatus.OK
             result.message = "Authenticated (OAuth token valid)"
+            result.fix_hint = None
 
 
 def _model_override_blocking_repair() -> str | None:
@@ -794,8 +888,50 @@ def _check_config(verbose: bool = False) -> list[CheckResult]:
     return results
 
 
+PROXY_CONNECT_TIMEOUT = 2.0
+
+
+def _probe_proxy_connect(
+    hostname: str,
+    port: int | None,
+    scheme: str,
+    timeout: float = PROXY_CONNECT_TIMEOUT,
+) -> str | None:
+    """Attempt a bounded TCP connect to the proxy.
+
+    Returns the failure reason, or ``None`` when the TCP handshake succeeded.
+    A bounded connect is acceptable on doctor's default path — doctor already
+    performs network I/O for the PyPI version check and API-key validation —
+    and it is what separates a parseable-but-dead proxy from a working one.
+    TLS, auth and upstream routing are deliberately not verified: a TCP
+    handshake failing is the case that is both cheap and actionable.
+    """
+    from queue import Empty, Queue
+    from threading import Thread
+
+    target_port = port if port is not None else (443 if scheme == "https" else 80)
+    outcome: Queue[str | None] = Queue(maxsize=1)
+
+    def connect() -> None:
+        try:
+            with socket.create_connection((hostname, target_port), timeout=timeout):
+                outcome.put(None)
+        except OSError as exc:
+            outcome.put(str(exc) or exc.__class__.__name__)
+
+    # create_connection's timeout excludes DNS and resets per address. Bound
+    # the caller's total wait instead. A daemon avoids holding process exit on
+    # an OS resolver that cannot be cancelled; any late socket is still closed.
+    deadline = time.monotonic() + timeout
+    Thread(target=connect, daemon=True).start()
+    try:
+        return outcome.get(timeout=max(0.0, deadline - time.monotonic()))
+    except Empty:
+        return f"TCP probe timed out after {timeout:g}s (including DNS lookup)"
+
+
 def _check_proxy(verbose: bool = False) -> list[CheckResult]:
-    """Check proxy URL configuration."""
+    """Check proxy URL configuration and reachability."""
     from urllib.parse import urlparse
 
     config = get_config()
@@ -878,14 +1014,28 @@ def _check_proxy(verbose: bool = False) -> list[CheckResult]:
             )
         )
     else:
-        results.append(
-            CheckResult(
-                name="Proxy: LLM_PROXY_URL",
-                status=CheckStatus.OK,
-                message=f"Configured ({display_host})",
-                details=f"Proxy: {parsed.scheme}://{display_host}" if verbose else None,
+        failure = _probe_proxy_connect(hostname, port, parsed.scheme)
+        details = f"Proxy: {parsed.scheme}://{display_host}" if verbose else None
+        if failure is None:
+            results.append(
+                CheckResult(
+                    name="Proxy: LLM_PROXY_URL",
+                    status=CheckStatus.OK,
+                    message=f"Configured and reachable ({display_host})",
+                    details=details,
+                )
             )
-        )
+        else:
+            results.append(
+                CheckResult(
+                    name="Proxy: LLM_PROXY_URL",
+                    status=CheckStatus.WARNING,
+                    message=f"Configured but unreachable ({display_host})",
+                    details=failure if verbose else None,
+                    fix_hint="Check the proxy host/port and network access; "
+                    "LLM calls fail while it is unreachable",
+                )
+            )
 
     return results
 
@@ -1320,6 +1470,35 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
     return results
 
 
+def _expected_playwright_browsers() -> list[str]:
+    """Return the browser directory names the installed Playwright library expects.
+
+    Playwright ships a ``browsers.json`` next to its driver that pins one required
+    revision per browser. Comparing those names against the installed cache
+    directories catches the common "upgraded the pip package but not the browsers"
+    state, where the directory exists but the library cannot launch it.
+    """
+    spec = importlib.util.find_spec("playwright")
+    origin = getattr(spec, "origin", None)
+    if not origin:
+        return []
+    browsers_json = Path(origin).parent / "driver" / "package" / "browsers.json"
+    if not browsers_json.exists():
+        return []
+    try:
+        data = json.loads(browsers_json.read_text())
+    except (OSError, ValueError):
+        return []
+
+    expected = []
+    for entry in data.get("browsers", []):
+        name, revision = entry.get("name"), entry.get("revision")
+        if not name or not revision or entry.get("installByDefault") is False:
+            continue
+        expected.append(f"{name}-{revision}")
+    return expected
+
+
 def _check_browser(verbose: bool = False) -> list[CheckResult]:
     """Check Playwright browser installation if browser extra is installed."""
     results: list[CheckResult] = []
@@ -1345,7 +1524,21 @@ def _check_browser(verbose: bool = False) -> list[CheckResult]:
             for d in browsers_dir.iterdir()
             if d.is_dir() and not d.name.startswith(".")
         ]
-        if browser_dirs:
+        expected = _expected_playwright_browsers()
+        # Only a total mismatch is a warning: users commonly install chromium
+        # alone, so a missing firefox/webkit revision is a choice, not breakage.
+        if expected and browser_dirs and not set(expected) & set(browser_dirs):
+            results.append(
+                CheckResult(
+                    name="Browser: Playwright",
+                    status=CheckStatus.WARNING,
+                    message="Installed browsers do not match the Playwright "
+                    f"library's expected revision ({expected[0]})",
+                    details=", ".join(sorted(browser_dirs)) if verbose else None,
+                    fix_hint="playwright install",
+                )
+            )
+        elif browser_dirs:
             results.append(
                 CheckResult(
                     name="Browser: Playwright",
