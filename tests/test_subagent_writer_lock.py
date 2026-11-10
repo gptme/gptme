@@ -38,13 +38,13 @@ def _child_holding_lock(
     # The child opens the lock file and holds LOCK_EX until it exits.
     script = (
         "import fcntl, time, sys; "
-        f"f = open('{lock_path}', 'r+b'); "
+        "f = open(sys.argv[1], 'r+b'); "
         "fcntl.flock(f, fcntl.LOCK_EX); "
         "print('locked', flush=True); "
         "time.sleep(60)"
     )
     proc = subprocess.Popen(
-        [sys.executable, "-c", script],
+        [sys.executable, "-c", script, str(lock_path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
