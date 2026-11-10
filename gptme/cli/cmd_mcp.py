@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from ..config import Config, MCPServerConfig
+from ..config.user import get_user_config_paths
 from ..mcp.client import MCPClient
 from ..mcp.display import display_target as _display_target
 
@@ -34,6 +35,30 @@ def _confirm_project_connection(config: Config, server: MCPServerConfig) -> bool
         )
     except click.Abort:
         return False
+
+
+def _server_sources(config: Config, name: str) -> list[str]:
+    """Return the config layers that define server ``name``, strongest first.
+
+    ``Config.mcp`` keeps the first entry it sees for a name (chat, then project,
+    then user) and drops the others whole, so the first layer listed supplied
+    every field and the rest were shadowed without any field merging.
+    """
+    from ..util import path_with_tilde
+
+    user_path = path_with_tilde(get_user_config_paths()[0])
+    layers = (
+        ("chat", config.chat, "chat config"),
+        ("project", config.project, "project config (gptme.toml)"),
+        ("user", config.user, f"user config ({user_path})"),
+    )
+    return [
+        label
+        for _, layer, label in layers
+        if layer
+        and layer.mcp
+        and any(server.name == name for server in layer.mcp.servers)
+    ]
 
 
 @mcp.command("list")
@@ -146,6 +171,11 @@ def mcp_info(server_name: str):
         click.echo(f"📋 MCP Server: {server.name}")
         click.echo(f"   Type: {'HTTP' if server.is_http else 'stdio'}")
         click.echo(f"   Enabled: {'✅' if server.enabled else '❌'}")
+        sources = _server_sources(config, server.name)
+        if sources:
+            click.echo(f"   Source: {sources[0]}")
+        for shadowed in sources[1:]:
+            click.echo(f"   Overrides: {shadowed}, replaced whole (fields not merged)")
         click.echo()
 
         if server.is_http:
