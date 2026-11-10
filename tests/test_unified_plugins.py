@@ -173,6 +173,16 @@ class TestRegistrars:
 # --- Entry-point discovery ---
 
 
+def _entry_point(name: str, module: str, load: object) -> SimpleNamespace:
+    """Minimal entry-point double without distribution metadata.
+
+    Real :class:`importlib.metadata.EntryPoint` objects carry ``dist``;
+    doubles without it model gptme's own entry points, which the pre-import
+    security scan deliberately skips.
+    """
+    return SimpleNamespace(name=name, module=module, load=load)
+
+
 class TestEntrypointDiscovery:
     def test_discovers_gptme_plugin_instances(self):
         """Entry points that export GptmePlugin are discovered."""
@@ -183,9 +193,7 @@ class TestEntrypointDiscovery:
 
         clear_entrypoint_cache()
         plugin = GptmePlugin(name="test_ep")
-        mock_ep = MagicMock()
-        mock_ep.name = "test_ep"
-        mock_ep.load.return_value = plugin
+        mock_ep = _entry_point("test_ep", "test_ep", MagicMock(return_value=plugin))
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins()
@@ -207,9 +215,9 @@ class TestEntrypointDiscovery:
         # Factory is not a GptmePlugin instance itself
         factory.__class__ = type("factory", (), {})
 
-        mock_ep = MagicMock()
-        mock_ep.name = "factory_plugin"
-        mock_ep.load.return_value = factory
+        mock_ep = _entry_point(
+            "factory_plugin", "factory_plugin", MagicMock(return_value=factory)
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins()
@@ -262,10 +270,9 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        mock_ep = MagicMock()
-        mock_ep.name = "broken"
-        mock_ep.module = "broken"
-        mock_ep.load.side_effect = ImportError("missing dep")
+        mock_ep = _entry_point(
+            "broken", "broken", MagicMock(side_effect=ImportError("missing dep"))
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             assert discover_entrypoint_plugins() == ()
@@ -287,13 +294,12 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        enabled_ep = MagicMock()
-        enabled_ep.name = "wanted"
-        enabled_ep.module = "wanted_pkg.plugin"
-        enabled_ep.load.return_value = GptmePlugin(name="wanted")
-        disabled_ep = MagicMock()
-        disabled_ep.name = "heavy"
-        disabled_ep.module = "heavy_pkg"
+        enabled_ep = _entry_point(
+            "wanted",
+            "wanted_pkg.plugin",
+            MagicMock(return_value=GptmePlugin(name="wanted")),
+        )
+        disabled_ep = _entry_point("heavy", "heavy_pkg", MagicMock())
 
         with patch(
             "gptme.plugins.entrypoints.entry_points",
@@ -314,10 +320,11 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
-        mock_ep = MagicMock()
-        mock_ep.name = "tts"
-        mock_ep.module = "gptme_tts.plugin"
-        mock_ep.load.return_value = GptmePlugin(name="gptme-tts")
+        mock_ep = _entry_point(
+            "tts",
+            "gptme_tts.plugin",
+            MagicMock(return_value=GptmePlugin(name="gptme-tts")),
+        )
 
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[mock_ep]):
             result = discover_entrypoint_plugins(frozenset({"gptme-tts"}))
@@ -397,17 +404,18 @@ class TestEntrypointDiscovery:
         assert [p.name for p in result] == ["clean_plugin"]
         clear_entrypoint_cache()
 
-    def test_unverified_distribution_warns_but_loads(self):
-        """An unscannable distribution warns instead of disabling the plugin.
+    def test_unverified_distribution_is_not_imported(self):
+        """A distribution with no file list cannot be verified, so it is skipped.
 
-        Editable installs ship no source file list, so failing closed here
-        would break every locally-developed plugin. gptme-doctor keeps the
-        stricter fail-closed verdict.
+        Editable installs are resolved through ``direct_url.json`` by the
+        scanner, so failing closed here does not disable locally-developed
+        plugins — it only blocks installers that hide their entry-point module.
         """
         from gptme.plugins.entrypoints import (
             clear_entrypoint_cache,
             discover_entrypoint_plugins,
         )
+        from gptme.plugins.security import PluginSecurityError
 
         class NoFilesDistribution:
             name = "opaque-plugin"
@@ -422,15 +430,18 @@ class TestEntrypointDiscovery:
         )
 
         clear_entrypoint_cache()
+        errors: list[tuple[str, Exception]] = []
         with patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]):
-            result = discover_entrypoint_plugins()
+            result = discover_entrypoint_plugins(errors=errors)
 
-        load.assert_called_once_with()
-        assert [p.name for p in result] == ["opaque_plugin"]
+        assert result == ()
+        load.assert_not_called()
+        assert isinstance(errors[0][1], PluginSecurityError)
+        assert "could not verify" in str(errors[0][1])
         clear_entrypoint_cache()
 
-    def test_scan_failure_fails_open(self):
-        """A crashing scanner must not disable every plugin in every session."""
+    def test_scan_failure_fails_closed(self):
+        """A crashing scanner must not become an implicit allow."""
         from gptme.plugins.entrypoints import (
             clear_entrypoint_cache,
             discover_entrypoint_plugins,
@@ -440,6 +451,7 @@ class TestEntrypointDiscovery:
         ep = SimpleNamespace(name="survivor", module="survivor", load=load)
 
         clear_entrypoint_cache()
+        errors: list[tuple[str, Exception]] = []
         with (
             patch("gptme.plugins.entrypoints.entry_points", return_value=[ep]),
             patch(
@@ -447,10 +459,11 @@ class TestEntrypointDiscovery:
                 side_effect=RuntimeError("scanner bug"),
             ),
         ):
-            result = discover_entrypoint_plugins()
+            result = discover_entrypoint_plugins(errors=errors)
 
-        load.assert_called_once_with()
-        assert [p.name for p in result] == ["survivor"]
+        assert result == ()
+        load.assert_not_called()
+        assert isinstance(errors[0][1], RuntimeError)
         clear_entrypoint_cache()
 
 
