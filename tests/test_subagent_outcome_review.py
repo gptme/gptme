@@ -98,6 +98,8 @@ def test_restore_cannot_poison_continuation(
         ("duration_s", "3"),
         ("duration_s", float("nan")),
         ("duration_s", float("inf")),
+        ("duration_s", 10**400),
+        ("generation", 10**400),
     ],
 )
 def test_malformed_saved_fields_rejected(
@@ -129,3 +131,63 @@ def test_persist_snapshots_result_under_registry_lock(
     monkeypatch.setattr(types, "_subagent_results", CheckedResults(worker=result))
     types._persist_cached_outcome("worker")
     assert persistence.load_subagent_outcome(sa) == result
+
+
+def test_failed_continuation_is_durable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sa = types.Subagent("worker", "task", None, tmp_path, None)
+    (tmp_path / "conversation.jsonl").write_text("")
+    with types._subagents_lock:
+        types._subagents.append(sa)
+    persistence.persist_subagent_meta(sa)
+    types.set_subagent_result_if_absent("worker", types.ReturnType("success", "old"))
+
+    def fail(**kwargs: Any) -> None:
+        raise RuntimeError("continuation failed before a new message")
+
+    monkeypatch.setattr(api._exec, "_create_subagent_thread", fail)
+    api.subagent_continue("worker", "follow up")
+    with types._subagents_lock:
+        current = types._subagents[-1]
+    assert current.thread is not None
+    current.thread.join(5)
+    assert not current.thread.is_alive()
+    outcome = persistence.load_subagent_outcome(current)
+    assert outcome is not None
+    assert outcome.status == "failure"
+    assert outcome.result == "continuation failed before a new message"
+
+
+def test_spawn_clears_restored_result_at_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    cli = importlib.import_module("gptme.cli.main")
+    models = importlib.import_module("gptme.llm.models")
+    profiles = importlib.import_module("gptme.profiles")
+    old = types.Subagent("worker", "old", None, tmp_path / "old", None)
+    with types._subagents_lock:
+        types._subagents.append(old)
+    persistence.persist_subagent_outcome(old, types.ReturnType("timeout", "old"))
+    monkeypatch.setattr(models, "get_default_model", lambda: None)
+    monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+
+    def get_logdir(name: str) -> Path:
+        # Restoration lands after spawn's initial cache clear, before publication.
+        assert persistence.restore_subagent_outcome(old)
+        return tmp_path / name
+
+    monkeypatch.setattr(cli, "get_logdir", get_logdir)
+    executed = threading.Event()
+    monkeypatch.setattr(
+        api._exec, "_create_subagent_thread", lambda **kw: executed.set()
+    )
+    api.subagent("worker", "new", use_subprocess=False)
+    with types._subagents_lock:
+        current = types._subagents[-1]
+    assert current.thread is not None
+    current.thread.join(5)
+    assert not current.thread.is_alive()
+    assert executed.is_set()

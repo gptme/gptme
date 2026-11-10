@@ -229,7 +229,14 @@ def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
             tool_uses=data.get("tool_uses"),
             duration_s=data.get("duration_s"),
         )
-    except (json.JSONDecodeError, OSError, TypeError, KeyError, ValueError) as e:
+    except (
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        KeyError,
+        ValueError,
+        OverflowError,
+    ) as e:
         logger.warning("Failed to load subagent outcome from %s: %s", sa.logdir, e)
         return None
 

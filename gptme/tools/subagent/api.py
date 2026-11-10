@@ -572,6 +572,8 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
 
         _timer = None
@@ -888,6 +890,8 @@ def subagent(
         # (avoids race condition where fast completion can't locate sa in _subagents)
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
         t.start()
 
@@ -1030,6 +1034,8 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
         launcher.start()
     else:
@@ -1214,6 +1220,8 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
         t.start()
 
@@ -1658,8 +1666,7 @@ def subagent_continue(agent_id: str, message: str) -> None:
                             ),
                         )
 
-            with _subagent_results_lock:
-                _subagent_results[agent_id] = result
+            set_subagent_result_if_absent(agent_id, result)
             if not completion_notified:
                 notify_completion(
                     agent_id,
