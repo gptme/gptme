@@ -135,13 +135,44 @@ _registry_rehydrated = False
 _registry_rehydrate_lock = threading.Lock()
 
 
+# Serializes outcome writes so the file always ends at the latest cached value.
+_outcome_persist_lock = threading.Lock()
+
+
+def _persist_cached_outcome(agent_id: str) -> None:
+    """Mirror the cached terminal result to the owning subagent's logdir.
+
+    Status reads after a parent restart reload it instead of re-deriving the
+    outcome from the conversation log, which cannot recover a timeout or
+    cancellation cause. The value is re-read under the persist lock, so a slow
+    first write cannot overwrite a later amendment (e.g. a preserved branch).
+    """
+    from .persistence import persist_subagent_outcome
+
+    with _outcome_persist_lock:
+        # Snapshot the attempt and result together with continuation's lock order.
+        # Otherwise a handoff between these reads can stamp an old result with
+        # the new attempt's generation, making it valid after a restart.
+        with _subagents_lock:
+            sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
+            with _subagent_results_lock:
+                result = _subagent_results.get(agent_id)
+        if sa is None or result is None:
+            return
+        persist_subagent_outcome(sa, result)
+
+
 def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
-    """Cache a subagent result unless another terminal result already exists."""
+    """Cache a subagent result unless another terminal result already exists.
+
+    The winning result is also persisted, so it survives a parent restart.
+    """
     with _subagent_results_lock:
         if agent_id in _subagent_results:
             return False
         _subagent_results[agent_id] = result
-        return True
+    _persist_cached_outcome(agent_id)
+    return True
 
 
 def preserved_notice(preserved: str) -> str:
@@ -192,6 +223,7 @@ def update_subagent_result_with_branch(
             tool_uses=existing.tool_uses,
             duration_s=existing.duration_s,
         )
+    _persist_cached_outcome(agent_id)
 
 
 # ---------------------------------------------------------------------------

@@ -10,15 +10,19 @@ from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.tools.subagent.persistence import (
     META_FILENAME,
+    OUTCOME_FILENAME,
     _dict_to_subagent,
     _subagent_to_dict,
     load_subagent_by_id,
     load_subagent_meta,
+    load_subagent_outcome,
     persist_subagent_meta,
+    persist_subagent_outcome,
     remove_subagent_meta,
+    restore_subagent_outcome,
     scan_rehydrate_subagents,
 )
-from gptme.tools.subagent.types import Subagent
+from gptme.tools.subagent.types import ReturnType, Subagent
 
 
 def _completed_log(logdir: Path, content: str = "done") -> None:
@@ -610,3 +614,189 @@ class TestRegistryRehydration:
             _subagents.extend([stale, live])
         found = _find_subagent("reuse-id")
         assert found is live
+
+
+def _interrupted_log(logdir: Path) -> None:
+    """A child that published work and was waiting externally when killed."""
+    logdir.mkdir(parents=True, exist_ok=True)
+    Log(
+        [
+            Message("user", "implement the fix and open a PR"),
+            Message("assistant", "Pushed the branch; waiting for CI to finish."),
+        ]
+    ).write_jsonl(logdir / "conversation.jsonl")
+
+
+def _reset_subagent_registry() -> None:
+    """Clear in-process subagent state, as a parent restart would."""
+    import gptme.tools.subagent.types as types_mod
+    from gptme.tools.subagent.types import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        _subagents_lock,
+    )
+
+    types_mod._registry_rehydrated = False
+    with _subagents_lock:
+        _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+
+class TestDurableAttemptOutcome:
+    """Terminal outcomes survive a parent restart (gptme/gptme#4555).
+
+    The in-memory result cache is the only record of *why* an attempt ended.
+    Without a persisted copy, a restarted parent re-derives the outcome from
+    the conversation log, which cannot tell a deadline kill from a crash.
+    """
+
+    def setup_method(self):
+        _reset_subagent_registry()
+
+    def teardown_method(self):
+        _reset_subagent_registry()
+
+    def _register(self, logdir: Path, agent_id: str = "deadline-agent") -> Subagent:
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="implement the fix and open a PR",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            execution_mode="subprocess",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        persist_subagent_meta(sa)
+        return sa
+
+    def _simulate_restart(self) -> None:
+        _reset_subagent_registry()
+
+    def test_timeout_cause_survives_parent_restart(self, tmp_path: Path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_status
+        from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+        logs_dir = tmp_path / "logs"
+        subagent_dir = logs_dir / "subagent-deadline-agent-ab12"
+        _interrupted_log(subagent_dir)
+        self._register(subagent_dir)
+        reason = "Subprocess timed out after 1200s"
+        assert set_subagent_result_if_absent(
+            "deadline-agent", ReturnType("timeout", reason)
+        )
+        assert (subagent_dir / OUTCOME_FILENAME).exists()
+
+        self._simulate_restart()
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        status = subagent_status("deadline-agent")
+        assert status["status"] == "timeout"
+        assert status["result"] == reason
+
+    def test_cancelled_survives_restart_via_list_rehydration(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import subagent_list, subagent_status
+        from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+        logs_dir = tmp_path / "logs"
+        subagent_dir = logs_dir / "subagent-cancel-agent-cd34"
+        _interrupted_log(subagent_dir)
+        self._register(subagent_dir, agent_id="cancel-agent")
+        set_subagent_result_if_absent(
+            "cancel-agent", ReturnType("cancelled", "Cancelled by parent")
+        )
+
+        self._simulate_restart()
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        subagent_list()
+        assert subagent_status("cancel-agent")["status"] == "cancelled"
+
+    def test_first_writer_still_wins_on_disk(self, tmp_path: Path):
+        from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+        subagent_dir = tmp_path / "subagent-race-agent-ef56"
+        sa = self._register(subagent_dir, agent_id="race-agent")
+        assert set_subagent_result_if_absent("race-agent", ReturnType("cancelled"))
+        assert not set_subagent_result_if_absent("race-agent", ReturnType("failure"))
+
+        outcome = load_subagent_outcome(sa)
+        assert outcome is not None
+        assert outcome.status == "cancelled"
+
+    def test_outcome_from_earlier_attempt_is_ignored(self, tmp_path: Path):
+        """A continuation starts a new generation in the same logdir."""
+        subagent_dir = tmp_path / "subagent-gen-agent-gh78"
+        first = Subagent(
+            agent_id="gen-agent",
+            prompt="p",
+            thread=None,
+            logdir=subagent_dir,
+            model=None,
+            started_at=1000.0,
+        )
+        assert persist_subagent_outcome(first, ReturnType("timeout", "deadline"))
+        continued = Subagent(
+            agent_id="gen-agent",
+            prompt="p",
+            thread=None,
+            logdir=subagent_dir,
+            model=None,
+            started_at=2000.0,
+        )
+        assert load_subagent_outcome(first) is not None
+        assert load_subagent_outcome(continued) is None
+        assert restore_subagent_outcome(continued) is False
+
+    def test_corrupt_outcome_falls_back_to_log(self, tmp_path: Path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_status
+
+        logs_dir = tmp_path / "logs"
+        subagent_dir = logs_dir / "subagent-corrupt-agent-ij90"
+        _completed_log(subagent_dir, "finished anyway")
+        self._register(subagent_dir, agent_id="corrupt-agent")
+        (subagent_dir / OUTCOME_FILENAME).write_text("{not json")
+
+        self._simulate_restart()
+        monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: logs_dir)
+
+        status = subagent_status("corrupt-agent")
+        assert status["status"] == "success"
+
+    def test_restore_does_not_override_live_result(self, tmp_path: Path):
+        from gptme.tools.subagent.types import (
+            ReturnType,
+            _subagent_results,
+            _subagent_results_lock,
+        )
+
+        subagent_dir = tmp_path / "subagent-live-agent-kl12"
+        sa = self._register(subagent_dir, agent_id="live-agent")
+        persist_subagent_outcome(sa, ReturnType("timeout"))
+        with _subagent_results_lock:
+            _subagent_results["live-agent"] = ReturnType("success", "live")
+        assert restore_subagent_outcome(sa) is False
+        with _subagent_results_lock:
+            assert _subagent_results["live-agent"].status == "success"
+
+    def test_branch_amendment_is_persisted(self, tmp_path: Path):
+        from gptme.tools.subagent.types import (
+            set_subagent_result_if_absent,
+            update_subagent_result_with_branch,
+        )
+
+        subagent_dir = tmp_path / "subagent-branch-agent-mn34"
+        sa = self._register(subagent_dir, agent_id="branch-agent")
+        set_subagent_result_if_absent("branch-agent", ReturnType("timeout", "deadline"))
+        update_subagent_result_with_branch("branch-agent", "subagent/branch-agent")
+
+        outcome = load_subagent_outcome(sa)
+        assert outcome is not None
+        assert outcome.status == "timeout"
+        assert "subagent/branch-agent" in str(outcome.result)

@@ -59,13 +59,25 @@ def _find_subagent(agent_id: str, *, newest: bool = True) -> Subagent | None:
     loaded = load_subagent_by_id(agent_id)
     if loaded is None:
         return None
+    return _register_rehydrated_subagent(loaded, newest=newest)
+
+
+def _register_rehydrated_subagent(loaded: Subagent, *, newest: bool = True) -> Subagent:
+    """Publish a disk entry and its outcome together, without locking disk I/O."""
+    from .persistence import load_subagent_outcome
+
+    outcome = load_subagent_outcome(loaded)
     with _subagents_lock:
-        seq = list(reversed(_subagents)) if newest else list(_subagents)
-        sa = next((s for s in seq if s.agent_id == agent_id), None)
-        if sa is not None:
-            return sa
-        _subagents.append(loaded)
-        return loaded
+        seq = reversed(_subagents) if newest else iter(_subagents)
+        current = next((s for s in seq if s.agent_id == loaded.agent_id), None)
+        if current is not None:
+            # A concurrent lookup, spawn or continuation won while we read disk.
+            return current
+        with _subagent_results_lock:
+            if outcome is not None:
+                _subagent_results.setdefault(loaded.agent_id, outcome)
+            _subagents.append(loaded)
+    return loaded
 
 
 def _maybe_rehydrate_registry() -> None:
@@ -95,12 +107,8 @@ def _maybe_rehydrate_registry() -> None:
                 len(rehydrated),
                 ", ".join(sa.agent_id for sa in rehydrated),
             )
-            with _subagents_lock:
-                existing_ids = {s.agent_id for s in _subagents}
-                for sa in rehydrated:
-                    if sa.agent_id not in existing_ids:
-                        _subagents.append(sa)
-                        existing_ids.add(sa.agent_id)
+            for sa in rehydrated:
+                _register_rehydrated_subagent(sa)
         _types._registry_rehydrated = True
 
 
@@ -566,6 +574,8 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
 
         _timer = None
@@ -724,17 +734,16 @@ def subagent(
             _sem.acquire()
             try:
                 with _subagent_results_lock:
-                    if agent_id in _subagent_results:
-                        logger.info(
-                            f"Skipping cancelled queued ACP subagent {agent_id}"
+                    cancelled = agent_id in _subagent_results
+                if cancelled:
+                    logger.info(f"Skipping cancelled queued ACP subagent {agent_id}")
+                    with _subagents_lock:
+                        sa = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
                         )
-                        with _subagents_lock:
-                            sa = next(
-                                (s for s in _subagents if s.agent_id == agent_id), None
-                            )
-                        if sa:
-                            _exec._cleanup_isolation(sa)
-                        return
+                    if sa:
+                        _exec._cleanup_isolation(sa)
+                    return
 
                 import asyncio
 
@@ -883,6 +892,8 @@ def subagent(
         # (avoids race condition where fast completion can't locate sa in _subagents)
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
         t.start()
 
@@ -1025,6 +1036,8 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
         launcher.start()
     else:
@@ -1047,17 +1060,16 @@ def subagent(
             _sem.acquire()
             try:
                 with _subagent_results_lock:
-                    if agent_id in _subagent_results:
-                        logger.info(
-                            f"Skipping cancelled queued thread subagent {agent_id}"
+                    cancelled = agent_id in _subagent_results
+                if cancelled:
+                    logger.info(f"Skipping cancelled queued thread subagent {agent_id}")
+                    with _subagents_lock:
+                        sa = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
                         )
-                        with _subagents_lock:
-                            sa = next(
-                                (s for s in _subagents if s.agent_id == agent_id), None
-                            )
-                        if sa:
-                            _exec._cleanup_isolation(sa)
-                        return
+                    if sa:
+                        _exec._cleanup_isolation(sa)
+                    return
                 try:
                     _exec._create_subagent_thread(
                         prompt=prompt,
@@ -1210,6 +1222,8 @@ def subagent(
         )
         with _subagents_lock:
             _subagents.append(sa)
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
         persist_subagent_meta(sa)
         t.start()
 
@@ -1654,8 +1668,11 @@ def subagent_continue(agent_id: str, message: str) -> None:
                             ),
                         )
 
+            set_subagent_result_if_absent(agent_id, result)
+            # Cancellation or timeout may have won while execution unwound.
+            # Notify the same terminal result that status and disk expose.
             with _subagent_results_lock:
-                _subagent_results[agent_id] = result
+                result = _subagent_results.get(agent_id, result)
             if not completion_notified:
                 notify_completion(
                     agent_id,
@@ -1718,8 +1735,10 @@ def subagent_continue(agent_id: str, message: str) -> None:
         # Start while holding the registry lock. A concurrent caller will then
         # observe a live thread instead of the not-yet-started handoff object.
         thread.start()
-    with _subagent_results_lock:
-        _subagent_results.pop(agent_id, None)
+        # Restoration checks registry identity under this same lock, so it
+        # cannot insert the previous attempt's result after this handoff.
+        with _subagent_results_lock:
+            _subagent_results.pop(agent_id, None)
     start_gate.set()
     if sa.max_time is not None:
         timer = threading.Timer(
