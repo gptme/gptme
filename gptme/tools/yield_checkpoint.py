@@ -15,6 +15,7 @@ resumable yield.
 Only enabled in subagent sessions (disabled_by_default=True).
 """
 
+import html
 import json
 import logging
 import math
@@ -49,16 +50,39 @@ def iter_xml_signal_calls(content: str) -> Generator[ToolUse, None, None]:
     Fences inside a real call are answer content, not quoted call groups.
     """
     fences = _codeblock_char_ranges(content)
-    groups = re.finditer(
-        r"<(tool-use|function_calls)>.*?</\1>", content, flags=re.DOTALL
-    )
-    for group in groups:
-        if any(start <= group.start() < end for start, end in fences):
+    group_start: int | None = None
+    wrapper: str | None = None
+    for tag in re.finditer(r"<(/?)(tool-use|function_calls)>", content):
+        if any(start <= tag.start() < end for start, end in fences):
             continue
-        for call in ToolUse.iter_from_content(
-            group.group(), tool_format_override="xml"
-        ):
-            yield replace(call, start=group.start() + (call.start or 0))
+        if group_start is None:
+            if not tag.group(1):
+                group_start, wrapper = tag.start(), tag.group(2)
+            continue
+        if not tag.group(1) or tag.group(2) != wrapper:
+            continue
+
+        # Fenced answer text is opaque to XML, including closing wrapper tags.
+        # Escape it for the shared parser, which decodes it back to literal text.
+        group = content[group_start : tag.end()]
+        shifts: list[tuple[int, int]] = []
+        delta = 0
+        for start, end in fences:
+            if group_start <= start < end <= tag.end():
+                relative_start, relative_end = start - group_start, end - group_start
+                escaped = html.escape(content[start:end], quote=False)
+                group = (
+                    group[: relative_start + delta]
+                    + escaped
+                    + group[relative_end + delta :]
+                )
+                delta += len(escaped) - (end - start)
+                shifts.append((relative_end + delta, delta))
+        for call in ToolUse.iter_from_content(group, tool_format_override="xml"):
+            offset = call.start or 0
+            shift = next((d for end, d in reversed(shifts) if end <= offset), 0)
+            yield replace(call, start=group_start + offset - shift)
+        group_start, wrapper = None, None
 
 
 def find_yield_block(content: str) -> str | None:

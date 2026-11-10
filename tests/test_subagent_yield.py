@@ -483,6 +483,53 @@ class TestReadLogYield:
 
     @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
     @pytest.mark.parametrize("lxml_available", [False, True])
+    @pytest.mark.parametrize("with_example", [False, True])
+    def test_xml_completion_preserves_nested_wrapper_in_fenced_answer(
+        self, tmp_path, monkeypatch, xml_style, lxml_available, with_example
+    ):
+        import gptme.tools.base as base
+
+        if lxml_available and not base._LXML_AVAILABLE:
+            pytest.skip("lxml is not installed")
+        monkeypatch.setattr(base, "_LXML_AVAILABLE", lxml_available)
+        example = (
+            "<tool-use><shell>echo hi</shell></tool-use>"
+            if xml_style == "gptme"
+            else '<function_calls><invoke name="shell">echo hi</invoke></function_calls>'
+        )
+        answer = f"Example:\n```xml\n{example}\n<!-- literal & text -->\n```\nReport after inner wrapper: kept."
+        call = (
+            f"<tool-use><complete>\n{answer}\n</complete></tool-use>"
+            if xml_style == "gptme"
+            else f'<function_calls><invoke name="complete">\n{answer}\n</invoke></function_calls>'
+        )
+        content = (f"````xml\n{call}\n````\n" if with_example else "") + call
+        _write_log(tmp_path, [Message("user", "task"), Message("assistant", content)])
+        result = _subagent(tmp_path).status()
+        assert result.status == "success"
+        assert result.result == f"{answer}\n\nFull log: {tmp_path}"
+        parsed = list(yield_mod.iter_xml_signal_calls(content))
+        assert [tool.tool for tool in parsed] == ["complete"]
+        assert parsed[0].start == content.rfind(
+            "<complete>" if xml_style == "gptme" else '<invoke name="complete">'
+        )
+
+    @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
+    def test_xml_signal_offsets_after_escaped_fences(self, xml_style):
+        answer = "```xml\n<tool-use><complete>example & only</complete></tool-use>\n```"
+        if xml_style == "gptme":
+            content = f"<tool-use><complete>\n{answer}\n</complete><yield>{{}}</yield></tool-use>"
+            expected_offset = content.index("<yield>")
+        else:
+            content = f'<function_calls><invoke name="complete">\n{answer}\n</invoke><invoke name="yield">{{}}</invoke></function_calls>'
+            expected_offset = content.index('<invoke name="yield">')
+        parsed = list(yield_mod.iter_xml_signal_calls(content))
+        assert [tool.tool for tool in parsed] == ["complete", "yield"]
+        assert parsed[0].content == answer
+        assert parsed[1].start == expected_offset
+
+    @pytest.mark.parametrize("xml_style", ["gptme", "haiku"])
+    @pytest.mark.parametrize("lxml_available", [False, True])
     @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
     def test_xml_yield_example_does_not_replace_real_payload(
         self, tmp_path, monkeypatch, xml_style, lxml_available, tool_format
