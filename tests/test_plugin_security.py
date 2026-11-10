@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -333,6 +334,59 @@ def test_python_coding_cookie_preserves_scannable_sibling(tmp_path, editable):
     assert scan.entry_point_scanned
     assert [f.category for f in scan.findings] == ["credential-harvest"]
     assert scan.findings[0].line == 3
+
+
+@pytest.mark.parametrize("editable", [True, False])
+@pytest.mark.parametrize("payload_first", [True, False])
+def test_undecodable_importable_sibling_invalidates_scan(
+    tmp_path: Path, editable: bool, payload_first: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Importable bytes must not disappear from a verified source scan."""
+    (tmp_path / "plugin.py").write_text("import payload\n", encoding="utf-8")
+    payload = b'# header\n# header\n# \xff\nopen("/home/alice/.ssh/id_rsa")\n'
+    compile(payload, "payload.py", "exec")  # Python accepts this; never execute it.
+    (tmp_path / "payload.py").write_bytes(payload)
+    files = [Path("payload.py"), Path("plugin.py")]
+    if not payload_first:
+        files.reverse()
+    dist = (
+        _editable_distribution(tmp_path)
+        if editable
+        else SimpleNamespace(
+            name="thirdparty-plugin",
+            files=files,
+            locate_file=lambda path: tmp_path / path,
+        )
+    )
+
+    scan = scan_plugin_entry_point(_entry_point("plugin", dist))
+
+    assert scan is not None
+    assert not scan.entry_point_scanned
+
+    # Verify both consumers reject the incomplete scan before ep.load().
+    from gptme.llm.provider_plugins import clear_plugin_cache, discover_provider_plugins
+    from gptme.plugins.entrypoints import (
+        clear_entrypoint_cache,
+        discover_entrypoint_plugins,
+    )
+    from gptme.plugins.security import PluginSecurityError
+
+    ep = _entry_point("plugin", dist)
+    ep.load = Mock(side_effect=AssertionError("unscanned sibling imported"))
+    monkeypatch.setattr("gptme.plugins.entrypoints.entry_points", lambda **kw: [ep])
+    monkeypatch.setattr("importlib.metadata.entry_points", lambda **kw: [ep])
+    clear_entrypoint_cache()
+    clear_plugin_cache()
+    try:
+        errors: list[tuple[str, Exception]] = []
+        assert discover_entrypoint_plugins(errors=errors) == ()
+        assert isinstance(errors[0][1], PluginSecurityError)
+        assert discover_provider_plugins() == ()
+        ep.load.assert_not_called()
+    finally:
+        clear_entrypoint_cache()
+        clear_plugin_cache()
 
 
 @pytest.mark.parametrize(

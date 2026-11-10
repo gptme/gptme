@@ -46,6 +46,7 @@ class PluginSecurityScan:
 
     scanned_files: int
     findings: tuple[PluginSecurityFinding, ...]
+    # Verification requires inspecting the entry module AND all selected sources.
     entry_point_scanned: bool = False
 
 
@@ -548,8 +549,9 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     a clean result only means something when the code that will be imported was
     actually inspected. A third-party distribution whose file list is unavailable
     (``files is None``, e.g. installers that omit ``RECORD``) or whose executable
-    module was skipped (over the size limit, unreadable) must not be reported as
-    verified.
+    module or a selected sibling was skipped (over the size limit, unreadable)
+    must not be reported as verified. Python can import some byte sequences its
+    strict source reader cannot decode, so an unreadable sibling is not harmless.
     """
     # importlib.metadata.EntryPoint always has a ``dist`` attribute (it may be
     # None). Test doubles and other non-distribution objects omit it entirely;
@@ -573,6 +575,7 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
     findings: list[PluginSecurityFinding] = []
     scanned_files = 0
     entry_point_scanned = False
+    scan_complete = True
     for package_path in files:
         relative = Path(str(package_path))
         if relative.suffix.lower() not in _SCANNABLE_SUFFIXES:
@@ -587,6 +590,7 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
             Path(distribution.locate_file(package_path)), relative.as_posix()
         )
         if file_findings is None:
+            scan_complete = False
             continue
         scanned_files += 1
         if relative.as_posix() in entry_candidates:
@@ -605,10 +609,13 @@ def scan_plugin_entry_point(entry_point: object) -> PluginSecurityScan | None:
             for candidate in targets:
                 file_findings = _scan_source(candidate, candidate.as_posix())
                 if file_findings is None:
+                    scan_complete = False
                     continue
                 scanned_files += 1
                 findings.extend(file_findings)
                 if candidate == module_path:
                     entry_point_scanned = True
 
-    return PluginSecurityScan(scanned_files, tuple(findings), entry_point_scanned)
+    return PluginSecurityScan(
+        scanned_files, tuple(findings), entry_point_scanned and scan_complete
+    )
