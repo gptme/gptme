@@ -89,6 +89,7 @@ def _mock_subprocess_run(stdout: str, returncode: int = 0):
             stdout = json.dumps(data)
     result = MagicMock()
     result.stdout = stdout
+    result.stderr = ""
     result.returncode = returncode
     return result
 
@@ -1381,12 +1382,11 @@ class TestNativeRefRepoFlag:
 
 
 class TestUnsupportedFlagsPassThrough:
-    """Native read handlers implement only --repo/-R; other flags go to the gh CLI."""
+    """Native reads implement --repo/-R; run view also keeps --log/--log-failed."""
 
     @pytest.mark.parametrize(
         "args",
         [
-            ["run", "view", "123", "--log-failed"],
             ["run", "view", "123", "--repo", "o/r", "--job", "9", "--json", "jobs"],
             ["pr", "view", "5", "--json", "title", "--jq", ".title"],
             ["pr", "checks", "5", "--json", "name,state"],
@@ -1476,8 +1476,8 @@ class TestUnsupportedFlagsPassThrough:
                 ["pr", "view", "--json", "title", "feature/branch"],
             ),
             (
-                "run view 123 --log-failed",
-                ["run", "view", "123", "--log-failed"],
+                "run view 123 --job 9",
+                ["run", "view", "123", "--job", "9"],
             ),
         ],
     )
@@ -1605,6 +1605,74 @@ class TestUnsupportedFlagsPassThrough:
         passthrough.assert_not_called()
         native.assert_called_once_with("123", repo="o/r")
         assert messages[0].content == "logs"
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["run", "view", "123", "--log-failed"],
+            ["run", "view", "--log-failed", "123", "-R", "o/r"],
+        ],
+    )
+    def test_run_view_log_flags_stay_native(self, args):
+        with (
+            patch("gptme.tools.gh._passthrough_gh") as passthrough,
+            patch("gptme.tools.gh.get_github_run_logs", return_value="logs") as native,
+        ):
+            messages = list(execute_gh(None, args, None))
+        passthrough.assert_not_called()
+        if "-R" in args:
+            native.assert_called_once_with("123", repo="o/r")
+        else:
+            native.assert_called_once_with("123")
+        assert messages[0].content == "logs"
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_run_view_full_logs_use_cli(self, mock_run):
+        mock_run.return_value = _mock_subprocess_run("successful job logs")
+        messages = list(execute_gh(None, ["run", "view", "123", "--log"], None))
+        mock_run.assert_called_once_with(
+            ["gh", "run", "view", "123", "--log"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert messages[0].content == "successful job logs"
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_oversized_json_is_not_returned_as_partial_json(self, mock_run):
+        mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
+        messages = list(_passthrough_gh(["pr", "view", "5", "--json", "body"], None))
+        assert messages[0].content.startswith("Command succeeded (exit 0)")
+        assert "shell" in messages[0].content
+        assert '"body"' not in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_tail_caps_large_cli_output(self, mock_run):
+        from gptme.util.gh import DEFAULT_LOG_MAX_TOKENS
+
+        tail = "TRACEBACK_AT_END"
+        mock_run.return_value = MagicMock(
+            stdout="x" * 100_000 + tail, stderr="", returncode=0
+        )
+        messages = list(_passthrough_gh(["issue", "list"], None))
+        content = messages[0].content
+        assert content.startswith("Command succeeded (exit 0)")
+        assert "shell" in content
+        assert len(content) < DEFAULT_LOG_MAX_TOKENS * 4 + 80
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_oversized_mutation_response_does_not_recommend_retry(self, mock_run):
+        mock_run.return_value = _mock_subprocess_run('{"body":"' + "x" * 100_000 + '"}')
+        messages = list(
+            _passthrough_gh(["api", "repos/o/r/issues", "-f", "title=test"], None)
+        )
+        mock_run.assert_called_once()
+        content = messages[0].content
+        assert content.startswith("Command succeeded (exit 0)")
+        assert "Do not repeat" in content
+        assert "read-only" in content
+        assert not content.startswith("Error")
 
     @pytest.mark.parametrize(
         "repo_flag", [["--repo=o/r"], ["-Ro/r"], ["--repo", "o/r"]]

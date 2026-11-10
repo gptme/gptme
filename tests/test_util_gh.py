@@ -876,7 +876,7 @@ class TestTruncateLogTail:
         delivered = _truncate_log_tail(
             _extract_failure_sections("\n".join(lines)),
             4000,
-            hint="use `gh run view 123 --log-failed` for full logs",
+            hint="use shell `gh run view 123 --log-failed` for full logs",
         )
 
         assert "test_real_breakage" in delivered
@@ -954,6 +954,66 @@ class TestGetGithubRunLogs:
         assert result is not None
         assert "❌ test: failure" in result
         assert "Failed step: Run tests" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_truncated_logs_point_at_shell_not_native_gh(self, mock_run, _mock_which):
+        """Overflow hint must name the shell tool: native --log-failed is capped."""
+        failed_step = {"name": "Run tests", "conclusion": "failure"}
+        jobs = [self._make_job("test", "failure", 200, [failed_step])]
+        run_json = self._make_run_json("failure", jobs)
+        log_output = "test\tRun tests\tERROR: " + "x" * 50_000 + " TRACEBACK_END\n"
+        mock_run.side_effect = [
+            MagicMock(stdout=run_json, returncode=0),
+            MagicMock(stdout=log_output, returncode=0),
+        ]
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "TRACEBACK_END" in result
+        assert "chars omitted" in result
+        assert "shell `gh run view 12345 --log-failed`" in result
+
+    @pytest.mark.parametrize("fallback", [False, True])
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_large_matrix_respects_aggregate_budget(
+        self, mock_run, _mock_which, fallback
+    ):
+        """Per-job minimums, headings and markers must not multiply the budget."""
+        jobs = [self._make_job(f"test-{i}", "failure", 200 + i) for i in range(100)]
+        logs = "\n".join(
+            f"test-{i}\tpytest\tERROR: " + "x" * 3000 + f" FAILURE_END_{i}"
+            for i in range(100)
+        )
+        mock_run.side_effect = [
+            MagicMock(stdout=self._make_run_json("failure", jobs), returncode=0),
+            MagicMock(stdout="" if fallback else logs, returncode=1 if fallback else 0),
+            *([MagicMock(stdout=logs, returncode=0)] * 100 if fallback else []),
+        ]
+
+        result = get_github_run_logs("12345", max_tokens=4000, repo="owner/repo")
+
+        assert result is not None
+        assert len(result) <= 16_000
+        assert "Run 12345" in result
+        assert "FAILURE_END_99" in result
+        assert "truncated" in result
+        assert "shell `gh run view 12345 --repo owner/repo --log-failed`" in result
+
+    @pytest.mark.parametrize("max_tokens", [1, 100, 4000])
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_successful_matrix_metadata_is_bounded(
+        self, mock_run, _mock_which, max_tokens
+    ):
+        """Early returns without failed logs also obey the total response limit."""
+        jobs = [self._make_job("test-" + "x" * 200) for _ in range(100)]
+        mock_run.return_value = MagicMock(
+            stdout=self._make_run_json("success", jobs), returncode=0
+        )
+        result = get_github_run_logs("12345", max_tokens=max_tokens)
+        assert result is not None
+        assert len(result) <= max_tokens * 4
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
