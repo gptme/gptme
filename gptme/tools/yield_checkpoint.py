@@ -19,15 +19,15 @@ import json
 import logging
 import math
 import os
-import re
 import tempfile
 import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
+from ..codeblock import Codeblock
 from ..message import Message
-from .base import Parameter, ToolSpec
+from .base import Parameter, ToolFormat, ToolSpec, ToolUse
 from .complete import SessionCompleteException
 
 logger = logging.getLogger(__name__)
@@ -38,13 +38,31 @@ _COMMITTED_PREFIX = "Checkpoint committed:"
 _NOT_COMMITTED_PREFIX = "Checkpoint NOT committed:"
 
 
-_YIELD_BLOCK_RE = re.compile(r"```yield\s*\n(.*?)\n```", re.DOTALL)
-
-
 def find_yield_block(content: str) -> str | None:
-    """Return a yield block's payload, independent of which tools are loaded."""
-    match = _YIELD_BLOCK_RE.search(content)
-    return match.group(1) if match else None
+    """Return the last yield payload across child formats, even with yield unloaded.
+
+    Use the shared parsers so fenced examples are not mistaken for calls. Parse
+    markdown blocks directly because ToolUse filters those by loaded tools.
+    Multiple yields overwrite the checkpoint in execution order: compare against
+    the last call, not the first one.
+    """
+    calls: list[tuple[int, str]] = [
+        (block.start or 0, block.content)
+        for block in Codeblock.iter_from_markdown(content)
+        if block.lang.split() == ["yield"]
+    ]
+    formats: tuple[ToolFormat, ...] = ("xml", "tool")
+    for fmt in formats:
+        for call in ToolUse.iter_from_content(content, tool_format_override=fmt):
+            if call.tool != "yield" or (fmt == "tool" and call.kwargs is None):
+                continue
+            payload = (
+                call.kwargs.get("checkpoint", "")
+                if call.kwargs is not None
+                else call.content
+            )
+            calls.append((call.start or 0, payload or ""))
+    return sorted(calls, key=lambda item: item[0])[-1][1] if calls else None
 
 
 def is_commit_receipt(message: Message) -> bool:

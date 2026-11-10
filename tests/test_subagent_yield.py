@@ -167,6 +167,64 @@ class TestYieldHook:
 
 
 class TestReadLogYield:
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+    @pytest.mark.parametrize("committed", [False, True])
+    def test_yield_formats_with_tool_unloaded(
+        self, tmp_path, monkeypatch, tool_format, committed
+    ):
+        from gptme.tools.base import ToolUse
+
+        call = ToolUse("yield", [], json.dumps(PAYLOAD))
+        if tool_format == "tool":
+            call = ToolUse(
+                "yield",
+                None,
+                None,
+                kwargs={"checkpoint": json.dumps(PAYLOAD)},
+                call_id="yield-call",
+            )
+        message = Message(
+            "assistant",
+            call.to_output(tool_format).replace("@yield:", "@yield(yield-call):", 1),
+        )
+        # The parent need not load the child's disabled-by-default yield tool.
+        monkeypatch.setattr("gptme.tools.get_tool_for_langtag", lambda lang: None)
+        trailing = [_commit(monkeypatch, tmp_path)] if committed else []
+        _write_log(tmp_path, [Message("user", "task"), message, *trailing])
+        assert _subagent(tmp_path).status().status == (
+            "blocked_external" if committed else "failure"
+        )
+
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+    def test_multiple_yields_use_last_executed_payload(
+        self, tmp_path, monkeypatch, tool_format
+    ):
+        from gptme.tools.base import ToolUse
+
+        other = {**PAYLOAD, "wait_for": "second condition"}
+        calls = []
+        for index, payload in enumerate((PAYLOAD, other)):
+            call = ToolUse("yield", [], json.dumps(payload))
+            if tool_format == "tool":
+                call = ToolUse(
+                    "yield",
+                    None,
+                    None,
+                    kwargs={"checkpoint": json.dumps(payload)},
+                )
+            calls.append(
+                call.to_output(tool_format).replace(
+                    "@yield:", f"@yield(call-{index}):", 1
+                )
+            )
+        message = Message("assistant", "\n".join(calls))
+        first = _commit(monkeypatch, tmp_path)
+        second = _commit(monkeypatch, tmp_path, other)
+        _write_log(tmp_path, [Message("user", "task"), message, first, second])
+        result = _subagent(tmp_path).status()
+        assert result.status == "blocked_external"
+        assert "second condition" in str(result.result)
+
     def test_committed_yield_reports_blocked_external(self, tmp_path, monkeypatch):
         block = Message("assistant", _yield_block())
         committed = _commit(monkeypatch, tmp_path)
@@ -196,11 +254,29 @@ class TestReadLogYield:
         path.write_text(json.dumps(record))
         assert load_checkpoint(tmp_path) is None
 
-    def test_mismatched_checkpoint_is_not_resumable(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+    def test_mismatched_checkpoint_is_not_resumable(
+        self, tmp_path, monkeypatch, tool_format
+    ):
+        from gptme.tools.base import ToolUse
+
+        call = ToolUse("yield", [], json.dumps(PAYLOAD))
+        if tool_format == "tool":
+            call = ToolUse(
+                "yield",
+                None,
+                None,
+                kwargs={"checkpoint": json.dumps(PAYLOAD)},
+                call_id="mismatch",
+            )
+        message = Message(
+            "assistant",
+            call.to_output(tool_format).replace("@yield:", "@yield(mismatch):", 1),
+        )
         receipt = _commit(monkeypatch, tmp_path, {**PAYLOAD, "wait_for": "other"})
         _write_log(
             tmp_path,
-            [Message("user", "task"), Message("assistant", _yield_block()), receipt],
+            [Message("user", "task"), message, receipt],
         )
         assert _subagent(tmp_path).status().status == "failure"
 
@@ -226,6 +302,44 @@ class TestReadLogYield:
         with pytest.raises(SessionCompleteException):
             list(yield_hook([Message("user", "task"), call, receipt]))
         assert _subagent(tmp_path).status().status == "blocked_external"
+
+
+@pytest.mark.parametrize("tool_format", ["markdown", "xml", "tool"])
+def test_failed_yield_exit_zero_remains_failure(tmp_path, tool_format):
+    from gptme.tools.base import ToolUse
+
+    call = ToolUse("yield", [], json.dumps(PAYLOAD))
+    if tool_format == "tool":
+        call = ToolUse(
+            "yield",
+            None,
+            None,
+            kwargs={"checkpoint": json.dumps(PAYLOAD)},
+            call_id="failed-yield",
+        )
+    _write_log(
+        tmp_path,
+        [
+            Message("user", "task"),
+            Message(
+                "assistant",
+                call.to_output(tool_format).replace(
+                    "@yield:", "@yield(failed-yield):", 1
+                ),
+            ),
+            Message("system", "Checkpoint NOT committed: disk full"),
+        ],
+    )
+    process = subprocess.Popen([sys.executable, "-c", "pass"])
+    sa = _subagent(tmp_path, process=process, execution_mode="subprocess")
+    _monitor_subprocess(sa)
+    assert process.returncode == 0
+    assert sa.status().status == "failure"
+    _, _, status, *_ = _completion_queue.get_nowait()
+    assert status == "failure"
+    with _subagent_results_lock:
+        _subagent_results.clear()
+    assert _subagent(tmp_path).status().status == "failure"
 
 
 CHILD = textwrap.dedent(

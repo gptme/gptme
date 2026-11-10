@@ -1355,7 +1355,11 @@ def _monitor_subprocess(
         # Get result from conversation log (primary source for subprocess mode)
         try:
             log_status = subagent.status()
-            if log_status.status in ("clarification_needed", "blocked_external"):
+            if log_status.status in (
+                "clarification_needed",
+                "blocked_external",
+                "failure",
+            ):
                 status = log_status.status
             result = log_status.result
             input_tokens = log_status.input_tokens
