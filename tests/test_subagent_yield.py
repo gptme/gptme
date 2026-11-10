@@ -828,6 +828,8 @@ TIMEOUT_CHILD = textwrap.dedent(
 
 
 def _run_to_deadline(logdir: Path, payload: dict | None, **kwargs) -> ReturnType:
+    # Establish the attempt before the child can commit a checkpoint.
+    kwargs.setdefault("started_at", time.time())
     process = subprocess.Popen(
         [
             sys.executable,
@@ -855,8 +857,25 @@ def _run_to_deadline(logdir: Path, payload: dict | None, **kwargs) -> ReturnType
         return _subagent_results["yielder"]
 
 
-def test_real_subprocess_timeout_reports_checkpoint_from_this_attempt(tmp_path):
+@pytest.mark.parametrize("child_commits_before_popen_returns", [False, True])
+def test_real_subprocess_timeout_reports_checkpoint_from_this_attempt(
+    tmp_path, monkeypatch, child_commits_before_popen_returns
+):
     """Deadline expiry stays ``timeout`` and names the checkpoint already on disk."""
+    if child_commits_before_popen_returns:
+        real_popen = subprocess.Popen
+
+        def popen_after_child_ready(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            deadline = time.monotonic() + 60
+            while not (tmp_path / "ready").exists():
+                assert process.poll() is None, "child exited before it was ready"
+                assert time.monotonic() < deadline, "child never became ready"
+                time.sleep(0.05)
+            return process
+
+        monkeypatch.setattr(subprocess, "Popen", popen_after_child_ready)
+
     result = _run_to_deadline(tmp_path, PAYLOAD)
 
     assert result.status == "timeout"
