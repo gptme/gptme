@@ -151,8 +151,10 @@ def _logical_statements(code_lines: list[str]) -> list[tuple[int, str]]:
 
     Returns ``(first_line_number, text)`` pairs. A statement continues over a
     newline while brackets are open, so an expression split across lines
-    (``open(\\n    "~/.ssh/id_rsa"\\n)``) is scanned as one unit. A newline at
-    bracket depth zero ends the statement, which keeps a match from spanning two
+    (``open(\\n    "~/.ssh/id_rsa"\\n)``) is scanned as one unit. Explicit backslash
+    continuations are joined without inserting whitespace, just as Python joins
+    them before tokenization. Otherwise a newline at bracket depth zero ends the
+    statement, which keeps a match from spanning two
     unrelated statements — ``subprocess.run(['echo'])`` followed by
     ``HELP = 'systemctl enable …'`` is not an executed service install.
     """
@@ -160,12 +162,19 @@ def _logical_statements(code_lines: list[str]) -> list[tuple[int, str]]:
     current: list[str] = []
     start = 1
     depth = 0
+    continued = False
     for number, code in enumerate(code_lines, start=1):
         if not current:
             start = number
-        current.append(code.strip())
+        explicit_continuation = code.endswith("\\")
+        text = code[:-1] if explicit_continuation else code
+        if continued:
+            current[-1] += text
+        else:
+            current.append(text)
+        continued = explicit_continuation
         depth = max(0, depth + _bracket_delta(code))
-        if depth == 0:
+        if depth == 0 and not continued:
             statements.append((start, " ".join(current)))
             current = []
     if current:
@@ -410,7 +419,7 @@ def _editable_scan_targets(
     files importing it may execute: the module itself plus every file reachable
     from it. The entry point is frequently a submodule (``pkg.cli:main``) rather
     than the package root, so a module inside a package is scanned together with
-    its package directory — the same code ``doctor`` subsequently imports. A
+    its top-level package, including parent initializers and siblings. A
     standalone module is scanned together with its import root, since that is
     where ``import <sibling>`` resolves.
     """
@@ -418,11 +427,16 @@ def _editable_scan_targets(
         candidate = _find_editable_module(source_dir, relative)
         if candidate is None:
             continue
-        package_dir = candidate.parent
-        if (package_dir / "__init__.py").is_file():
-            reachable = _iter_scannable_sources(package_dir)
+        # Strip the entire module-relative path, not just its basename: importing
+        # pkg.sub.cli executes pkg/__init__.py before the nested module. This
+        # also covers namespace packages, which need not have an __init__.py.
+        parts = Path(relative).parts
+        import_root = candidate.parents[len(parts) - 1]
+        package_root = import_root / parts[0]
+        if package_root.is_dir():
+            reachable = _iter_scannable_sources(package_root)
         else:
-            reachable = _iter_import_root_sources(package_dir)
+            reachable = _iter_import_root_sources(import_root)
         targets = [candidate]
         targets.extend(path for path in reachable if path != candidate)
         return candidate, targets

@@ -129,6 +129,30 @@ def test_package_submodule_scans_its_package(tmp_path):
     assert [f.category for f in scan.findings] == ["credential-harvest"]
 
 
+@pytest.mark.parametrize("layout", ["", "src", "lib"])
+@pytest.mark.parametrize("payload", ["__init__.py", "sibling.py"])
+def test_nested_entry_point_scans_top_level_package(tmp_path, layout, payload):
+    """Parent initializers and siblings remain in a nested module's scan."""
+    package = tmp_path / layout / "my_plugin"
+    nested = package / "sub"
+    nested.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (nested / "__init__.py").write_text("", encoding="utf-8")
+    (nested / "cli.py").write_text("VALUE = 42\n", encoding="utf-8")
+    (package / payload).write_text(
+        "secret = open('~/.ssh/id_rsa').read()\n", encoding="utf-8"
+    )
+
+    scan = scan_plugin_entry_point(
+        _entry_point("my_plugin.sub.cli", _editable_distribution(tmp_path))
+    )
+
+    assert scan is not None
+    assert scan.entry_point_scanned
+    assert [f.category for f in scan.findings] == ["credential-harvest"]
+    assert scan.findings[0].path == str(package / payload)
+
+
 def test_persistence_pattern_does_not_span_statements(tmp_path):
     """Help text naming a service must not make an unrelated call look like one.
 
@@ -155,6 +179,9 @@ def test_persistence_pattern_does_not_span_statements(tmp_path):
         # argv list form: separators are commas, not whitespace
         "import subprocess\nsubprocess.run(['systemctl', 'enable', 'evil'])\n",
         "import os\nos.system('crontab -e')\n",
+        # Explicit continuation before the opening bracket must also join.
+        "import subprocess\nsubprocess.run \\\n('systemctl enable evil', shell=True)\n",
+        "import subprocess\nsubprocess.\\\nrun('systemctl enable evil', shell=True)\n",
         # the call itself spans lines
         "import subprocess\nsubprocess.run(\n    ['systemctl',\n     'enable', 'evil']\n)\n",
     ],
