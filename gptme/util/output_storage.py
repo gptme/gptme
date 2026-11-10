@@ -4,7 +4,9 @@ Utilities for storing large tool outputs before truncation.
 Saves full output under the conversation-owned ``tool-outputs/`` namespace and
 provides a path reference for later retrieval.
 
-Writer safety (see ``docs/design/file-backed-output.md``, slice 1):
+Writer safety (see ``docs/design/file-backed-output.md``, slice 1).
+Slice 2 live spools use :func:`open_private_output_file` for exclusive
+append-owned files that share the same containment and permission rules:
 
 - ``output_type`` is reduced to a single safe path component.
 - Directories created here are private (``0700``) and files are created
@@ -35,6 +37,7 @@ TOOL_OUTPUTS_DIRNAME = "tool-outputs"
 
 _UNSAFE_TYPE_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
 _MAX_TYPE_LEN = 64
+_MAX_NAME_LEN = 128
 _MAX_COLLISION_SUFFIX = 1000
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
@@ -63,6 +66,69 @@ def _safe_output_type(output_type: str) -> str:
     cleaned = _UNSAFE_TYPE_CHARS.sub("_", output_type or "")[:_MAX_TYPE_LEN]
     cleaned = cleaned.lstrip(".")
     return cleaned or "tool"
+
+
+def _safe_filename(name: str) -> str:
+    """Reduce a file name to a single, non-hidden path component."""
+    cleaned = _UNSAFE_TYPE_CHARS.sub("_", name or "")[:_MAX_NAME_LEN]
+    cleaned = cleaned.lstrip(".")
+    return cleaned or "output"
+
+
+class PrivateOutputFile:
+    """Exclusive private file under ``tool-outputs``, owned by a held fd.
+
+    Created once (``O_EXCL``, mode ``0600``). Later ``append``/``replace``
+    calls use that descriptor, so a swapped symlink at the path cannot
+    redirect writes. Slice 2 live spools append; snapshot job logs replace.
+    """
+
+    def __init__(self, path: Path, fd: int):
+        self.path = path
+        self._fd = fd
+        self._closed = False
+        self.bytes_written = 0
+
+    def append(self, data: bytes) -> None:
+        if self._closed:
+            raise ValueError("append to closed PrivateOutputFile")
+        if not data:
+            return
+        view = memoryview(data)
+        while view:
+            written = os.write(self._fd, view)
+            if written <= 0:  # pragma: no cover - os.write raises instead
+                raise OSError(errno.EIO, "short write while appending tool output")
+            view = view[written:]
+            self.bytes_written += written
+
+    def replace(self, data: bytes) -> None:
+        if self._closed:
+            raise ValueError("replace on closed PrivateOutputFile")
+        os.lseek(self._fd, 0, os.SEEK_SET)
+        os.ftruncate(self._fd, 0)
+        self.bytes_written = 0
+        self.append(data)
+        os.fsync(self._fd)
+
+    def flush(self) -> None:
+        if not self._closed:
+            os.fsync(self._fd)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            os.fsync(self._fd)
+        finally:
+            os.close(self._fd)
+
+    def __del__(self) -> None:  # pragma: no cover - best-effort fd leak guard
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def _surrogateescape_or_replace(exc: UnicodeError) -> tuple[bytes, int]:
@@ -252,6 +318,52 @@ def _write_private_output(logdir: Path, base: Path, data: bytes) -> Path:
     if _USE_DIR_FD:
         return _publish_dir_fd(logdir, base, data)
     return _publish_by_path(logdir, base, data)
+
+
+def _open_exclusive_named(base: Path, dir_fd: int | None) -> PrivateOutputFile:
+    """Create ``base`` exclusively; suffix on collision. Never follows/clobbers."""
+
+    def ref(name: str) -> str:
+        return name if dir_fd is not None else str(base.parent / name)
+
+    for name in _candidate_names(base):
+        try:
+            fd = os.open(ref(name), _FILE_CREATE_FLAGS, 0o600, dir_fd=dir_fd)
+        except FileExistsError:
+            continue
+        return PrivateOutputFile(base.parent / name, fd)
+    raise FileExistsError(
+        errno.EEXIST, f"too many tool-output collisions for {base.name}"
+    )
+
+
+def open_private_output_file(
+    logdir: Path, output_type: str, name: str
+) -> PrivateOutputFile:
+    """Create an exclusive private file at ``tool-outputs/<type>/<name>``.
+
+    Directories are ``0700``. The file is ``0600`` and opened ``O_EXCL``. A
+    same-name collision gets a numeric suffix rather than clobbering. Symlinked
+    or non-directory parents raise :class:`UnsafeOutputPathError`.
+    """
+    safe_type = _safe_output_type(output_type)
+    safe_name = _safe_filename(name)
+    base = logdir / TOOL_OUTPUTS_DIRNAME / safe_type / safe_name
+    if _USE_DIR_FD:
+        logdir.mkdir(parents=True, exist_ok=True)
+        fds: list[int] = []
+        try:
+            fds.append(os.open(logdir, os.O_RDONLY | _O_DIRECTORY | _O_CLOEXEC))
+            fds.append(_open_private_subdir(fds[-1], TOOL_OUTPUTS_DIRNAME))
+            fds.append(_open_private_subdir(fds[-1], safe_type))
+            return _open_exclusive_named(base, fds[-1])
+        finally:
+            for fd in reversed(fds):
+                os.close(fd)
+    logdir.mkdir(parents=True, exist_ok=True)
+    _ensure_private_dir_by_path(logdir / TOOL_OUTPUTS_DIRNAME)
+    _ensure_private_dir_by_path(logdir / TOOL_OUTPUTS_DIRNAME / safe_type)
+    return _open_exclusive_named(base, None)
 
 
 def save_large_output(

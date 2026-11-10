@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Generator
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -30,6 +31,11 @@ from ..hooks.types import StopPropagation
 from ..message import Message
 from ..sandbox import apply_memory_limit
 from ..util.context import md_codeblock
+from ..util.output_storage import (
+    PrivateOutputFile,
+    UnsafeOutputPathError,
+    open_private_output_file,
+)
 
 _is_windows = os.name == "nt"
 
@@ -43,6 +49,9 @@ logger = logging.getLogger(__name__)
 
 # Maximum buffer size to prevent memory issues (1MB per buffer)
 _MAX_BUFFER_SIZE = 1024 * 1024
+
+# Incomplete last line / partial assignment held before spool commit.
+_SPOOL_PENDING_MAX = 64 * 1024
 
 # Tail of each stream shown in `output N`, promotion and completion messages.
 # Longer output is saved to a per-job log file (when the conversation has a
@@ -137,18 +146,88 @@ class BackgroundJob:
     # displayed output is truncated is written under it.
     log_dir: Path | None = field(default=None, repr=False)
     log_path: Path | None = field(default=None, repr=False)
+    stderr_log_path: Path | None = field(default=None, repr=False)
     # Set once the log holds the job's final, complete output (not a snapshot).
     _final_log_written: bool = field(default=False, repr=False)
+    # A closed fallback snapshot may still lack an evicted RAM prefix.
+    _snapshot_log_finished: bool = field(default=False, repr=False)
+    _stdout_spool: PrivateOutputFile | None = field(default=None, repr=False)
+    _stderr_spool: PrivateOutputFile | None = field(default=None, repr=False)
+    _snapshot_stream: PrivateOutputFile | None = field(default=None, repr=False)
+    _spool_pending_stdout: str = field(default="", repr=False)
+    _spool_pending_stderr: str = field(default="", repr=False)
+    _spool_discard_stdout: bool = field(default=False, repr=False)
+    _spool_discard_stderr: bool = field(default=False, repr=False)
+    _spool_from_reader: bool = field(default=False, repr=False)
+    _capture_partial: bool = field(default=False, repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
     kill_reason: str | None = None
     # a kill after the completion message went out (a worker that outlived
     # the job's main process): delivered as a message of its own
     _late_kill_notice: str | None = field(default=None, repr=False)
 
+    def _can_spool_from_process(self) -> bool:
+        if (
+            self.log_dir is None
+            or self._output_callback is not None
+            or self.process is None
+        ):
+            return False
+        stdout = getattr(self.process, "stdout", None)
+        fileno = getattr(stdout, "fileno", None)
+        if stdout is None or not callable(fileno):
+            return False
+        try:
+            fd = fileno()
+        except Exception:
+            return False
+        return isinstance(fd, int) and fd >= 0
+
+    def _open_spools(self) -> None:
+        """Open exclusive live stream files when this job owns the pipes."""
+        if self._stdout_spool is not None or not self._can_spool_from_process():
+            return
+        assert self.log_dir is not None
+        base = f"job-{self.id}-{int(self.start_time)}"
+        stdout_spool: PrivateOutputFile | None = None
+        try:
+            stdout_spool = open_private_output_file(
+                self.log_dir, "shell-jobs", f"{base}.stdout.live"
+            )
+            self._stderr_spool = open_private_output_file(
+                self.log_dir, "shell-jobs", f"{base}.stderr.live"
+            )
+        except (OSError, UnsafeOutputPathError) as e:
+            logger.warning(
+                "Could not open background job spool under %s: %s", self.log_dir, e
+            )
+            if stdout_spool is not None:
+                try:
+                    stdout_spool.close()
+                except OSError as close_error:
+                    logger.warning(
+                        "Could not close unused background job spool %s: %s",
+                        stdout_spool.path,
+                        close_error,
+                    )
+            self._stdout_spool = None
+            self._stderr_spool = None
+            return
+        self._stdout_spool = stdout_spool
+        self.log_path = stdout_spool.path
+        assert self._stderr_spool is not None
+        self.stderr_log_path = self._stderr_spool.path
+        self._spool_from_reader = True
+
     def start_reader(self) -> None:
         """Start background thread to read output."""
+        self._open_spools()
         self._capture_finished.clear()
-        self._reader_thread = threading.Thread(target=self._read_output, daemon=True)
+        # Sanitize stored output under the initiating chat's configuration.
+        context = copy_context()
+        self._reader_thread = threading.Thread(
+            target=context.run, args=(self._read_output,), daemon=True
+        )
         self._reader_thread.start()
 
     def _append_output(
@@ -162,6 +241,8 @@ class BackgroundJob:
         """
         decoder = self._stdout_decoder if fd == stdout_fd else self._stderr_decoder
         text = decoder.decode(data, final=final)
+        if text or final:
+            self._spool_text(fd == stdout_fd, text, final=final)
         if not text:
             return
         with self._buffer_lock:
@@ -173,6 +254,63 @@ class BackgroundJob:
                 self._stderr_buffer_start += self._append_to_buffer_locked(
                     self.stderr_buffer, text
                 )
+
+    def _spool_text(self, is_stdout: bool, text: str, *, final: bool) -> None:
+        """Commit sanitized complete lines to the live stream before RAM eviction."""
+        stream = self._stdout_spool if is_stdout else self._stderr_spool
+        if stream is None:
+            return
+        pending_attr = "_spool_pending_stdout" if is_stdout else "_spool_pending_stderr"
+        discard_attr = "_spool_discard_stdout" if is_stdout else "_spool_discard_stderr"
+        if getattr(self, discard_attr):
+            # The assignment prefix was omitted. Its suffix is unsafe even at EOF;
+            # resume only after the newline, with a fresh line's full context.
+            _, newline, text = text.partition("\n")
+            if not newline:
+                return
+            setattr(self, discard_attr, False)
+        pending = getattr(self, pending_attr) + text
+        if final:
+            to_write, leftover = pending, ""
+        else:
+            head, sep, tail = pending.rpartition("\n")
+            if not sep:
+                if len(pending) > _SPOOL_PENDING_MAX:
+                    to_write = "[omitted: pending sanitation window exceeded]\n"
+                    leftover = ""
+                    setattr(self, discard_attr, True)
+                    self._capture_partial = True
+                else:
+                    setattr(self, pending_attr, pending)
+                    return
+            else:
+                to_write, leftover = head + sep, tail
+                if len(leftover) > _SPOOL_PENDING_MAX:
+                    leftover = ""
+                    setattr(self, discard_attr, True)
+                    self._capture_partial = True
+                    to_write += "[omitted: pending sanitation window exceeded]\n"
+        setattr(self, pending_attr, leftover)
+        if not to_write:
+            return
+        try:
+            if is_stdout:
+                sanitized, _, _ = _sanitize_job_output(to_write, "", complete=final)
+            else:
+                _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
+            if sanitized:
+                stream.append(sanitized.encode("utf-8", "surrogateescape"))
+        except OSError as e:
+            logger.warning("Could not append job spool %s: %s", stream.path, e)
+            self._capture_partial = True
+            try:
+                stream.close()
+            except OSError:
+                pass
+            if is_stdout:
+                self._stdout_spool = None
+            else:
+                self._stderr_spool = None
 
     def _read_output(self) -> None:
         """Read stdout/stderr until the child exits, then drain briefly."""
@@ -219,6 +357,7 @@ class BackgroundJob:
                     except BlockingIOError:
                         continue
                     except (OSError, ValueError):
+                        self._capture_partial = True
                         open_fds.discard(fd)
                         continue
                     if not raw:
@@ -234,12 +373,27 @@ class BackgroundJob:
 
         # EOF is not guaranteed: drain limits, read errors and forced stops can
         # also end the reader. Preserve any pending bytes before publishing output.
+        if open_fds:
+            self._capture_partial = True
         for fd in (stdout_fd, stderr_fd):
             if fd >= 0:
                 self._append_output(fd, stdout_fd, b"", final=True)
+        for stream in (self._stdout_spool, self._stderr_spool):
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except OSError as e:
+                logger.warning(
+                    "Could not close background job spool %s: %s", stream.path, e
+                )
+                self._capture_partial = True
         # Consumers can render the notification before this thread returns.
         # Capture is final now, even though the notifying thread is still alive.
-        self._capture_finished.set()
+        with _job_log_lock:
+            self._capture_finished.set()
+        if self._snapshot_stream is not None:
+            _write_job_log(self, *self.get_output(), final=False, complete=True)
         _notify_completion(self)
 
     def _append_to_buffer_locked(self, buffer: list[str], data: str) -> int:
@@ -443,13 +597,20 @@ def _write_job_log(
     if job.log_dir is None:
         return None
     with _job_log_lock:
-        if job._final_log_written:
+        if job._final_log_written or job._snapshot_log_finished:
             return job.log_path
+        if not final and job._capture_finished.is_set():
+            # A preview may have sampled RAM before the reader finished.
+            stdout, stderr = job.get_output()
+            complete = True
         path = _write_job_log_locked(
             job, stdout, stderr, final=final, complete=complete
         )
-        if path is not None and final:
-            job._final_log_written = True
+        if path is not None and not job._spool_from_reader:
+            if final:
+                job._final_log_written = True
+            elif job._capture_finished.is_set():
+                job._snapshot_log_finished = True
         return path
 
 
@@ -462,13 +623,10 @@ def _write_job_log_locked(
     complete: bool = False,
 ) -> Path | None:
     assert job.log_dir is not None
-    if job.log_path is None:
-        job.log_path = (
-            job.log_dir
-            / "tool-outputs"
-            / "shell-jobs"
-            / f"job-{job.id}-{int(job.start_time)}.log"
-        )
+    if job._spool_from_reader:
+        # Only the reader owns live descriptors, including final flush/close.
+        # Never replace a partial live spool with a RAM snapshot.
+        return job.log_path
     if not final:
         stdout, stderr = _omit_evicted_line(job, stdout, stderr)
     stdout, stderr, _ = _sanitize_job_output(stdout, stderr, complete=final or complete)
@@ -481,12 +639,33 @@ def _write_job_log_locked(
     parts.append(f"\n--- stdout ---\n{stdout}")
     if stderr:
         parts.append(f"\n--- stderr ---\n{stderr}")
+    payload = "".join(parts).encode("utf-8", "surrogateescape")
+    written = False
     try:
-        job.log_path.parent.mkdir(parents=True, exist_ok=True)
-        job.log_path.write_text("".join(parts), encoding="utf-8")
-    except OSError as e:
+        if job._snapshot_stream is None:
+            name = f"job-{job.id}-{int(job.start_time)}.log"
+            job._snapshot_stream = open_private_output_file(
+                job.log_dir, "shell-jobs", name
+            )
+            job.log_path = job._snapshot_stream.path
+        job._snapshot_stream.replace(payload)
+        written = True
+    except (OSError, UnsafeOutputPathError) as e:
         logger.warning("Could not write background job log %s: %s", job.log_path, e)
         return None
+    finally:
+        if (
+            final or job._capture_finished.is_set()
+        ) and job._snapshot_stream is not None:
+            try:
+                job._snapshot_stream.close()
+            except OSError as e:
+                logger.warning(
+                    "Could not close background job log %s: %s", job.log_path, e
+                )
+            if not written:
+                # A later preview may retry, but never through this closed fd.
+                job._snapshot_stream = None
     return job.log_path
 
 
@@ -541,12 +720,24 @@ def format_job_output(
             truncated = True
             text = f"...(truncated, showing last {limit} of {len(text)} chars)...\n{text[-limit:]}"
         blocks.append(md_codeblock(name, text))
-    if truncated:
+    if truncated or job.log_path is not None:
         log_path = _write_job_log(
             job, *job.get_output(), final=False, complete=complete
         )
         dropped = job._stdout_buffer_start + job._stderr_buffer_start
-        if log_path is not None and (job._final_log_written or not dropped):
+        if job._spool_from_reader:
+            if job._capture_partial:
+                label = "Partial output (capture omitted data)"
+            elif job._spool_pending_stdout or job._spool_pending_stderr:
+                label = "Partial output (incomplete line pending sanitation)"
+            else:
+                label = "Full output"
+            paths = [f"stdout: `{log_path}`"] if log_path is not None else []
+            if job.stderr_log_path is not None:
+                paths.append(f"stderr: `{job.stderr_log_path}`")
+            if paths:
+                blocks.append(label + ":\n" + "\n".join(paths))
+        elif log_path is not None and (job._final_log_written or not dropped):
             blocks.append(f"Full output: `{log_path}`")
         elif log_path is not None:
             # The in-memory buffer already discarded the earliest output.
@@ -658,6 +849,11 @@ def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> Non
             job._stderr_buffer_start += job._append_to_buffer_locked(
                 job.stderr_buffer, stderr
             )
+    # A failed final write can be retried by completion rendering. Publish the
+    # finished capture only after RAM holds the final output, so that retry
+    # closes its snapshot and later previews do not reopen it.
+    with _job_log_lock:
+        job._capture_finished.set()
     _notify_completion(job)
 
 

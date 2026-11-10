@@ -174,11 +174,11 @@ def job_probe(root: Path) -> dict:
     direct = BackgroundJob(
         1, "synthetic-noisy-job", process, 1, log_dir=root / "direct"
     )
-    before = direct.log_path
     started = time.perf_counter()
     tracemalloc.start()
     try:
         direct.start_reader()
+        live_path_at_reader_start = direct.log_path
         assert direct._reader_thread is not None
         direct._reader_thread.join(timeout=10)
         assert not direct._reader_thread.is_alive()
@@ -214,7 +214,7 @@ def job_probe(root: Path) -> dict:
         "capture_peak_python_bytes": peak,
         "direct_retained_buffer_chars": len(direct.get_output()[0]),
         "direct_evicted_chars": direct._stdout_buffer_start,
-        "live_path_before_first_read": str(before),
+        "live_path_at_reader_start": str(live_path_at_reader_start),
         "direct_log_has_begin": "BEGIN-MARKER" in direct_log,
         "direct_preview_reports_loss": "not retained" in preview,
         "promoted_final_has_begin_and_end": all(
@@ -246,8 +246,9 @@ def main() -> None:
         and r["selective_answer_correct"]
         for r in rows
     )
-    assert not jobs["direct_log_has_begin"]
-    assert jobs["direct_preview_reports_loss"]
+    assert jobs["live_path_at_reader_start"] != "None"
+    assert jobs["direct_log_has_begin"]
+    assert not jobs["direct_preview_reports_loss"]
     assert jobs["promoted_final_has_begin_and_end"]
     assert jobs["final_survives_later_snapshot"]
     print(json.dumps({"revision": revision, "workflows": rows, "jobs": jobs}, indent=2))
