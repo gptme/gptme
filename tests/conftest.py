@@ -492,6 +492,21 @@ def no_memory_lessons(
 
 
 @pytest.fixture(autouse=True)
+def isolate_logs_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Keep conversation/subagent logdirs out of the developer's real logs dir.
+
+    Without this, tests that start subagents or conversations without an
+    explicit logdir (e.g. ``subagent-test-*``) write into ``get_logs_dir()``,
+    which is the live logs dir when the suite runs inside an agent session.
+    Tests that need a specific root override ``GPTME_LOGS_HOME`` themselves.
+    Created outside ``tmp_path`` because some tests audit every entry there.
+    """
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path_factory.mktemp("logs-home")))
+
+
+@pytest.fixture(autouse=True)
 def clear_tools_before(isolate_user_config):
     # Clear all tools and cache to prevent test conflicts
     clear_tools()
