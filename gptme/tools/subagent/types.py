@@ -571,8 +571,32 @@ class Subagent:
 
     def is_running(self) -> bool:
         """Check if the subagent is still running."""
-        if self.execution_mode == "subprocess" and self.process:
-            return self.process.poll() is None
+        if self.execution_mode == "subprocess":
+            if self.process:
+                return self.process.poll() is None
+            # Cross-restart check: the child holds the writer lock for its entire
+            # lifetime. If the lock file exists and is held, the child is alive.
+            # This path activates when we rehydrated from disk (no process ref).
+            from .execution import WRITER_LOCK_FILENAME
+
+            lock_path = self.logdir / WRITER_LOCK_FILENAME
+            if lock_path.exists():
+                try:
+                    import importlib
+
+                    fcntl = importlib.import_module("fcntl")
+                    with lock_path.open("r+b") as f:
+                        try:
+                            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            # Acquired → child is dead; release immediately.
+                            fcntl.flock(f, fcntl.LOCK_UN)
+                            return False
+                        except OSError:
+                            # EAGAIN / EWOULDBLOCK → child still holds the lock.
+                            return True
+                except (ImportError, OSError, FileNotFoundError):
+                    pass
+            return False
         if self.execution_mode == "acp" and self.thread:
             # ACP mode uses a thread wrapping the async client
             return self.thread.is_alive()

@@ -93,6 +93,10 @@ _SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
 _SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
+# Held exclusively by the subprocess child for its entire lifetime.
+# A surviving child after parent crash keeps the kernel flock until it exits.
+# subagent.is_running() uses LOCK_NB to detect a live child cross-restart.
+WRITER_LOCK_FILENAME = "subagent-writer.lock"
 
 # Thread-local storage for subagent context
 # Used by the progress tool to know which agent_id it's running as
@@ -904,6 +908,30 @@ def _run_subagent_subprocess(
         env["GPTME_THINKING_EFFORT"] = reasoning_effort
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
+    # Acquire the writer lease on behalf of the child. flock belongs to the open
+    # file description, so when the parent closes its copy the child becomes the
+    # sole holder. The kernel releases the lease automatically when the child exits,
+    # allowing is_running() to detect a surviving child after a parent restart
+    # without a stale PID file or TTL heuristic. Absent on Windows (no fcntl).
+    import importlib
+
+    _fcntl = None
+    try:
+        _fcntl = importlib.import_module("fcntl")
+    except ImportError:
+        pass
+
+    lock_fd = None
+    pass_fds: tuple[int, ...] = ()
+    if _fcntl is not None:
+        lock_path = logdir / WRITER_LOCK_FILENAME
+        lock_path.touch(exist_ok=True)
+        lock_fd = lock_path.open("r+b")
+        # Blocking acquire: wait for any previous holder (should not exist for a
+        # fresh launch, but re-launch after a restart must wait for the old child).
+        _fcntl.flock(lock_fd, _fcntl.LOCK_EX)
+        pass_fds = (lock_fd.fileno(),)
+
     try:
         with (
             open(tmpfile_path) as stdin_file,
@@ -917,9 +945,14 @@ def _run_subagent_subprocess(
                 cwd=workspace,
                 env=env,
                 text=True,
+                pass_fds=pass_fds,
             )
     finally:
         tmpfile_path.unlink(missing_ok=True)
+        if lock_fd is not None:
+            # Parent releases its copy. Child now holds the sole lock via its
+            # inherited file description; the kernel keeps the flock alive.
+            lock_fd.close()
 
     return process
 
