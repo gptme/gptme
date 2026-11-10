@@ -149,7 +149,8 @@ def export_chat_to_html(name: str, chat_data: Log, output_path: Path) -> None:
         msg_dict["content"] = html.escape(msg_dict["content"], quote=False)
         chat_data_list.append(msg_dict)
 
-    chat_data_json = json.dumps(chat_data_list, indent=2)
+    # Encode the whole object for HTML script raw text, including non-content fields.
+    chat_data_json = json.dumps(chat_data_list, indent=2).replace("<", "\\u003c")
     chat_name_json = json.dumps(name).replace("<", "\\u003c")
 
     # Embed script and conversation

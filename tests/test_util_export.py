@@ -4,6 +4,8 @@ import base64
 import hashlib
 import html
 import json
+from dataclasses import replace
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +24,75 @@ from gptme.util.export import (
 CDN_STUB = "/* cdn-stub */"
 
 CDN_PATCH = "gptme.util.export._fetch_cdn_resource"
+
+
+class _ExportScripts(HTMLParser):
+    """Read script raw text using HTML's case-insensitive closing tags."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.scripts: list[str] = []
+        self.in_script = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script":
+            self.in_script = True
+            self.scripts.append("")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script":
+            self.in_script = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_script:
+            self.scripts[-1] += data
+
+
+@pytest.mark.parametrize(
+    "field", ["metadata", "files", "file_hashes", "call_id", "content", "name"]
+)
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "</script><script>window.EXPORT_SENTINEL = 1</script>",
+        "</ScRiPt ><script>window.EXPORT_SENTINEL = 1</script>",
+        "<!--<script>nested</script>",
+        'ordinary <tag> & "quotes" \\ backslash; café 日本語 😀\u2028\u2029',
+    ],
+)
+def test_html_export_script_data_round_trip(tmp_path, field, payload):
+    message = Message("user", "ordinary control")
+    name = payload if field == "name" else "synthetic"
+    if field == "metadata":
+        message = replace(
+            message,
+            metadata={"voice_call": {payload: [payload, {"value": payload}]}},
+        )
+    elif field == "files":
+        message = replace(message, files=[tmp_path / payload])
+    elif field == "file_hashes":
+        message = replace(message, file_hashes={payload: payload})
+    elif field == "call_id":
+        message = replace(message, call_id=payload)
+    elif field == "content":
+        message = replace(message, content=payload)
+    expected = message.to_dict()
+    # Content retains its existing rendering-layer escaping contract.
+    expected["content"] = html.escape(expected["content"], quote=False)
+    output = tmp_path / "export.html"
+    with patch(CDN_PATCH, return_value=CDN_STUB):
+        export_chat_to_html(name, Log([message]), output)
+    parsed = _ExportScripts()
+    parsed.feed(output.read_text())
+    script = next(s for s in parsed.scripts if "window.CHAT_DATA = " in s)
+    name_json, data_json = script.split("window.CHAT_NAME = ", 1)[1].split(
+        ";\nwindow.CHAT_DATA = ", 1
+    )
+    assert json.loads(name_json) == name
+    assert json.loads(data_json.strip().removesuffix(";")) == [expected]
+    assert "<" not in name_json + data_json
+    assert not any(s.strip() == "window.EXPORT_SENTINEL = 1" for s in parsed.scripts)
+    assert message.to_dict()["content"] == message.content
 
 
 def test_replace_or_fail_basic():
