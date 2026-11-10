@@ -150,13 +150,14 @@ def _persist_cached_outcome(agent_id: str) -> None:
     from .persistence import persist_subagent_outcome
 
     with _outcome_persist_lock:
-        with _subagent_results_lock:
-            result = _subagent_results.get(agent_id)
-        if result is None:
-            return
+        # Snapshot the attempt and result together with continuation's lock order.
+        # Otherwise a handoff between these reads can stamp an old result with
+        # the new attempt's generation, making it valid after a restart.
         with _subagents_lock:
             sa = next((s for s in reversed(_subagents) if s.agent_id == agent_id), None)
-        if sa is None:
+            with _subagent_results_lock:
+                result = _subagent_results.get(agent_id)
+        if sa is None or result is None:
             return
         persist_subagent_outcome(sa, result)
 

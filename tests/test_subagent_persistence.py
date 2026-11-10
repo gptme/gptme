@@ -777,13 +777,7 @@ class TestDurableAttemptOutcome:
         )
 
         subagent_dir = tmp_path / "subagent-live-agent-kl12"
-        sa = Subagent(
-            agent_id="live-agent",
-            prompt="p",
-            thread=None,
-            logdir=subagent_dir,
-            model=None,
-        )
+        sa = self._register(subagent_dir, agent_id="live-agent")
         persist_subagent_outcome(sa, ReturnType("timeout"))
         with _subagent_results_lock:
             _subagent_results["live-agent"] = ReturnType("success", "live")

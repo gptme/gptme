@@ -110,3 +110,22 @@ def test_malformed_saved_fields_rejected(
     payload[field] = value
     path.write_text(json.dumps(payload))
     assert persistence.load_subagent_outcome(sa) is None
+
+
+def test_persist_snapshots_result_under_registry_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A persistence snapshot cannot pair an old result with a new generation."""
+
+    class CheckedResults(dict[str, types.ReturnType]):
+        def get(self, key: str, default: Any = None) -> Any:
+            assert types._subagents_lock.locked()
+            return super().get(key, default)
+
+    sa = types.Subagent("worker", "task", None, tmp_path, None)
+    with types._subagents_lock:
+        types._subagents.append(sa)
+    result = types.ReturnType("cancelled", "old")
+    monkeypatch.setattr(types, "_subagent_results", CheckedResults(worker=result))
+    types._persist_cached_outcome("worker")
+    assert persistence.load_subagent_outcome(sa) == result
