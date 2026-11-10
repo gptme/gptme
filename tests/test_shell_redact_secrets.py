@@ -81,6 +81,141 @@ def test_output_specific_credentials(value, quote):
     assert out == "SERVICE_TOKEN=[REDACTED]\n"
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        # pytest assertion introspection of an env mapping (one line)
+        "E       assert 'FOO' in {{'PATH': '/usr/bin', 'OPENROUTER_API_KEY': '{key}'}}\n",
+        # pytest locals section
+        "env       = {{'HOME': '/home/bob', 'SERVICE_API_TOKEN': '{opaque}'}}\n",
+        # mock call repr
+        "call('cmd', env={{'ANTHROPIC_API_KEY': '{key}'}})\n",
+        # assertion diff rows, quoted and unquoted
+        "E         - 'OPENROUTER_API_KEY': '{key}',\n",
+        "E         OPENROUTER_API_KEY: '{key}'\n",
+        # one-line JSON
+        '{{"token": "{opaque}", "x": 1}}\n',
+        # name-less vendor-prefixed value
+        "E       AssertionError: {key} != None\n",
+        # header
+        "Authorization: Bearer {key}\n",
+        # Whole-name matching must retain prefixes, suffixes and punctuation.
+        "call(MY_service-ToKeN_suffix='{opaque}')\n",
+        "config = {{'some-token-field': '{opaque}'}}\n",
+    ],
+)
+def test_credentials_in_non_line_anchored_output_are_redacted(line):
+    """Failing-test output prints credentials mid-line, not as ``NAME=value``."""
+    text = line.format(key=OR_KEY, opaque=OPAQUE)
+    out, n = redact_secret_values_from_output(text)
+    assert n == 1
+    assert OR_KEY not in out and OPAQUE not in out
+    assert "[REDACTED]" in out
+    # Surrounding context is kept so the failure stays debuggable.
+    assert out.count("\n") == text.count("\n")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "E       assert {'PATH': '/usr/bin', 'MAX_TOKENS': '4096'} == {}\n",
+        "env = {'HOME': '/home/bob', 'GITHUB_TOKEN': 'ghp_'}\n",
+        "pip install scikit-learn sk-learn-pipeline-run-with-many-parts\n",
+        "task-run-20261107-sk-learn-benchmark-results\n",
+        "commit 0123456789abcdef0123456789abcdef01234567\n",
+        "token=parser.py\n",
+        "E   AssertionError: expected the password field to be empty\n",
+        "config = {'api_key': os.environ['X']}\n",
+        "call(api_key='placeholder')\n",
+    ],
+)
+def test_non_credential_mid_line_text_is_kept(line):
+    out, n = redact_secret_values_from_output(line)
+    assert n == 0
+    assert out == line
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "gh" + "p_" + "A" * 36,
+        "github_" + "pat_" + "a" * 40,
+        "sk-" + "A" * 32,
+        "sk-" + "proj-" + "a" * 32,
+        "sk-" + "svcacct-" + "A" * 32,
+        "xox" + "b-" + "a" * 32,
+        "glpat-" + "a" * 32,
+        "AIza" + "a" * 32,
+        "npm_" + "a" * 32,
+        "dckr_" + "pat_" + "a" * 32,
+        "rk_" + "live_" + "a" * 32,
+        "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12,
+    ],
+)
+def test_alphabetic_credential_bodies_are_redacted(value):
+    text = f"Authorization: Bearer {value}\n"
+    out, n = redact_secret_values_from_output(text)
+    assert out == "Authorization: Bearer [REDACTED]\n"
+    assert n == 1
+
+
+@pytest.mark.parametrize(
+    "template",
+    ["Authorization: Bearer {}\n", "E   AssertionError: {} != None\n"],
+)
+def test_embedded_google_oauth_access_token_is_redacted(template):
+    value = "ya" + "29." + "A1B2C3D4_ef-gh" * 3
+    out, n = redact_secret_values_from_output(template.format(value))
+    assert out == template.format("[REDACTED]")
+    assert n == 1
+
+
+@pytest.mark.parametrize("template", ["Authorization: Bearer {}\n", "E   -{}\n"])
+def test_jwt_with_short_payload_is_redacted(template):
+    value = "eyJhbGciOiJIUzI1NiJ9" + ".e30." + "aB3_dE-fG4hI5jK6"
+    assert redact_secret_values_from_output(template.format(value)) == (
+        template.format("[REDACTED]"),
+        1,
+    )
+
+
+@pytest.mark.parametrize("prefix", ["-", "E         -", "    -", "E         --"])
+def test_removed_jwt_line_is_redacted(prefix):
+    value = "eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12
+    assert redact_secret_values_from_output(f"{prefix}{value}\n") == (
+        f"{prefix}[REDACTED]\n",
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    "word",
+    ["x" * 32000, "token" * 6400, "eyJ_" * 64000, "eyJ-" * 64000],
+    ids=["plain-word", "repeated-keyword", "jwt-underscore", "jwt-hyphen"],
+)
+def test_long_non_matching_output_does_not_stall(word):
+    """A generous subprocess deadline bounds regex hangs, not normal latency."""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "from gptme.util.redact import redact_secret_values_from_output; "
+                "text = sys.stdin.read(); "
+                "assert redact_secret_values_from_output(text) == (text, 0)"
+            ),
+        ],
+        input=word,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+
+
 @pytest.mark.parametrize("final", [False, True])
 def test_background_display_and_logs_are_redacted(tmp_path, final):
     from unittest.mock import Mock

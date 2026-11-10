@@ -247,6 +247,81 @@ def _looks_like_output_secret(value: str) -> bool:
     )
 
 
+# Credential literals that can appear anywhere in a line (inside a dict repr,
+# a failing assertion, a mock-call repr or a header), not only after a
+# line-leading ``NAME=``. Vendor prefixes are high precision, so these need no
+# surrounding name; a minimum body length keeps prose such as ``sk-learn`` out.
+_EMBEDDED_VENDOR_LITERAL_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    r"gh[pousr]_[A-Za-z0-9]{20,}"
+    r"|github_pat_[A-Za-z0-9_]{20,}"
+    r"|sk-(?:(?:ant-|or-|proj-|svcacct-)[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]{20,}[A-Za-z0-9_-]*)"
+    r"|xox[baprs]-[A-Za-z0-9-]{10,}"
+    r"|(?:AKIA|ASIA)[0-9A-Z]{16}"
+    r"|glpat-[A-Za-z0-9_-]{16,}"
+    r"|AIza[0-9A-Za-z_-]{30,}"
+    r"|ya29\.[A-Za-z0-9_-]{20,}"
+    r"|npm_[A-Za-z0-9]{30,}"
+    r"|dckr_pat_[A-Za-z0-9_-]{16,}"
+    r"|[rsp]k_(?:live|test)_[A-Za-z0-9]{16,}"
+    # JWT segments include '_' and '-': neither can allow another start inside
+    # a segment, or repeated 'eyJ_' prefixes retry every remaining suffix.
+    # Consume diff deletion markers from a boundary, preserving them on output.
+    r"|(?<![_-])(?P<jwt_diff>-*)eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r")(?![A-Za-z0-9])"
+)
+
+# ``'NAME': 'value'`` / ``NAME='value'`` pairs mid-line: pytest assertion
+# introspection, ``env = {...}`` locals and call reprs print them this way.
+# Match each complete name once, then classify it separately. Searching for a
+# keyword inside an unanchored variable-length name retries at every character;
+# repeated keywords can also backtrack through every possible name suffix.
+_EMBEDDED_PAIR_RE = re.compile(
+    r"""(?ix)
+    (?<![\w\-])
+    (?P<key>["']?[\w\-]+["']?)
+    (?P<sep>\s*[:=]\s*)
+    (?P<q>["'])(?P<val>[A-Za-z0-9_./+=-]{20,})(?P=q)
+    """
+)
+_EMBEDDED_SECRET_NAME_RE = re.compile(
+    r"api[-_]?key|apikey|token|secret|password|passwd|private[-_]key"
+    r"|privkey|auth[-_]?(?:key|token)|access[-_]key|credential",
+    re.IGNORECASE,
+)
+
+
+def _is_credential_literal(value: str) -> bool:
+    """Stricter than :func:`_looks_like_output_secret` for mid-line matches."""
+    return len(value) >= 20 and _looks_like_output_secret(value)
+
+
+def _redact_embedded_secrets(line: str) -> tuple[str, bool]:
+    """Redact credential literals that are not at the start of a line."""
+    changed = False
+
+    def _pair(match: re.Match[str]) -> str:
+        nonlocal changed
+        if not _EMBEDDED_SECRET_NAME_RE.search(match.group("key")) or not (
+            _is_credential_literal(match.group("val"))
+        ):
+            return match.group(0)
+        changed = True
+        q = match.group("q")
+        return f"{match.group('key')}{match.group('sep')}{q}{_REDACTED}{q}"
+
+    def _literal(match: re.Match[str]) -> str:
+        nonlocal changed
+        # Vendor shapes already enforce a prefix and minimum body length;
+        # legitimate credentials do not necessarily contain decimal digits.
+        changed = True
+        return (match.group("jwt_diff") or "") + _REDACTED
+
+    line = _EMBEDDED_PAIR_RE.sub(_pair, line)
+    line = _EMBEDDED_VENDOR_LITERAL_RE.sub(_literal, line)
+    return line, changed
+
+
 def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     """Redact secret-shaped values on secret-named lines of command output.
 
@@ -274,6 +349,11 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
         )
         if match and _looks_like_output_secret(value):
             out.append(_redact_line(body) + ending)
+            redacted += 1
+            continue
+        embedded, changed = _redact_embedded_secrets(body)
+        if changed:
+            out.append(embedded + ending)
             redacted += 1
         else:
             out.append(line)
