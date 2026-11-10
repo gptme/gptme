@@ -21,13 +21,21 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import tempfile
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
-from .types import ReturnType, Subagent, _subagent_results, _subagent_results_lock
+from .types import (
+    ReturnType,
+    Subagent,
+    _subagent_results,
+    _subagent_results_lock,
+    _subagents,
+    _subagents_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +194,30 @@ def load_subagent_outcome(sa: Subagent) -> ReturnType | None:
             return None
         if float(data["generation"]) != sa.started_at:
             return None
+        if data.get("status") not in (
+            "success",
+            "failure",
+            "clarification_needed",
+            "timeout",
+            "budget_exceeded",
+            "cancelled",
+        ):
+            raise ValueError("subagent outcome status must be terminal")
+        for name in ("input_tokens", "output_tokens", "tool_uses"):
+            value = data.get(name)
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError(
+                    f"subagent outcome {name} must be a nonnegative integer"
+                )
+        duration = data.get("duration_s")
+        if duration is not None and (
+            type(duration) not in (int, float)
+            or not math.isfinite(duration)
+            or duration < 0
+        ):
+            raise ValueError(
+                "subagent outcome duration_s must be finite and nonnegative"
+            )
         result = data.get("result")
         if result is not None and not isinstance(result, str | dict):
             raise TypeError("subagent outcome result must be str, dict or null")
@@ -211,10 +243,18 @@ def restore_subagent_outcome(sa: Subagent) -> bool:
     outcome = load_subagent_outcome(sa)
     if outcome is None:
         return False
-    with _subagent_results_lock:
-        if sa.agent_id in _subagent_results:
+    # Match continuation's registry -> result lock order. Loading may have
+    # overlapped a continuation, so the file generation check alone is not enough.
+    with _subagents_lock:
+        current = next(
+            (s for s in reversed(_subagents) if s.agent_id == sa.agent_id), None
+        )
+        if current is not sa:
             return False
-        _subagent_results[sa.agent_id] = outcome
+        with _subagent_results_lock:
+            if sa.agent_id in _subagent_results:
+                return False
+            _subagent_results[sa.agent_id] = outcome
     return True
 
 

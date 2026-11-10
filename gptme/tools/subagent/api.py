@@ -1724,8 +1724,10 @@ def subagent_continue(agent_id: str, message: str) -> None:
         # Start while holding the registry lock. A concurrent caller will then
         # observe a live thread instead of the not-yet-started handoff object.
         thread.start()
-    with _subagent_results_lock:
-        _subagent_results.pop(agent_id, None)
+        # Restoration checks registry identity under this same lock, so it
+        # cannot insert the previous attempt's result after this handoff.
+        with _subagent_results_lock:
+            _subagent_results.pop(agent_id, None)
     start_gate.set()
     if sa.max_time is not None:
         timer = threading.Timer(
