@@ -77,14 +77,13 @@ def test_provider_fallback_models_includes_all_api_key_providers():
     assert not missing, f"Missing fallback models for providers: {missing}"
 
 
-@pytest.mark.parametrize(
-    "model",
-    ["openrouter/deepseek/deepseek-v4.1-flash", "openai/gpt-4.1-nano"],
-)
-def test_configured_model_without_key_still_serves_setup(
-    model: str, tmp_path: Path, unused_tcp_port: int
+def _assert_setup_api_serves(
+    tmp_path: Path,
+    port: int,
+    cli_args: list[str],
+    extra_env: dict[str, str] | None = None,
 ) -> None:
-    """Missing credentials must leave the setup API reachable, not crash startup."""
+    """Start the server in a clean HOME and assert the setup API is reachable."""
     repo = Path(__file__).resolve().parents[1]
     env = {
         name: os.environ[name] for name in ("PATH", "SYSTEMROOT") if name in os.environ
@@ -99,7 +98,8 @@ def test_configured_model_without_key_still_serves_setup(
         GPTME_SERVER_TOKEN="test-fallback-token",
         PYTHON_DOTENV_DISABLED="1",
     )
-    url = f"http://127.0.0.1:{unused_tcp_port}/api/v2"
+    env.update(extra_env or {})
+    url = f"http://127.0.0.1:{port}/api/v2"
     with (tmp_path / "server.log").open("w+") as log:
         process = subprocess.Popen(
             [
@@ -107,12 +107,11 @@ def test_configured_model_without_key_still_serves_setup(
                 "-m",
                 "gptme.server.cli",
                 "serve",
-                "--model",
-                model,
+                *cli_args,
                 "--tools",
                 "none",
                 "--port",
-                str(unused_tcp_port),
+                str(port),
             ],
             cwd=tmp_path,
             env=env,
@@ -145,3 +144,30 @@ def test_configured_model_without_key_still_serves_setup(
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["openrouter/deepseek/deepseek-v4.1-flash", "openai/gpt-4.1-nano"],
+)
+def test_configured_model_without_key_still_serves_setup(
+    model: str, tmp_path: Path, unused_tcp_port: int
+) -> None:
+    """Missing credentials must leave the setup API reachable, not crash startup."""
+    _assert_setup_api_serves(tmp_path, unused_tcp_port, ["--model", model])
+
+
+def test_nvidia_key_without_model_still_serves_setup(
+    tmp_path: Path, unused_tcp_port: int
+) -> None:
+    """An NVIDIA key alone selects nvidia, which has no recommended model.
+
+    Startup must treat the explicit-model requirement as a configuration
+    error and keep the setup API reachable instead of exiting.
+    """
+    _assert_setup_api_serves(
+        tmp_path,
+        unused_tcp_port,
+        [],
+        extra_env={"NVIDIA_API_KEY": "placeholder-not-a-real-key"},
+    )
