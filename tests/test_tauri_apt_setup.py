@@ -107,7 +107,11 @@ def test_tauri_apt_cache_and_download_bounds() -> None:
 
 
 def run_install(
-    tmp_path: Path, *, cache_hit: str | None, install_exit: int = 0
+    tmp_path: Path,
+    *,
+    cache_hit: str | None,
+    install_exit: int = 0,
+    archive_probe_exit: int = 0,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Execute the action's install script against a recording `sudo` stub."""
     install = yaml.safe_load(ACTION.read_text())["runs"]["steps"][-1]["run"]
@@ -116,6 +120,7 @@ def run_install(
     sudo.write_text(
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$CALLS"\n'
+        'if [[ "$*" == *"--no-download"* ]]; then exit "$ARCHIVE_PROBE_EXIT"; fi\n'
         'if [[ "$*" == *" install -y "* ]]; then exit "$INSTALL_EXIT"; fi\n'
         "exit 0\n"
     )
@@ -125,6 +130,7 @@ def run_install(
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "CALLS": str(calls),
         "INSTALL_EXIT": str(install_exit),
+        "ARCHIVE_PROBE_EXIT": str(archive_probe_exit),
         "PACKAGES": "python3-dev",
         "EXTRA_PACKAGES": "",
         # The workflow passes these from the step env; mirror that here so the
@@ -146,17 +152,35 @@ def run_install(
 
 
 @pytest.mark.parametrize(
-    ("cache_hit", "use_hit_budget"),
-    [("true", True), ("false", False), (None, False)],
+    ("cache_hit", "archive_probe_exit", "use_hit_budget"),
+    [
+        ("true", 0, True),
+        ("true", 100, False),  # Exact hit, but apt now selects newer archives.
+        ("true", 124, False),  # Inconclusive probe must not shorten downloads.
+        ("false", 0, False),
+        (None, 0, False),
+    ],
 )
 def test_tauri_apt_install_deadline_follows_cache_state(
-    tmp_path: Path, cache_hit: str | None, use_hit_budget: bool
+    tmp_path: Path, cache_hit: str | None, archive_probe_exit: int, use_hit_budget: bool
 ) -> None:
-    """A cache hit must fail fast; a miss (or unknown state) must not cut the download."""
+    """Only an exact hit with confirmed local archives can use the short deadline."""
     hit, miss = apt_deadlines()
-    result, commands = run_install(tmp_path, cache_hit=cache_hit)
+    result, commands = run_install(
+        tmp_path, cache_hit=cache_hit, archive_probe_exit=archive_probe_exit
+    )
     assert result.returncode == 0, result.stderr
-    installs = [line for line in commands if " install -y " in line]
+    probes = [line for line in commands if "--no-download" in line]
+    assert len(probes) == (1 if cache_hit == "true" else 0)
+    if probes:
+        assert "--download-only" in probes[0]
+        assert "timeout --kill-after=5s 30s apt-get" in probes[0]
+        assert probes[0].endswith("install -y python3-dev")
+    installs = [
+        line
+        for line in commands
+        if " install -y " in line and "--no-download" not in line
+    ]
     assert len(installs) == 1
     budget = hit if use_hit_budget else miss
     assert f"timeout --kill-after=30s {budget} apt-get" in installs[0]
@@ -218,7 +242,11 @@ def test_tauri_apt_executes_real_script(
     )
     assert result.returncode == update_status, result.stderr
     commands = calls.read_text().splitlines()
-    installs = [line for line in commands if " install -y " in line]
+    installs = [
+        line
+        for line in commands
+        if " install -y " in line and "--no-download" not in line
+    ]
     if update_status:
         assert not installs  # Failed/partial index refresh must not continue.
     else:
