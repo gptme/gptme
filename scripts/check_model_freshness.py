@@ -13,15 +13,15 @@ Exit codes:
     1  One or more stale model IDs detected
     2  OpenRouter API unreachable; no models could be verified
 
-Requires OPENROUTER_API_KEY to be set in the environment (or reachable via the
-OPENAI_API_KEY fallback accepted by the OpenRouter /v1/models endpoint).
+Queries the public (unauthenticated) OpenRouter catalog. An authenticated
+request returns a list filtered by that account's provider/data-policy
+settings, which hides globally-live models and produces false "stale" reports.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 import urllib.error
@@ -117,13 +117,15 @@ def _iter_model_ids(gptme_src: Path) -> Iterator[ModelOccurrence]:
                 )
 
 
-def _fetch_openrouter_models(api_key: str | None) -> set[str] | None:
-    """Return the set of live OpenRouter model IDs, or None on failure."""
+def _fetch_openrouter_models() -> set[str] | None:
+    """Return the set of live OpenRouter model IDs, or None on failure.
+
+    Deliberately unauthenticated: with an API key, /v1/models is filtered by the
+    account's settings and omits models that are live for everyone else.
+    """
     url = "https://openrouter.ai/api/v1/models"
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "gptme-check-model-freshness/1.0")
-    if api_key:
-        req.add_header("Authorization", f"Bearer {api_key}")
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read())
@@ -213,8 +215,7 @@ def run_checks(gptme_src: Path) -> list[CheckResult]:
         print("No model IDs found — check --gptme-src path.", file=sys.stderr)
         return []
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    live_ids = _fetch_openrouter_models(api_key)
+    live_ids = _fetch_openrouter_models()
 
     results: list[CheckResult] = []
     for model_id, occs in sorted(by_id.items()):
