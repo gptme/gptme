@@ -232,3 +232,35 @@ def test_continuation_notifies_winning_durable_result(
     assert len(notifications) == 1
     assert notifications[0][0] == terminal_status
     assert "orchestrator stopped the attempt" in notifications[0][1]
+
+
+@pytest.mark.parametrize("lookup", ["id", "list"])
+def test_queued_cancellation_survives_restart_without_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lookup: str
+) -> None:
+    """Cancellation can finish before a queued worker creates its log."""
+    logdir = tmp_path / "subagent-worker-ab12"
+    finish = threading.Event()
+    thread = threading.Thread(target=finish.wait)
+    thread.start()
+    sa = types.Subagent("worker", "queued task", thread, logdir, None)
+    with types._subagents_lock:
+        types._subagents.append(sa)
+    persistence.persist_subagent_meta(sa)
+    try:
+        assert "cancelled" in api.subagent_cancel("worker")
+    finally:
+        finish.set()
+        thread.join(5)
+    assert not (logdir / "conversation.jsonl").exists()
+    assert persistence.load_subagent_outcome(sa) is not None
+    with types._subagents_lock:
+        types._subagents.clear()
+    with types._subagent_results_lock:
+        types._subagent_results.clear()
+    monkeypatch.setattr("gptme.dirs.get_logs_dir", lambda: tmp_path)
+    if lookup == "list":
+        assert [(s["agent_id"], s["status"]) for s in api.subagent_list()] == [
+            ("worker", "cancelled")
+        ]
+    assert api.subagent_status("worker")["status"] == "cancelled"

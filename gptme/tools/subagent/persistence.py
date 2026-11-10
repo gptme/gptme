@@ -315,10 +315,15 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
             continue
         if entry != exact and not entry.name.startswith(prefix):
             continue
-        if not (entry / "conversation.jsonl").exists():
-            continue
         sa = load_subagent_meta(entry)
-        if sa is not None and sa.agent_id == agent_id:
+        if (
+            sa is not None
+            and sa.agent_id == agent_id
+            and (
+                (entry / "conversation.jsonl").exists()
+                or load_subagent_outcome(sa) is not None
+            )
+        ):
             candidates.append(sa)
     if not candidates:
         return None
@@ -328,8 +333,10 @@ def load_subagent_by_id(agent_id: str, logs_dir: Path | None = None) -> Subagent
 def scan_rehydrate_subagents(logs_dir: Path | None = None) -> list[Subagent]:
     """Scan the logs directory for subagent meta files and return Subagents.
 
-    Skips directories without ``conversation.jsonl`` (explicit cleanup) and
-    unreadable metadata. A failed directory listing raises ``OSError`` so the
+    Requires a conversation or a valid terminal outcome, plus readable metadata.
+    Queued cancellation can persist an outcome before creating a conversation.
+    Explicit cleanup removes metadata, so it cannot resurrect a removed child.
+    A failed directory listing raises ``OSError`` so the
     one-shot registry rehydration can retry instead of treating the failure as
     an empty (complete) scan.
     """
@@ -349,9 +356,10 @@ def scan_rehydrate_subagents(logs_dir: Path | None = None) -> list[Subagent]:
     for entry in entries:
         if not entry.is_dir() or not entry.name.startswith("subagent-"):
             continue
-        if not (entry / "conversation.jsonl").exists():
-            continue
         sa = load_subagent_meta(entry)
-        if sa is not None:
+        if sa is not None and (
+            (entry / "conversation.jsonl").exists()
+            or load_subagent_outcome(sa) is not None
+        ):
             rehydrated.append(sa)
     return rehydrated
