@@ -825,8 +825,12 @@ def _outer_closer_scan(
         tag = fence.group(2).strip()
         # Extraction splits a closer joined to the next opener ("``````shell")
         # into both: the line closes the open block, then opens a tagged one.
-        joined = bool(re.match(r"^`{3,}\S", line[outer_fence_len:]))
-        if not tag or joined:
+        rest = line[outer_fence_len:]
+        joined = bool(re.match(r"^`{3,}\S", rest))
+        # Extraction also accepts a closer concatenated with a reasoning tag.
+        # It closes the outer block but does not open another fenced block.
+        thinking_close = rest.startswith(("<think>", "<thinking>"))
+        if not tag or joined or thinking_close:
             bare.add(i)
             if openers:
                 matching[openers.pop()] = i

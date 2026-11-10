@@ -3394,3 +3394,40 @@ def test_distant_tagged_fence_inside_shell_heredoc_is_not_recovered_closer(
     )
     markdown = f"```shell\n{content}\n```\n"
     assert list(_extract_codeblocks(markdown)) == [Codeblock("shell", content)]
+
+
+@pytest.mark.parametrize("tag", ["think", "thinking"])
+@pytest.mark.parametrize("tail_lines", [3, 30, 100])
+@pytest.mark.parametrize("outer_length", [3, 4])
+def test_save_preserves_tail_before_concatenated_thinking_closer(
+    tag: str, tail_lines: int, outer_length: int
+) -> None:
+    """The suffix index must recognize the same thinking closers as extraction."""
+    fence = "`" * outer_length
+    content = f"intro\n{fence}\n" + "body\n" * tail_lines + "end"
+    markdown = f"{fence}save a.md\n{content}\n{fence}<{tag}>\nplanning"
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.md", content, fence=fence)
+    ]
+
+
+@pytest.mark.parametrize("prose_lines", [1, 30])
+@pytest.mark.parametrize("confirmed_close", [False, True])
+def test_joined_fence_after_ambiguous_bare_fence_prefers_literal_content(
+    prose_lines: int, confirmed_close: bool
+) -> None:
+    """Without a blank boundary, narration and a literal save tail are identical.
+
+    Prefer the joined outer closer so literal file content is not truncated.
+    A blank line after the earlier fence unambiguously ends the save instead.
+    """
+    narration = "Checking:\n" * prose_lines
+    boundary = "\n" if confirmed_close else ""
+    markdown = (
+        f"```save a.json\n{{}}\n```\n{boundary}{narration}``````shell\necho ok\n```"
+    )
+    expected_content = "{}" if confirmed_close else "{}\n```\n" + narration.rstrip("\n")
+    assert list(_extract_codeblocks(markdown)) == [
+        Codeblock("save a.json", expected_content),
+        Codeblock("shell", "echo ok"),
+    ]
