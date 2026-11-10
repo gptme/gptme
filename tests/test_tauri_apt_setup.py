@@ -12,8 +12,19 @@ ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / ".github/actions/setup-tauri-apt/action.yml"
 
 
+def apt_deadlines() -> tuple[int, int]:
+    """Install deadlines (seconds) the action applies on a cache hit and miss."""
+    install = yaml.safe_load(ACTION.read_text())["runs"]["steps"][-1]
+    assert install["name"] == "Install packages"
+    return (
+        int(install["env"]["APT_INSTALL_TIMEOUT_HIT"]),
+        int(install["env"]["APT_INSTALL_TIMEOUT_MISS"]),
+    )
+
+
 def test_tauri_apt_setup_is_shared_and_bounded() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/tauri.yml").read_text())
+    hit, miss = apt_deadlines()
     expected = {"lint", "test", "e2e", "build", "build-sidecar", "release"}
     found = set()
     for name, job in workflow["jobs"].items():
@@ -21,8 +32,13 @@ def test_tauri_apt_setup_is_shared_and_bounded() -> None:
             assert "apt-get" not in step.get("run", ""), name
             if step.get("uses", "").endswith("/.github/actions/setup-tauri-apt"):
                 found.add(name)
-                assert step["timeout-minutes"] == 8
+                # The step ceiling is only a backstop; the action's own
+                # cache-aware deadline is the operative bound, so the ceiling
+                # must sit above the miss budget rather than cut it mid-flight.
+                assert step["timeout-minutes"] * 60 > miss, name
+                assert step["timeout-minutes"] <= 20, name
     assert found == expected
+    assert 0 < hit < miss
 
 
 def test_old_tag_build_loads_action_from_workflow_revision() -> None:
@@ -72,7 +88,11 @@ def test_tauri_apt_cache_and_download_bounds() -> None:
     assert "steps.packages.outputs.hash" in cache["with"]["key"]
     assert "runner.arch" in cache["with"]["key"]
     commands = "\n".join(step.get("run", "") for step in steps)
-    apt_lines = [line for line in commands.splitlines() if "sudo apt-get" in line]
+    apt_lines = [
+        line
+        for line in commands.splitlines()
+        if line.startswith("sudo ") and "apt-get" in line
+    ]
     assert len(apt_lines) == 2
     for line in apt_lines:
         assert "Acquire::Retries=5" in line
@@ -84,6 +104,77 @@ def test_tauri_apt_cache_and_download_bounds() -> None:
     # The runner user must be able to restore archives before apt runs as root.
     prepare = next(i for i, step in enumerate(steps) if "chown" in step.get("run", ""))
     assert prepare < steps.index(cache)
+
+
+def run_install(
+    tmp_path: Path, *, cache_hit: str | None, install_exit: int = 0
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Execute the action's install script against a recording `sudo` stub."""
+    install = yaml.safe_load(ACTION.read_text())["runs"]["steps"][-1]["run"]
+    calls = tmp_path / "calls"
+    sudo = tmp_path / "sudo"
+    sudo.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$CALLS"\n'
+        'if [[ "$*" == *" install -y "* ]]; then exit "$INSTALL_EXIT"; fi\n'
+        "exit 0\n"
+    )
+    sudo.chmod(0o755)
+    hit, miss = apt_deadlines()
+    env = {
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "CALLS": str(calls),
+        "INSTALL_EXIT": str(install_exit),
+        "PACKAGES": "python3-dev",
+        "EXTRA_PACKAGES": "",
+        # The workflow passes these from the step env; mirror that here so the
+        # declared budget is the one exercised.
+        "APT_INSTALL_TIMEOUT_HIT": str(hit),
+        "APT_INSTALL_TIMEOUT_MISS": str(miss),
+    }
+    if cache_hit is not None:
+        env["CACHE_HIT"] = cache_hit
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", install],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return result, calls.read_text().splitlines()
+
+
+@pytest.mark.parametrize(
+    ("cache_hit", "use_hit_budget"),
+    [("true", True), ("false", False), (None, False)],
+)
+def test_tauri_apt_install_deadline_follows_cache_state(
+    tmp_path: Path, cache_hit: str | None, use_hit_budget: bool
+) -> None:
+    """A cache hit must fail fast; a miss (or unknown state) must not cut the download."""
+    hit, miss = apt_deadlines()
+    result, commands = run_install(tmp_path, cache_hit=cache_hit)
+    assert result.returncode == 0, result.stderr
+    installs = [line for line in commands if " install -y " in line]
+    assert len(installs) == 1
+    budget = hit if use_hit_budget else miss
+    assert f"timeout --kill-after=30s {budget} apt-get" in installs[0]
+    assert f"install deadline {budget}s" in result.stdout
+
+
+def test_tauri_apt_install_deadline_defaults_match_declared_env() -> None:
+    """The script's fallbacks must agree with the declared env, or a dropped env silently unbounds apt."""
+    hit, miss = apt_deadlines()
+    run = yaml.safe_load(ACTION.read_text())["runs"]["steps"][-1]["run"]
+    assert f"${{APT_INSTALL_TIMEOUT_HIT:-{hit}}}" in run
+    assert f"${{APT_INSTALL_TIMEOUT_MISS:-{miss}}}" in run
+
+
+def test_tauri_apt_install_reports_deadline_check(tmp_path: Path) -> None:
+    result, _ = run_install(tmp_path, cache_hit="false", install_exit=124)
+    assert result.returncode == 124
+    assert "::error::apt-get install exited 124" in result.stdout
 
 
 @pytest.mark.parametrize(
