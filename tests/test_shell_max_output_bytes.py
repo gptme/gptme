@@ -107,6 +107,28 @@ def test_env_takes_precedence_over_project_spool_quota():
     assert result == 16 * 1024 * 1024
 
 
+@pytest.mark.parametrize("bad", [0, -5, "128", 1.5, True])
+def test_invalid_project_spool_quota_falls_back_to_default(bad):
+    """Zero, negative, string, float or bool quotas must not reach the reader."""
+    from gptme.config.models import ProjectConfig, ShellConfig
+
+    project_cfg = ProjectConfig(shell=ShellConfig(spool_quota_mb=bad))
+    mock_cfg = MagicMock()
+    mock_cfg.get_env.return_value = None
+    mock_cfg.project = project_cfg
+    with patch("gptme.config.get_config", return_value=mock_cfg):
+        result = _get_max_output_bytes()
+    assert result == _DEFAULT_MAX_OUTPUT_BYTES
+
+
+def test_no_project_config_uses_default():
+    mock_cfg = MagicMock()
+    mock_cfg.get_env.return_value = None
+    mock_cfg.project = None
+    with patch("gptme.config.get_config", return_value=mock_cfg):
+        assert _get_max_output_bytes() == _DEFAULT_MAX_OUTPUT_BYTES
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for _strip_shell_return_marker
 # ---------------------------------------------------------------------------
