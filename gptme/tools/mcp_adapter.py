@@ -681,8 +681,8 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             "command": server_config.command,
             "args": list(server_config.args),
             "url": server_config.url,
-            "env": dict(server_config.env),
-            "headers": dict(server_config.headers),
+            "env": dict(server_config.env or {}),
+            "headers": dict(server_config.headers or {}),
         }
         if "command" in config_override:
             server_config.command = config_override["command"]
