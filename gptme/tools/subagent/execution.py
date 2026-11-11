@@ -1752,7 +1752,7 @@ def _run_planner(
                         from .types import ReturnType, set_subagent_result_if_absent
 
                         if set_subagent_result_if_absent(
-                            _sa.agent_id, ReturnType("failure", str(e))
+                            _sa.agent_id, ReturnType("failure", str(e)), attempt=_sa
                         ):
                             notify_completion(
                                 _sa.agent_id,
