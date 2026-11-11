@@ -620,6 +620,36 @@ def test_failed_override_load_restores_layer_enabled_flag(mock_mcp_client):
     assert empty.user.mcp.enabled is False
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_failed_registry_alias_load_removes_canonical_entry(
+    mock_mcp_client: MagicMock, enabled: bool
+) -> None:
+    """Rollback removes the entry added from registry metadata, not the query alias."""
+    cfg = Config()
+    existing = MCPServerConfig(name="existing", command="fixture")
+    cfg.user.mcp = MCPConfig(enabled=enabled, servers=[existing])
+    registry = MagicMock()
+    registry.get_server_details.return_value = MCPServerInfo(
+        name="canonical", description="Registry server", command="fixture"
+    )
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=registry),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("alias")
+
+    assert "connection failed" in result
+    registry.get_server_details.assert_called_once_with("alias")
+    assert cfg.user.mcp.servers == [existing]
+    assert cfg.user.mcp.enabled is enabled
+    assert "alias" not in _dynamic_servers
+    assert "canonical" not in _dynamic_servers
+    mock_mcp_client.close.assert_called_once()
+
+
 @pytest.mark.parametrize("higher_layer", ["chat", "project"])
 @pytest.mark.parametrize("fails", [False, True])
 def test_override_load_enables_effective_layer_and_rolls_back(

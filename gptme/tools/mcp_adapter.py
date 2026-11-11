@@ -755,7 +755,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
                 logger.debug("Failed to close client for '%s' during rollback", name)
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
-            layer.servers = [s for s in layer.servers if s.name != name]
+            layer.servers = [s for s in layer.servers if s.name != server_config.name]
         else:
             server_config.enabled = was_enabled
         layer.enabled = was_layer_enabled
