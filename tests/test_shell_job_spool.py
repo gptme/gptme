@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from gptme.tools.shell_background import (
+    _SPOOL_MAX_BYTES,
     _SPOOL_PENDING_MAX,
     BackgroundJob,
     _write_job_log,
@@ -331,3 +332,59 @@ def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_s
         if process.poll() is None:
             process.kill()
         process.communicate()
+
+
+def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> None:
+    """Quota exceeded closes both spools but reader keeps draining; child exits normally."""
+    from gptme.tools import shell_background as bg
+
+    # 1 KiB quota: triggers quickly without producing a large file.
+    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1024)
+    # 10 KiB stdout (100 chars × 100 newline-separated lines) far exceeds the quota.
+    script = "import sys; sys.stdout.write(('x' * 100 + '\\n') * 100); sys.exit(0)"
+    process = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    job = BackgroundJob(1, "quota-test", process, time.time(), log_dir=tmp_path)
+    try:
+        job.start_reader()
+        assert process.wait(timeout=15) == 0
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+
+        # Quota must have been hit.
+        assert job._capture_partial
+        assert job._stdout_spool is None
+
+        # The spool file exists and carries the quota-exceeded marker.
+        assert job.log_path is not None
+        saved = job.log_path.read_text()
+        assert "quota exceeded" in saved
+
+        # Retained bytes stay at or below the quota (marker bytes are excluded
+        # from the total; the spool is closed on the first chunk that would
+        # overflow, so actual payload <= quota).
+        assert job._spool_bytes_total <= 1024
+
+        # Preview must acknowledge partial capture; must not claim full output.
+        preview = format_job_output(job, *job.get_output(), complete=True)
+        assert "Full output" not in preview
+        assert "Partial output" in preview
+
+        # The in-memory RAM preview is unaffected: the stdout buffer still holds
+        # the final tail of the output (the reader kept draining normally).
+        stdout, _ = job.get_output()
+        assert "xxx" in stdout
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        reset_background_jobs()
+
+
+def test_spool_max_bytes_constant_is_32_mib() -> None:
+    """Confirm the documented quota value so callers can rely on it."""
+    assert _SPOOL_MAX_BYTES == 32 * 1024 * 1024
