@@ -366,7 +366,11 @@ def _live_secret_literals(environ: Mapping[str, str] | None = None) -> list[str]
     return sorted(literals, key=lambda v: (-len(v), v))
 
 
-def _redact_live_literals(line: str, literals: list[str]) -> tuple[str, bool]:
+def _redact_live_literals(
+    line: str,
+    literals: list[str],
+    assignment_span: tuple[int, int] | None = None,
+) -> tuple[str, bool]:
     """Redact the union of live-value and overlapping credential-shape spans."""
     if not any(literal in line for literal in literals):
         return line, False
@@ -395,7 +399,10 @@ def _redact_live_literals(line: str, literals: list[str]) -> tuple[str, bool]:
     # tuple per character of captured output before display trimming.
     spans = iter(
         heapq.merge(
-            *(literal_spans(literal) for literal in literals), vendor_spans, pair_spans
+            *(literal_spans(literal) for literal in literals),
+            vendor_spans,
+            pair_spans,
+            [assignment_span] if assignment_span else [],
         )
     )
     merged_start, merged_end = next(spans)
@@ -446,10 +453,17 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
             else ""
         )
         if match and _looks_like_output_secret(value):
-            body, changed = _redact_line(body), True
-            # The preserved name can itself contain a live value.
+            # Discover live matches before the assignment replacement erases
+            # any part of a credential crossing the separator.
             if literals:
-                body, _ = _redact_live_literals(body, literals)
+                body, live_changed = _redact_live_literals(
+                    body, literals, (match.start(4), match.end(6))
+                )
+            else:
+                live_changed = False
+            if not live_changed:
+                body = _redact_line(body)
+            changed = True
         else:
             live_changed = False
             if literals:

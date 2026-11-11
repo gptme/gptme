@@ -716,3 +716,11 @@ def test_live_secret_crossing_assignment_separator_is_redacted(monkeypatch):
         "TOKEN_[REDACTED][REDACTED]\n",
         1,
     )
+
+
+@pytest.mark.parametrize("suffix", ["tail", "tail/more"])
+def test_live_secret_spanning_assignment_value_is_redacted(monkeypatch, suffix):
+    value = "Zq8x7WmK2pL9vR4t=" + suffix
+    monkeypatch.setenv("SERVICE_TOKEN", value)
+    text = f"TOKEN_{value}={OPAQUE}\n"
+    assert redact_secret_values_from_output(text) == ("TOKEN_[REDACTED]\n", 1)
