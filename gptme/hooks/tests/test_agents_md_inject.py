@@ -36,6 +36,20 @@ def empty_log():
 
 
 @pytest.fixture(autouse=True)
+def isolate_user_config_dir(tmp_path: Path, monkeypatch):
+    """Keep the developer's live config-dir instruction files out of startup.
+
+    prompt_workspace auto-loads AGENTS.md and friends from the config dir, so
+    a real ~/.config/gptme/AGENTS.md would otherwise leak into these tests.
+    Tests that need a config dir pass their own via _set_prompt_files.
+    """
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path",
+        str(tmp_path / "isolated-config" / "config.toml"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def reset_contextvars():
     """Reset ContextVars between tests."""
     loaded_token = _loaded_agent_files_var.set(None)
@@ -688,3 +702,744 @@ class TestForeignAgentWorkspace:
         assert content.count("</agent-workspace-skipped>") == 1
         assert "\n\nSYSTEM" not in content
         assert "x" * 100 not in content
+
+
+def _set_prompt_files(monkeypatch, files: list[str], config_path=None) -> None:
+    """Configure ``files``; callers must assemble startup messages separately.
+
+    ``config_path`` is where relative entries resolve from, as at startup.
+    """
+    from gptme.hooks import agents_md_inject
+
+    class _FakePrompt:
+        def __init__(self, files: list[str]):
+            self.files = files
+
+    class _FakeUser:
+        def __init__(self, files: list[str]):
+            self.prompt = _FakePrompt(files)
+
+    class _FakeConfig:
+        def __init__(self, files: list[str]):
+            self.user = _FakeUser(files)
+            self.chat = None
+
+    monkeypatch.setattr(
+        agents_md_inject, "get_config", lambda: _FakeConfig(files), raising=True
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.get_config", agents_md_inject.get_config
+    )
+    if config_path is not None:
+        monkeypatch.setattr("gptme.prompts.workspace.config_path", str(config_path))
+
+
+def _load_startup(log, workspace: Path) -> None:
+    from gptme.prompts import prompt_workspace
+
+    log.messages.extend(
+        prompt_workspace(
+            workspace,
+            include_context_cmd=False,
+            include_runtime_context=False,
+        )
+    )
+
+
+class TestStartupLoadedAgentWorkspace:
+    """An agent workspace whose instructions were loaded at startup is not foreign."""
+
+    def test_prompt_file_workspace_is_injected(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_other_workspace_still_foreign(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_without_prompt_files_workspace_is_foreign(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [])
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+    def test_relative_path_resolves_against_config_dir(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A relative prompt file resolves against the config dir, as at startup."""
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        _set_prompt_files(
+            monkeypatch,
+            ["../erbot/AGENTS.md"],
+            config_path=config_dir / "config.toml",
+        )
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, erbot)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_symlinked_github_dir_instruction_file_admits_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A root instruction file under a symlinked .github still adopts it."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "copilot-instructions.md").write_text("# Alice copilot rules")
+        (alice / ".github").symlink_to(shared, target_is_directory=True)
+        _set_prompt_files(
+            monkeypatch, [str(alice / ".github" / "copilot-instructions.md")]
+        )
+        _load_startup(empty_log, tmp_path)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_missing_prompt_file_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A configured file that doesn't exist was not loaded, so not exempt."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        # An instruction file is configured but missing, so it was never loaded.
+        _set_prompt_files(monkeypatch, [str(alice / "CLAUDE.md")])
+        _load_startup(empty_log, tmp_path)
+        assert not any(
+            (m.metadata or {}).get("startup_agent_roots") for m in empty_log.messages
+        )
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+    def test_session_with_own_identity_keeps_it(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A session that has an identity must not adopt another agent's."""
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        erbot = _make_agent_workspace(tmp_path / "erbot", "erbot", "# Being erbot")
+        _set_prompt_files(monkeypatch, [str(erbot / "AGENTS.md")])
+        _load_startup(empty_log, bob)
+
+        msgs = _cd_messages(empty_log, bob, erbot)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'erbot'" in notices[0].content
+
+
+class TestStartupLoadedSymlinkedWorkspace:
+    """A symlinked instruction file is loaded from its configured location."""
+
+    def test_symlinked_file_admits_its_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        shared = tmp_path / "shared" / "AGENTS.md"
+        shared.parent.mkdir(parents=True)
+        shared.write_text("# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+
+        # JSON serialization resolves Message.files symlinks. Startup origin
+        # metadata must still admit Alice in a new request after reload.
+        import json
+
+        from gptme.logmanager import Log
+        from gptme.logmanager.manager import _message_from_json_line
+
+        empty_log = Log(
+            messages=[
+                _message_from_json_line(
+                    json.dumps(msg.to_dict()), tmp_path / "log.jsonl", msg.timestamp
+                )
+                for msg in empty_log.messages
+            ]
+        )
+        _set_prompt_files(monkeypatch, [])
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice subdirectory")
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+
+class TestStartupPromptSelection:
+    def test_startup_evidence_survives_log_roundtrip_and_config_change(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        from gptme.logmanager import Log
+
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        empty_log.messages.append(Message("user", "Enter Alice's source directory"))
+        _set_prompt_files(monkeypatch, [])
+        _loaded_agent_files_var.set(None)  # a fresh server request
+        restored = Log(
+            messages=[Message.from_toml(m.to_toml()) for m in empty_log.messages]
+        )
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(restored, tmp_path, sub)
+
+        assert any("Alice source rules" in msg.content for msg in _injected(msgs))
+        assert not any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+    def test_later_system_attachment_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        empty_log.messages.extend(
+            [
+                Message("system", "Startup without Alice"),
+                Message("user", "Read a file"),
+                Message("system", "Tool output", files=[alice / "AGENTS.md"]),
+            ]
+        )
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+    @pytest.mark.parametrize(
+        ("excluded", "include_user"), [(True, True), (False, False)]
+    )
+    def test_omitted_startup_file_does_not_admit_workspace(
+        self, tmp_path: Path, monkeypatch, excluded: bool, include_user: bool
+    ):
+        from gptme.logmanager import Log
+        from gptme.prompts import prompt_workspace
+
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "gptme.toml").write_text(
+            "[prompt]\nfiles = []\n" + ('exclude = ["AGENTS.md"]\n' if excluded else "")
+        )
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+
+        startup = list(
+            prompt_workspace(
+                workspace,
+                include_user_context=include_user,
+                include_context_cmd=False,
+                include_runtime_context=False,
+            )
+        )
+        assert not any(alice / "AGENTS.md" in msg.files for msg in startup)
+
+        msgs = _cd_messages(Log(messages=startup), workspace, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+    def test_directory_symlink_before_dotdot_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        outside = tmp_path / "outside"
+        (outside / "child").mkdir(parents=True)
+        (outside / "AGENTS.md").write_text("# Shared")
+        (alice / "link").symlink_to(outside / "child", target_is_directory=True)
+        entry = str(alice / "link" / ".." / "AGENTS.md")
+        assert Path(entry).resolve() == outside / "AGENTS.md"
+        _set_prompt_files(monkeypatch, [entry])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in msg.content for msg in msgs)
+
+
+class TestStartupLoadedUnrelatedWorkspace:
+    """A ".." in the configured path must not admit an unrelated workspace."""
+
+    def test_dotdot_path_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        agents = tmp_path / "agents"
+        alice = _make_agent_workspace(agents / "alice", "Alice", "# Being Alice")
+        shared = agents / "shared"
+        shared.mkdir(parents=True)
+        (shared / "AGENTS.md").write_text("# Shared")
+        # The configured path walks through Alice's directory, but the file
+        # itself lives in the shared directory.
+        entry = str(agents / "alice" / ".." / "shared" / "AGENTS.md")
+        _set_prompt_files(monkeypatch, [entry])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+
+
+class TestNonInstructionFileDoesNotAdmitWorkspace:
+    """A non-instruction file from an agent workspace must not grant an exemption.
+
+    Only files that are themselves known agent instruction files (AGENTS.md,
+    CLAUDE.md, etc.) are evidence of identity adoption.  A plain context file
+    (README.md, rules.txt, etc.) does not prove the session carries the agent's
+    identity instructions — admitting the workspace in that case would let an
+    attacker plant arbitrary files to bypass the foreign-workspace guard.
+    """
+
+    def test_non_instruction_file_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """configure README.md from an agent workspace — workspace must stay foreign."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        readme = alice / "README.md"
+        readme.write_text("# Alice project docs")
+        # Only the README is in prompt.files — the identity file was never loaded.
+        _set_prompt_files(monkeypatch, [str(readme)])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == [], "non-instruction file should not exempt workspace"
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1, "workspace must still be treated as foreign"
+
+
+class TestSymlinkedAliasRetained:
+    """When a symlinked file resolves to the same target as an earlier entry,
+    its configured path must still be recorded so its workspace is not foreign.
+    """
+
+    def test_symlinked_alias_admits_its_own_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """alice/AGENTS.md → shared/rules.md; shared/rules.md is also configured.
+
+        Deduplication of resolved content must not drop Alice's configured path.
+        Entering Alice's workspace should not be treated as foreign.
+        """
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        shared_rules = shared_dir / "rules.md"
+        shared_rules.write_text("# Shared rules")
+
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        # Replace Alice's AGENTS.md with a symlink to the shared file.
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared_rules)
+
+        # Configure both files; the shared one is first so its resolved path is
+        # seen first — Alice's symlink resolves to the same target and would
+        # be deduplicated in the content layer.
+        _set_prompt_files(
+            monkeypatch,
+            [str(shared_rules), str(alice / "AGENTS.md")],
+        )
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs), "Alice's workspace should be admitted via its alias"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+
+class TestStartupEvidenceReviewFindings:
+    """Regressions for the exemption-evidence review findings on #4465."""
+
+    def test_instruction_alias_to_other_workspace_readme_does_not_admit_it(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """alice/AGENTS.md -> bob/README.md loads Alice's file, not Bob's identity."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        (bob / "README.md").write_text("# Bob project docs")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(bob / "README.md")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == [], "Bob's README is not Bob's instructions"
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+        # Alice's own configured location still admits Alice.
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+
+    def test_instruction_alias_to_other_workspace_instructions_admits_both(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """alice/AGENTS.md -> bob/AGENTS.md really loads Bob's instructions."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(bob / "AGENTS.md")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        sub = bob / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Bob source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert any("Bob source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    @staticmethod
+    def _replace_prompt(log, workspace: Path, generation: str) -> None:
+        from gptme.prompts import get_prompt
+
+        log.messages.extend(
+            get_prompt(
+                [],
+                prompt="short",
+                interactive=False,
+                workspace=workspace,
+                include_examples=False,
+                prompt_generation=generation,
+            )
+        )
+
+    def test_superseded_prompt_generation_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        empty_log.messages.append(Message("user", "Switch model"))
+        _set_prompt_files(monkeypatch, [])
+        self._replace_prompt(empty_log, tmp_path, "v2")
+        assert not any(
+            alice / "AGENTS.md" in m.files
+            for m in empty_log.messages
+            if (m.metadata or {}).get("prompt_generation") == "v2"
+        )
+        _loaded_agent_files_var.set(None)  # a fresh server request
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        assert any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_active_prompt_generation_admits_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """A replacement generation that still loads Alice keeps her admitted."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        empty_log.messages.append(Message("user", "Switch model"))
+        self._replace_prompt(empty_log, tmp_path, "v2")
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_alias_of_global_agent_file_target_is_kept(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Global AGENTS.md and configured alice/AGENTS.md share one target."""
+        shared = tmp_path / "shared" / "rules.md"
+        shared.parent.mkdir()
+        shared.write_text("# Shared rules")
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "AGENTS.md").symlink_to(shared)
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(
+            monkeypatch,
+            [str(alice / "AGENTS.md")],
+            config_path=config_dir / "config.toml",
+        )
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_retargeted_symlink_after_startup_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Evidence is what startup loaded, not what an alias points to now."""
+        shared = tmp_path / "shared" / "rules.md"
+        shared.parent.mkdir()
+        shared.write_text("# Shared rules")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(bob / "AGENTS.md")
+        _loaded_agent_files_var.set(None)
+        sub = bob / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Bob source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_alias_of_symlinked_context_file_target_is_kept(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """plain/README.md -> plain/rules.md loads first; Alice's alias survives."""
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "rules.md").write_text("# Shared rules")
+        (workspace / "README.md").symlink_to(workspace / "rules.md")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(workspace / "rules.md")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_replaced_workspace_directory_does_not_admit_other_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Swapping Alice's directory for a symlink to Bob after startup."""
+        agents = tmp_path / "agents"
+        alice = _make_agent_workspace(agents / "alice", "Alice", "# Being Alice")
+        bob = _make_agent_workspace(agents / "bob", "Bob", "# Being Bob")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        alice.rename(agents / "alice-old")
+        alice.symlink_to(bob, target_is_directory=True)
+        _loaded_agent_files_var.set(None)
+        sub = bob / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Bob source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+    def test_symlinked_global_agent_file_admits_its_config_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """An auto-loaded config-dir AGENTS.md keeps its own location."""
+        import json
+
+        from gptme.logmanager import Log
+        from gptme.logmanager.manager import _message_from_json_line
+
+        shared = tmp_path / "shared" / "rules.md"
+        shared.parent.mkdir()
+        shared.write_text("# Shared rules")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(shared)
+        _set_prompt_files(monkeypatch, [], config_path=alice / "config.toml")
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        _load_startup(empty_log, workspace)
+        # JSON serialization resolves Message.files to shared/rules.md.
+        restored = Log(
+            messages=[
+                _message_from_json_line(
+                    json.dumps(m.to_dict()), tmp_path / "log.jsonl", m.timestamp
+                )
+                for m in empty_log.messages
+            ]
+        )
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(restored, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_startup_root_does_not_admit_enclosing_agent_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Loading nested Alice's instructions must not admit enclosing Bob."""
+        bob = _make_agent_workspace(tmp_path / "agents" / "bob", "Bob", "# Being Bob")
+        alice = _make_agent_workspace(bob / "alice", "Alice", "# Being Alice")
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        _loaded_agent_files_var.set(None)
+
+        msgs = _cd_messages(empty_log, tmp_path, bob)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Bob'" in notices[0].content
+
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+
+    def test_project_file_alias_of_earlier_match_is_kept(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Project files README.md and alice/AGENTS.md -> README.md."""
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "README.md").write_text("# Shared rules")
+        alice = _make_agent_workspace(workspace / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(workspace / "README.md")
+        (workspace / "gptme.toml").write_text(
+            '[prompt]\nfiles = ["README.md", "alice/AGENTS.md"]\n'
+        )
+        _set_prompt_files(monkeypatch, [])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_excluded_alias_does_not_admit_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """An excluded alias of a loaded file is not evidence either."""
+        workspace = tmp_path / "plain"
+        workspace.mkdir()
+        (workspace / "README.md").write_text("# Shared rules")
+        alice = _make_agent_workspace(workspace / "alice", "Alice", "# Being Alice")
+        (alice / "AGENTS.md").unlink()
+        (alice / "AGENTS.md").symlink_to(workspace / "README.md")
+        (workspace / "gptme.toml").write_text(
+            '[prompt]\nfiles = ["README.md", "alice/AGENTS.md"]\n'
+            'exclude = ["alice/AGENTS.md"]\n'
+        )
+        _set_prompt_files(monkeypatch, [])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+
+        msgs = _cd_messages(empty_log, workspace, alice)
+
+        assert any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_session_inside_agent_workspace_does_not_adopt_another(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Starting in bob/projects/x carries Bob's identity; Alice stays foreign."""
+        bob = _make_agent_workspace(tmp_path / "bob", "Bob", "# Being Bob")
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        workspace = bob / "projects" / "x"
+        workspace.mkdir(parents=True)
+        _set_prompt_files(monkeypatch, [str(alice / "AGENTS.md")])
+        _load_startup(empty_log, workspace)
+        _loaded_agent_files_var.set(None)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, workspace, sub)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Alice'" in notices[0].content
+
+    def test_scoped_instruction_file_does_not_admit_workspace_root(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ) -> None:
+        """Loading alice/docs/AGENTS.md is not loading Alice's identity."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        docs = alice / "docs"
+        docs.mkdir()
+        (docs / "AGENTS.md").write_text("# Docs style rules")
+        _set_prompt_files(monkeypatch, [str(docs / "AGENTS.md")])
+        _load_startup(empty_log, tmp_path)
+        _loaded_agent_files_var.set(None)
+
+        msgs = _cd_messages(empty_log, tmp_path, alice)
+
+        assert _injected(msgs) == []
+        notices = [m for m in msgs if "agent-workspace-skipped" in m.content]
+        assert len(notices) == 1
+        assert "agent workspace 'Alice'" in notices[0].content

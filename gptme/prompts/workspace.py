@@ -21,6 +21,7 @@ _HASH_PREFIX = "ch:"
 _MEMORY_BUDGET_BYTES = 64 * 1024  # 64 KB cap to avoid consuming excessive prompt budget
 
 if TYPE_CHECKING:
+    from ..message import MessageMetadata
     from ..util.uri import FilePath
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,125 @@ def prompt_workspace_runtime(
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
 
+def _agent_name_of(directory: Path) -> str | None:
+    """Return the ``[agent]`` name declared by ``directory``'s gptme.toml, if any.
+
+    Only consults the project config when a ``gptme.toml`` actually exists, so
+    walking many plain directories doesn't churn the project-config cache.
+    """
+    if not (
+        (directory / "gptme.toml").is_file()
+        or (directory / ".github" / "gptme.toml").is_file()
+    ):
+        return None
+    try:
+        config = get_project_config(directory, quiet=True)
+    except Exception as e:  # a malformed config shouldn't break callers
+        logger.debug(f"Could not load project config in {directory}: {e}")
+        return None
+    if config and config.agent and config.agent.name:
+        return config.agent.name
+    return None
+
+
+def _nearest_agent_root(start: Path) -> tuple[Path, str] | None:
+    """Walk up from ``start`` to the nearest agent workspace root.
+
+    Returns the resolved root and its declared agent name, or None when no
+    agent workspace is found before reaching the home directory.
+    """
+    home = Path.home().resolve()
+    current = start
+    while True:
+        name = _agent_name_of(current)
+        if name is not None:
+            return current.resolve(), name
+        if current.resolve() == home or current == current.parent:
+            return None
+        current = current.parent
+
+
+def _is_agent_instruction_file(path: Path) -> bool:
+    """Return True if path is a known agent instruction filename.
+
+    A loaded file is evidence for an agent workspace only when it is itself an
+    instruction file, not any other file from that workspace.
+    """
+    parts = path.parts
+    for pattern in AGENT_FILES:
+        pattern_parts = Path(pattern).parts
+        if parts[-len(pattern_parts) :] == pattern_parts:
+            return True
+    return False
+
+
+def _configured_locations(configured: Path) -> list[Path]:
+    """Locations a configured or matched file was loaded from.
+
+    The parent is resolved so a directory symlink followed by ``..`` keeps
+    filesystem semantics. A path without ``..`` also keeps its absolute
+    lexical form: resolving the parent loses the name of a symlinked
+    directory such as ``.github`` in ``.github/copilot-instructions.md``.
+    """
+    origin = configured.parent.resolve() / configured.name
+    if configured.is_absolute() and ".." not in configured.parts:
+        if configured != origin:
+            return [origin, configured]
+    return [origin]
+
+
+def resolve_prompt_file_paths(
+    entries: list[str], config_dir: Path
+) -> list[tuple[Path, Path]]:
+    """Resolve configured prompt files, keeping both the configured and target path.
+
+    - absolute paths are used as-is
+    - ``~`` is expanded
+    - relative paths resolve against the config directory (e.g. ~/.config/gptme)
+    - files that don't exist are skipped, since startup skips them too
+
+    The configured path matters for symlinked files: it tells which workspace
+    the file was loaded *from*, which the target path does not.
+
+    All valid entries are returned, including multiple configured paths that
+    resolve to the same target. Callers are responsible for deduplicating
+    content when that matters; retaining every alias is necessary so the
+    agents_md_inject hook can find the workspaces for all configured files.
+    """
+    pairs: list[tuple[Path, Path]] = []
+    for entry in entries:
+        p = Path(entry).expanduser()
+        if not p.is_absolute():
+            p = config_dir / entry
+        try:
+            resolved = p.resolve()
+        except OSError:
+            # If resolve fails (e.g., path doesn't exist yet), keep as-is
+            resolved = p
+        if not resolved.exists():
+            logger.debug(f"User-configured file not found: {resolved}")
+            continue
+        pairs.append((p, resolved))
+    return pairs
+
+
+def resolve_prompt_files(entries: list[str], config_dir: Path) -> list[Path]:
+    """Resolve configured prompt files the way startup does.
+
+    See :func:`resolve_prompt_file_paths` for the resolution rules.
+    Deduplicates by resolved path; use :func:`resolve_prompt_file_paths`
+    directly when all configured aliases must be retained.
+    """
+    seen: set[str] = set()
+    result: list[Path] = []
+    for _, resolved in resolve_prompt_file_paths(entries, config_dir):
+        key = str(resolved)
+        if key not in seen:
+            seen.add(key)
+            result.append(resolved)
+    return result
+
+
 def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
@@ -237,6 +357,7 @@ def prompt_workspace(
     agent_files: list[Path] = []  # Agent instruction files (AGENTS.md, etc.)
     context_files: list[Path] = []  # Regular context files (README, etc.)
     seen_paths: set[str] = set()
+    configured_paths: dict[Path, list[Path]] = {}
     workspace_resolved = workspace.resolve()
     config_dir = Path(config_path).expanduser().resolve().parent
 
@@ -316,6 +437,11 @@ def prompt_workspace(
                 try:
                     f.resolve().relative_to(workspace_resolved)
                     resolved = str(f.resolve())
+                    # Record the matched location even when its target was
+                    # already loaded, as for user-configured files below.
+                    configured_paths.setdefault(f.resolve(), []).extend(
+                        _configured_locations(f)
+                    )
                     # Skip if already loaded (e.g., from agent files)
                     if resolved not in seen_paths:
                         context_files.append(f)
@@ -345,23 +471,17 @@ def prompt_workspace(
             )
         except (ImportError, OSError, ValueError, AttributeError):
             user_files = []
-        if user_files:
-            for entry in user_files:
-                p = Path(entry).expanduser()
-                if not p.is_absolute():
-                    p = config_dir / entry
-                try:
-                    p = p.resolve()
-                except OSError:
-                    # If resolve fails (e.g., path doesn't exist yet), keep as-is
-                    pass
-                if p.exists():
-                    rp = str(p)
-                    if rp not in seen_paths:
-                        context_files.append(p)
-                        seen_paths.add(rp)
-                else:
-                    logger.debug(f"User-configured file not found: {p}")
+        for configured, p in resolve_prompt_file_paths(user_files, config_dir):
+            rp = str(p)
+            # Keep the final file symlink's origin in the startup message
+            # (see _configured_locations for how directory symlinks count).
+            # Always record the alias so that symlinked files pointing to
+            # the same content as an earlier entry are still tracked — their
+            # configured paths matter for the foreign-workspace exemption.
+            configured_paths.setdefault(p, []).extend(_configured_locations(configured))
+            if rp not in seen_paths:
+                context_files.append(p)
+                seen_paths.add(rp)
 
     # Apply exclude patterns from project config (glob-matched against file names and paths)
     if project and project.exclude:
@@ -383,6 +503,12 @@ def prompt_workspace(
         context_files = [
             f for f in context_files if not _is_excluded(f, project.exclude)
         ]
+        # Recorded aliases are evidence of what startup loaded, so an excluded
+        # alias of a file loaded through another path must not count either.
+        configured_paths = {
+            target: [a for a in aliases if not _is_excluded(a, project.exclude)]
+            for target, aliases in configured_paths.items()
+        }
         excluded_count = before_count - len(context_files)
         if excluded_count:
             logger.debug(
@@ -395,6 +521,49 @@ def prompt_workspace(
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
 
+    def _startup_metadata(files: "list[FilePath]") -> "MessageMetadata | None":
+        roots = _startup_agent_roots(files)
+        return {"startup_agent_roots": roots} if roots else None
+
+    def _startup_agent_roots(files: "list[FilePath]") -> list[str]:
+        """Agent workspaces whose instruction files these loaded files are.
+
+        Each file counts at the location it was loaded from, at its target,
+        and at every configured alias of that target (including aliases
+        deduplicated against an earlier agent or context file), but only where
+        it is the workspace's own root instruction file. The resolved roots are
+        recorded now, so the agents_md_inject hook never re-derives them from
+        a filesystem that may have changed since.
+        """
+        roots: list[str] = []
+        for f in files:
+            if not isinstance(f, Path):
+                continue
+            target = f.resolve()
+            for location in (
+                *_configured_locations(f),
+                target,
+                *configured_paths.get(target, []),
+            ):
+                if not _is_agent_instruction_file(location):
+                    continue
+                found = _nearest_agent_root(location.parent)
+                if found is None or str(found[0]) in roots:
+                    continue
+                # Only the workspace's own root instruction file (AGENTS.md,
+                # .github/copilot-instructions.md, ...) carries its identity;
+                # scoped rules such as docs/AGENTS.md do not. Compare against
+                # the location's own prefix, which may be lexical.
+                for pattern in AGENT_FILES:
+                    parts = Path(pattern).parts
+                    if (
+                        location.parts[-len(parts) :] == parts
+                        and Path(*location.parts[: -len(parts)]).resolve() == found[0]
+                    ):
+                        roots.append(str(found[0]))
+                        break
+        return roots
+
     # Yield agent instruction files first with explicit framing
     valid_agent_files: list[FilePath] = [f for f in agent_files if f.exists()]
     if valid_agent_files:
@@ -406,6 +575,7 @@ def prompt_workspace(
             "**You MUST follow these instructions** - they take precedence over default behaviors.\n\n"
             f"{agent_file_list}",
             files=valid_agent_files,
+            metadata=_startup_metadata(valid_agent_files),
         )
 
     # Yield context files separately (informational, not directives)
@@ -416,6 +586,7 @@ def prompt_workspace(
             "system",
             f"## Selected files\n\nRead more with `cat`.\n\n{context_file_list}",
             files=valid_context_files,
+            metadata=_startup_metadata(valid_context_files),
         )
 
     # Load persistent memories from all layered roots (project, CC, agent, user).
