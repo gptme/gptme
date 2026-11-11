@@ -36,6 +36,20 @@ def empty_log():
 
 
 @pytest.fixture(autouse=True)
+def isolate_user_config_dir(tmp_path: Path, monkeypatch):
+    """Keep the developer's live config-dir instruction files out of startup.
+
+    prompt_workspace auto-loads AGENTS.md and friends from the config dir, so
+    a real ~/.config/gptme/AGENTS.md would otherwise leak into these tests.
+    Tests that need a config dir pass their own via _set_prompt_files.
+    """
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path",
+        str(tmp_path / "isolated-config" / "config.toml"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def reset_contextvars():
     """Reset ContextVars between tests."""
     loaded_token = _loaded_agent_files_var.set(None)
@@ -791,6 +805,28 @@ class TestStartupLoadedAgentWorkspace:
         msgs = _cd_messages(empty_log, tmp_path, erbot)
 
         assert _injected(msgs), "startup-loaded workspace should be injected"
+        assert not any("agent-workspace-skipped" in m.content for m in msgs)
+
+    def test_symlinked_github_dir_instruction_file_admits_workspace(
+        self, tmp_path: Path, empty_log, monkeypatch
+    ):
+        """A root instruction file under a symlinked .github still adopts it."""
+        alice = _make_agent_workspace(tmp_path / "alice", "Alice", "# Being Alice")
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "copilot-instructions.md").write_text("# Alice copilot rules")
+        (alice / ".github").symlink_to(shared, target_is_directory=True)
+        _set_prompt_files(
+            monkeypatch, [str(alice / ".github" / "copilot-instructions.md")]
+        )
+        _load_startup(empty_log, tmp_path)
+        sub = alice / "src"
+        sub.mkdir()
+        (sub / "AGENTS.md").write_text("# Alice source rules")
+
+        msgs = _cd_messages(empty_log, tmp_path, sub)
+
+        assert any("Alice source rules" in m.content for m in _injected(msgs))
         assert not any("agent-workspace-skipped" in m.content for m in msgs)
 
     def test_missing_prompt_file_does_not_admit_workspace(

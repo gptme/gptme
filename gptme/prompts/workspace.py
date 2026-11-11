@@ -203,6 +203,21 @@ def _is_agent_instruction_file(path: Path) -> bool:
     return False
 
 
+def _configured_locations(configured: Path) -> list[Path]:
+    """Locations a configured or matched file was loaded from.
+
+    The parent is resolved so a directory symlink followed by ``..`` keeps
+    filesystem semantics. A path without ``..`` also keeps its absolute
+    lexical form: resolving the parent loses the name of a symlinked
+    directory such as ``.github`` in ``.github/copilot-instructions.md``.
+    """
+    origin = configured.parent.resolve() / configured.name
+    if configured.is_absolute() and ".." not in configured.parts:
+        if configured != origin:
+            return [origin, configured]
+    return [origin]
+
+
 def resolve_prompt_file_paths(
     entries: list[str], config_dir: Path
 ) -> list[tuple[Path, Path]]:
@@ -424,8 +439,8 @@ def prompt_workspace(
                     resolved = str(f.resolve())
                     # Record the matched location even when its target was
                     # already loaded, as for user-configured files below.
-                    configured_paths.setdefault(f.resolve(), []).append(
-                        f.parent.resolve() / f.name
+                    configured_paths.setdefault(f.resolve(), []).extend(
+                        _configured_locations(f)
                     )
                     # Skip if already loaded (e.g., from agent files)
                     if resolved not in seen_paths:
@@ -458,14 +473,12 @@ def prompt_workspace(
             user_files = []
         for configured, p in resolve_prompt_file_paths(user_files, config_dir):
             rp = str(p)
-            # Keep the final file symlink's origin in the startup message.
-            # Resolve its parent first so directory symlinks followed by
-            # '..' retain filesystem semantics, not lexical semantics.
+            # Keep the final file symlink's origin in the startup message
+            # (see _configured_locations for how directory symlinks count).
             # Always record the alias so that symlinked files pointing to
             # the same content as an earlier entry are still tracked — their
             # configured paths matter for the foreign-workspace exemption.
-            origin = configured.parent.resolve() / configured.name
-            configured_paths.setdefault(p, []).append(origin)
+            configured_paths.setdefault(p, []).extend(_configured_locations(configured))
             if rp not in seen_paths:
                 context_files.append(p)
                 seen_paths.add(rp)
@@ -527,8 +540,11 @@ def prompt_workspace(
             if not isinstance(f, Path):
                 continue
             target = f.resolve()
-            loaded_at = f.parent.resolve() / f.name
-            for location in (loaded_at, target, *configured_paths.get(target, [])):
+            for location in (
+                *_configured_locations(f),
+                target,
+                *configured_paths.get(target, []),
+            ):
                 if not _is_agent_instruction_file(location):
                     continue
                 found = _nearest_agent_root(location.parent)
@@ -536,13 +552,16 @@ def prompt_workspace(
                     continue
                 # Only the workspace's own root instruction file (AGENTS.md,
                 # .github/copilot-instructions.md, ...) carries its identity;
-                # scoped rules such as docs/AGENTS.md do not.
-                try:
-                    rel = location.relative_to(found[0])
-                except ValueError:
-                    continue
-                if rel.parts in {Path(p).parts for p in AGENT_FILES}:
-                    roots.append(str(found[0]))
+                # scoped rules such as docs/AGENTS.md do not. Compare against
+                # the location's own prefix, which may be lexical.
+                for pattern in AGENT_FILES:
+                    parts = Path(pattern).parts
+                    if (
+                        location.parts[-len(parts) :] == parts
+                        and Path(*location.parts[: -len(parts)]).resolve() == found[0]
+                    ):
+                        roots.append(str(found[0]))
+                        break
         return roots
 
     # Yield agent instruction files first with explicit framing
