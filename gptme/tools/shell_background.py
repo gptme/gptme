@@ -33,8 +33,10 @@ from ..message import Message
 from ..sandbox import apply_memory_limit
 from ..util.context import md_codeblock
 from ..util.output_storage import (
+    TOOL_OUTPUTS_DIRNAME,
     PrivateOutputFile,
     UnsafeOutputPathError,
+    _write_private_output,
     open_private_output_file,
 )
 
@@ -654,12 +656,15 @@ class BackgroundJob:
             },
         }
         payload = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
-        base = f"job-{self.id}-{int(self.start_time)}.receipt.json"
+        dest = (
+            self.log_dir
+            / TOOL_OUTPUTS_DIRNAME
+            / "shell-jobs"
+            / f"job-{self.id}-{int(self.start_time)}.receipt.json"
+        )
         try:
-            stream = open_private_output_file(self.log_dir, "shell-jobs", base)
-            stream.replace(payload)
-            stream.close()
-            self.receipt_path = stream.path
+            # Temp-file + exclusive publish so readers never see an empty final name.
+            self.receipt_path = _write_private_output(self.log_dir, dest, payload)
         except (OSError, UnsafeOutputPathError) as e:
             logger.warning(
                 "Could not publish background job receipt under %s: %s",
