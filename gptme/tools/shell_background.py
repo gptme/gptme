@@ -605,7 +605,7 @@ class BackgroundJob:
         stream_limited = stream_room <= conv_room
         if len(data) > room:
             if room > 0:
-                payload = data[:room] + (marker if stream_limited else b"")
+                payload = data[:room] + marker
                 discarded = len(data) - room
                 content_bytes = room
             elif stream_limited:
@@ -837,11 +837,16 @@ class BackgroundJob:
             _STDOUT_DISPLAY_CHARS if is_stdout else _STDERR_DISPLAY_CHARS
         ) * 4
         start = cursor
+        omitted_bytes = 0
         if committed - start > display_limit:
+            omitted_bytes = committed - start - display_limit
             start = committed - display_limit
         data = self._read_committed_range(is_stdout, start, committed)
         setattr(self, cursor_attr, committed)
-        return data.decode("utf-8", "replace")
+        text = data.decode("utf-8", "replace")
+        if omitted_bytes:
+            text = f"[... {omitted_bytes} bytes omitted ...]\n" + text
+        return text
 
     def _consume_incremental_text(self, is_stdout: bool) -> str:
         """Return new output for one stream: committed bytes, then the RAM tail.
