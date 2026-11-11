@@ -16,7 +16,9 @@ from gptme.mcp.client import MCPClient
 def mock_config(mocker):
     """Mock configuration with MCP settings."""
     config = Mock()
+    config.user = None
     config.project = None
+    config.chat = None
     config.mcp.enabled = True
     config.mcp.servers = []
     mocker.patch("gptme.cli.cmd_mcp.Config.from_workspace", return_value=config)
@@ -652,6 +654,60 @@ def test_mcp_commands_load_workspace_config(
         assert "not approved" in result.output
         assert connected == []
         assert events == ["confirm"]
+
+
+def test_mcp_info_names_the_layer_that_supplied_the_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project entry replaces a same-named user entry whole; info says so."""
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    user_config = user_dir / "config.toml"
+    user_config.write_text(
+        '[mcp]\nenabled = true\n\n[[mcp.servers]]\nname = "shared"\n'
+        'command = "user-server"\nargs = ["--user-flag"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("gptme.config.user.config_path", str(user_config))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        '[[mcp.servers]]\nname = "shared"\ncommand = "project-server"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(
+        MCPClient, "connect", lambda *_: pytest.fail("declined connection ran")
+    )
+
+    result = CliRunner().invoke(main, ["mcp", "info", "shared"], input="n\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Command: project-server" in result.output
+    # The user entry's args are not merged into the winning project entry.
+    assert "--user-flag" not in result.output
+    assert "Source: project config (gptme.toml)" in result.output
+    assert "Overrides: user config (" in result.output
+    assert "config.toml), replaced whole (fields not merged)" in result.output
+
+
+def test_mcp_info_single_layer_has_no_overrides_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user_config = tmp_path / "config.toml"
+    user_config.write_text(
+        '[mcp]\nenabled = true\n\n[[mcp.servers]]\nname = "solo"\n'
+        'command = "user-server"\nenabled = false\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("gptme.config.user.config_path", str(user_config))
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["mcp", "info", "solo"])
+
+    assert result.exit_code == 0, result.output
+    assert "Source: user config (" in result.output
+    assert "Overrides:" not in result.output
 
 
 def test_display_target_redacts_url_credentials() -> None:
