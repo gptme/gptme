@@ -823,12 +823,15 @@ class BackgroundJob:
                     offset = max(self._stderr_read_offset, resume)
                     self._stderr_read_offset = buffer_start + len(joined)
             raw_start = max(offset - buffer_start, 0)
+            if raw_start >= len(joined):
+                # Nothing new since the last poll; do not replay a partial line.
+                return text
             # Extend back to the beginning of the containing line so the
             # downstream redactor (_sanitize_job_output in format_job_output)
             # has full assignment context.  Without this, a poll boundary that
             # splits "API_KEY=<value>" causes the second slice to start with
             # the opaque value, which the redactor cannot recognise.
-            if 0 < raw_start <= len(joined):
+            if raw_start > 0:
                 line_start = joined.rfind("\n", 0, raw_start) + 1
             else:
                 line_start = raw_start

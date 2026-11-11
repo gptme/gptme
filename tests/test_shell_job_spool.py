@@ -626,6 +626,12 @@ def test_incremental_read_continues_from_ram_after_persistence_stops(
         assert new_out == "BUILD FAILED\n"
         again_out, _ = job.get_output(incremental=True)
         assert again_out == ""
+        # A trailing partial line must not be replayed while nothing new arrived.
+        job._append_output(10, 10, b"partial-no-newline")
+        partial_out, _ = job.get_output(incremental=True)
+        assert partial_out == "partial-no-newline"
+        idle_out, _ = job.get_output(incremental=True)
+        assert idle_out == ""
     finally:
         stream.close()
         bg._conversation_spool_bytes.clear()
