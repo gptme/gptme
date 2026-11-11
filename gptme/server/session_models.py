@@ -543,6 +543,7 @@ class SessionManager:
         )
         from ..tools.subagent.types import _completion_queue
         from ..tools.watch import (
+            format_watch_event,
             requeue_watch_event,
             take_queued_watch_events_with_branches,
         )
@@ -557,22 +558,25 @@ class SessionManager:
         # drain would see the conversation busy and requeue — delivering one
         # event per idle turn and stranding the rest until the next command.
         pending_watch = take_queued_watch_events_with_branches(logdir)
-        by_branch: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for watch_id, text, branch in pending_watch:
-            by_branch[branch].append((watch_id, text))
+        by_branch: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+        for watch_id, text, branch, status in pending_watch:
+            by_branch[branch].append((watch_id, text, status))
         failed_branches = set()
         for branch, events in by_branch.items():
             body = "\n".join(
-                f"Watch {watch_id} fired: {text}" for watch_id, text in events
+                format_watch_event(watch_id, text, status)
+                for watch_id, text, status in events
             )
             if not cls.request_watch_wake(
                 conversation_id, Message("system", body), branch=branch
             ):
                 failed_branches.add(branch)
         # Restore failed events in original order, including their branch.
-        for watch_id, text, branch in reversed(pending_watch):
+        for watch_id, text, branch, status in reversed(pending_watch):
             if branch in failed_branches:
-                requeue_watch_event(logdir, watch_id, text, branch=branch)
+                requeue_watch_event(
+                    logdir, watch_id, text, branch=branch, status=status
+                )
         queued = take_queued_completions(logdir)
         if not queued:
             return

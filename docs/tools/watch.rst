@@ -19,3 +19,6 @@ Sources include ``run``, ``until``, ``stream``, ``timer`` and ``tmux``, with
 .. automodule:: gptme.tools.watch
     :members:
     :noindex:
+
+.. autoclass:: gptme.tools.watch.WatchSnapshot
+    :members:

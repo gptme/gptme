@@ -87,14 +87,43 @@ class Watch:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
     branch: str = "main"  # captured when armed, not when the event fires
+    # Terminal outcome distinct from a met condition: the deadline passed first.
+    # `fired` is also set, so loops that stop on `fired` keep working.
+    expired: bool = False
+
+    @property
+    def status(self) -> str:
+        """armed | fired | expired | cancelled (read under ``self.lock``)."""
+        if self.cancelled:
+            return "cancelled"
+        if self.expired:
+            return "expired"
+        return "fired" if self.fired else "armed"
+
+
+@dataclass(frozen=True)
+class WatchSnapshot:
+    """Immutable, non-destructive view of a watch for UI rendering."""
+
+    id: str
+    kind: str
+    description: str
+    status: str  # armed | fired | expired | cancelled
+    created: float
+    deadline: float | None
+    delivered: int
+    branch: str
 
 
 _watches: dict[str, Watch] = {}
 _watches_lock = threading.Lock()
 _watch_seq = 0
-# Offline fallback queue drained at STEP_PRE: (logdir, watch_id, text)
+# Offline fallback queue: (logdir, watch_id, text, branch, event outcome).
+# Three/four-field records from legacy callers default to main/fired.
 _pending_deliveries: deque[
-    tuple[Path | None, str, str] | tuple[Path | None, str, str, str]
+    tuple[Path | None, str, str]
+    | tuple[Path | None, str, str, str]
+    | tuple[Path | None, str, str, str, str]
 ] = deque()
 _pending_lock = threading.Lock()
 
@@ -217,7 +246,42 @@ def _record_event(watch: Watch, text: str) -> bool:
         return True
 
 
-def _deliver(watch: Watch, text: str) -> None:
+def watch_snapshots(logdir: Path, *, branch: str | None = None) -> list[WatchSnapshot]:
+    """Return snapshots of the watches armed by one conversation.
+
+    Owner-scoped, unlike ``_visible``: ``logdir`` is required, so a UI can
+    never render another conversation's watches or stale global entries.
+    ``branch`` optionally narrows to watches armed on that branch. Reading
+    does not drain the delivery queue or change any watch.
+    """
+    with _watches_lock:
+        owned = [w for w in _watches.values() if w.logdir == logdir]
+    snapshots = []
+    for w in owned:
+        with w.lock:
+            if branch is not None and w.branch != branch:
+                continue
+            snapshots.append(
+                WatchSnapshot(
+                    id=w.id,
+                    kind=w.kind,
+                    description=w.description,
+                    status=w.status,
+                    created=w.created,
+                    deadline=w.deadline,
+                    delivered=w.delivered,
+                    branch=w.branch,
+                )
+            )
+    return sorted(snapshots, key=lambda snap: snap.created)
+
+
+def format_watch_event(watch_id: str, text: str, status: str = "fired") -> str:
+    """Render the event's captured outcome, never the watch's later state."""
+    return f"Watch {watch_id} {status}: {text}"
+
+
+def _deliver(watch: Watch, text: str, *, status: str = "fired") -> None:
     """Deliver a fired event: server wake if possible, else STEP_PRE queue."""
     conversation_id = watch.logdir.name if watch.logdir else None
     if conversation_id:
@@ -230,14 +294,14 @@ def _deliver(watch: Watch, text: str) -> None:
                 WatchEvent(
                     type="watch_event",
                     kind=watch.kind,
-                    status="fired",
+                    status=status,
                     ref=watch.id,
                     message=text,
                 ),
             )
             woke = SessionManager.request_watch_wake(
                 conversation_id,
-                Message("system", f"Watch {watch.id} ({watch.kind}) fired: {text}"),
+                Message("system", f"Watch {watch.id} ({watch.kind}) {status}: {text}"),
                 branch=watch.branch,
             )
             if woke:
@@ -248,7 +312,7 @@ def _deliver(watch: Watch, text: str) -> None:
         except Exception:
             logger.debug("server delivery failed for %s", watch.id, exc_info=True)
     with _pending_lock:
-        _pending_deliveries.append((watch.logdir, watch.id, text, watch.branch))
+        _pending_deliveries.append((watch.logdir, watch.id, text, watch.branch, status))
     from ..util.notification_ready import signal
 
     signal(watch.logdir)
@@ -256,11 +320,11 @@ def _deliver(watch: Watch, text: str) -> None:
 
 def take_queued_watch_events(
     logdir: Path | None, *, branch: str | None = None
-) -> list[tuple[str, str]]:
-    """Pop events for delivery to a consumer that already owns its branch."""
+) -> list[tuple[str, str, str]]:
+    """Pop (watch_id, text, outcome) for a consumer owning its branch."""
     return [
-        (watch_id, text)
-        for watch_id, text, _ in take_queued_watch_events_with_branches(
+        (watch_id, text, status)
+        for watch_id, text, _, status in take_queued_watch_events_with_branches(
             logdir, branch=branch
         )
     ]
@@ -268,9 +332,9 @@ def take_queued_watch_events(
 
 def take_queued_watch_events_with_branches(
     logdir: Path | None, *, branch: str | None = None
-) -> list[tuple[str, str, str]]:
-    """Pop events with their captured branches for lossless server retries."""
-    returned: list[tuple[str, str, str]] = []
+) -> list[tuple[str, str, str, str]]:
+    """Pop (watch_id, text, branch, outcome) for lossless server retries."""
+    returned: list[tuple[str, str, str, str]] = []
     with _pending_lock:
         retained = type(_pending_deliveries)()
         for item in _pending_deliveries:
@@ -278,7 +342,14 @@ def take_queued_watch_events_with_branches(
             if (logdir is None or item_logdir == logdir) and (
                 branch is None or (origin[0] if origin else "main") == branch
             ):
-                returned.append((watch_id, text, origin[0] if origin else "main"))
+                returned.append(
+                    (
+                        watch_id,
+                        text,
+                        origin[0] if origin else "main",
+                        origin[1] if len(origin) > 1 else "fired",
+                    )
+                )
             else:
                 retained.append(item)
         _pending_deliveries.clear()
@@ -287,11 +358,16 @@ def take_queued_watch_events_with_branches(
 
 
 def requeue_watch_event(
-    logdir: Path | None, watch_id: str, text: str, *, branch: str = "main"
+    logdir: Path | None,
+    watch_id: str,
+    text: str,
+    *,
+    branch: str = "main",
+    status: str = "fired",
 ) -> None:
     """Put an event back at the head of the offline queue after a failed retry."""
     with _pending_lock:
-        _pending_deliveries.appendleft((logdir, watch_id, text, branch))
+        _pending_deliveries.appendleft((logdir, watch_id, text, branch, status))
 
 
 def _fire(watch: Watch, text: str, once: bool = True) -> None:
@@ -304,6 +380,19 @@ def _fire(watch: Watch, text: str, once: bool = True) -> None:
         return
     watch.delivered += 1
     _deliver(watch, text)
+
+
+def _expire(watch: Watch, text: str) -> None:
+    """Deliver the deadline outcome as an explicit expiry, not a met condition."""
+    with watch.lock:
+        if watch.cancelled or watch.fired:
+            return
+        watch.fired = True
+        watch.expired = True
+    if not _record_event(watch, text):
+        return
+    watch.delivered += 1
+    _deliver(watch, text, status="expired")
 
 
 # --- sources ---------------------------------------------------------------
@@ -319,7 +408,7 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
     """
     while not watch.cancelled and not watch.fired:
         if watch.deadline is not None and time.time() > watch.deadline:
-            _fire(watch, f"expired without condition met ({watch.description})")
+            _expire(watch, f"expired without condition met ({watch.description})")
             return
         proc = subprocess.Popen(
             command,
@@ -353,7 +442,9 @@ def _poll_until(watch: Watch, command: str, every: float) -> None:
                     return
                 if watch.deadline is not None and time.time() > watch.deadline:
                     _kill_proc(proc)
-                    _fire(watch, f"expired without condition met ({watch.description})")
+                    _expire(
+                        watch, f"expired without condition met ({watch.description})"
+                    )
                     return
                 if eof:
                     try:
@@ -515,7 +606,7 @@ def _poll_stream(watch: Watch, proc: subprocess.Popen[str]) -> None:
             # expiration wake while the watch is still live.
             _kill_proc(proc)
             _stop_reader()
-            _fire(watch, f"expired without event ({watch.description})")
+            _expire(watch, f"expired without event ({watch.description})")
             return
         parent_dead = proc.poll() is not None
         try:
@@ -608,7 +699,7 @@ def _poll_run(watch: Watch, proc: subprocess.Popen[str]) -> None:
                 # Completion wins over a deadline crossed between polls. The
                 # deadline governs child work, not the bounded post-exit drain.
                 _kill_proc(proc)
-                _fire(watch, f"expired without exit ({watch.description})")
+                _expire(watch, f"expired without exit ({watch.description})")
                 return
             # Unlike reader_done.wait(), this does not spin after early EOF.
             watch.cancel_event.wait(timeout=0.2)
@@ -630,7 +721,7 @@ def _poll_timer(watch: Watch, seconds: float) -> None:
             and watch.deadline <= end
             and now >= watch.deadline
         ):
-            _fire(watch, f"expired before timer elapsed ({watch.description})")
+            _expire(watch, f"expired before timer elapsed ({watch.description})")
             return
         if now >= end:
             _fire(watch, f"timer elapsed ({watch.description})")
@@ -647,7 +738,7 @@ def _poll_tmux(
     last_change = time.time()
     while not watch.cancelled and not watch.fired:
         if watch.deadline is not None and time.time() > watch.deadline:
-            _fire(watch, "expired without match")
+            _expire(watch, "expired without match")
             return
         try:
             proc = subprocess.run(
@@ -721,10 +812,10 @@ def _watch_drain_hook(manager, **kwargs) -> "Generator[Message, None, None]":
     """
 
     manager_logdir = getattr(manager, "logdir", None)
-    for watch_id, text in take_queued_watch_events(
+    for watch_id, text, status in take_queued_watch_events(
         manager_logdir, branch=kwargs.get("notification_branch")
     ):
-        yield Message("system", f"Watch {watch_id} fired: {text}")
+        yield Message("system", format_watch_event(watch_id, text, status))
 
 
 # --- duration parsing ------------------------------------------------------
@@ -1122,15 +1213,11 @@ def _watch(
             visible = [w for w in _watches.values() if _visible(w, logdir)]
             if not visible:
                 return Message("system", "No armed watches.")
-            lines = []
-            for w in visible:
-                status = (
-                    "cancelled" if w.cancelled else ("fired" if w.fired else "armed")
-                )
-                lines.append(
-                    f"{w.id} [{w.kind}] {status}: {w.description} "
-                    f"(delivered={w.delivered})"
-                )
+            lines = [
+                f"{w.id} [{w.kind}] {w.status}: {w.description} "
+                f"(delivered={w.delivered})"
+                for w in visible
+            ]
             return Message("system", "\n".join(lines))
 
     if verb == "cancel":
@@ -1168,7 +1255,8 @@ def _watch(
                     f"Watch {w.id} has not fired within {timeout:.0f}s; still armed.",
                 )
             return Message(
-                "system", f"Watch {w.id} fired: {' | '.join(list(w.events)[-3:])}"
+                "system",
+                f"Watch {w.id} {w.status}: {' | '.join(list(w.events)[-3:])}",
             )
 
     if verb == "timer":
@@ -1333,4 +1421,4 @@ tool = ToolSpec(
 
 __doc__ = tool.get_doc(__doc__)
 
-__all__ = ["tool", "Watch"]
+__all__ = ["tool", "Watch", "WatchSnapshot", "format_watch_event", "watch_snapshots"]

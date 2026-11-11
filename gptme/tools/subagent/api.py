@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -1913,6 +1913,77 @@ def subagent_list() -> list[dict]:
     # Sort newest first (smallest elapsed_s = most recently started)
     result.sort(key=lambda x: x["elapsed_s"])
     return result
+
+
+@dataclass(frozen=True)
+class SubagentSnapshot:
+    """Immutable, non-destructive view of one subagent run for UI rendering.
+
+    ``run_id`` (the child logdir) identifies the run; ``agent_id`` is a label
+    that may be reused by a later run.
+    """
+
+    run_id: str
+    agent_id: str
+    status: str  # running | success | failure | cancelled | timeout | clarification_needed | unknown
+    started_at: float
+    elapsed_s: int
+    execution_mode: str
+    prompt_preview: str
+    logdir: Path
+
+
+def subagent_snapshots(
+    parent_logdir: Path, *, parent_branch: str | None = None
+) -> list[SubagentSnapshot]:
+    """Return snapshots of the subagents spawned by one conversation.
+
+    Unlike ``subagent_list()``, which enumerates the process-wide registry,
+    this is owner-scoped: only runs whose ``parent_logdir`` matches are
+    returned, optionally narrowed to the originating ``parent_branch``.
+    Reading never drains the completion or progress queues, so the parent's
+    model notifications are unaffected.
+
+    Results are cached per ``agent_id``, so a finished run whose ID was later
+    reused cannot be told apart from its successor; it reports ``unknown``
+    rather than borrowing the newer run's outcome.
+    """
+    _maybe_rehydrate_registry()
+    owner = Path(parent_logdir).resolve()
+    with _subagents_lock:
+        agents = list(_subagents)
+    newest: dict[str, Subagent] = {}
+    for sa in agents:
+        newest[sa.agent_id] = sa  # append-only: last entry is the newest run
+    now = time.time()
+    snapshots = []
+    for sa in agents:
+        if sa.parent_logdir != owner:
+            continue
+        if parent_branch is not None and (sa.parent_branch or "main") != parent_branch:
+            continue
+        status: str
+        if newest[sa.agent_id] is sa:
+            # status() honors cached cancellation/timeout before worker liveness.
+            status = sa.status().status
+        elif sa.is_running():
+            status = "running"
+        else:
+            status = "unknown"
+        prompt = sa.prompt[:97] + "..." if len(sa.prompt) > 100 else sa.prompt
+        snapshots.append(
+            SubagentSnapshot(
+                run_id=str(sa.logdir),
+                agent_id=sa.agent_id,
+                status=status,
+                started_at=sa.started_at,
+                elapsed_s=max(int(now - sa.started_at), 0),
+                execution_mode=sa.execution_mode,
+                prompt_preview=prompt,
+                logdir=sa.logdir,
+            )
+        )
+    return sorted(snapshots, key=lambda snap: snap.started_at)
 
 
 def subagent_status(agent_id: str) -> dict:
