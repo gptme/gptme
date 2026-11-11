@@ -1442,12 +1442,22 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
         return {"status": "released", "path": None}
 
     if not force:
-        from ...util.git_worktree import worktree_is_clean
+        # Non-git temp dirs have no branch; git status returns non-zero inside
+        # them, making worktree_is_clean always return False.  Use a direct
+        # filesystem emptiness check for those: an empty dir is clean, any
+        # file means the caller should inspect before deleting.
+        if sa.repo_path is None:
+            try:
+                is_clean = not any(worktree_path.iterdir())
+            except OSError:
+                is_clean = False
+        else:
+            from ...util.git_worktree import worktree_is_clean
 
-        try:
-            is_clean = worktree_is_clean(worktree_path)
-        except Exception:
-            is_clean = False
+            try:
+                is_clean = worktree_is_clean(worktree_path)
+            except Exception:
+                is_clean = False
 
         if not is_clean:
             return {
@@ -1939,21 +1949,6 @@ def subagent_reply(agent_id: str, reply: str) -> None:
 
     # Isolation cleanup removes the child workspace. Re-create fresh isolation
     # from the original workspace instead of passing the deleted child path.
-    # For retained worktrees the auto-cleanup was skipped, so the old workspace
-    # still exists and would be orphaned when the registry entry is replaced.
-    # Use smart cleanup (not forced): preserves branch/dir when the worktree
-    # has uncommitted/unpublished work, removes it when clean.
-    if sa.retain_worktree and sa.worktree_path and sa.worktree_path.exists():
-        import copy
-
-        sa_no_retain = copy.copy(sa)
-        object.__setattr__(sa_no_retain, "retain_worktree", False)
-        preserved = _exec._cleanup_isolation(sa_no_retain)
-        if preserved:
-            logger.info(
-                f"subagent_reply: {agent_id!r} retained worktree had changes — "
-                f"preserved at {preserved!r}"
-            )
     reply_workdir = sa.base_workdir if sa.isolated else sa.workdir
 
     # Re-spawn with the same parameters, augmented prompt.
@@ -1990,6 +1985,21 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = old_result
         raise
+
+    # Respawn succeeded: GC the retained worktree now that the new agent is live.
+    # Doing this after the try block ensures the old workspace is still recoverable
+    # if the respawn had failed (the restored sa would point at a live path).
+    if sa.retain_worktree and sa.worktree_path and sa.worktree_path.exists():
+        import copy
+
+        sa_no_retain = copy.copy(sa)
+        object.__setattr__(sa_no_retain, "retain_worktree", False)
+        preserved = _exec._cleanup_isolation(sa_no_retain)
+        if preserved:
+            logger.info(
+                f"subagent_reply: {agent_id!r} retained worktree had changes — "
+                f"preserved at {preserved!r}"
+            )
 
 
 def subagent_list() -> list[dict]:
