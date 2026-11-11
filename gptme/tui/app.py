@@ -2479,7 +2479,8 @@ class WorkOverviewScreen(ModalScreen):
     def _selected_row(self) -> int:
         # Account for wrapped rows when keeping the selected child in view.
         content = self.query_one("#work-overview-content", Static)
-        prefix = str(content.render()).splitlines()[: self._cursor + 1]
+        # +2: skip the "Children:" header line, then include the selected child row
+        prefix = str(content.render()).splitlines()[: self._cursor + 2]
         width = max(1, content.content_size.width)
         return sum(len(Text(line).wrap(self.app.console, width)) for line in prefix)
 
