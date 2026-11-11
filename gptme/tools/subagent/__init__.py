@@ -551,6 +551,7 @@ tool = ToolSpec(
             subagent,
             subagent_cancel,
             subagent_continue,
+            subagent_release,
             subagent_steer,
             subagent_list,
             subagent_reply,

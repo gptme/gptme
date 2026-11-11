@@ -409,15 +409,15 @@ def subagent(
         raise ValueError(
             f"Unknown isolation mode: {isolation!r}. Supported values: 'worktree'."
         )
-    if retain_worktree and not isolated and isolation is None:
-        raise ValueError(
-            "retain_worktree=True requires isolated=True or isolation='worktree'."
-        )
-
     # isolation="worktree" is the string-based API equivalent of isolated=True.
     # When isolation is set, it overrides isolated (but both can still coexist).
     if isolation == "worktree":
         isolated = True
+
+    if retain_worktree and not isolated:
+        raise ValueError(
+            "retain_worktree=True requires isolated=True or isolation='worktree'."
+        )
 
     # Capture the parent session's logdir unconditionally — used by SESSION_END
     # cleanup to scope cancellation to this conversation only (multi-session safety).
@@ -1392,36 +1392,49 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
     the subagent finishes, its worktree stays alive until this function is
     called (or the retention_deadline expires and the caller GCs manually).
 
-    Safety rules (enforced unless ``force=True``):
-    - The writer must have stopped (``is_running()`` must be False).
-    - The worktree must not contain uncommitted/unpublished changes.  If it
-      does, the worktree is left untouched and the caller receives a
-      ``"cleanup_required"`` result with the path and owner for manual action.
+    Safety rules (enforced unless ``force=True``): the writer must have
+    stopped (``is_running()`` is False), and the worktree must not contain
+    uncommitted or unpublished changes.  When changes are present the
+    worktree is left untouched and the caller receives a
+    ``"cleanup_required"`` result so it can publish or discard first.
 
     Args:
         agent_id: The subagent whose workspace to release.
-        force: Skip the dirty-check and delete unconditionally.  Use with
-               care — this may discard unpublished work.
+        force: Skip the dirty-check and delete unconditionally.
+            Use with care — this may discard unpublished work.
 
     Returns:
         A dict with ``status`` (``"released"`` or ``"cleanup_required"``),
-        plus ``path`` and ``owner`` when cleanup_required.
+        plus ``path`` and ``owner`` when cleanup_required.  When a dirty
+        worktree is force-released with a preserved branch, the dict also
+        contains ``preserved`` with the branch name.
 
     Raises:
         ValueError: If the subagent is not found, still running, or was not
-                    launched with ``retain_worktree=True``.
+            launched with ``retain_worktree=True``.
     """
     sa = _find_subagent(agent_id)
     if sa is None:
         raise ValueError(f"Subagent {agent_id!r} not found.")
-    if sa.is_running():
-        raise ValueError(
-            f"Subagent '{agent_id}' is still running. Wait for it to finish first."
-        )
     if not sa.retain_worktree:
         raise ValueError(
             f"Subagent '{agent_id}' was not launched with retain_worktree=True."
         )
+
+    # Hold the registry lock while re-checking liveness so we don't race with
+    # a concurrent subagent_continue() that could start a new writer between
+    # the is_running() check and the directory removal.
+    with _subagents_lock:
+        current = next((s for s in _subagents if s.agent_id == agent_id), None)
+        if current is not sa:
+            raise ValueError(
+                f"Subagent '{agent_id}' changed while release was starting "
+                "(a continuation may have restarted it)."
+            )
+        if sa.is_running():
+            raise ValueError(
+                f"Subagent '{agent_id}' is still running. Wait for it to finish first."
+            )
 
     worktree_path = sa.worktree_path
     if worktree_path is None or not worktree_path.exists():
@@ -1449,9 +1462,12 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
             }
 
     path_str = str(worktree_path)
-    _exec._cleanup_isolation_forced(sa)
+    preserved = _exec._cleanup_isolation_forced(sa)
     logger.info(f"Subagent {agent_id!r}: retained workspace released at {path_str}")
-    return {"status": "released", "path": path_str}
+    result: dict = {"status": "released", "path": path_str}
+    if preserved:
+        result["preserved"] = preserved
+    return result
 
 
 def subagent_steer(agent_id: str, message: str) -> str:
@@ -1814,6 +1830,8 @@ def subagent_continue(
         isolation_mode=sa.isolation_mode,
         worktree_path=sa.worktree_path,
         repo_path=sa.repo_path,
+        retain_worktree=sa.retain_worktree,
+        retention_deadline=sa.retention_deadline,
         timeout=sa.timeout,
         role=sa.role,
         redact_secrets=sa.redact_secrets,

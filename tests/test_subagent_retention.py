@@ -113,7 +113,7 @@ class TestRetainWorktreeSkipsAutoCleanup:
     ) -> None:
         """_cleanup_isolation removes the worktree when retain_worktree=False."""
         worktree = tmp_path / "worktree"
-        worktree.mkdir()
+        worktree.mkdir()  # empty non-git dir: cleanup will delete it
         logdir = tmp_path / "logdir"
         logdir.mkdir()
         (logdir / "conversation.jsonl").touch()
@@ -126,13 +126,13 @@ class TestRetainWorktreeSkipsAutoCleanup:
             isolated=True,
             retain_worktree=False,
             worktree_path=worktree,
-            repo_path=None,  # non-git: triggers non-empty preservation path
+            repo_path=None,
             execution_mode="subprocess",
         )
-        # Non-git non-empty dir is "preserved" (not deleted) with a path notice;
-        # the return value is either None or a path string — not what this test asserts.
+        # Cleanup should NOT short-circuit (retain_worktree=False), so the
+        # empty non-git directory should be deleted.
         _exec._cleanup_isolation(sa)
-        assert sa.retain_worktree is False
+        assert not worktree.exists(), "cleanup should have deleted the empty worktree"
 
 
 class TestSubagentRelease:
@@ -457,3 +457,84 @@ class TestRetentionPersistence:
         assert blocker is None, (
             f"Rehydrated retained subagent blocked unexpectedly: {blocker!r}"
         )
+
+
+class TestRetainFieldsPreservedOnContinue:
+    def test_continue_copies_retain_fields(self, tmp_path: Path) -> None:
+        """subagent_continue must copy retain_worktree and retention_deadline."""
+        from gptme.tools.subagent.api import subagent_continue as _continue
+        from gptme.tools.subagent.types import _subagents as _reg
+
+        worktree = tmp_path / "wt"
+        worktree.mkdir()
+        logdir = tmp_path / "logdir-continue-retain"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").touch()
+
+        deadline = time.time() + 7200.0
+        sa = Subagent(
+            agent_id="continue-retain",
+            prompt="test",
+            thread=None,
+            logdir=logdir,
+            model=None,
+            isolated=True,
+            retain_worktree=True,
+            retention_deadline=deadline,
+            worktree_path=worktree,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _reg.append(sa)
+        with _subagent_results_lock:
+            _subagent_results[sa.agent_id] = ReturnType("success", "done")
+
+        # subagent_continue spawns the continuation; intercept the new registry
+        # entry before the thread can run.
+        try:
+            _continue(sa.agent_id, "follow-up task")
+        except Exception:
+            pass  # thread may fail without a real session — we only need the entry
+
+        with _subagents_lock:
+            entries = [s for s in _reg if s.agent_id == sa.agent_id]
+        assert entries, "continued subagent must still be in the registry"
+        continued = entries[-1]
+        assert continued.retain_worktree is True, (
+            "retain_worktree must be copied to the continued attempt"
+        )
+        assert continued.retention_deadline is not None
+        assert abs(continued.retention_deadline - deadline) < 0.01, (
+            "retention_deadline must be copied to the continued attempt"
+        )
+
+
+class TestRetainValidationOrderingWithRoles:
+    def test_retain_with_isolation_param_does_not_raise_validation_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """retain_worktree=True with isolation='worktree' (no explicit isolated=True) is valid.
+
+        Previously the retention check fired before isolation="worktree" was
+        translated to isolated=True, so callers had to pass both. The fix moves
+        the check after the translation so only one is needed.
+        """
+        monkeypatch.setattr("gptme.tools.subagent.api._find_subagent", lambda _: None)
+
+        from gptme.tools.subagent.api import subagent as _subagent
+
+        # Must NOT raise about retain_worktree validation; any other exception
+        # (from actually trying to launch) is acceptable.
+        try:
+            _subagent(
+                "retain-with-isolation-param",
+                "task",
+                retain_worktree=True,
+                isolation="worktree",
+            )
+        except ValueError as e:
+            assert "retain_worktree=True requires" not in str(e), (
+                "retain_worktree validation must not fire when isolation='worktree' is set"
+            )
+        except Exception:
+            pass  # Launch failure is acceptable; validation failure is not
