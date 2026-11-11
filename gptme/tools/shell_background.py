@@ -258,6 +258,12 @@ class BackgroundJob:
     # line after the quota) is not hidden behind the unchanged committed file.
     _stdout_ram_resume: int | None = field(default=None, repr=False)
     _stderr_ram_resume: int | None = field(default=None, repr=False)
+    # Cumulative original-stream characters committed to spool (whole lines
+    # only; leftover pending is not counted).  Used to set _stdout_ram_resume
+    # so the RAM tail picks up exactly after the last committed char without a
+    # gap or duplication when quota cuts through a boundary chunk.
+    _stdout_spool_original_chars: int = field(default=0, repr=False)
+    _stderr_spool_original_chars: int = field(default=0, repr=False)
     # Serializes incremental cursor consumption (snapshot, read, advance).
     _cursor_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     receipt_path: Path | None = field(default=None, repr=False)
@@ -372,12 +378,11 @@ class BackgroundJob:
                     and not self._spool_persist_stdout
                     and self._stdout_ram_resume is None
                 ):
-                    # Snapshot after appending: resume at the end of the
-                    # boundary chunk so committed bytes are not duplicated in
-                    # the RAM tail served by _consume_incremental_text.
-                    self._stdout_ram_resume = self._stdout_buffer_start + sum(
-                        map(len, self.stdout_buffer)
-                    )
+                    # Set resume to the number of original-stream chars that
+                    # were actually committed to spool, so the RAM tail picks
+                    # up at exactly the right position — no gap (skipped tail)
+                    # and no duplication of the already-committed prefix.
+                    self._stdout_ram_resume = self._stdout_spool_original_chars
             else:
                 self._stderr_buffer_start += self._append_to_buffer_locked(
                     self.stderr_buffer, text
@@ -387,9 +392,7 @@ class BackgroundJob:
                     and not self._spool_persist_stderr
                     and self._stderr_ram_resume is None
                 ):
-                    self._stderr_ram_resume = self._stderr_buffer_start + sum(
-                        map(len, self.stderr_buffer)
-                    )
+                    self._stderr_ram_resume = self._stderr_spool_original_chars
 
     def _spool_text(self, is_stdout: bool, text: str, *, final: bool) -> None:
         """Commit sanitized complete lines to the live stream before RAM eviction."""
@@ -434,9 +437,25 @@ class BackgroundJob:
         else:
             _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
         if sanitized:
-            self._commit_spool_bytes(
+            persist_attr = (
+                "_spool_persist_stdout" if is_stdout else "_spool_persist_stderr"
+            )
+            chars_attr = (
+                "_stdout_spool_original_chars"
+                if is_stdout
+                else "_stderr_spool_original_chars"
+            )
+            content_bytes = self._commit_spool_bytes(
                 is_stdout, sanitized.encode("utf-8", "surrogateescape")
             )
+            if getattr(self, persist_attr):
+                # Full commit: all of to_write was accepted.
+                setattr(self, chars_attr, getattr(self, chars_attr) + len(to_write))
+            elif content_bytes > 0:
+                # Partial quota cut: advance by the bytes of content committed
+                # (ASCII bytes ≈ chars; non-ASCII overestimates slightly, which
+                # is safe — resume lands inside the already-committed region).
+                setattr(self, chars_attr, getattr(self, chars_attr) + content_bytes)
 
     def _add_discarded(self, is_stdout: bool, count: int) -> None:
         """Record bytes accepted for persistence that were lost to a failure."""
@@ -517,21 +536,23 @@ class BackgroundJob:
             if self._spool_writer_stop.is_set():
                 self._publish_receipt()
 
-    def _commit_spool_bytes(self, is_stdout: bool, data: bytes) -> None:
-        """Accept sanitized bytes for persistence without blocking the reader."""
+    def _commit_spool_bytes(self, is_stdout: bool, data: bytes) -> int:
+        """Accept sanitized bytes for persistence without blocking the reader.
+
+        Returns the number of original content bytes committed (0 if none).
+        Uses _add_discarded for all counter updates so reader and writer threads
+        both hold _spool_queue_lock when mutating the shared discarded counters.
+        """
         stream = self._stdout_spool if is_stdout else self._stderr_spool
         persist_attr = "_spool_persist_stdout" if is_stdout else "_spool_persist_stderr"
         accepted_attr = (
             "_stdout_accepted_bytes" if is_stdout else "_stderr_accepted_bytes"
         )
-        discarded_attr = (
-            "_stdout_discarded_bytes" if is_stdout else "_stderr_discarded_bytes"
-        )
         if stream is None or not data:
-            return
+            return 0
         if not getattr(self, persist_attr):
-            setattr(self, discarded_attr, getattr(self, discarded_attr) + len(data))
-            return
+            self._add_discarded(is_stdout, len(data))
+            return 0
 
         accepted = getattr(self, accepted_attr)
         marker = _SPOOL_QUOTA_MARKER
@@ -541,19 +562,23 @@ class BackgroundJob:
         room = min(stream_room, conv_room)
         payload = data
         discarded = 0
+        # content_bytes: how many bytes of original `data` will be committed
+        content_bytes = len(data)
         stream_limited = stream_room <= conv_room
         if len(data) > room:
             if room > 0:
                 payload = data[:room] + (marker if stream_limited else b"")
                 discarded = len(data) - room
+                content_bytes = room
             elif stream_limited:
                 payload = marker
                 discarded = len(data)
+                content_bytes = 0
             else:
                 setattr(self, persist_attr, False)
                 self._note_partial("conversation_quota")
-                setattr(self, discarded_attr, getattr(self, discarded_attr) + len(data))
-                return
+                self._add_discarded(is_stdout, len(data))
+                return 0
             setattr(self, persist_attr, False)
             self._note_partial("quota" if stream_limited else "conversation_quota")
 
@@ -564,12 +589,15 @@ class BackgroundJob:
             discarded += dropped_tail
             setattr(self, persist_attr, False)
             self._note_partial("conversation_quota")
+            # Payload is data[:content_bytes] + marker (or just data for full).
+            # After trim, only min(granted, content_bytes) bytes of content remain.
+            content_bytes = min(content_bytes, granted)
             if not payload:
-                setattr(self, discarded_attr, getattr(self, discarded_attr) + len(data))
-                return
+                self._add_discarded(is_stdout, len(data))
+                return 0
 
         if discarded:
-            setattr(self, discarded_attr, getattr(self, discarded_attr) + discarded)
+            self._add_discarded(is_stdout, discarded)
 
         if self._spool_queue is not None:
             with self._spool_queue_lock:
@@ -582,12 +610,8 @@ class BackgroundJob:
                 _release_conversation_spool(self.conversation_id, len(payload))
                 self._note_partial("queue_full")
                 setattr(self, persist_attr, False)
-                setattr(
-                    self,
-                    discarded_attr,
-                    getattr(self, discarded_attr) + len(payload),
-                )
-                return
+                self._add_discarded(is_stdout, len(payload))
+                return 0
 
             def _unreserve_queue() -> None:
                 with self._spool_queue_lock:
@@ -597,11 +621,7 @@ class BackgroundJob:
                 _release_conversation_spool(self.conversation_id, len(payload))
                 self._note_partial("queue_full")
                 setattr(self, persist_attr, False)
-                setattr(
-                    self,
-                    discarded_attr,
-                    getattr(self, discarded_attr) + len(payload),
-                )
+                self._add_discarded(is_stdout, len(payload))
 
             try:
                 self._spool_queue.put_nowait((stream, is_stdout, payload))
@@ -609,7 +629,7 @@ class BackgroundJob:
                 writer = self._spool_writer_thread
                 if writer is None or not writer.is_alive():
                     _unreserve_queue()
-                    return
+                    return 0
                 try:
                     self._spool_queue.put(
                         (stream, is_stdout, payload),
@@ -617,7 +637,7 @@ class BackgroundJob:
                     )
                 except queue.Full:
                     _unreserve_queue()
-                    return
+                    return 0
         else:
             try:
                 self._write_spool_payload(stream, is_stdout, payload)
@@ -634,8 +654,9 @@ class BackgroundJob:
                     self._stdout_spool = None
                 else:
                     self._stderr_spool = None
-                return
+                return 0
         setattr(self, accepted_attr, accepted + len(payload))
+        return content_bytes
 
     def _close_spool_files(self) -> None:
         for stream in (self._stdout_spool, self._stderr_spool):
@@ -801,7 +822,22 @@ class BackgroundJob:
                     buffer_start = self._stderr_buffer_start
                     offset = max(self._stderr_read_offset, resume)
                     self._stderr_read_offset = buffer_start + len(joined)
-            return text + joined[max(offset - buffer_start, 0) :]
+            raw_start = max(offset - buffer_start, 0)
+            # Extend back to the beginning of the containing line so the
+            # downstream redactor (_sanitize_job_output in format_job_output)
+            # has full assignment context.  Without this, a poll boundary that
+            # splits "API_KEY=<value>" causes the second slice to start with
+            # the opaque value, which the redactor cannot recognise.
+            if 0 < raw_start <= len(joined):
+                line_start = joined.rfind("\n", 0, raw_start) + 1
+            else:
+                line_start = raw_start
+            # If the containing line began before the buffer (evicted), skip
+            # the orphan prefix — the redactor also lacks context for it.
+            if line_start == 0 and buffer_start > 0:
+                first_nl = joined.find("\n")
+                line_start = (first_nl + 1) if first_nl >= 0 else len(joined)
+            return text + joined[line_start:]
 
     def _read_output(self) -> None:
         """Read stdout/stderr until the child exits, then drain briefly."""
