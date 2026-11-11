@@ -520,6 +520,13 @@ class BackgroundJob:
                     self._note_partial("write_error")
                     self._spool_persist_stdout = False
                     self._spool_persist_stderr = False
+                    # Resume from RAM so incremental reads serve queued-but-dropped
+                    # bytes; _append_output normally does this but only on the next
+                    # arriving line, which may never come after a write failure.
+                    if self._stdout_ram_resume is None:
+                        self._stdout_ram_resume = self._stdout_spool_original_chars
+                    if self._stderr_ram_resume is None:
+                        self._stderr_ram_resume = self._stderr_spool_original_chars
                     while True:
                         try:
                             leftover = self._spool_queue.get_nowait()
@@ -668,21 +675,37 @@ class BackgroundJob:
         return content_bytes
 
     def _close_spool_files(self) -> None:
-        # Serialize with _read_committed_range (which holds _cursor_lock): a
-        # reader must not pread an fd number the OS may already have reused.
+        # Under _cursor_lock: mark streams as closed so _read_committed_range
+        # falls back to open(path) rather than pread'ing the still-open fd.
+        # Actual fsync+close (which may block on slow storage) runs OUTSIDE the
+        # lock so it cannot stall concurrent _consume_incremental_text callers.
         with self._cursor_lock:
-            for stream in (self._stdout_spool, self._stderr_spool):
-                if stream is None:
-                    continue
+            to_close = [
+                s
+                for s in (self._stdout_spool, self._stderr_spool)
+                if s is not None and not s._closed
+            ]
+            for stream in to_close:
+                stream._closed = True  # signal reader to use path fallback
+        for stream in to_close:
+            try:
+                os.fsync(stream._fd)
+            except OSError as e:
+                logger.warning(
+                    "Could not fsync background job spool %s: %s",
+                    stream.path,
+                    e,
+                )
+                self._note_partial("write_error")
+            finally:
                 try:
-                    stream.close()
+                    os.close(stream._fd)
                 except OSError as e:
                     logger.warning(
                         "Could not close background job spool %s: %s",
                         stream.path,
                         e,
                     )
-                    self._note_partial("write_error")
 
     def _finalize_spools(self) -> None:
         """Stop the writer, then close live files and publish receipt metadata."""
@@ -1525,6 +1548,9 @@ def reset_background_jobs(
             _purge_completion_queue(conversation_ids)
             condition = _job_conditions.pop(conversation_id, None)
             conditions = [condition] if condition is not None else []
+            with _conversation_spool_lock:
+                _conversation_spool_bytes.pop(conversation_id, None)
+                _conversation_spool_seeded.discard(conversation_id)
         for condition in conditions:
             condition.notify_all()
     for jobs in groups:

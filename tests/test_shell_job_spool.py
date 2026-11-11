@@ -689,3 +689,73 @@ def test_close_spool_files_waits_for_cursor_reader(tmp_path) -> None:
     t.join(timeout=5)
     assert done.is_set()
     assert stream._closed
+
+
+def test_writer_failure_sets_ram_resume_without_subsequent_output(
+    tmp_path, monkeypatch
+) -> None:
+    """Incremental reads must serve RAM content after a write failure in the
+    writer loop even when no further output arrives from the process.
+
+    The writer loop path: the payload is queued and later dequeued by the
+    loop, which fails the write.  _append_output set ram_resume only when new
+    text arrives *after* the failure, so if the process goes silent the cursor
+    was left at None — incremental reads returned empty even though the buffer
+    had the content.  The fix sets ram_resume in the loop's OSError handler.
+    """
+    import gptme.tools.shell_background as bg
+
+    process = Mock(returncode=None)
+    process.stdout.fileno.return_value = 10
+    stream = open_private_output_file(tmp_path, "shell-jobs", "fail-resume.live")
+    job = BackgroundJob(1, "fail-resume", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue()
+    try:
+        # Populate the RAM buffer (as the reader would do) but bypass the
+        # synchronous write path by putting the payload directly on the queue.
+        with job._buffer_lock:
+            job.stdout_buffer.append("hello-lost\n")
+        # Place the same content on the writer queue so the loop dequeues it.
+        job._spool_queue.put_nowait((stream, True, b"hello-lost\n"))
+        # Signal the loop to drain and exit after one item.
+        job._spool_queue.put_nowait(None)
+
+        # Make the writer fail when it tries to write the queued payload.
+        def fail_write(*args):
+            raise OSError("simulated disk failure")
+
+        monkeypatch.setattr(job, "_write_spool_payload", fail_write)
+        job._spool_writer_loop()
+
+        # Writer has failed; persistence stopped.
+        assert not job._spool_persist_stdout
+        # ram_resume must be set even without a subsequent _append_output call.
+        assert job._stdout_ram_resume is not None
+        # The buffered content must be served via incremental read.
+        out, _ = job.get_output(incremental=True)
+        assert "hello-lost" in out
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_per_conversation_reset_clears_spool_quota(tmp_path, monkeypatch) -> None:
+    """reset_background_jobs with all_conversations=False must clear the spool
+    quota counter for the given conversation so a re-used id starts fresh."""
+    import gptme.tools.shell_background as bg
+
+    conv_id = "conv-reset-test"
+    # Seed a non-zero usage for the conversation.
+    with bg._conversation_spool_lock:
+        bg._conversation_spool_bytes[conv_id] = 10_000
+        bg._conversation_spool_seeded.add(conv_id)
+
+    reset_background_jobs(conv_id, all_conversations=False)
+
+    # After per-conversation reset the counter must be gone.
+    with bg._conversation_spool_lock:
+        assert conv_id not in bg._conversation_spool_bytes
+        assert conv_id not in bg._conversation_spool_seeded
