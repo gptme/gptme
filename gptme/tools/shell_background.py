@@ -264,6 +264,13 @@ class BackgroundJob:
     # gap or duplication when quota cuts through a boundary chunk.
     _stdout_spool_original_chars: int = field(default=0, repr=False)
     _stderr_spool_original_chars: int = field(default=0, repr=False)
+    # Characters PHYSICALLY WRITTEN to spool by the writer thread.  Lags
+    # _spool_original_chars (queued count) until the writer catches up.
+    # After a write error use this — not _spool_original_chars — as the
+    # RAM-tail resume so chars that were queued but never written are served
+    # from RAM rather than silently dropped.
+    _stdout_spool_written_chars: int = field(default=0, repr=False)
+    _stderr_spool_written_chars: int = field(default=0, repr=False)
     # Serializes incremental cursor consumption (snapshot, read, advance).
     _cursor_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     receipt_path: Path | None = field(default=None, repr=False)
@@ -510,8 +517,20 @@ class BackgroundJob:
                 written_before = stream.bytes_written
                 try:
                     self._write_spool_payload(stream, is_stdout, payload)
+                    # Track written chars (conservative lower bound via utf-8 ignore).
+                    written_chars = len(payload.decode("utf-8", "ignore"))
+                    if is_stdout:
+                        self._stdout_spool_written_chars += written_chars
+                    else:
+                        self._stderr_spool_written_chars += written_chars
                 except OSError as e:
                     logger.warning("Could not append job spool %s: %s", stream.path, e)
+                    # P2: reflect any partially-written bytes so the byte cursor
+                    # and receipt are not left behind the actual spool boundary.
+                    if is_stdout:
+                        self._stdout_committed_bytes = stream.bytes_written
+                    else:
+                        self._stderr_committed_bytes = stream.bytes_written
                     unwritten = max(
                         0, len(payload) - max(0, stream.bytes_written - written_before)
                     )
@@ -520,13 +539,16 @@ class BackgroundJob:
                     self._note_partial("write_error")
                     self._spool_persist_stdout = False
                     self._spool_persist_stderr = False
-                    # Resume from RAM so incremental reads serve queued-but-dropped
-                    # bytes; _append_output normally does this but only on the next
-                    # arriving line, which may never come after a write failure.
+                    # P1: resume from last WRITTEN chars, not last QUEUED chars.
+                    # _spool_original_chars counts text accepted by the queue
+                    # (ahead of disk); _spool_written_chars counts only what this
+                    # thread confirmed to disk.  Using the written count means the
+                    # RAM tail covers every char the spool is missing, with at most
+                    # a small overlap (conservative lower bound on char count).
                     if self._stdout_ram_resume is None:
-                        self._stdout_ram_resume = self._stdout_spool_original_chars
+                        self._stdout_ram_resume = self._stdout_spool_written_chars
                     if self._stderr_ram_resume is None:
-                        self._stderr_ram_resume = self._stderr_spool_original_chars
+                        self._stderr_ram_resume = self._stderr_spool_written_chars
                     while True:
                         try:
                             leftover = self._spool_queue.get_nowait()
