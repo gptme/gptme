@@ -377,3 +377,54 @@ def test_stale_monitor_cannot_publish_into_resumed_generation(
             api._subagents[:] = [s for s in api._subagents if s.agent_id != sa.agent_id]
         with api._subagent_results_lock:
             api._subagent_results.pop(sa.agent_id, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_continue_with_absent_workspace_fails_and_frees_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deleted workspace ends the attempt as a failure, not a stranded lease."""
+    from gptme.tools.subagent import api, execution
+    from gptme.tools.subagent.execution import writer_lease_held
+    from gptme.tools.subagent.types import ReturnType
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text("")
+    sa = Subagent(
+        agent_id="gone-ws",
+        prompt="test",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        execution_mode="subprocess",
+        workdir=tmp_path / "deleted-workspace",
+        started_at=time.time() - 10,
+    )
+    with api._subagents_lock:
+        api._subagents.append(sa)
+    with api._subagent_results_lock:
+        api._subagent_results[sa.agent_id] = ReturnType("success", "done")
+    monkeypatch.setattr(api, "persist_subagent_meta", lambda sa: None)
+    monkeypatch.setattr(execution.tempfile, "tempdir", str(tmp_path))
+    try:
+        api.subagent_continue(sa.agent_id, "again")
+        deadline = time.time() + 15
+        status = None
+        while time.time() < deadline:
+            with api._subagent_results_lock:
+                cached = api._subagent_results.get(sa.agent_id)
+            if cached is not None:
+                status = cached.status
+                break
+            time.sleep(0.05)
+        assert status == "failure", f"expected failure, got {status!r}"
+        assert not writer_lease_held(logdir)
+    finally:
+        for t in threading.enumerate():
+            if "run_continuation" in t.name:
+                t.join(10)
+        with api._subagents_lock:
+            api._subagents[:] = [s for s in api._subagents if s.agent_id != sa.agent_id]
+        with api._subagent_results_lock:
+            api._subagent_results.pop(sa.agent_id, None)
