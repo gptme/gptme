@@ -53,6 +53,11 @@ _MAX_BUFFER_SIZE = 1024 * 1024
 # Incomplete last line / partial assignment held before spool commit.
 _SPOOL_PENDING_MAX = 64 * 1024
 
+# Combined stdout+stderr spool ceiling per direct job (32 MiB). On quota
+# exceeded the spool closes but the reader keeps draining so the child cannot
+# deadlock. The in-memory bounded preview continues after the spool stops.
+_SPOOL_MAX_BYTES = 32 * 1024 * 1024
+
 # Tail of each stream shown in `output N`, promotion and completion messages.
 # Longer output is saved to a per-job log file (when the conversation has a
 # logdir) and the message names that file.
@@ -160,6 +165,8 @@ class BackgroundJob:
     _spool_discard_stderr: bool = field(default=False, repr=False)
     _spool_from_reader: bool = field(default=False, repr=False)
     _capture_partial: bool = field(default=False, repr=False)
+    # Combined bytes committed to stdout + stderr spools; enforces _SPOOL_MAX_BYTES.
+    _spool_bytes_total: int = field(default=0, repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
     kill_reason: str | None = None
     # a kill after the completion message went out (a worker that outlived
@@ -299,7 +306,33 @@ class BackgroundJob:
             else:
                 _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
             if sanitized:
-                stream.append(sanitized.encode("utf-8", "surrogateescape"))
+                encoded = sanitized.encode("utf-8", "surrogateescape")
+                if self._spool_bytes_total + len(encoded) > _SPOOL_MAX_BYTES:
+                    # Quota exceeded: write a marker and close both spools so the
+                    # disk cap is honoured. The reader keeps draining so the child
+                    # never deadlocks. The in-memory preview continues unaffected.
+                    marker = b"[spool quota exceeded: further output not retained]\n"
+                    for s in (self._stdout_spool, self._stderr_spool):
+                        if s is not None:
+                            try:
+                                s.append(marker)
+                            except OSError:
+                                pass
+                            try:
+                                s.close()
+                            except OSError:
+                                pass
+                    self._stdout_spool = None
+                    self._stderr_spool = None
+                    self._capture_partial = True
+                    logger.warning(
+                        "Background job spool quota exceeded (%d MiB); "
+                        "further output not retained to disk",
+                        _SPOOL_MAX_BYTES // (1024 * 1024),
+                    )
+                    return
+                stream.append(encoded)
+                self._spool_bytes_total += len(encoded)
         except OSError as e:
             logger.warning("Could not append job spool %s: %s", stream.path, e)
             self._capture_partial = True

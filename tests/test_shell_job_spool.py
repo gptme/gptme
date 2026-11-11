@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from gptme.tools.shell_background import (
+    _SPOOL_MAX_BYTES,
     _SPOOL_PENDING_MAX,
     BackgroundJob,
     _write_job_log,
@@ -331,3 +332,100 @@ def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_s
         if process.poll() is None:
             process.kill()
         process.communicate()
+
+
+def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> None:
+    """Quota exceeded closes both spools but reader keeps draining; child exits normally."""
+    from gptme.tools import shell_background as bg
+
+    # 1 KiB quota: triggers quickly without producing a large file.
+    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1024)
+    # 4 MiB exceeds ordinary pipe capacity as well as the quota. A reader that
+    # stops at quota must block the child rather than let this test pass.
+    sentinel = "QUOTA-TEST-FINAL-TAIL"
+    script = (
+        "import sys; sys.stdout.write(('x' * 127 + '\\n') * 32768); "
+        f"sys.stdout.write({sentinel!r} + '\\n'); sys.stdout.flush()"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    job = BackgroundJob(1, "quota-test", process, time.time(), log_dir=tmp_path)
+    try:
+        job.start_reader()
+        assert process.wait(timeout=15) == 0
+        assert job._reader_thread is not None
+        job._reader_thread.join(timeout=5)
+        assert not job._reader_thread.is_alive()
+
+        # Quota must have been hit.
+        assert job._capture_partial
+        assert job._stdout_spool is None
+        assert job._stderr_spool is None
+
+        # The spool file exists and carries the quota-exceeded marker.
+        assert job.log_path is not None
+        saved = job.log_path.read_text()
+        assert "quota exceeded" in saved
+
+        # Retained bytes stay at or below the quota (marker bytes are excluded
+        # from the total; the spool is closed on the first chunk that would
+        # overflow, so actual payload <= quota).
+        assert job._spool_bytes_total <= 1024
+
+        # Preview must acknowledge partial capture; must not claim full output.
+        preview = format_job_output(job, *job.get_output(), complete=True)
+        assert "Full output" not in preview
+        assert "Partial output" in preview
+
+        # The in-memory RAM preview is unaffected: the stdout buffer still holds
+        # the final tail of the output (the reader kept draining normally).
+        stdout, _ = job.get_output()
+        assert stdout.endswith(sentinel + "\n")
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        reset_background_jobs()
+
+
+@pytest.mark.parametrize("is_stdout", [True, False])
+@pytest.mark.parametrize("operation", ["write", "fsync"])
+def test_quota_closes_both_spools_on_storage_error(
+    tmp_path, monkeypatch, is_stdout: bool, operation: str
+) -> None:
+    from gptme.tools import shell_background as bg
+
+    job = BackgroundJob(1, "quota-storage-error", Mock(), 0, log_dir=tmp_path)
+    stdout = open_private_output_file(tmp_path, "shell-jobs", "quota.stdout.live")
+    stderr = open_private_output_file(tmp_path, "shell-jobs", "quota.stderr.live")
+    job._stdout_spool = stdout
+    job._stderr_spool = stderr
+    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1)
+
+    def fail(*args) -> None:
+        raise OSError("simulated storage failure")
+
+    monkeypatch.setattr(os, operation, fail)
+    try:
+        job._spool_text(is_stdout, "over quota\n", final=False)
+        assert job._capture_partial
+        assert job._stdout_spool is None
+        assert job._stderr_spool is None
+        for stream in (stdout, stderr):
+            assert stream._closed
+            with pytest.raises(OSError, match="Bad file descriptor"):
+                os.fstat(stream._fd)
+    finally:
+        for stream in (stdout, stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
+def test_spool_max_bytes_constant_is_32_mib() -> None:
+    """Confirm the documented quota value so callers can rely on it."""
+    assert _SPOOL_MAX_BYTES == 32 * 1024 * 1024
