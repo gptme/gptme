@@ -10,6 +10,7 @@ import atexit
 import codecs
 import hashlib
 import importlib
+import json
 import logging
 import math
 import os
@@ -53,10 +54,21 @@ _MAX_BUFFER_SIZE = 1024 * 1024
 # Incomplete last line / partial assignment held before spool commit.
 _SPOOL_PENDING_MAX = 64 * 1024
 
-# Combined stdout+stderr spool ceiling per direct job (32 MiB). On quota
-# exceeded the spool closes but the reader keeps draining so the child cannot
-# deadlock. The in-memory bounded preview continues after the spool stops.
-_SPOOL_MAX_BYTES = 32 * 1024 * 1024
+# Slice-2 spool gates (docs/design/file-backed-output.md).
+# The pipe reader never blocks on disk: it enqueues sanitized bytes onto a
+# bounded writer queue. Saturation or quota exhaustion stops persistence,
+# marks capture partial, and keeps draining the child.
+# Bound queued persistence, not the pipe reader. 1024 * ~4 KiB reads holds the
+# 2.3 MiB evidence job even if the writer has not been scheduled yet.
+_SPOOL_QUEUE_MAX = 1024
+_SPOOL_QUEUE_MAX_BYTES = 4 * 1024 * 1024
+_SPOOL_QUEUE_PUT_TIMEOUT = 0.05
+_SPOOL_STREAM_QUOTA = 32 * 1024 * 1024
+_SPOOL_CONVERSATION_QUOTA = 128 * 1024 * 1024
+_SPOOL_WRITER_JOIN_TIMEOUT = 2.0
+_SPOOL_QUOTA_MARKER = b"[omitted: retained-stream quota exceeded]\n"
+_conversation_spool_bytes: dict[str | None, int] = {}
+_conversation_spool_lock = threading.Lock()
 
 # Tail of each stream shown in `output N`, promotion and completion messages.
 # Longer output is saved to a per-job log file (when the conversation has a
@@ -108,6 +120,33 @@ def _wait_readable(fds: list[int], timeout: float | None) -> list[int]:
         -1 if timeout is None else max(0 if timeout == 0 else 1, int(timeout * 1000))
     )
     return [fd for fd, _event in poller.poll(timeout_ms)]
+
+
+def _try_reserve_conversation_spool(conversation_id: str | None, n: int) -> int:
+    """Reserve up to ``n`` retained bytes against the conversation allowance."""
+    if n <= 0:
+        return 0
+    with _conversation_spool_lock:
+        used = _conversation_spool_bytes.get(conversation_id, 0)
+        remaining = max(0, _SPOOL_CONVERSATION_QUOTA - used)
+        granted = min(n, remaining)
+        if granted:
+            _conversation_spool_bytes[conversation_id] = used + granted
+        return granted
+
+
+def _conversation_spool_remaining(conversation_id: str | None) -> int:
+    with _conversation_spool_lock:
+        used = _conversation_spool_bytes.get(conversation_id, 0)
+    return max(0, _SPOOL_CONVERSATION_QUOTA - used)
+
+
+def _release_conversation_spool(conversation_id: str | None, n: int) -> None:
+    if n <= 0:
+        return
+    with _conversation_spool_lock:
+        used = _conversation_spool_bytes.get(conversation_id, 0)
+        _conversation_spool_bytes[conversation_id] = max(0, used - n)
 
 
 @dataclass
@@ -165,8 +204,23 @@ class BackgroundJob:
     _spool_discard_stderr: bool = field(default=False, repr=False)
     _spool_from_reader: bool = field(default=False, repr=False)
     _capture_partial: bool = field(default=False, repr=False)
-    # Combined bytes committed to stdout + stderr spools; enforces _SPOOL_MAX_BYTES.
-    _spool_bytes_total: int = field(default=0, repr=False)
+    _partial_reasons: set[str] = field(default_factory=set, repr=False)
+    _spool_queue: queue.Queue[tuple[PrivateOutputFile, bool, bytes] | None] | None = (
+        field(default=None, repr=False)
+    )
+    _spool_queued_bytes: int = field(default=0, repr=False)
+    _spool_writer_thread: threading.Thread | None = field(default=None, repr=False)
+    _spool_persist_stdout: bool = field(default=True, repr=False)
+    _spool_persist_stderr: bool = field(default=True, repr=False)
+    _stdout_accepted_bytes: int = field(default=0, repr=False)
+    _stderr_accepted_bytes: int = field(default=0, repr=False)
+    _stdout_committed_bytes: int = field(default=0, repr=False)
+    _stderr_committed_bytes: int = field(default=0, repr=False)
+    _stdout_discarded_bytes: int = field(default=0, repr=False)
+    _stderr_discarded_bytes: int = field(default=0, repr=False)
+    _stdout_byte_cursor: int = field(default=0, repr=False)
+    _stderr_byte_cursor: int = field(default=0, repr=False)
+    receipt_path: Path | None = field(default=None, repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
     kill_reason: str | None = None
     # a kill after the completion message went out (a worker that outlived
@@ -193,6 +247,13 @@ class BackgroundJob:
     def _open_spools(self) -> None:
         """Open exclusive live stream files when this job owns the pipes."""
         if self._stdout_spool is not None or not self._can_spool_from_process():
+            return
+        if _conversation_spool_remaining(self.conversation_id) <= 0:
+            logger.warning(
+                "Skipping job #%s spool: conversation retained-stream quota exhausted",
+                self.id,
+            )
+            self._note_partial("conversation_quota")
             return
         assert self.log_dir is not None
         base = f"job-{self.id}-{int(self.start_time)}"
@@ -225,6 +286,13 @@ class BackgroundJob:
         assert self._stderr_spool is not None
         self.stderr_log_path = self._stderr_spool.path
         self._spool_from_reader = True
+        self._spool_queue = queue.Queue(maxsize=_SPOOL_QUEUE_MAX)
+        self._spool_writer_thread = threading.Thread(
+            target=self._spool_writer_loop,
+            daemon=True,
+            name=f"gptme-spool-writer-{self.id}",
+        )
+        self._spool_writer_thread.start()
 
     def start_reader(self) -> None:
         """Start background thread to read output."""
@@ -300,50 +368,267 @@ class BackgroundJob:
         setattr(self, pending_attr, leftover)
         if not to_write:
             return
-        try:
-            if is_stdout:
-                sanitized, _, _ = _sanitize_job_output(to_write, "", complete=final)
-            else:
-                _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
-            if sanitized:
-                encoded = sanitized.encode("utf-8", "surrogateescape")
-                if self._spool_bytes_total + len(encoded) > _SPOOL_MAX_BYTES:
-                    # Quota exceeded: write a marker and close both spools so the
-                    # disk cap is honoured. The reader keeps draining so the child
-                    # never deadlocks. The in-memory preview continues unaffected.
-                    marker = b"[spool quota exceeded: further output not retained]\n"
-                    for s in (self._stdout_spool, self._stderr_spool):
-                        if s is not None:
-                            try:
-                                s.append(marker)
-                            except OSError:
-                                pass
-                            try:
-                                s.close()
-                            except OSError:
-                                pass
-                    self._stdout_spool = None
-                    self._stderr_spool = None
-                    self._capture_partial = True
-                    logger.warning(
-                        "Background job spool quota exceeded (%d MiB); "
-                        "further output not retained to disk",
-                        _SPOOL_MAX_BYTES // (1024 * 1024),
+        if is_stdout:
+            sanitized, _, _ = _sanitize_job_output(to_write, "", complete=final)
+        else:
+            _, sanitized, _ = _sanitize_job_output("", to_write, complete=final)
+        if sanitized:
+            self._commit_spool_bytes(
+                is_stdout, sanitized.encode("utf-8", "surrogateescape")
+            )
+
+    def _note_partial(self, reason: str) -> None:
+        self._capture_partial = True
+        self._partial_reasons.add(reason)
+
+    def _write_spool_payload(
+        self, stream: PrivateOutputFile, is_stdout: bool, payload: bytes
+    ) -> None:
+        stream.append(payload)
+        if is_stdout:
+            self._stdout_committed_bytes = stream.bytes_written
+        else:
+            self._stderr_committed_bytes = stream.bytes_written
+
+    def _spool_writer_loop(self) -> None:
+        """Persist queued chunks; never runs in the pipe-reader thread."""
+        assert self._spool_queue is not None
+        while True:
+            item = self._spool_queue.get()
+            if item is None:
+                return
+            stream, is_stdout, payload = item
+            self._spool_queued_bytes = max(0, self._spool_queued_bytes - len(payload))
+            try:
+                self._write_spool_payload(stream, is_stdout, payload)
+            except OSError as e:
+                logger.warning("Could not append job spool %s: %s", stream.path, e)
+                self._note_partial("write_error")
+                self._spool_persist_stdout = False
+                self._spool_persist_stderr = False
+                while True:
+                    leftover = self._spool_queue.get()
+                    if leftover is None:
+                        return
+
+    def _commit_spool_bytes(self, is_stdout: bool, data: bytes) -> None:
+        """Accept sanitized bytes for persistence without blocking the reader."""
+        stream = self._stdout_spool if is_stdout else self._stderr_spool
+        persist_attr = "_spool_persist_stdout" if is_stdout else "_spool_persist_stderr"
+        accepted_attr = (
+            "_stdout_accepted_bytes" if is_stdout else "_stderr_accepted_bytes"
+        )
+        discarded_attr = (
+            "_stdout_discarded_bytes" if is_stdout else "_stderr_discarded_bytes"
+        )
+        if stream is None or not data:
+            return
+        if not getattr(self, persist_attr):
+            setattr(self, discarded_attr, getattr(self, discarded_attr) + len(data))
+            return
+
+        accepted = getattr(self, accepted_attr)
+        stream_room = max(0, _SPOOL_STREAM_QUOTA - accepted)
+        conv_room = _conversation_spool_remaining(self.conversation_id)
+        room = min(stream_room, conv_room)
+        payload = data
+        discarded = 0
+        if room <= 0:
+            setattr(self, persist_attr, False)
+            self._note_partial("quota" if stream_room <= 0 else "conversation_quota")
+            setattr(self, discarded_attr, getattr(self, discarded_attr) + len(data))
+            return
+        if len(data) > room:
+            marker = _SPOOL_QUOTA_MARKER
+            keep = room - len(marker) if room > len(marker) else room
+            payload = data[:keep] + (marker if room > len(marker) else b"")
+            discarded = len(data) - keep
+            setattr(self, persist_attr, False)
+            self._note_partial(
+                "quota" if stream_room <= len(data) else "conversation_quota"
+            )
+
+        granted = _try_reserve_conversation_spool(self.conversation_id, len(payload))
+        if granted < len(payload):
+            dropped_tail = len(payload) - granted
+            payload = payload[:granted]
+            discarded += dropped_tail
+            setattr(self, persist_attr, False)
+            self._note_partial("conversation_quota")
+            if not payload:
+                setattr(self, discarded_attr, getattr(self, discarded_attr) + len(data))
+                return
+
+        if discarded:
+            setattr(self, discarded_attr, getattr(self, discarded_attr) + discarded)
+
+        if self._spool_queue is not None:
+            if self._spool_queued_bytes + len(payload) > _SPOOL_QUEUE_MAX_BYTES:
+                _release_conversation_spool(self.conversation_id, len(payload))
+                self._note_partial("queue_full")
+                setattr(self, persist_attr, False)
+                setattr(
+                    self,
+                    discarded_attr,
+                    getattr(self, discarded_attr) + len(payload),
+                )
+                return
+            try:
+                self._spool_queue.put_nowait((stream, is_stdout, payload))
+            except queue.Full:
+                writer = self._spool_writer_thread
+                if writer is None or not writer.is_alive():
+                    _release_conversation_spool(self.conversation_id, len(payload))
+                    self._note_partial("queue_full")
+                    setattr(self, persist_attr, False)
+                    setattr(
+                        self,
+                        discarded_attr,
+                        getattr(self, discarded_attr) + len(payload),
                     )
                     return
-                stream.append(encoded)
-                self._spool_bytes_total += len(encoded)
-        except OSError as e:
-            logger.warning("Could not append job spool %s: %s", stream.path, e)
-            self._capture_partial = True
+                try:
+                    self._spool_queue.put(
+                        (stream, is_stdout, payload),
+                        timeout=_SPOOL_QUEUE_PUT_TIMEOUT,
+                    )
+                except queue.Full:
+                    _release_conversation_spool(self.conversation_id, len(payload))
+                    self._note_partial("queue_full")
+                    setattr(self, persist_attr, False)
+                    setattr(
+                        self,
+                        discarded_attr,
+                        getattr(self, discarded_attr) + len(payload),
+                    )
+                    return
+            self._spool_queued_bytes += len(payload)
+        else:
             try:
-                stream.close()
-            except OSError:
-                pass
-            if is_stdout:
-                self._stdout_spool = None
-            else:
-                self._stderr_spool = None
+                self._write_spool_payload(stream, is_stdout, payload)
+            except OSError as e:
+                _release_conversation_spool(self.conversation_id, len(payload))
+                logger.warning("Could not append job spool %s: %s", stream.path, e)
+                self._note_partial("write_error")
+                setattr(self, persist_attr, False)
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+                if is_stdout:
+                    self._stdout_spool = None
+                else:
+                    self._stderr_spool = None
+                return
+        setattr(self, accepted_attr, accepted + len(payload))
+
+    def _finalize_spools(self) -> None:
+        """Drain the writer, close live files, then publish receipt metadata."""
+        queue_obj = self._spool_queue
+        writer = self._spool_writer_thread
+        if queue_obj is not None:
+            try:
+                queue_obj.put(None, timeout=_SPOOL_WRITER_JOIN_TIMEOUT)
+            except queue.Full:
+                self._note_partial("writer_timeout")
+        if writer is not None:
+            writer.join(timeout=_SPOOL_WRITER_JOIN_TIMEOUT)
+            if writer.is_alive():
+                self._note_partial("writer_timeout")
+        writer_alive = writer is not None and writer.is_alive()
+        if not writer_alive:
+            for stream in (self._stdout_spool, self._stderr_spool):
+                if stream is None:
+                    continue
+                try:
+                    stream.close()
+                except OSError as e:
+                    logger.warning(
+                        "Could not close background job spool %s: %s",
+                        stream.path,
+                        e,
+                    )
+                    self._note_partial("write_error")
+        self._publish_receipt()
+
+    def _publish_receipt(self) -> None:
+        """Atomically publish final capture metadata after stream close."""
+        if self.log_dir is None or not self._spool_from_reader:
+            return
+        capture_state = "partial" if self._capture_partial else "complete"
+        receipt = {
+            "job_id": self.id,
+            "capture_state": capture_state,
+            "partial_reasons": sorted(self._partial_reasons),
+            "exit_code": getattr(self.process, "returncode", None),
+            "stdout": {
+                "path": str(self.log_path) if self.log_path else None,
+                "committed_bytes": self._stdout_committed_bytes,
+                "accepted_bytes": self._stdout_accepted_bytes,
+                "discarded_bytes": self._stdout_discarded_bytes,
+                "cursor_bytes": self._stdout_byte_cursor,
+            },
+            "stderr": {
+                "path": str(self.stderr_log_path) if self.stderr_log_path else None,
+                "committed_bytes": self._stderr_committed_bytes,
+                "accepted_bytes": self._stderr_accepted_bytes,
+                "discarded_bytes": self._stderr_discarded_bytes,
+                "cursor_bytes": self._stderr_byte_cursor,
+            },
+        }
+        payload = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
+        base = f"job-{self.id}-{int(self.start_time)}.receipt.json"
+        try:
+            stream = open_private_output_file(self.log_dir, "shell-jobs", base)
+            stream.replace(payload)
+            stream.close()
+            self.receipt_path = stream.path
+        except (OSError, UnsafeOutputPathError) as e:
+            logger.warning(
+                "Could not publish background job receipt under %s: %s",
+                self.log_dir,
+                e,
+            )
+            self._note_partial("receipt_write")
+
+    def _read_committed_range(self, is_stdout: bool, start: int, end: int) -> bytes:
+        """Read committed retained bytes ``[start, end)`` without blocking the writer."""
+        length = end - start
+        if length <= 0:
+            return b""
+        stream = self._stdout_spool if is_stdout else self._stderr_spool
+        path = self.log_path if is_stdout else self.stderr_log_path
+        if stream is not None and not stream._closed:
+            pread = getattr(os, "pread", None)
+            if pread is not None:
+                try:
+                    return pread(stream._fd, length, start)
+                except OSError:
+                    pass
+        if path is None:
+            return b""
+        with open(path, "rb") as handle:
+            handle.seek(start)
+            return handle.read(length)
+
+    def _consume_committed_text(self, is_stdout: bool) -> str:
+        """Advance the per-stream byte cursor and return newly committed text."""
+        committed = (
+            self._stdout_committed_bytes if is_stdout else self._stderr_committed_bytes
+        )
+        cursor_attr = "_stdout_byte_cursor" if is_stdout else "_stderr_byte_cursor"
+        cursor = getattr(self, cursor_attr)
+        if committed <= cursor:
+            return ""
+        display_limit = (
+            _STDOUT_DISPLAY_CHARS if is_stdout else _STDERR_DISPLAY_CHARS
+        ) * 4
+        start = cursor
+        if committed - start > display_limit:
+            start = committed - display_limit
+        data = self._read_committed_range(is_stdout, start, committed)
+        setattr(self, cursor_attr, committed)
+        return data.decode("utf-8", "replace")
 
     def _read_output(self) -> None:
         """Read stdout/stderr until the child exits, then drain briefly."""
@@ -411,16 +696,7 @@ class BackgroundJob:
         for fd in (stdout_fd, stderr_fd):
             if fd >= 0:
                 self._append_output(fd, stdout_fd, b"", final=True)
-        for stream in (self._stdout_spool, self._stderr_spool):
-            if stream is None:
-                continue
-            try:
-                stream.close()
-            except OSError as e:
-                logger.warning(
-                    "Could not close background job spool %s: %s", stream.path, e
-                )
-                self._capture_partial = True
+        self._finalize_spools()
         # Consumers can render the notification before this thread returns.
         # Capture is final now, even though the notifying thread is still alive.
         with _job_log_lock:
@@ -458,6 +734,13 @@ class BackgroundJob:
         self, *, incremental: bool = False, line_context: bool = False
     ) -> tuple[str, str]:
         """Get accumulated stdout and stderr, optionally since the last read."""
+        if incremental and self._spool_from_reader:
+            # Independent committed-byte cursors: RAM character offsets can
+            # lag or skip prefixes the live files already retained.
+            return (
+                self._consume_committed_text(True),
+                self._consume_committed_text(False),
+            )
         with self._buffer_lock:
             if self._output_callback is not None:
                 stdout, stderr = self._output_callback()
@@ -1005,6 +1288,8 @@ def reset_background_jobs(
             conditions = list(_job_conditions.values())
             _job_conditions.clear()
             _control_wait_keys.clear()
+            with _conversation_spool_lock:
+                _conversation_spool_bytes.clear()
         else:
             conversation_ids = {conversation_id}
             groups = [_background_jobs.pop(conversation_id, {})]

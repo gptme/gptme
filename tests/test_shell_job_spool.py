@@ -1,10 +1,13 @@
 """Regression tests for direct-job spool review findings (gptme/gptme#4826)."""
 
+import json
 import os
+import queue as queue_mod
 import shlex
 import subprocess
 import sys
 import time
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -334,98 +337,68 @@ def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_s
         process.communicate()
 
 
-def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> None:
-    """Quota exceeded closes both spools but reader keeps draining; child exits normally."""
-    from gptme.tools import shell_background as bg
-
-    # 1 KiB quota: triggers quickly without producing a large file.
-    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1024)
-    # 4 MiB exceeds ordinary pipe capacity as well as the quota. A reader that
-    # stops at quota must block the child rather than let this test pass.
-    sentinel = "QUOTA-TEST-FINAL-TAIL"
-    script = (
-        "import sys; sys.stdout.write(('x' * 127 + '\\n') * 32768); "
-        f"sys.stdout.write({sentinel!r} + '\\n'); sys.stdout.flush()"
-    )
-    process = subprocess.Popen(
-        [sys.executable, "-c", script],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    job = BackgroundJob(1, "quota-test", process, time.time(), log_dir=tmp_path)
+def test_writer_queue_full_does_not_block_reader(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "queued.live")
+    job._stdout_spool = stream
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue(maxsize=1)
+    job._spool_queue.put_nowait((stream, True, b"held\n"))
     try:
-        job.start_reader()
-        assert process.wait(timeout=15) == 0
-        assert job._reader_thread is not None
-        job._reader_thread.join(timeout=5)
-        assert not job._reader_thread.is_alive()
-
-        # Quota must have been hit.
+        t0 = time.monotonic()
+        job._commit_spool_bytes(True, b"dropped because the writer is busy\n")
+        assert time.monotonic() - t0 < 0.2
         assert job._capture_partial
-        assert job._stdout_spool is None
-        assert job._stderr_spool is None
-
-        # The spool file exists and carries the quota-exceeded marker.
-        assert job.log_path is not None
-        saved = job.log_path.read_text()
-        assert "quota exceeded" in saved
-
-        # Retained bytes stay at or below the quota (marker bytes are excluded
-        # from the total; the spool is closed on the first chunk that would
-        # overflow, so actual payload <= quota).
-        assert job._spool_bytes_total <= 1024
-
-        # Preview must acknowledge partial capture; must not claim full output.
-        preview = format_job_output(job, *job.get_output(), complete=True)
-        assert "Full output" not in preview
-        assert "Partial output" in preview
-
-        # The in-memory RAM preview is unaffected: the stdout buffer still holds
-        # the final tail of the output (the reader kept draining normally).
-        stdout, _ = job.get_output()
-        assert stdout.endswith(sentinel + "\n")
+        assert "queue_full" in job._partial_reasons
+        assert job._stdout_discarded_bytes > 0
+        assert not job._spool_persist_stdout
     finally:
-        if process.poll() is None:
-            process.kill()
-        process.communicate()
-        reset_background_jobs()
+        stream.close()
 
 
-@pytest.mark.parametrize("is_stdout", [True, False])
-@pytest.mark.parametrize("operation", ["write", "fsync"])
-def test_quota_closes_both_spools_on_storage_error(
-    tmp_path, monkeypatch, is_stdout: bool, operation: str
+def test_stream_quota_stops_persistence_and_marks_partial(
+    tmp_path, monkeypatch
 ) -> None:
-    from gptme.tools import shell_background as bg
+    import gptme.tools.shell_background as bg
 
-    job = BackgroundJob(1, "quota-storage-error", Mock(), 0, log_dir=tmp_path)
-    stdout = open_private_output_file(tmp_path, "shell-jobs", "quota.stdout.live")
-    stderr = open_private_output_file(tmp_path, "shell-jobs", "quota.stderr.live")
-    job._stdout_spool = stdout
-    job._stderr_spool = stderr
-    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1)
-
-    def fail(*args) -> None:
-        raise OSError("simulated storage failure")
-
-    monkeypatch.setattr(os, operation, fail)
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 64)
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "quota.live")
+    job._stdout_spool = stream
     try:
-        job._spool_text(is_stdout, "over quota\n", final=False)
+        job._spool_text(True, "keep-me\n" + ("x" * 200) + "\n", final=False)
+        saved = stream.path.read_bytes()
+        assert b"keep-me" in saved
+        assert b"retained-stream quota exceeded" in saved
         assert job._capture_partial
-        assert job._stdout_spool is None
-        assert job._stderr_spool is None
-        for stream in (stdout, stderr):
-            assert stream._closed
-            with pytest.raises(OSError, match="Bad file descriptor"):
-                os.fstat(stream._fd)
+        assert "quota" in job._partial_reasons
+        assert len(saved) <= 64
+        assert job._stdout_discarded_bytes > 0
+        job._spool_text(True, "after-quota\n", final=False)
+        assert b"after-quota" not in stream.path.read_bytes()
     finally:
-        for stream in (stdout, stderr):
-            try:
-                stream.close()
-            except OSError:
-                pass
+        stream.close()
 
 
-def test_spool_max_bytes_constant_is_32_mib() -> None:
-    """Confirm the documented quota value so callers can rely on it."""
-    assert _SPOOL_MAX_BYTES == 32 * 1024 * 1024
+def test_receipt_published_after_direct_job_finalize(direct_job) -> None:
+    assert direct_job.receipt_path is not None
+    receipt = json.loads(direct_job.receipt_path.read_text())
+    assert receipt["job_id"] == direct_job.id
+    assert receipt["capture_state"] in {"complete", "partial"}
+    assert receipt["exit_code"] == 2
+    assert receipt["stderr"]["committed_bytes"] > 0
+    assert receipt["stderr"]["path"] == str(direct_job.stderr_log_path)
+    assert receipt["stdout"]["path"] == str(direct_job.log_path)
+    assert "ERROR-BEGIN" in Path(receipt["stderr"]["path"]).read_text()
+
+
+def test_byte_cursors_are_independent_of_ram_offsets(direct_job) -> None:
+    assert direct_job._stderr_buffer_start > 0
+    first_out, first_err = direct_job.get_output(incremental=True)
+    assert "ERROR-BEGIN" in first_err or "ERROR-END" in first_err
+    assert isinstance(first_out, str)
+    assert direct_job._stderr_byte_cursor == direct_job._stderr_committed_bytes
+    assert direct_job._stderr_byte_cursor != direct_job._stderr_read_offset
+    second_out, second_err = direct_job.get_output(incremental=True)
+    assert second_out == ""
+    assert second_err == ""
