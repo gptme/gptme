@@ -14,7 +14,6 @@ from unittest.mock import Mock
 import pytest
 
 from gptme.tools.shell_background import (
-    _SPOOL_MAX_BYTES,
     _SPOOL_PENDING_MAX,
     BackgroundJob,
     _write_job_log,
