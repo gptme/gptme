@@ -706,3 +706,13 @@ def test_streamed_live_spans_preserve_union(text, literals, expected):
     from gptme.util.redact import _redact_live_literals
 
     assert _redact_live_literals(text, literals) == (expected, text != expected)
+
+
+def test_live_secret_crossing_assignment_separator_is_redacted(monkeypatch):
+    value = "Zq8x7WmK2pL9vR4t="
+    monkeypatch.setenv("SERVICE_TOKEN", value)
+    text = f"TOKEN_{value}={OPAQUE}\n"
+    assert redact_secret_values_from_output(text) == (
+        "TOKEN_[REDACTED][REDACTED]\n",
+        1,
+    )
