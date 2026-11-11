@@ -1939,6 +1939,11 @@ def subagent_reply(agent_id: str, reply: str) -> None:
 
     # Isolation cleanup removes the child workspace. Re-create fresh isolation
     # from the original workspace instead of passing the deleted child path.
+    # For retained worktrees the auto-cleanup was skipped, so the old workspace
+    # still exists and would be orphaned when the registry entry is replaced.
+    # Explicitly GC it here before the reply creates a new workspace.
+    if sa.retain_worktree and sa.worktree_path and sa.worktree_path.exists():
+        _exec._cleanup_isolation_forced(sa)
     reply_workdir = sa.base_workdir if sa.isolated else sa.workdir
 
     # Re-spawn with the same parameters, augmented prompt.

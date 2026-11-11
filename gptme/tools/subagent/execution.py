@@ -1113,6 +1113,29 @@ def _cleanup_isolation_forced(subagent: "Subagent") -> str | None:
     is safe to delete (or passed force=True).  Returns the preserved branch
     name on smart cleanup, or ``None``.
     """
+    # For non-git temp dirs (repo_path is None), _cleanup_isolation preserves
+    # the directory even when retain_worktree=False.  Force-remove it here
+    # so that subagent_release and reply-respawn don't leak temp workspaces.
+    if (
+        subagent.worktree_path
+        and subagent.worktree_path.exists()
+        and subagent.repo_path is None
+    ):
+        import shutil
+
+        try:
+            shutil.rmtree(subagent.worktree_path)
+            logger.debug(
+                f"Subagent {subagent.agent_id!r}: force-removed temp dir "
+                f"{subagent.worktree_path}"
+            )
+        except OSError as exc:
+            logger.warning(
+                f"Subagent {subagent.agent_id!r}: failed to remove temp dir "
+                f"{subagent.worktree_path}: {exc}"
+            )
+        return None
+
     # Temporarily shadow retain_worktree by cloning with a modified copy.
     # Subagent is frozen, so we use object.__setattr__ on a fresh instance.
     import copy
