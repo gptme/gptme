@@ -546,3 +546,84 @@ def test_completion_notification_sees_finished_capture(monkeypatch, stream, secr
         assert process.stdout is not None and process.stderr is not None
         process.stdout.close()
         process.stderr.close()
+
+
+# --- Exact live environment values -------------------------------------------
+#
+# Shapes the name and vendor-prefix passes cannot see: no secret-like name
+# nearby and no vendor prefix. The one verbatim leak in a seven-day trajectory
+# census was exactly this — an unprefixed 64-character R2 secret printed under
+# a non-secret key. Only the process's own environment can identify it.
+LIVE_HEX = "9f" * 32
+LIVE_ALPHA = "qwertzuiopasdfghjklyxcvbnm" + "mnbvcxylkjhgfdsapoiuztrewq"
+
+
+@pytest.mark.parametrize("value", [LIVE_HEX, LIVE_ALPHA])
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{{'bucket': 'assets', 'r2': '{}'}}\n",
+        '{{"storage": {{"key": "{}"}}}}\n',
+        "    client = Client('{}')\n",
+        "E       AssertionError: assert '{}' == 'expected'\n",
+        "{}\n",
+    ],
+)
+def test_live_secret_env_value_is_redacted_in_any_shape(monkeypatch, template, value):
+    monkeypatch.setenv("CLOUDFLARE_R2_ACCESS_KEY_SECRET", value)
+    out, n = redact_secret_values_from_output(template.format(value))
+    assert n == 1
+    assert value not in out
+    assert out == template.format("[REDACTED]")
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        # URL-valued: 709 of 712 naive name-rule matches in the census were one.
+        ("EXAMPLE_API_KEY_URL", "https://api.example.com/v1/tokens/issue"),
+        ("CLAIM_TOKEN", "cascade:task:redact-live-env-literals-1234"),
+        ("GH_TOKEN_FILE", "/home/bob/.config/gh/token-store"),
+        ("SHORT_SECRET", "abc123def45"),
+        ("TOKEN_COUNT_LIMIT", "12345678901234567890"),
+        ("PASSWORD_PROMPT", "Enter the password for this account"),
+        ("PLAIN_SETTING", "zxcvbnmasdfghjklqwertyuiop"),
+    ],
+)
+def test_non_credential_env_values_are_kept(monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    line = f"config loaded: {value}\n"
+    assert redact_secret_values_from_output(line) == (line, 0)
+
+
+def test_live_value_next_to_embedded_credential_counts_once(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_R2_ACCESS_KEY_SECRET", LIVE_ALPHA)
+    line = f"{{'GITHUB_TOKEN': '{GH_TOKEN}', 'r2': '{LIVE_ALPHA}'}}\n"
+    out, n = redact_secret_values_from_output(line)
+    assert n == 1
+    assert GH_TOKEN not in out and LIVE_ALPHA not in out
+    assert out == "{'GITHUB_TOKEN': '[REDACTED]', 'r2': '[REDACTED]'}\n"
+
+
+def test_live_values_are_applied_longest_first(monkeypatch):
+    """A value that is a prefix of another must not survive as a remainder."""
+    monkeypatch.setenv("SHORT_API_KEY", LIVE_ALPHA[:16])
+    monkeypatch.setenv("LONG_API_KEY", LIVE_ALPHA)
+    out, n = redact_secret_values_from_output(f"seen: {LIVE_ALPHA}\n")
+    assert (out, n) == ("seen: [REDACTED]\n", 1)
+    assert LIVE_ALPHA[16:] not in out
+
+
+def test_live_secret_literals_selection_rules():
+    from gptme.util.redact import _live_secret_literals
+
+    env = {
+        "HOME": "/home/bob",
+        "GITHUB_TOKEN": GH_TOKEN,
+        "DB_PASSWORD": LIVE_ALPHA[:16],
+        "DB_PASSWORD_DUPLICATE": LIVE_ALPHA[:16],
+        "API_KEY_ENDPOINT": "https://example.com/key",
+        "RELEASE_NOTES_TOKEN": "   ",
+    }
+    assert _live_secret_literals(env) == [GH_TOKEN, LIVE_ALPHA[:16]]
+    assert _live_secret_literals({}) == []

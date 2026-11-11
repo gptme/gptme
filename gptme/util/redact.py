@@ -14,10 +14,13 @@ general-purpose secret scanner.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from ..message import Message
 
 # Pattern for YAML/TOML colon-style assignments (key: value)
@@ -322,6 +325,56 @@ def _redact_embedded_secrets(line: str) -> tuple[str, bool]:
     return line, changed
 
 
+# Values of secret-named environment variables are redacted wherever they
+# appear. Shape rules cannot see an unprefixed opaque value printed without its
+# name (the one verbatim leak in a seven-day trajectory census was a
+# 64-character R2 secret inside a dict repr under a non-secret key); the process
+# environment is the one place the harness already holds those exact values.
+# The set is rebuilt per call: ``os.environ`` gains entries after import
+# (dotenv loading) and scanning it costs microseconds next to the output scan.
+_LIVE_SECRET_MIN_LEN = 16
+
+
+def _is_live_secret_candidate(value: str) -> bool:
+    """Credential-literal shaped: long and opaque, not a URL, key, path or number.
+
+    ``:`` excludes URLs (``https://``) and namespaced identifiers
+    (``cascade:task:x``), which dominate the false matches of a name-only rule.
+    """
+    return (
+        len(value) >= _LIVE_SECRET_MIN_LEN
+        and ":" not in value
+        and not value.startswith(("/", "~", "."))
+        and not any(c.isspace() for c in value)
+        and not value.isdigit()
+    )
+
+
+def _live_secret_literals(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Secret-named environment values worth redacting, longest first.
+
+    Longest first so a value that is a prefix of another is replaced whole
+    instead of leaving the remainder of the longer one behind.
+    """
+    env = os.environ if environ is None else environ
+    literals = {
+        value
+        for name, value in env.items()
+        if _EMBEDDED_SECRET_NAME_RE.search(name) and _is_live_secret_candidate(value)
+    }
+    return sorted(literals, key=lambda v: (-len(v), v))
+
+
+def _redact_live_literals(line: str, literals: list[str]) -> tuple[str, bool]:
+    """Replace every occurrence of a live secret value, longest first."""
+    changed = False
+    for literal in literals:
+        if literal in line:
+            line = line.replace(literal, _REDACTED)
+            changed = True
+    return line, changed
+
+
 def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     """Redact secret-shaped values on secret-named lines of command output.
 
@@ -330,10 +383,18 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     ``API_KEY = os.environ["X"]`` must stay intact for later edits. A line is
     redacted only when its name marks a secret *and* its value has the shape of
     a credential literal (including JWTs and opaque URL-safe tokens), which is what an
-    accidental ``env`` or ``cat .env`` dump prints.
+    accidental ``env`` or ``cat .env`` dump prints. Exact values of the
+    process's own secret-named environment variables are redacted in any
+    shape, since no name or prefix rule can recognise an unprefixed value
+    printed under an unrelated key.
 
     Returns the redacted text and the number of lines changed.
     """
+    literals = _live_secret_literals()
+    # One substring scan over the whole output decides whether the per-line
+    # pass runs at all; most outputs contain no live value.
+    if not any(literal in content for literal in literals):
+        literals = []
     redacted = 0
     out: list[str] = []
     for line in content.splitlines(keepends=True):
@@ -348,15 +409,14 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
             else ""
         )
         if match and _looks_like_output_secret(value):
-            out.append(_redact_line(body) + ending)
-            redacted += 1
-            continue
-        embedded, changed = _redact_embedded_secrets(body)
-        if changed:
-            out.append(embedded + ending)
-            redacted += 1
+            body, changed = _redact_line(body), True
         else:
-            out.append(line)
+            body, changed = _redact_embedded_secrets(body)
+        if literals:
+            body, live_changed = _redact_live_literals(body, literals)
+            changed = changed or live_changed
+        out.append(body + ending)
+        redacted += changed
     return "".join(out), redacted
 
 
