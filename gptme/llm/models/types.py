@@ -263,25 +263,31 @@ class ProviderPlugin:
 
         provider = ProviderPlugin(
             name="minimax",
-            base_url="https://api.minimax.chat/v1",
+            base_url="https://api.minimax.io/v1",
             api_key_env="MINIMAX_API_KEY",
             models=[
                 ModelMeta(
                     provider="unknown",
+                    model="minimax/MiniMax-M3.1-Flash",
+                    context=1_000_000,
+                    max_output=524_288,
+                    price_input=0.15,
+                    price_output=0.6,
+                    price_cache_read=0.015,
+                    supports_vision=True,
+                    supports_reasoning=True,
+                    default_tool_format="tool",
+                ),
+                ModelMeta(
+                    provider="unknown",
                     model="minimax/MiniMax-M3",
                     context=1_000_000,
+                    # Upper standard tier (>512k input tokens); shorter prompts cost less.
                     price_input=0.6,
                     price_output=2.4,
                     supports_vision=True,
                     supports_reasoning=True,
-                ),
-                ModelMeta(
-                    provider="unknown",
-                    model="minimax/MiniMax-M2.7",
-                    context=204_800,
-                    price_input=0.3,
-                    price_output=1.2,
-                    supports_reasoning=True,
+                    default_tool_format="tool",
                 ),
             ],
         )
@@ -311,7 +317,7 @@ class ProviderPlugin:
        base_url)`` keep working."""
 
     base_url: str = ""
-    """Base URL for the OpenAI-compatible API endpoint, e.g. ``"https://api.minimax.chat/v1"``."""
+    """Base URL for the OpenAI-compatible API endpoint, e.g. ``"https://api.minimax.io/v1"``."""
     """Name of the environment variable that holds the API key, e.g. ``"MINIMAX_API_KEY"``.
 
     Set to ``None`` for providers that do not use an API key (e.g. those using
