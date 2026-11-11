@@ -15108,8 +15108,10 @@ For example, a project's ``gptme.toml`` can enable its own server:
 
 Servers from all configuration layers are combined. For servers with the same
 name, conversation settings take precedence over project settings, which take
-precedence over global settings. The ``enabled`` and ``auto_start`` settings
-follow the same precedence.
+precedence over global settings. The winning entry replaces the others whole:
+fields from a lower layer's entry are not merged into it. ``gptme-util mcp info``
+prints which layer supplied a server (``Source:``) and which layers it
+overrides. The ``enabled`` and ``auto_start`` settings follow the same precedence.
 
 Run ``gptme-util mcp list``, ``gptme-util mcp test project-server``, or
 ``gptme-util mcp info project-server`` from the workspace directory to inspect

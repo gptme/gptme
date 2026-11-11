@@ -698,8 +698,10 @@ For example, a project’s <code class="docutils literal notranslate"><span clas
 </div>
 <p>Servers from all configuration layers are combined. For servers with the same
 name, conversation settings take precedence over project settings, which take
-precedence over global settings. The <code class="docutils literal notranslate"><span class="pre">enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">auto_start</span></code> settings
-follow the same precedence.</p>
+precedence over global settings. The winning entry replaces the others whole:
+fields from a lower layer’s entry are not merged into it. <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">info</span></code>
+prints which layer supplied a server (<code class="docutils literal notranslate"><span class="pre">Source:</span></code>) and which layers it
+overrides. The <code class="docutils literal notranslate"><span class="pre">enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">auto_start</span></code> settings follow the same precedence.</p>
 <p>Run <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">list</span></code>, <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">test</span> <span class="pre">project-server</span></code>, or
 <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">mcp</span> <span class="pre">info</span> <span class="pre">project-server</span></code> from the workspace directory to inspect
 and test the merged global and project configuration. Before connecting to a
