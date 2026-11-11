@@ -416,16 +416,35 @@ def _get_memory_limit() -> int | None:
 def _get_max_output_bytes() -> int:
     """Read the output byte cap in bytes (default 32 MiB).
 
-    Knob is ``GPTME_SHELL_MAX_OUTPUT_BYTES`` (env) or
-    ``[env] SHELL_MAX_OUTPUT_BYTES`` (config.toml). Accepts a plain byte count
-    or a binary-suffixed size (e.g. ``"32M"``). Unparseable or non-positive
-    values fall back to the 32 MiB default so a misconfiguration never disables
-    the cap entirely.
+    Precedence (highest first):
+    1. ``GPTME_SHELL_MAX_OUTPUT_BYTES`` env var or ``[env] SHELL_MAX_OUTPUT_BYTES`` in config.toml
+    2. ``[shell] spool_quota_mb`` in the project's gptme.toml
+    3. Built-in default (32 MiB)
+
+    ``GPTME_SHELL_MAX_OUTPUT_BYTES`` accepts a plain byte count or a binary-suffixed
+    size (e.g. ``"32M"``); ``spool_quota_mb`` is always in MiB (integer).
+    Unparseable or non-positive environment values fall back to the 32 MiB default;
+    an invalid project quota (non-integer or non-positive) also falls back to it.
     """
     from ..config import get_config  # deferred: avoid import cycle
 
-    raw = get_config().get_env("SHELL_MAX_OUTPUT_BYTES")
+    cfg = get_config()
+    raw = cfg.get_env("SHELL_MAX_OUTPUT_BYTES")
     if not raw:
+        # Read [shell] spool_quota_mb from project config (default 32 when unset)
+        quota_mb = cfg.project.shell.spool_quota_mb if cfg.project is not None else None
+        if (
+            isinstance(quota_mb, int)
+            and not isinstance(quota_mb, bool)
+            and quota_mb > 0
+        ):
+            return quota_mb * 1024 * 1024
+        if quota_mb is not None:
+            logger.warning(
+                "Ignoring invalid [shell] spool_quota_mb=%r (expected a positive integer); "
+                "using default 32 MiB",
+                quota_mb,
+            )
         return _DEFAULT_MAX_OUTPUT_BYTES
     try:
         limit = _parse_size(str(raw))

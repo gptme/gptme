@@ -370,6 +370,20 @@ class LessonsConfig:
 
 
 @dataclass
+class ShellConfig:
+    """Configuration for the shell tool."""
+
+    spool_quota_mb: int = 32
+    """Per-job output byte cap in MiB (default 32).
+
+    Raise this in workspaces that run verbose commands such as ``cargo build``
+    or large test suites.  The env var ``GPTME_SHELL_MAX_OUTPUT_BYTES`` and the
+    ``[env] SHELL_MAX_OUTPUT_BYTES`` key still take precedence, so existing
+    overrides continue to work unchanged.
+    """
+
+
+@dataclass
 class SubagentConfig:
     """Configuration for subagent execution."""
 
@@ -426,6 +440,8 @@ class ProjectConfig:
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
     subagent: SubagentConfig = field(default_factory=SubagentConfig)
+
+    shell: ShellConfig = field(default_factory=ShellConfig)
 
     settings: SettingsConfig = field(default_factory=SettingsConfig)
 
@@ -546,6 +562,10 @@ class ProjectConfig:
             "subagent", SubagentConfig, _pop_object_section(config_data, "subagent")
         )
 
+        shell = _build_section(
+            "shell", ShellConfig, _pop_object_section(config_data, "shell")
+        )
+
         settings_data = _pop_object_section(config_data, "settings")
         # `gear` was removed; discard it from older project configs.
         settings_data.pop("gear", None)
@@ -575,6 +595,7 @@ class ProjectConfig:
             env=env,
             mcp=mcp,
             subagent=subagent,
+            shell=shell,
             settings=settings,
         )
 
