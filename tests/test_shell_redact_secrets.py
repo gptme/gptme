@@ -659,3 +659,50 @@ def test_live_secret_literals_selection_rules():
     }
     assert _live_secret_literals(env) == [GH_TOKEN, LIVE_ALPHA[:16]]
     assert _live_secret_literals({}) == []
+
+
+def test_dense_overlapping_live_matches_use_bounded_memory():
+    """A repetitive live value must not allocate one span tuple per character."""
+    import subprocess
+    import sys
+    import textwrap
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent("""\
+                import os
+                import tracemalloc
+                from gptme.util.redact import redact_secret_values_from_output
+
+                os.environ.clear()
+                os.environ["SERVICE_TOKEN"] = "x" * 16
+                text = "seen: " + "x" * (256 * 1024) + " done\\n"
+                tracemalloc.start()
+                result = redact_secret_values_from_output(text)
+                _, peak = tracemalloc.get_traced_memory()
+                tracemalloc.stop()
+                assert result == ("seen: [REDACTED] done\\n", 1), result
+                assert peak < 4 * 1024 * 1024, peak
+                """),
+        ],
+        check=True,
+        timeout=30,
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "literals", "expected"),
+    [
+        ("abcde", ["abc", "cde"], "[REDACTED]"),
+        ("abcabc", ["abc"], "[REDACTED][REDACTED]"),
+        ("abc!cde", ["cde", "abc"], "[REDACTED]![REDACTED]"),
+        ("abcde", ["abcde", "bcd"], "[REDACTED]"),
+        ("ordinary output", ["missing"], "ordinary output"),
+    ],
+)
+def test_streamed_live_spans_preserve_union(text, literals, expected):
+    from gptme.util.redact import _redact_live_literals
+
+    assert _redact_live_literals(text, literals) == (expected, text != expected)

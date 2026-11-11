@@ -14,12 +14,13 @@ general-purpose secret scanner.
 
 from __future__ import annotations
 
+import heapq
 import os
 import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
 
     from ..message import Message
 
@@ -367,40 +368,47 @@ def _live_secret_literals(environ: Mapping[str, str] | None = None) -> list[str]
 
 def _redact_live_literals(line: str, literals: list[str]) -> tuple[str, bool]:
     """Redact the union of live-value and overlapping credential-shape spans."""
-    spans: list[tuple[int, int]] = []
-    for literal in literals:
+    if not any(literal in line for literal in literals):
+        return line, False
+
+    def literal_spans(literal: str) -> Iterator[tuple[int, int]]:
         start = line.find(literal)
         while start >= 0:
-            spans.append((start, start + len(literal)))
+            yield start, start + len(literal)
             start = line.find(literal, start + 1)
-    if not spans:
-        return line, False
 
     # Discover shape matches on the original text too. Either pass can match
     # only part of the other's credential; replacing either first would hide
     # the evidence needed to remove the rest. Merge their original spans.
-    spans.extend(
+    vendor_spans = (
         (match.start() + len(match.group("jwt_diff") or ""), match.end())
         for match in _EMBEDDED_VENDOR_LITERAL_RE.finditer(line)
     )
-    spans.extend(
+    pair_spans = (
         match.span("val")
         for match in _EMBEDDED_PAIR_RE.finditer(line)
         if _EMBEDDED_SECRET_NAME_RE.search(match.group("key"))
         and _is_credential_literal(match.group("val"))
     )
-    merged: list[tuple[int, int]] = []
-    for start, end in sorted(spans):
-        if merged and start < merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
+    # Each source is ordered by start. Keep only one pending span per source
+    # and merge overlaps immediately: dense matches must not allocate one
+    # tuple per character of captured output before display trimming.
+    spans = iter(
+        heapq.merge(
+            *(literal_spans(literal) for literal in literals), vendor_spans, pair_spans
+        )
+    )
+    merged_start, merged_end = next(spans)
     parts: list[str] = []
     previous = 0
-    for start, end in merged:
-        parts.extend((line[previous:start], _REDACTED))
-        previous = end
-    parts.append(line[previous:])
+    for start, end in spans:
+        if start < merged_end:
+            merged_end = max(merged_end, end)
+        else:
+            parts.extend((line[previous:merged_start], _REDACTED))
+            previous = merged_end
+            merged_start, merged_end = start, end
+    parts.extend((line[previous:merged_start], _REDACTED, line[merged_end:]))
     return "".join(parts), True
 
 
