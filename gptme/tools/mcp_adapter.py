@@ -631,6 +631,15 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # network round-trip on a local command.
     if config_override and not isinstance(config_override, dict):
         return f"Failed to load server '{name}': config override must be a JSON object, got {type(config_override).__name__}"
+    if config_override:
+        for _field, _etype, _tname in [
+            ("args", list, "a list"),
+            ("env", dict, "a dict"),
+            ("headers", dict, "a dict"),
+        ]:
+            _val = config_override.get(_field)
+            if _val is not None and not isinstance(_val, _etype):
+                return f"Failed to load server '{name}': '{_field}' override must be {_tname}, got {type(_val).__name__}"
 
     if not server_config and config_override:
         has_command = bool(config_override.get("command"))
@@ -664,8 +673,17 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             url=server_info.url,
         )
 
-    # Apply config overrides
+    # Apply config overrides. Save originals first so a failed connection can
+    # restore the merged-copy entry to its pre-load state.
+    was_server_config_fields: dict[str, object] | None = None
     if config_override:
+        was_server_config_fields = {
+            "command": server_config.command,
+            "args": list(server_config.args),
+            "url": server_config.url,
+            "env": dict(server_config.env),
+            "headers": dict(server_config.headers),
+        }
         if "command" in config_override:
             server_config.command = config_override["command"]
         if "args" in config_override:
@@ -764,11 +782,15 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
             layer.servers = [s for s in layer.servers if s.name != server_config.name]
-        elif was_owned_enabled is not None:
-            assert owned is not None
-            owned.enabled = was_owned_enabled
         else:
-            server_config.enabled = was_enabled
+            if was_owned_enabled is not None:
+                assert owned is not None
+                owned.enabled = was_owned_enabled
+            else:
+                server_config.enabled = was_enabled
+            if was_server_config_fields is not None:
+                for _f, _v in was_server_config_fields.items():
+                    setattr(server_config, _f, _v)
         layer.enabled = was_layer_enabled
         effective_layer.enabled = was_effective_enabled
         if previous_user_mcp is None:
