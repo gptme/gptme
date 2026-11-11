@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..mcp.client import MCPClient
     from ..mcp.registry import MCPRegistry
 
-from gptme.config import Config, MCPServerConfig, get_config, set_config
+from gptme.config import Config, MCPConfig, MCPServerConfig, get_config, set_config
 
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
@@ -572,6 +572,32 @@ def get_mcp_server_info(name: str) -> str:
     return format_server_details(server)
 
 
+def _mcp_layer_for_server(
+    config: Config, name: str
+) -> tuple[MCPConfig, MCPServerConfig | None]:
+    """Return the writable MCP layer that owns ``name``, plus that entry.
+
+    Layers are scanned in merge order (chat, project, user). If none owns the
+    name, user.mcp is created as needed and returned with ``owned=None`` so the
+    caller can append a new session-local server there.
+    """
+    layers: list[MCPConfig | None] = []
+    if config.chat is not None:
+        layers.append(config.chat.mcp)
+    if config.project is not None:
+        layers.append(config.project.mcp)
+    layers.append(config.user.mcp)
+    for layer in layers:
+        if layer is None:
+            continue
+        owned = next((s for s in layer.servers if s.name == name), None)
+        if owned is not None:
+            return layer, owned
+    if config.user.mcp is None:
+        config.user.mcp = MCPConfig(enabled=True, servers=[])
+    return config.user.mcp, None
+
+
 def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     """
     Dynamically load an MCP server during the session.
@@ -598,7 +624,41 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # Check if server is in config
     server_config = next((s for s in config.mcp.servers if s.name == name), None)
 
-    # If not in config, try to find in registry
+    # A fully-specified override (command or url) is enough to invent a
+    # session-local server. Do that before a registry lookup so the documented
+    # ``load my-server\n{"command": "uvx", "args": [...]}`` path works for a
+    # name that is in neither config nor a registry, and so we do not spend a
+    # network round-trip on a local command.
+    if config_override and not isinstance(config_override, dict):
+        return f"Failed to load server '{name}': config override must be a JSON object, got {type(config_override).__name__}"
+    if config_override:
+        for _field, _etype, _tname in [
+            ("args", list, "a list"),
+            ("env", dict, "a dict"),
+            ("headers", dict, "a dict"),
+        ]:
+            _val = config_override.get(_field)
+            if _val is not None and not isinstance(_val, _etype):
+                return f"Failed to load server '{name}': '{_field}' override must be {_tname}, got {type(_val).__name__}"
+
+    if not server_config and config_override:
+        has_command = bool(config_override.get("command"))
+        has_url = bool(config_override.get("url"))
+        if has_command or has_url:
+            try:
+                server_config = MCPServerConfig(
+                    name=name,
+                    enabled=True,
+                    command=str(config_override.get("command") or ""),
+                    args=list(config_override.get("args") or []),
+                    url=str(config_override.get("url") or ""),
+                    env=dict(config_override.get("env") or {}),
+                    headers=dict(config_override.get("headers") or {}),
+                )
+            except (TypeError, ValueError) as e:
+                return f"Failed to load server '{name}': invalid config override: {e}"
+
+    # If not in config and not fully specified by override, try the registry
     if not server_config:
         server_info = _get_registry().get_server_details(name)
         if not server_info:
@@ -613,8 +673,17 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             url=server_info.url,
         )
 
-    # Apply config overrides
+    # Apply config overrides. Save originals first so a failed connection can
+    # restore the merged-copy entry to its pre-load state.
+    was_server_config_fields: dict[str, object] | None = None
     if config_override:
+        was_server_config_fields = {
+            "command": server_config.command,
+            "args": list(server_config.args),
+            "url": server_config.url,
+            "env": dict(server_config.env or {}),
+            "headers": dict(server_config.headers or {}),
+        }
         if "command" in config_override:
             server_config.command = config_override["command"]
         if "args" in config_override:
@@ -623,19 +692,63 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             server_config.url = config_override["url"]
         if "env" in config_override:
             server_config.env = config_override["env"]
+        if "headers" in config_override:
+            server_config.headers = config_override["headers"]
 
-    # Add to config BEFORE connecting (connect() looks up server by name in config).
-    # A server that was previously unloaded is still in config with
-    # enabled=False; re-enable it so config reflects the loaded state.
+    # Persist onto a writable layer. Config.mcp is a merged copy, so appending
+    # there is a no-op and connect() would later raise "No MCP server config
+    # found". Prefer the layer that already owns this name (so a disabled user
+    # server is re-enabled in place even when chat.mcp exists empty); otherwise
+    # write a new entry onto user.mcp.
     config_added = False
     was_enabled = server_config.enabled
-    if server_config not in config.mcp.servers:
-        config.mcp.servers.append(server_config)
-        set_config(config)
+    was_owned_enabled: bool | None = None
+    previous_user_mcp = config.user.mcp
+    layer, owned = _mcp_layer_for_server(config, server_config.name)
+    was_layer_enabled = layer.enabled
+    # When the server already exists in a layer, the override must also land on
+    # `owned` (the actual layer entry that connect() reads), not just on the
+    # merged `server_config` copy.  Config.mcp builds its servers list by
+    # appending the same objects from each layer, so server_config IS owned for
+    # user-layer servers; for a chat/project-layer server they may differ.
+    # Either way, applying the override to owned is correct (and idempotent when
+    # they are the same object).
+    #
+    # Save owned's original fields before mutating it. When owned is a distinct
+    # object from server_config (registry-lookup or chat/project-layer case),
+    # was_server_config_fields holds registry/merged-copy values, not the user's
+    # settings — using it for rollback would corrupt owned's command/args/URL.
+    was_owned_fields: dict[str, object] | None = None
+    if owned is not None and owned is not server_config and config_override:
+        was_owned_fields = {
+            "command": owned.command,
+            "args": list(owned.args),
+            "url": owned.url,
+            "env": dict(owned.env or {}),
+            "headers": dict(owned.headers or {}),
+        }
+    if owned is not None and config_override:
+        for _f in ("command", "args", "url", "env", "headers"):
+            if _f in config_override:
+                setattr(owned, _f, config_override[_f])
+    # The owning layer supplies the server entry, but the highest MCP layer
+    # controls the effective enabled flag checked by MCPClient.connect().
+    effective_layer = (
+        (config.chat.mcp if config.chat is not None else None)
+        or (config.project.mcp if config.project is not None else None)
+        or config.user.mcp
+    )
+    assert effective_layer is not None
+    was_effective_enabled = effective_layer.enabled
+    effective_layer.enabled = True
+    if owned is None:
+        layer.servers.append(server_config)
+        layer.enabled = True
         config_added = True
-    elif not server_config.enabled:
-        server_config.enabled = True
-        set_config(config)
+    elif not owned.enabled:
+        was_owned_enabled = False
+        owned.enabled = True
+    set_config(config)
 
     client: MCPClient | None = None
     try:
@@ -693,11 +806,34 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
                 logger.debug("Failed to close client for '%s' during rollback", name)
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
-            config.mcp.servers = [s for s in config.mcp.servers if s.name != name]
-            set_config(config)
-        elif server_config.enabled != was_enabled:
-            server_config.enabled = was_enabled
-            set_config(config)
+            layer.servers = [s for s in layer.servers if s.name != server_config.name]
+        else:
+            if was_owned_enabled is not None:
+                assert owned is not None
+                owned.enabled = was_owned_enabled
+            else:
+                server_config.enabled = was_enabled
+            if was_server_config_fields is not None:
+                for _f, _v in was_server_config_fields.items():
+                    setattr(server_config, _f, _v)
+                # Restore owned too. Use owned's own snapshot when available
+                # (registry-lookup / chat-layer case where owned is a distinct
+                # object with different user-configured values). Fall back to
+                # server_config's snapshot only when they are the same object
+                # (user-layer server: server_config IS owned, no separate entry).
+                if owned is not None:
+                    _owned_restore = (
+                        was_owned_fields
+                        if was_owned_fields is not None
+                        else was_server_config_fields
+                    )
+                    for _f, _v in _owned_restore.items():
+                        setattr(owned, _f, _v)
+        layer.enabled = was_layer_enabled
+        effective_layer.enabled = was_effective_enabled
+        if previous_user_mcp is None:
+            config.user.mcp = None
+        set_config(config)
         logger.error(f"Failed to load server '{name}': {e}")
         return f"Failed to load server '{name}': {e}"
 

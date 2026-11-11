@@ -524,6 +524,338 @@ def test_load_mcp_server_registers_toolspecs(mock_config, mock_mcp_client):
         _set_available_tools_cache(None)  # restore cold cache for other tests
 
 
+def test_load_mcp_server_from_config_override_without_prior_entry(
+    mock_mcp_client,
+):
+    """A documented /mcp load override must work for a name that is not in config.
+
+    Regression for the dogfood 63a8 probe: load_mcp_server() looked the name
+    up in config, then the registry, and returned "not found" before applying
+    a fully-specified config_override. The advertised example
+    ``load my-server\\n{"command": "uvx", "args": [...]}`` never connected.
+    """
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    empty = Config()
+    empty.user.mcp = MCPConfig(enabled=True, servers=[])
+    mock_registry = MagicMock()
+    mock_registry.get_server_details.return_value = None
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=empty),
+            patch("gptme.tools.mcp_adapter.set_config") as set_cfg,
+            patch("gptme.tools.mcp_adapter._get_registry", return_value=mock_registry),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server(
+                "my-server",
+                {"command": "uvx", "args": ["my-mcp-server", "--option"]},
+            )
+
+        assert "Successfully loaded" in result, result
+        assert "my-server" in result
+        mock_registry.get_server_details.assert_not_called()
+        mock_mcp_client.connect.assert_called_once_with("my-server")
+        names = [s.name for s in empty.user.mcp.servers]
+        assert names == ["my-server"]
+        stored = empty.user.mcp.servers[0]
+        assert stored.command == "uvx"
+        assert stored.args == ["my-mcp-server", "--option"]
+        set_cfg.assert_called()
+        assert tools_mod.get_tool("my-server.test_tool") is not None
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+@pytest.mark.parametrize("override", [{"args": 42}, {"env": "FOO=1"}])
+def test_invalid_override_returns_failure_without_config_changes(
+    override: dict,
+) -> None:
+    cfg = Config()
+    cfg.user.mcp = None
+    with patch("gptme.tools.mcp_adapter.get_config", return_value=cfg):
+        result = load_mcp_server("my-server", {"command": "fixture", **override})
+    assert "Failed to load server 'my-server'" in result
+    assert cfg.user.mcp is None
+    assert "my-server" not in _dynamic_servers
+
+
+def test_load_mcp_server_override_without_command_or_url_still_needs_a_source():
+    """An env-only override is not enough to invent a server that is nowhere."""
+    empty = Config()
+    empty.user.mcp = MCPConfig(enabled=True, servers=[])
+    mock_registry = MagicMock()
+    mock_registry.get_server_details.return_value = None
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=empty),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=mock_registry),
+    ):
+        result = load_mcp_server("ghost-server", {"env": {"FOO": "1"}})
+    assert "not found in config or registries" in result
+    assert empty.user.mcp.servers == []
+
+
+def test_failed_override_load_restores_layer_enabled_flag(mock_mcp_client):
+    """A failed new-server load must not leave a previously-disabled layer enabled."""
+    empty = Config()
+    empty.user.mcp = MCPConfig(enabled=False, servers=[])
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    mock_registry = MagicMock()
+    mock_registry.get_server_details.return_value = None
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=empty),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=mock_registry),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server(
+            "my-server",
+            {"command": "uvx", "args": ["my-mcp-server"]},
+        )
+    assert "Failed to load" in result
+    assert empty.user.mcp.servers == []
+    assert empty.user.mcp.enabled is False
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_failed_registry_alias_load_removes_canonical_entry(
+    mock_mcp_client: MagicMock, enabled: bool
+) -> None:
+    """Rollback removes the entry added from registry metadata, not the query alias."""
+    cfg = Config()
+    existing = MCPServerConfig(name="existing", command="fixture")
+    cfg.user.mcp = MCPConfig(enabled=enabled, servers=[existing])
+    registry = MagicMock()
+    registry.get_server_details.return_value = MCPServerInfo(
+        name="canonical", description="Registry server", command="fixture"
+    )
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=registry),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("alias")
+
+    assert "connection failed" in result
+    registry.get_server_details.assert_called_once_with("alias")
+    assert cfg.user.mcp.servers == [existing]
+    assert cfg.user.mcp.enabled is enabled
+    assert "alias" not in _dynamic_servers
+    assert "canonical" not in _dynamic_servers
+    mock_mcp_client.close.assert_called_once()
+
+
+def test_failed_registry_alias_load_does_not_corrupt_user_server_fields(
+    mock_mcp_client: MagicMock,
+) -> None:
+    """Failed load via registry alias must not overwrite user-configured server fields.
+
+    When the registry maps "alias" -> canonical="my-server" and the user already
+    has a "my-server" entry with their own command, a failed env-only override load
+    via the alias must restore owned to the user's original fields, not the registry
+    defaults that server_config was built from.
+    """
+    cfg = Config()
+    user_server = MCPServerConfig(
+        name="my-server", command="user-cmd", args=["--user-arg"], enabled=False
+    )
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[user_server])
+    registry = MagicMock()
+    registry.get_server_details.return_value = MCPServerInfo(
+        name="my-server", description="Registry version", command="registry-cmd"
+    )
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=registry),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("alias", {"env": {"KEY": "val"}})
+
+    assert "connection failed" in result
+    # User's command and args must survive the failed load — not replaced by registry defaults
+    assert user_server.command == "user-cmd", (
+        f"user command was overwritten: {user_server.command!r}"
+    )
+    assert user_server.args == ["--user-arg"], (
+        f"user args were overwritten: {user_server.args!r}"
+    )
+    assert user_server.enabled is False
+    assert cfg.user.mcp.enabled is True
+    assert cfg.user.mcp.servers == [user_server]
+    mock_mcp_client.close.assert_called_once()
+
+
+@pytest.mark.parametrize("higher_layer", ["chat", "project"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_override_load_enables_effective_layer_and_rolls_back(
+    mock_mcp_client: MagicMock, higher_layer: str, fails: bool
+) -> None:
+    from gptme import tools as tools_mod
+    from gptme.config.chat import ChatConfig
+    from gptme.config.models import ProjectConfig
+    from gptme.tools import _set_available_tools_cache
+
+    cfg = Config()
+    cfg.user.mcp = MCPConfig(enabled=False, servers=[])
+    owner = ChatConfig() if higher_layer == "chat" else ProjectConfig()
+    owner.mcp = MCPConfig(enabled=False, servers=[])
+    setattr(cfg, higher_layer, owner)
+    connected = mock_mcp_client.connect.return_value
+
+    def connect(name: str) -> tuple:
+        assert cfg.mcp.enabled, "effective MCP layer still disabled"
+        assert name in [s.name for s in cfg.mcp.servers]
+        if fails:
+            raise RuntimeError("connection failed")
+        return connected
+
+    mock_mcp_client.connect.side_effect = connect
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+            patch("gptme.tools.mcp_adapter.set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("my-server", {"command": "fixture"})
+        if fails:
+            assert "connection failed" in result, result
+            assert owner.mcp.enabled is False
+            assert cfg.user.mcp.enabled is False
+            assert cfg.user.mcp.servers == []
+        else:
+            assert "Successfully loaded" in result, result
+            assert cfg.mcp.enabled is True
+        assert owner.mcp.servers == []
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_failed_override_load_restores_absent_user_layer(
+    mock_mcp_client: MagicMock,
+) -> None:
+    cfg = Config()
+    cfg.user.mcp = None
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("my-server", {"command": "fixture"})
+    assert "connection failed" in result
+    assert cfg.user.mcp is None
+    assert cfg.mcp.enabled is False
+
+
+def test_load_mcp_server_reenables_disabled_user_server_when_chat_mcp_exists(
+    mock_mcp_client,
+):
+    """A disabled user-layer server must be re-enabled in place, not copied into chat.mcp."""
+    from gptme import tools as tools_mod
+    from gptme.config.chat import ChatConfig
+    from gptme.tools import _set_available_tools_cache
+
+    cfg = Config()
+    server = MCPServerConfig(name="test-server", enabled=False, command="test-command")
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[server])
+    cfg.chat = ChatConfig()
+    cfg.chat.mcp = MCPConfig(enabled=True, servers=[])
+    _set_available_tools_cache([])
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+            patch("gptme.tools.mcp_adapter.set_config") as set_cfg,
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server("test-server")
+        assert "Successfully loaded" in result
+        assert server.enabled is True
+        assert [s.name for s in cfg.user.mcp.servers] == ["test-server"]
+        assert cfg.chat.mcp.servers == []
+        set_cfg.assert_called()
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_config_override_lands_on_existing_servers_owned_layer_entry(mock_mcp_client):
+    """P1 regression: override fields must reach the layer entry that connect() reads.
+
+    Config.mcp.servers is a merged copy; _mcp_layer_for_server returns `owned`,
+    the actual entry in the owning layer.  Before the fix, overrides only applied
+    to the merged copy, so connect() saw the original command and the override was
+    silently dropped.
+    """
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    cfg = Config()
+    server = MCPServerConfig(
+        name="my-server", enabled=True, command="old-command", args=[]
+    )
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[server])
+    _set_available_tools_cache([])
+
+    def connect(name: str):
+        # Verify that the layer entry has the overridden command when connect() fires.
+        assert cfg.user.mcp is not None
+        owned = next(s for s in cfg.user.mcp.servers if s.name == name)
+        assert owned.command == "new-command", (
+            f"expected new-command, got {owned.command!r}"
+        )
+        assert owned.args == ["--new-arg"]
+        return mock_mcp_client.connect.return_value
+
+    mock_mcp_client.connect.side_effect = connect
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+            patch("gptme.tools.mcp_adapter.set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server(
+                "my-server", {"command": "new-command", "args": ["--new-arg"]}
+            )
+        assert "Successfully loaded" in result, result
+        # Layer entry must retain the overridden values after success.
+        assert server.command == "new-command"
+        assert server.args == ["--new-arg"]
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_failed_override_on_existing_server_restores_owned_layer_entry(mock_mcp_client):
+    """Rollback must restore the owned layer entry's fields, not just the merged copy."""
+    cfg = Config()
+    server = MCPServerConfig(
+        name="my-server", enabled=True, command="old-command", args=[]
+    )
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[server])
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server(
+            "my-server", {"command": "new-command", "args": ["--new-arg"]}
+        )
+    assert "connection failed" in result
+    # Owned layer entry must be restored to its pre-load state.
+    assert server.command == "old-command"
+    assert server.args == []
+
+
 def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client):
     """After load, the server's tools must be selectable/executable via get_tools()/get_tool(), not just listed in the cache."""
     from gptme import tools as tools_mod
