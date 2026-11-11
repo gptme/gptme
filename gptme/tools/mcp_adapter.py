@@ -629,6 +629,9 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # ``load my-server\n{"command": "uvx", "args": [...]}`` path works for a
     # name that is in neither config nor a registry, and so we do not spend a
     # network round-trip on a local command.
+    if config_override and not isinstance(config_override, dict):
+        return f"Failed to load server '{name}': config override must be a JSON object, got {type(config_override).__name__}"
+
     if not server_config and config_override:
         has_command = bool(config_override.get("command"))
         has_url = bool(config_override.get("url"))
@@ -641,6 +644,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
                     args=list(config_override.get("args") or []),
                     url=str(config_override.get("url") or ""),
                     env=dict(config_override.get("env") or {}),
+                    headers=dict(config_override.get("headers") or {}),
                 )
             except (TypeError, ValueError) as e:
                 return f"Failed to load server '{name}': invalid config override: {e}"
@@ -670,6 +674,8 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             server_config.url = config_override["url"]
         if "env" in config_override:
             server_config.env = config_override["env"]
+        if "headers" in config_override:
+            server_config.headers = config_override["headers"]
 
     # Persist onto a writable layer. Config.mcp is a merged copy, so appending
     # there is a no-op and connect() would later raise "No MCP server config
@@ -678,6 +684,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # write a new entry onto user.mcp.
     config_added = False
     was_enabled = server_config.enabled
+    was_owned_enabled: bool | None = None
     previous_user_mcp = config.user.mcp
     layer, owned = _mcp_layer_for_server(config, server_config.name)
     was_layer_enabled = layer.enabled
@@ -696,6 +703,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         layer.enabled = True
         config_added = True
     elif not owned.enabled:
+        was_owned_enabled = False
         owned.enabled = True
     set_config(config)
 
@@ -756,6 +764,9 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         # If connection failed and we added the config, remove it to maintain consistency
         if config_added:
             layer.servers = [s for s in layer.servers if s.name != server_config.name]
+        elif was_owned_enabled is not None:
+            assert owned is not None
+            owned.enabled = was_owned_enabled
         else:
             server_config.enabled = was_enabled
         layer.enabled = was_layer_enabled
