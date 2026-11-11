@@ -1575,6 +1575,9 @@ def subagent_continue(
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
     continuation_started_at = time.time()
+    # Populated with `continued` after it is created; run_continuation reads it
+    # after start_gate fires so the reference is always present by then.
+    _continued_ref: list[Subagent] = []
 
     def run_continuation() -> None:
         bind_thread_generation()
@@ -1682,7 +1685,9 @@ def subagent_continue(
                             ),
                         )
 
-            set_subagent_result_if_absent(agent_id, result)
+            set_subagent_result_if_absent(
+                agent_id, result, attempt=_continued_ref[0] if _continued_ref else None
+            )
             # Cancellation or timeout may have won while execution unwound.
             # Notify the same terminal result that status and disk expose.
             with _subagent_results_lock:
@@ -1761,6 +1766,7 @@ def subagent_continue(
         if writer_lease is not None:
             writer_lease.close()
         raise
+    _continued_ref.append(continued)
     start_gate.set()
     if sa.max_time is not None:
         timer = threading.Timer(
