@@ -316,6 +316,9 @@ class BackgroundJob:
                         if s is not None:
                             try:
                                 s.append(marker)
+                            except OSError:
+                                pass
+                            try:
                                 s.close()
                             except OSError:
                                 pass

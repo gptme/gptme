@@ -391,6 +391,41 @@ def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> 
         reset_background_jobs()
 
 
+@pytest.mark.parametrize("is_stdout", [True, False])
+@pytest.mark.parametrize("operation", ["write", "fsync"])
+def test_quota_closes_both_spools_on_storage_error(
+    tmp_path, monkeypatch, is_stdout: bool, operation: str
+) -> None:
+    from gptme.tools import shell_background as bg
+
+    job = BackgroundJob(1, "quota-storage-error", Mock(), 0, log_dir=tmp_path)
+    stdout = open_private_output_file(tmp_path, "shell-jobs", "quota.stdout.live")
+    stderr = open_private_output_file(tmp_path, "shell-jobs", "quota.stderr.live")
+    job._stdout_spool = stdout
+    job._stderr_spool = stderr
+    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1)
+
+    def fail(*args) -> None:
+        raise OSError("simulated storage failure")
+
+    monkeypatch.setattr(os, operation, fail)
+    try:
+        job._spool_text(is_stdout, "over quota\n", final=False)
+        assert job._capture_partial
+        assert job._stdout_spool is None
+        assert job._stderr_spool is None
+        for stream in (stdout, stderr):
+            assert stream._closed
+            with pytest.raises(OSError, match="Bad file descriptor"):
+                os.fstat(stream._fd)
+    finally:
+        for stream in (stdout, stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
 def test_spool_max_bytes_constant_is_32_mib() -> None:
     """Confirm the documented quota value so callers can rely on it."""
     assert _SPOOL_MAX_BYTES == 32 * 1024 * 1024
