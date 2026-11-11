@@ -1958,6 +1958,8 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             workdir=reply_workdir,
             isolated=sa.isolated,
             isolation=sa.isolation_mode,
+            retain_worktree=sa.retain_worktree,
+            retention_deadline=sa.retention_deadline,
             timeout=sa.timeout,
             role=sa.role,
             redact_secrets=sa.redact_secrets,

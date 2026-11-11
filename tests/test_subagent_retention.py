@@ -460,10 +460,16 @@ class TestRetentionPersistence:
 
 
 class TestRetainFieldsPreservedOnContinue:
-    def test_continue_copies_retain_fields(self, tmp_path: Path) -> None:
+    def test_continue_copies_retain_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """subagent_continue must copy retain_worktree and retention_deadline."""
         from gptme.tools.subagent.api import subagent_continue as _continue
         from gptme.tools.subagent.types import _subagents as _reg
+
+        # Prevent the continuation thread from actually running; we only need to
+        # verify that the registry entry is populated with the correct fields.
+        monkeypatch.setattr("threading.Thread.start", lambda self: None)
 
         worktree = tmp_path / "wt"
         worktree.mkdir()
@@ -489,12 +495,9 @@ class TestRetainFieldsPreservedOnContinue:
         with _subagent_results_lock:
             _subagent_results[sa.agent_id] = ReturnType("success", "done")
 
-        # subagent_continue spawns the continuation; intercept the new registry
-        # entry before the thread can run.
-        try:
-            _continue(sa.agent_id, "follow-up task")
-        except Exception:
-            pass  # thread may fail without a real session — we only need the entry
+        # subagent_continue creates the continuation Subagent and registers it.
+        # The thread.start() call is mocked out above so no real work runs.
+        _continue(sa.agent_id, "follow-up task")
 
         with _subagents_lock:
             entries = [s for s in _reg if s.agent_id == sa.agent_id]
@@ -520,6 +523,14 @@ class TestRetainValidationOrderingWithRoles:
         the check after the translation so only one is needed.
         """
         monkeypatch.setattr("gptme.tools.subagent.api._find_subagent", lambda _: None)
+        # Prevent real git worktree creation; return a tmp dir instead.
+        monkeypatch.setattr(
+            "gptme.util.git_worktree.create_worktree",
+            lambda *a, **kw: tmp_path / "mock-wt",
+        )
+        (tmp_path / "mock-wt").mkdir(exist_ok=True)
+        # Prevent the launch thread from starting; we only test validation.
+        monkeypatch.setattr("threading.Thread.start", lambda self: None)
 
         from gptme.tools.subagent.api import subagent as _subagent
 
@@ -536,5 +547,3 @@ class TestRetainValidationOrderingWithRoles:
             assert "retain_worktree=True requires" not in str(e), (
                 "retain_worktree validation must not fire when isolation='worktree' is set"
             )
-        except Exception:
-            pass  # Launch failure is acceptable; validation failure is not
