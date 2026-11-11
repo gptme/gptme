@@ -402,3 +402,76 @@ def test_byte_cursors_are_independent_of_ram_offsets(direct_job) -> None:
     second_out, second_err = direct_job.get_output(incremental=True)
     assert second_out == ""
     assert second_err == ""
+
+
+def test_conversation_quota_refuses_snapshot_fallback(tmp_path, monkeypatch) -> None:
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_CONVERSATION_QUOTA", 1)
+    bg._conversation_spool_bytes[None] = 1
+    bg._conversation_spool_seeded.add(None)
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    process.stderr = None
+    job = BackgroundJob(1, "quota-refused", process, time.time(), log_dir=tmp_path)
+    try:
+        job._open_spools()
+        assert job._spool_quota_refused
+        assert not job._spool_from_reader
+        job.stdout_buffer = ["retained line\n" * 50]
+        path = _write_job_log(job, *job.get_output(), final=True, complete=True)
+        assert path is None
+        assert list(tmp_path.glob("tool-outputs/shell-jobs/*")) == []
+    finally:
+        reset_background_jobs()
+
+
+def test_conversation_quota_seeds_from_existing_files(tmp_path, monkeypatch) -> None:
+    import gptme.tools.shell_background as bg
+
+    jobs_dir = tmp_path / "tool-outputs" / "shell-jobs"
+    jobs_dir.mkdir(parents=True)
+    (jobs_dir / "old.stdout.live").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(bg, "_SPOOL_CONVERSATION_QUOTA", 1000)
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    job = BackgroundJob(1, "seed-disk", process, time.time(), log_dir=tmp_path)
+    try:
+        job._open_spools()
+        assert job._spool_quota_refused
+        assert not job._spool_from_reader
+        assert "conversation_quota" in job._partial_reasons
+    finally:
+        reset_background_jobs()
+
+
+def test_queue_full_unreserves_queued_bytes(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "queued.live")
+    job._stdout_spool = stream
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue(maxsize=1)
+    job._spool_queue.put_nowait((stream, True, b"held\n"))
+    try:
+        job._commit_spool_bytes(True, b"dropped because the writer is busy\n")
+        assert job._spool_queued_bytes == 0
+        assert "queue_full" in job._partial_reasons
+    finally:
+        stream.close()
+
+
+def test_finalize_stop_signal_closes_writer_and_publishes(tmp_path) -> None:
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    process.stderr = None
+    process.returncode = 0
+    job = BackgroundJob(1, "writer-stop", process, time.time(), log_dir=tmp_path)
+    try:
+        job._open_spools()
+        assert job._spool_writer_thread is not None
+        job._finalize_spools()
+        assert not job._spool_writer_thread.is_alive()
+        assert job.receipt_path is not None
+        assert job.receipt_path.is_file()
+    finally:
+        reset_background_jobs()
