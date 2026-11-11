@@ -6,6 +6,7 @@ import queue as queue_mod
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from unittest.mock import Mock
@@ -635,3 +636,57 @@ def test_incremental_read_continues_from_ram_after_persistence_stops(
     finally:
         stream.close()
         bg._conversation_spool_bytes.clear()
+
+
+def test_ram_resume_counts_characters_not_bytes_for_non_ascii(
+    tmp_path, monkeypatch
+) -> None:
+    """A quota cut inside non-ASCII output must resume at the right character."""
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 256)
+    process = Mock(returncode=None)
+    process.stdout.fileno.return_value = 10
+    stream = open_private_output_file(tmp_path, "shell-jobs", "utf8.live")
+    job = BackgroundJob(1, "utf8-output", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    try:
+        # 3-byte characters: bytes committed at the cut exceed characters.
+        text = "é" * 200 + "\nFAILURE-LINE\n"
+        job._append_output(10, 10, text.encode("utf-8"))
+        assert not job._spool_persist_stdout
+        resume = job._stdout_ram_resume
+        assert resume is not None
+        # Resume is a character offset into the decoded stream: it must not
+        # pass the committed prefix and must land before the failure line.
+        # 256-byte quota / 2-byte chars => at most ~128 characters committed.
+        assert resume <= 130
+        out, _ = job.get_output(incremental=True)
+        assert "FAILURE-LINE" in out
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_close_spool_files_waits_for_cursor_reader(tmp_path) -> None:
+    """Closing live spool fds is ordered after an in-flight cursor read."""
+    process = Mock(returncode=None)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "close.live")
+    job = BackgroundJob(1, "close-order", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    done = threading.Event()
+
+    def close_then_signal() -> None:
+        job._close_spool_files()
+        done.set()
+
+    with job._cursor_lock:
+        t = threading.Thread(target=close_then_signal)
+        t.start()
+        assert not done.wait(0.2)
+        assert not stream._closed
+    t.join(timeout=5)
+    assert done.is_set()
+    assert stream._closed
