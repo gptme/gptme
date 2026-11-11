@@ -4,7 +4,10 @@ audience: developer
 
 # File-backed tool and process output
 
-**Status:** proposed contract; no production capture changes in this PR.
+**Status:** contract. Production capture is rolling out in slices: writer-safety
+#4782, launch-time spool #4826, and this change (bounded writer queue, 32 MiB
+per-stream / 128 MiB conversation quota, receipt sidecar, independent byte
+cursors). Foreground/promotion convergence remains a later slice.
 
 **Request:** [gptme/gptme#4663](https://github.com/gptme/gptme/issues/4663).
 
