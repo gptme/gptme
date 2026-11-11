@@ -130,7 +130,7 @@ def wire(
         body = json.loads(request.content)
         captured.append((request, body))
         if body.get("stream"):
-            chunk = {
+            content_chunk = {
                 "id": "test",
                 "object": "chat.completion.chunk",
                 "created": 1,
@@ -139,10 +139,17 @@ def wire(
                     {"index": 0, "delta": {"content": "ok"}, "finish_reason": None}
                 ],
             }
+            terminal_chunk = {
+                "id": "test",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": body["model"],
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
             return httpx.Response(
                 200,
                 headers={"content-type": "text/event-stream"},
-                text=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
+                text=f"data: {json.dumps(content_chunk)}\n\ndata: {json.dumps(terminal_chunk)}\n\ndata: [DONE]\n\n",
             )
         message: dict[str, Any] = {"role": "assistant", "content": "ok"}
         if body.get("tools") and not any(m["role"] == "tool" for m in body["messages"]):
