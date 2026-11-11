@@ -253,6 +253,13 @@ class BackgroundJob:
     _stderr_discarded_bytes: int = field(default=0, repr=False)
     _stdout_byte_cursor: int = field(default=0, repr=False)
     _stderr_byte_cursor: int = field(default=0, repr=False)
+    # Raw RAM offset where persistence stopped for a stream; incremental reads
+    # continue from the bounded RAM tail past it, so late output (a failure
+    # line after the quota) is not hidden behind the unchanged committed file.
+    _stdout_ram_resume: int | None = field(default=None, repr=False)
+    _stderr_ram_resume: int | None = field(default=None, repr=False)
+    # Serializes incremental cursor consumption (snapshot, read, advance).
+    _cursor_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     receipt_path: Path | None = field(default=None, repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
     kill_reason: str | None = None
@@ -360,10 +367,26 @@ class BackgroundJob:
                 self._stdout_buffer_start += self._append_to_buffer_locked(
                     self.stdout_buffer, text
                 )
+                if (
+                    self._spool_from_reader
+                    and not self._spool_persist_stdout
+                    and self._stdout_ram_resume is None
+                ):
+                    self._stdout_ram_resume = self._stdout_buffer_start + sum(
+                        map(len, self.stdout_buffer)
+                    )
             else:
                 self._stderr_buffer_start += self._append_to_buffer_locked(
                     self.stderr_buffer, text
                 )
+                if (
+                    self._spool_from_reader
+                    and not self._spool_persist_stderr
+                    and self._stderr_ram_resume is None
+                ):
+                    self._stderr_ram_resume = self._stderr_buffer_start + sum(
+                        map(len, self.stderr_buffer)
+                    )
 
     def _spool_text(self, is_stdout: bool, text: str, *, final: bool) -> None:
         """Commit sanitized complete lines to the live stream before RAM eviction."""
@@ -412,6 +435,16 @@ class BackgroundJob:
                 is_stdout, sanitized.encode("utf-8", "surrogateescape")
             )
 
+    def _add_discarded(self, is_stdout: bool, count: int) -> None:
+        """Record bytes accepted for persistence that were lost to a failure."""
+        if count <= 0:
+            return
+        with self._spool_queue_lock:
+            if is_stdout:
+                self._stdout_discarded_bytes += count
+            else:
+                self._stderr_discarded_bytes += count
+
     def _note_partial(self, reason: str) -> None:
         self._capture_partial = True
         self._partial_reasons.add(reason)
@@ -452,6 +485,7 @@ class BackgroundJob:
                         0, len(payload) - max(0, stream.bytes_written - written_before)
                     )
                     _release_conversation_spool(self.conversation_id, unwritten)
+                    self._add_discarded(is_stdout, unwritten)
                     self._note_partial("write_error")
                     self._spool_persist_stdout = False
                     self._spool_persist_stderr = False
@@ -462,11 +496,12 @@ class BackgroundJob:
                             break
                         if leftover is None:
                             break
-                        _, _, leftover_payload = leftover
+                        _, leftover_stdout, leftover_payload = leftover
                         with self._spool_queue_lock:
                             self._spool_queued_bytes = max(
                                 0, self._spool_queued_bytes - len(leftover_payload)
                             )
+                        self._add_discarded(leftover_stdout, len(leftover_payload))
                         _release_conversation_spool(
                             self.conversation_id, len(leftover_payload)
                         )
@@ -727,6 +762,44 @@ class BackgroundJob:
         setattr(self, cursor_attr, committed)
         return data.decode("utf-8", "replace")
 
+    def _consume_incremental_text(self, is_stdout: bool) -> str:
+        """Return new output for one stream: committed bytes, then the RAM tail.
+
+        Once persistence stops (quota, queue, write error) the file boundary no
+        longer moves, so output after it is served from the bounded RAM buffer.
+        The tail is delivered only after the writer has caught up, which keeps
+        the order of committed bytes and RAM text.
+        """
+        with self._cursor_lock:
+            text = self._consume_committed_text(is_stdout)
+            resume = self._stdout_ram_resume if is_stdout else self._stderr_ram_resume
+            if resume is None:
+                return text
+            accepted = (
+                self._stdout_accepted_bytes
+                if is_stdout
+                else self._stderr_accepted_bytes
+            )
+            committed = (
+                self._stdout_committed_bytes
+                if is_stdout
+                else self._stderr_committed_bytes
+            )
+            if committed < accepted and "write_error" not in self._partial_reasons:
+                return text
+            with self._buffer_lock:
+                if is_stdout:
+                    joined = "".join(self.stdout_buffer)
+                    buffer_start = self._stdout_buffer_start
+                    offset = max(self._stdout_read_offset, resume)
+                    self._stdout_read_offset = buffer_start + len(joined)
+                else:
+                    joined = "".join(self.stderr_buffer)
+                    buffer_start = self._stderr_buffer_start
+                    offset = max(self._stderr_read_offset, resume)
+                    self._stderr_read_offset = buffer_start + len(joined)
+            return text + joined[max(offset - buffer_start, 0) :]
+
     def _read_output(self) -> None:
         """Read stdout/stderr until the child exits, then drain briefly."""
         stdout_fd = self.process.stdout.fileno() if self.process.stdout else -1
@@ -835,8 +908,8 @@ class BackgroundJob:
             # Independent committed-byte cursors: RAM character offsets can
             # lag or skip prefixes the live files already retained.
             return (
-                self._consume_committed_text(True),
-                self._consume_committed_text(False),
+                self._consume_incremental_text(True),
+                self._consume_incremental_text(False),
             )
         with self._buffer_lock:
             if self._output_callback is not None:
