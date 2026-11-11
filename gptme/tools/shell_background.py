@@ -445,17 +445,26 @@ class BackgroundJob:
                 if is_stdout
                 else "_stderr_spool_original_chars"
             )
-            content_bytes = self._commit_spool_bytes(
-                is_stdout, sanitized.encode("utf-8", "surrogateescape")
-            )
+            sanitized_bytes = sanitized.encode("utf-8", "surrogateescape")
+            content_bytes = self._commit_spool_bytes(is_stdout, sanitized_bytes)
             if getattr(self, persist_attr):
                 # Full commit: all of to_write was accepted.
                 setattr(self, chars_attr, getattr(self, chars_attr) + len(to_write))
             elif content_bytes > 0:
-                # Partial quota cut: advance by the bytes of content committed
-                # (ASCII bytes ≈ chars; non-ASCII overestimates slightly, which
-                # is safe — resume lands inside the already-committed region).
-                setattr(self, chars_attr, getattr(self, chars_attr) + content_bytes)
+                # Partial quota cut: convert the committed *bytes* to characters
+                # (the resume offset indexes the decoded RAM buffer).  A cut
+                # inside a multi-byte character drops that character, so it is
+                # replayed from RAM rather than lost.  Sanitation can only
+                # shrink text, so the count is clamped to the raw length; an
+                # early resume replays committed text, never skips output.
+                committed_chars = len(
+                    sanitized_bytes[:content_bytes].decode("utf-8", "ignore")
+                )
+                setattr(
+                    self,
+                    chars_attr,
+                    getattr(self, chars_attr) + min(committed_chars, len(to_write)),
+                )
 
     def _add_discarded(self, is_stdout: bool, count: int) -> None:
         """Record bytes accepted for persistence that were lost to a failure."""
@@ -659,18 +668,21 @@ class BackgroundJob:
         return content_bytes
 
     def _close_spool_files(self) -> None:
-        for stream in (self._stdout_spool, self._stderr_spool):
-            if stream is None:
-                continue
-            try:
-                stream.close()
-            except OSError as e:
-                logger.warning(
-                    "Could not close background job spool %s: %s",
-                    stream.path,
-                    e,
-                )
-                self._note_partial("write_error")
+        # Serialize with _read_committed_range (which holds _cursor_lock): a
+        # reader must not pread an fd number the OS may already have reused.
+        with self._cursor_lock:
+            for stream in (self._stdout_spool, self._stderr_spool):
+                if stream is None:
+                    continue
+                try:
+                    stream.close()
+                except OSError as e:
+                    logger.warning(
+                        "Could not close background job spool %s: %s",
+                        stream.path,
+                        e,
+                    )
+                    self._note_partial("write_error")
 
     def _finalize_spools(self) -> None:
         """Stop the writer, then close live files and publish receipt metadata."""
