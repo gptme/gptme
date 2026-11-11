@@ -1941,9 +1941,19 @@ def subagent_reply(agent_id: str, reply: str) -> None:
     # from the original workspace instead of passing the deleted child path.
     # For retained worktrees the auto-cleanup was skipped, so the old workspace
     # still exists and would be orphaned when the registry entry is replaced.
-    # Explicitly GC it here before the reply creates a new workspace.
+    # Use smart cleanup (not forced): preserves branch/dir when the worktree
+    # has uncommitted/unpublished work, removes it when clean.
     if sa.retain_worktree and sa.worktree_path and sa.worktree_path.exists():
-        _exec._cleanup_isolation_forced(sa)
+        import copy
+
+        sa_no_retain = copy.copy(sa)
+        object.__setattr__(sa_no_retain, "retain_worktree", False)
+        preserved = _exec._cleanup_isolation(sa_no_retain)
+        if preserved:
+            logger.info(
+                f"subagent_reply: {agent_id!r} retained worktree had changes — "
+                f"preserved at {preserved!r}"
+            )
     reply_workdir = sa.base_workdir if sa.isolated else sa.workdir
 
     # Re-spawn with the same parameters, augmented prompt.
