@@ -473,7 +473,11 @@ class BackgroundJob:
                     break
         finally:
             self._close_spool_files()
-            self._publish_receipt()
+            # A failed writer can exit while the reader is still draining.
+            # Final metadata belongs to the reader's stop boundary, not to
+            # storage failure. After a join timeout the writer owns publication.
+            if self._spool_writer_stop.is_set():
+                self._publish_receipt()
 
     def _commit_spool_bytes(self, is_stdout: bool, data: bytes) -> None:
         """Accept sanitized bytes for persistence without blocking the reader."""
@@ -618,7 +622,9 @@ class BackgroundJob:
             try:
                 queue_obj.put_nowait(None)
             except queue.Full:
-                self._note_partial("writer_timeout")
+                # The stop event also ends the writer after it drains the queue.
+                # Failure to enqueue a sentinel is not itself a timeout or loss.
+                pass
         if writer is not None:
             writer.join(timeout=_SPOOL_WRITER_JOIN_TIMEOUT)
             if writer.is_alive():
@@ -637,6 +643,7 @@ class BackgroundJob:
             exit_code = None
         receipt = {
             "job_id": self.id,
+            "byte_count_basis": "sanitized_utf8_representation",
             "capture_state": capture_state,
             "partial_reasons": sorted(self._partial_reasons),
             "exit_code": exit_code,
@@ -646,6 +653,10 @@ class BackgroundJob:
                 "accepted_bytes": self._stdout_accepted_bytes,
                 "discarded_bytes": self._stdout_discarded_bytes,
                 "cursor_bytes": self._stdout_byte_cursor,
+                "raw_observed_bytes": None,
+                "raw_accepted_bytes": None,
+                "raw_pending_bytes": None,
+                "raw_discarded_bytes": None,
             },
             "stderr": {
                 "path": str(self.stderr_log_path) if self.stderr_log_path else None,
@@ -653,6 +664,10 @@ class BackgroundJob:
                 "accepted_bytes": self._stderr_accepted_bytes,
                 "discarded_bytes": self._stderr_discarded_bytes,
                 "cursor_bytes": self._stderr_byte_cursor,
+                "raw_observed_bytes": None,
+                "raw_accepted_bytes": None,
+                "raw_pending_bytes": None,
+                "raw_discarded_bytes": None,
             },
         }
         payload = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
