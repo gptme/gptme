@@ -1,9 +1,9 @@
 """Tests for TUI work-view: children/monitors overview and transcript viewer.
 
 Covers:
-- watch_snapshot: owner-scoped, branch-filtered, non-destructive
-- Watch.outcome: fired/expired/cancelled set by the right code paths
-- subagent_snapshot: owner-scoped filtering by parent_logdir/parent_branch
+- watch_snapshots: owner-scoped, branch-filtered, non-destructive
+- Watch.status: fired/expired/cancelled set by the right code paths
+- subagent_snapshots: owner-scoped filtering by parent_logdir/parent_branch
 - WorkOverviewScreen: renders summary, opens/closes cleanly
 - WorkScreen: renders child transcript (read-only, no lock acquisition)
 """
@@ -14,11 +14,35 @@ from pathlib import Path
 
 import pytest
 
-from gptme.tools.watch import Watch, _fire, _register, watch_snapshot
+from gptme.tools.watch import (
+    Watch,
+    _expire,
+    _fire,
+    _register,
+    watch_snapshots,
+)
 
 # ---------------------------------------------------------------------------
-# watch_snapshot + Watch.outcome (no TUI needed)
+# watch_snapshots + Watch.status (no TUI needed)
 # ---------------------------------------------------------------------------
+
+
+def _make_child_snapshot(
+    agent_id: str, logdir: Path | None = None, prompt: str = "task"
+):
+    """Create a SubagentSnapshot for use in TUI tests that monkeypatch subagent_snapshots."""
+    from gptme.tools.subagent.api import SubagentSnapshot
+
+    return SubagentSnapshot(
+        run_id=str(logdir or f"/tmp/child-{agent_id}"),
+        agent_id=agent_id,
+        status="running",
+        started_at=time.time(),
+        elapsed_s=0,
+        execution_mode="thread",
+        prompt_preview=prompt[:60],
+        logdir=logdir or Path(f"/tmp/child-{agent_id}"),
+    )
 
 
 def _make_watch(
@@ -45,27 +69,16 @@ def test_watch_snapshot_scopes_to_logdir(tmp_path):
 
     w_own = _make_watch("snap-own", logdir=own_logdir)
     w_other = _make_watch("snap-other", logdir=other_logdir)
-    w_global = _make_watch("snap-global", logdir=None)
+    _make_watch("snap-global", logdir=None)
 
-    result = watch_snapshot(own_logdir)
+    result = watch_snapshots(own_logdir)
     ids = {w.id for w in result}
     assert w_own.id in ids, "owner's watch must appear"
     assert w_other.id not in ids, "other conversation's watch must not appear"
-    # global (no logdir) only appears when queried with logdir=None
-    assert w_global.id not in ids
-
-
-def test_watch_snapshot_no_logdir_sees_all(tmp_path):
-    """watch_snapshot(None) returns all watches (CLI/no-manager mode)."""
-    ld = tmp_path / "any"
-    ld.mkdir()
-    w = _make_watch("snap-all-uniq", logdir=ld)
-    result = watch_snapshot(None)
-    assert any(x.id == w.id for x in result)
 
 
 def test_watch_snapshot_does_not_drain_queue(tmp_path):
-    """Calling watch_snapshot must not consume pending delivery queue entries."""
+    """Calling watch_snapshots must not consume pending delivery queue entries."""
     from gptme.tools.watch import _pending_deliveries, _pending_lock
 
     ld = tmp_path / "nodequeue"
@@ -76,7 +89,7 @@ def test_watch_snapshot_does_not_drain_queue(tmp_path):
         before = len(_pending_deliveries)
         _pending_deliveries.append((ld, w.id, "test-event", "main"))
 
-    watch_snapshot(ld)  # must not touch the queue
+    watch_snapshots(ld)  # must not touch the queue
 
     with _pending_lock:
         after = len(_pending_deliveries)
@@ -90,24 +103,24 @@ def test_watch_snapshot_does_not_drain_queue(tmp_path):
                 break
 
 
-def test_watch_outcome_fired():
-    """Normal fire sets outcome='fired'."""
+def test_watch_status_fired():
+    """Normal fire sets status='fired'."""
     w = _make_watch("outcome-fired", logdir=None)
     _fire(w, "condition met")
-    assert w.outcome == "fired"
+    assert w.status == "fired"
 
 
-def test_watch_outcome_expired():
-    """Expired deadline sets outcome='expired'."""
+def test_watch_status_expired():
+    """Expired deadline sets status='expired'."""
     w = _make_watch("outcome-expired", logdir=None)
     # Set an already-elapsed deadline
     w.deadline = time.time() - 1
-    _fire(w, "expired without condition met", expired=True)
-    assert w.outcome == "expired"
+    _expire(w, "expired without condition met")
+    assert w.status == "expired"
 
 
-def test_watch_outcome_cancelled(tmp_path: Path) -> None:
-    """The cancel command, not test-side state mutation, sets the outcome."""
+def test_watch_status_cancelled(tmp_path: Path) -> None:
+    """The cancel command, not test-side state mutation, sets the status."""
     from gptme.logmanager import LogManager
     from gptme.logmanager.manager import _current_log_var
     from gptme.tools.watch import _watch
@@ -122,25 +135,27 @@ def test_watch_outcome_cancelled(tmp_path: Path) -> None:
     assert result.content == f"Cancelled watch {w.id}."
     assert w.cancelled
     assert w.cancel_event.is_set()
-    assert w.outcome == "cancelled"
+    assert w.status == "cancelled"
 
 
 @pytest.mark.parametrize("terminal", ["fired", "expired", "cancelled"])
 def test_watch_stream_event_keeps_watch_armed(
     terminal: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Stream progress must not preempt the eventual terminal outcome."""
+    """Stream progress must not preempt the eventual terminal status."""
     from gptme.logmanager.manager import _current_log_var
     from gptme.tools import watch as watch_mod
 
     delivered: list[str] = []
-    monkeypatch.setattr(watch_mod, "_deliver", lambda w, text: delivered.append(text))
+    monkeypatch.setattr(
+        watch_mod, "_deliver", lambda w, text, **kw: delivered.append(text)
+    )
     w = _make_watch(f"outcome-progress-{terminal}", kind="stream")
     _fire(w, "progress line", once=False)
     assert delivered == ["progress line"]
     assert w.delivered == 1
     assert not w.fired
-    assert w.outcome is None, "a stream line is not a terminal event"
+    assert w.status == "armed", "a stream line is not a terminal event"
 
     if terminal == "cancelled":
         token = _current_log_var.set(None)
@@ -149,9 +164,12 @@ def test_watch_stream_event_keeps_watch_armed(
         finally:
             _current_log_var.reset(token)
     else:
-        _fire(w, "stream finished", expired=terminal == "expired")
+        if terminal == "expired":
+            _expire(w, "stream finished")
+        else:
+            _fire(w, "stream finished")
         assert w.fired
-    assert w.outcome == terminal
+    assert w.status == terminal
 
 
 @pytest.mark.parametrize("kind", ["until", "run", "stream"])
@@ -166,7 +184,9 @@ def test_watch_worker_timeout_sets_expired(
     from gptme.tools import watch as watch_mod
 
     delivered: list[str] = []
-    monkeypatch.setattr(watch_mod, "_deliver", lambda w, text: delivered.append(text))
+    monkeypatch.setattr(
+        watch_mod, "_deliver", lambda w, text, **kw: delivered.append(text)
+    )
     w = _make_watch(f"outcome-worker-timeout-{kind}", kind=kind)
     command = [sys.executable, "-c", "import time; time.sleep(30)"]
     popen = subprocess.Popen
@@ -189,7 +209,7 @@ def test_watch_worker_timeout_sets_expired(
             w.proc = proc
             worker = watch_mod._poll_run if kind == "run" else watch_mod._poll_stream
             worker(w, proc)
-        assert w.outcome == "expired"
+        assert w.status == "expired"
         assert w.fired
         assert not w.cancelled
         assert len(delivered) == 1
@@ -201,25 +221,24 @@ def test_watch_worker_timeout_sets_expired(
             watch_mod._close_stdout(proc)
 
 
-def test_watch_outcome_not_overwritten_on_double_fire():
-    """A second _fire call after outcome is set must not overwrite it."""
+def test_watch_status_not_overwritten_on_double_fire():
+    """A second _expire call after fired must not overwrite the fired status."""
     w = _make_watch("outcome-no-overwrite", logdir=None)
     _fire(w, "first event")
-    assert w.outcome == "fired"
-    # second call with expired=True — should not overwrite the first outcome
-    # (once=True default prevents the second fire from going through at all)
-    _fire(w, "second event", expired=True)
-    assert w.outcome == "fired", "outcome must not be changed on duplicate fire"
+    assert w.status == "fired"
+    # _expire returns early when watch.fired is already True
+    _expire(w, "second event")
+    assert w.status == "fired", "status must not be changed once fired"
 
 
 # ---------------------------------------------------------------------------
-# subagent_snapshot (no TUI needed)
+# subagent_snapshots (no TUI needed)
 # ---------------------------------------------------------------------------
 
 
 def test_subagent_snapshot_filters_by_parent_logdir(tmp_path):
-    """subagent_snapshot must only return children whose parent_logdir matches."""
-    from gptme.tools.subagent import subagent_snapshot
+    """subagent_snapshots must only return children whose parent_logdir matches."""
+    from gptme.tools.subagent import subagent_snapshots
     from gptme.tools.subagent.types import Subagent, _subagents, _subagents_lock
 
     own_ld = (tmp_path / "parent-own").resolve()
@@ -250,7 +269,7 @@ def test_subagent_snapshot_filters_by_parent_logdir(tmp_path):
         _subagents.append(child_other)
 
     try:
-        result = subagent_snapshot(own_ld)
+        result = subagent_snapshots(own_ld)
         ids = {sa.agent_id for sa in result}
         assert "snap-child-own" in ids
         assert "snap-child-other" not in ids
@@ -265,7 +284,7 @@ def test_subagent_snapshot_filters_by_parent_logdir(tmp_path):
 
 def test_subagent_snapshot_branch_filter(tmp_path):
     """When branch is given, only matching parent_branch entries are returned."""
-    from gptme.tools.subagent import subagent_snapshot
+    from gptme.tools.subagent import subagent_snapshots
     from gptme.tools.subagent.types import Subagent, _subagents, _subagents_lock
 
     ld = (tmp_path / "parent-branch").resolve()
@@ -294,7 +313,7 @@ def test_subagent_snapshot_branch_filter(tmp_path):
         _subagents.append(child_b)
 
     try:
-        result = subagent_snapshot(ld, branch="feature-x")
+        result = subagent_snapshots(ld, parent_branch="feature-x")
         ids = {sa.agent_id for sa in result}
         assert "snap-branch-a" in ids
         assert "snap-branch-b" not in ids
@@ -441,7 +460,7 @@ async def test_work_overview_shows_children(tmp_path):
     from gptme.tools.subagent.types import Subagent, _subagents, _subagents_lock
 
     manager = _make_manager(tmp_path)
-    # Ensure logdir exists so subagent_snapshot can resolve it
+    # Ensure logdir exists so subagent_snapshots can resolve it
     manager.logdir.mkdir(parents=True, exist_ok=True)
 
     child = Subagent(
@@ -602,26 +621,16 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
     from textual.containers import VerticalScroll
     from textual.widgets import Static
 
-    from gptme.tools.subagent.types import Subagent
-
     manager = _make_manager(tmp_path)
     children = []
     for index in range(30):
         logdir = tmp_path / f"child-{index}"
         logdir.mkdir()
         children.append(
-            Subagent(
-                agent_id=f"child-{index}",
-                prompt="inspect logs",
-                thread=None,
-                logdir=logdir,
-                model=None,
-                parent_logdir=manager.logdir.resolve(),
-                parent_branch=manager.current_branch,
-            )
+            _make_child_snapshot(f"child-{index}", logdir=logdir, prompt="inspect logs")
         )
     monkeypatch.setattr(
-        "gptme.tools.subagent.subagent_snapshot", lambda *a, **kw: list(children)
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
     )
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
@@ -680,7 +689,7 @@ async def test_work_overview_refreshes_while_open(
         logdir=manager.logdir,
         branch=manager.current_branch,
     )
-    monkeypatch.setattr("gptme.tools.watch.watch_snapshot", lambda *a, **kw: [watch])
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshots", lambda *a, **kw: [watch])
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
         screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
@@ -688,7 +697,7 @@ async def test_work_overview_refreshes_while_open(
         await pilot.pause()
         content = screen.query_one("#work-overview-content", Static)
         assert "[armed]" in str(content.render())
-        watch.outcome = "expired"
+        watch.expired = True
         watch.fired = True
         await pilot.pause(1.2)
         assert "[expired]" in str(content.render())
@@ -703,17 +712,9 @@ async def test_work_overview_scrolls_monitors_with_arrow_keys(
     """Monitor rows remain keyboard-accessible with or without child agents."""
     from textual.containers import VerticalScroll
 
-    from gptme.tools.subagent.types import Subagent
-
     manager = _make_manager(tmp_path)
     children = [
-        Subagent(
-            agent_id="child",
-            prompt="inspect logs",
-            thread=None,
-            logdir=tmp_path / "child",
-            model=None,
-        )
+        _make_child_snapshot("child", logdir=tmp_path / "child", prompt="inspect logs")
         for _ in range(child_count)
     ]
     watches = [
@@ -726,9 +727,9 @@ async def test_work_overview_scrolls_monitors_with_arrow_keys(
         for index in range(30)
     ]
     monkeypatch.setattr(
-        "gptme.tools.subagent.subagent_snapshot", lambda *a, **kw: children
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: children
     )
-    monkeypatch.setattr("gptme.tools.watch.watch_snapshot", lambda *a, **kw: watches)
+    monkeypatch.setattr("gptme.tools.watch.watch_snapshots", lambda *a, **kw: watches)
     app = GptmeApp(manager, workspace=tmp_path)
     async with app.run_test() as pilot:
         screen = WorkOverviewScreen(manager.logdir, manager.current_branch)

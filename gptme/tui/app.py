@@ -116,7 +116,6 @@ from .statusline import LogStats, build_payload, run_statusline
 if TYPE_CHECKING:
     from textual.timer import Timer
 
-    from ..tools.subagent.types import Subagent
 
 logger = logging.getLogger(__name__)
 
@@ -2215,7 +2214,7 @@ def _build_work_summary(
     logdir: Path | None,
     branch: str | None,
     *,
-    children: list["Subagent"] | None = None,
+    children: list | None = None,
     cursor: int = 0,
 ) -> str:
     """Build a plain-text summary of children and watches for this conversation.
@@ -2228,16 +2227,18 @@ def _build_work_summary(
     # --- children ---
     if children is None:
         try:
-            from ..tools.subagent import subagent_snapshot
+            from ..tools.subagent import subagent_snapshots
 
-            children = subagent_snapshot(logdir, branch=branch) if logdir else []
+            children = (
+                subagent_snapshots(logdir, parent_branch=branch) if logdir else []
+            )
         except Exception:
             children = []
 
     if children:
         lines.append("Children:")
         for index, sa in enumerate(children):
-            status = sa.status().status
+            status = sa.status
             elapsed = _fmt_elapsed(now - sa.started_at)
             icon = {
                 "running": "⏳",
@@ -2248,7 +2249,7 @@ def _build_work_summary(
                 "budget_exceeded": "✗",
                 "clarification_needed": "?",
             }.get(status, "·")
-            prompt_preview = (sa.prompt or "")[:60].replace("\n", " ")
+            prompt_preview = sa.prompt_preview
             lines.append(
                 f"{'> ' if index == cursor else '  '}{icon} {sa.agent_id}  "
                 f"[{status}] {elapsed}  {prompt_preview}"
@@ -2256,33 +2257,26 @@ def _build_work_summary(
 
     # --- watches ---
     try:
-        from ..tools.watch import watch_snapshot
+        from ..tools.watch import watch_snapshots
 
-        watches = watch_snapshot(logdir, branch=branch) if logdir else []
+        watches = watch_snapshots(logdir, branch=branch) if logdir else []
     except Exception:
         watches = []
 
     if watches:
         lines.append("Monitors:")
         for w in watches:
-            outcome = w.outcome
-            if outcome == "expired":
+            state_str = w.status
+            if state_str == "expired":
                 icon = "⏱"
-            elif outcome == "cancelled":
+            elif state_str == "cancelled":
                 icon = "✗"
-            elif outcome == "fired":
-                icon = "✓"
-            elif w.cancelled:
-                icon = "✗"
-            elif w.fired:
+            elif state_str == "fired":
                 icon = "✓"
             else:
                 icon = "👁"  # still armed
             age = _fmt_elapsed(now - w.created)
             deadline_str = _fmt_deadline(w.deadline)
-            state_str = outcome or (
-                "armed" if not w.fired and not w.cancelled else "done"
-            )
             lines.append(
                 f"  {icon} {w.id} ({w.kind})  [{state_str}] age={age} {deadline_str}"
             )
@@ -2420,16 +2414,16 @@ class WorkOverviewScreen(ModalScreen):
         super().__init__()
         self._logdir = logdir
         self._branch = branch
-        self._children: list[Subagent] = []
+        self._children: list = []
         self._cursor = 0
 
     def _snapshot_summary(self) -> str:
         selected = self._children[self._cursor] if self._children else None
         try:
-            from ..tools.subagent import subagent_snapshot
+            from ..tools.subagent import subagent_snapshots
 
             self._children = (
-                subagent_snapshot(self._logdir, branch=self._branch)
+                subagent_snapshots(self._logdir, parent_branch=self._branch)
                 if self._logdir
                 else []
             )
