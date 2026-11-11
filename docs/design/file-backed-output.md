@@ -9,6 +9,15 @@ audience: developer
 per-stream / 128 MiB conversation quota, receipt sidecar, independent byte
 cursors). Foreground/promotion convergence remains a later slice.
 
+The current receipt's `byte_count_basis` is `sanitized_utf8_representation`:
+committed, accepted, discarded and cursor counts describe transformed output,
+not original pipe bytes. The four `raw_*_bytes` fields are explicitly `null`
+(unknown), not inferred from file size. Raw-input conservation accounting in
+step 2 below remains an unmet pilot gate; this change does not claim that gate
+is complete. In particular, redaction and sanitation-window omissions prevent
+these representation counters from reconstructing raw capture loss. The bounded
+queue/quota and receipt-lifecycle changes can ship independently of that accounting.
+
 **Request:** [gptme/gptme#4663](https://github.com/gptme/gptme/issues/4663).
 
 **Source inventory:** `15f20e44c96acdd035da81213b9e9f5bb54ac98d` (2026-10-30).

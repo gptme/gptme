@@ -475,3 +475,90 @@ def test_finalize_stop_signal_closes_writer_and_publishes(tmp_path) -> None:
         assert job.receipt_path.is_file()
     finally:
         reset_background_jobs()
+
+
+def test_failed_writer_waits_for_reader_before_publishing_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    process = Mock(returncode=None)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "failed.live")
+    job = BackgroundJob(1, "writer-error", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue()
+    job._commit_spool_bytes(True, b"before failure\n")
+
+    def fail_write(*args):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(job, "_write_spool_payload", fail_write)
+    try:
+        job._spool_writer_loop()
+        assert stream._closed
+        assert job.receipt_path is None
+        # The pipe reader keeps draining after disk persistence fails.
+        job._commit_spool_bytes(True, b"after failure\n")
+        process.returncode = 7
+        job._finalize_spools()
+        assert job.receipt_path is not None
+        receipt = json.loads(job.receipt_path.read_text())
+        assert receipt["exit_code"] == 7
+        assert receipt["capture_state"] == "partial"
+        assert receipt["stdout"]["discarded_bytes"] >= len(b"after failure\n")
+        assert receipt["partial_reasons"] == ["write_error"]
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_full_stop_queue_that_drains_does_not_report_timeout(tmp_path) -> None:
+    import threading
+
+    process = Mock(returncode=0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "draining.live")
+    job = BackgroundJob(1, "full-stop-queue", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue(maxsize=1)
+    job._commit_spool_bytes(True, b"retained\n")
+
+    # Model a writer scheduled only when finalize reaches join: the stop
+    # sentinel cannot fit, but the stop event reliably ends the drained loop.
+    writer = Mock()
+    writer.is_alive.return_value = False
+
+    def drain_on_join(*, timeout):
+        thread = threading.Thread(target=job._spool_writer_loop)
+        thread.start()
+        thread.join(timeout=timeout)
+        assert not thread.is_alive()
+
+    writer.join.side_effect = drain_on_join
+    job._spool_writer_thread = writer
+    try:
+        job._finalize_spools()
+        assert stream.path.read_bytes() == b"retained\n"
+        assert job.receipt_path is not None
+        receipt = json.loads(job.receipt_path.read_text())
+        assert receipt["capture_state"] == "complete"
+        assert receipt["partial_reasons"] == []
+        assert receipt["stdout"]["committed_bytes"] == len(b"retained\n")
+    finally:
+        stream.close()
+
+
+def test_receipt_labels_representation_counts_and_unknown_raw_counts(
+    direct_job,
+) -> None:
+    assert direct_job.receipt_path is not None
+    receipt = json.loads(direct_job.receipt_path.read_text())
+    assert receipt["byte_count_basis"] == "sanitized_utf8_representation"
+    for name in ("stdout", "stderr"):
+        assert receipt[name]["raw_observed_bytes"] is None
+        assert receipt[name]["raw_accepted_bytes"] is None
+        assert receipt[name]["raw_pending_bytes"] is None
+        assert receipt[name]["raw_discarded_bytes"] is None
