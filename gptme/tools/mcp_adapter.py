@@ -713,6 +713,20 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     # user-layer servers; for a chat/project-layer server they may differ.
     # Either way, applying the override to owned is correct (and idempotent when
     # they are the same object).
+    #
+    # Save owned's original fields before mutating it. When owned is a distinct
+    # object from server_config (registry-lookup or chat/project-layer case),
+    # was_server_config_fields holds registry/merged-copy values, not the user's
+    # settings — using it for rollback would corrupt owned's command/args/URL.
+    was_owned_fields: dict[str, object] | None = None
+    if owned is not None and owned is not server_config and config_override:
+        was_owned_fields = {
+            "command": owned.command,
+            "args": list(owned.args),
+            "url": owned.url,
+            "env": dict(owned.env or {}),
+            "headers": dict(owned.headers or {}),
+        }
     if owned is not None and config_override:
         for _f in ("command", "args", "url", "env", "headers"):
             if _f in config_override:
@@ -802,12 +816,18 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             if was_server_config_fields is not None:
                 for _f, _v in was_server_config_fields.items():
                     setattr(server_config, _f, _v)
-                # Restore owned too: it may be a distinct object from
-                # server_config (chat/project layer vs user layer) even though
-                # was_server_config_fields holds the right original values for
-                # both, since both came from the same underlying config entry.
+                # Restore owned too. Use owned's own snapshot when available
+                # (registry-lookup / chat-layer case where owned is a distinct
+                # object with different user-configured values). Fall back to
+                # server_config's snapshot only when they are the same object
+                # (user-layer server: server_config IS owned, no separate entry).
                 if owned is not None:
-                    for _f, _v in was_server_config_fields.items():
+                    _owned_restore = (
+                        was_owned_fields
+                        if was_owned_fields is not None
+                        else was_server_config_fields
+                    )
+                    for _f, _v in _owned_restore.items():
                         setattr(owned, _f, _v)
         layer.enabled = was_layer_enabled
         effective_layer.enabled = was_effective_enabled

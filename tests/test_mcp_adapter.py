@@ -650,6 +650,48 @@ def test_failed_registry_alias_load_removes_canonical_entry(
     mock_mcp_client.close.assert_called_once()
 
 
+def test_failed_registry_alias_load_does_not_corrupt_user_server_fields(
+    mock_mcp_client: MagicMock,
+) -> None:
+    """Failed load via registry alias must not overwrite user-configured server fields.
+
+    When the registry maps "alias" -> canonical="my-server" and the user already
+    has a "my-server" entry with their own command, a failed env-only override load
+    via the alias must restore owned to the user's original fields, not the registry
+    defaults that server_config was built from.
+    """
+    cfg = Config()
+    user_server = MCPServerConfig(
+        name="my-server", command="user-cmd", args=["--user-arg"], enabled=False
+    )
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[user_server])
+    registry = MagicMock()
+    registry.get_server_details.return_value = MCPServerInfo(
+        name="my-server", description="Registry version", command="registry-cmd"
+    )
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.tools.mcp_adapter._get_registry", return_value=registry),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server("alias", {"env": {"KEY": "val"}})
+
+    assert "connection failed" in result
+    # User's command and args must survive the failed load — not replaced by registry defaults
+    assert user_server.command == "user-cmd", (
+        f"user command was overwritten: {user_server.command!r}"
+    )
+    assert user_server.args == ["--user-arg"], (
+        f"user args were overwritten: {user_server.args!r}"
+    )
+    assert user_server.enabled is False
+    assert cfg.user.mcp.enabled is True
+    assert cfg.user.mcp.servers == [user_server]
+    mock_mcp_client.close.assert_called_once()
+
+
 @pytest.mark.parametrize("higher_layer", ["chat", "project"])
 @pytest.mark.parametrize("fails", [False, True])
 def test_override_load_enables_effective_layer_and_rolls_back(
