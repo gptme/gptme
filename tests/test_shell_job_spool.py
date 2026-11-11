@@ -613,10 +613,10 @@ def test_incremental_read_continues_from_ram_after_persistence_stops(
         assert not job._spool_persist_stdout
         first_out, _ = job.get_output(incremental=True)
         assert "keep-me" in first_out
-        # The boundary chunk that crossed the quota must be served from RAM
-        # (not hidden behind the unchanged committed file boundary).
-        assert "x" * 200 in first_out
-        # Output after the quota stopped persistence must still be new.
+        # Exactly one delivery of "keep-me" — committed bytes must not be
+        # duplicated by the RAM tail (resume is set after the boundary chunk).
+        assert first_out.count("keep-me") == 1
+        # Output after the quota stopped persistence must still be served.
         job._append_output(10, 10, b"BUILD FAILED\n")
         new_out, _ = job.get_output(incremental=True)
         assert new_out == "BUILD FAILED\n"

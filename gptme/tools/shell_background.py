@@ -364,21 +364,24 @@ class BackgroundJob:
             return
         with self._buffer_lock:
             if fd == stdout_fd:
+                self._stdout_buffer_start += self._append_to_buffer_locked(
+                    self.stdout_buffer, text
+                )
                 if (
                     self._spool_from_reader
                     and not self._spool_persist_stdout
                     and self._stdout_ram_resume is None
                 ):
-                    # Snapshot position BEFORE appending so the boundary chunk
-                    # (data that crossed the quota/queue limit) is included in
+                    # Snapshot after appending: resume at the end of the
+                    # boundary chunk so committed bytes are not duplicated in
                     # the RAM tail served by _consume_incremental_text.
                     self._stdout_ram_resume = self._stdout_buffer_start + sum(
                         map(len, self.stdout_buffer)
                     )
-                self._stdout_buffer_start += self._append_to_buffer_locked(
-                    self.stdout_buffer, text
-                )
             else:
+                self._stderr_buffer_start += self._append_to_buffer_locked(
+                    self.stderr_buffer, text
+                )
                 if (
                     self._spool_from_reader
                     and not self._spool_persist_stderr
@@ -387,9 +390,6 @@ class BackgroundJob:
                     self._stderr_ram_resume = self._stderr_buffer_start + sum(
                         map(len, self.stderr_buffer)
                     )
-                self._stderr_buffer_start += self._append_to_buffer_locked(
-                    self.stderr_buffer, text
-                )
 
     def _spool_text(self, is_stdout: bool, text: str, *, final: bool) -> None:
         """Commit sanitized complete lines to the live stream before RAM eviction."""
@@ -415,7 +415,7 @@ class BackgroundJob:
                     to_write = "[omitted: pending sanitation window exceeded]\n"
                     leftover = ""
                     setattr(self, discard_attr, True)
-                    self._capture_partial = True
+                    self._note_partial("sanitation_window")
                 else:
                     setattr(self, pending_attr, pending)
                     return
@@ -424,7 +424,7 @@ class BackgroundJob:
                 if len(leftover) > _SPOOL_PENDING_MAX:
                     leftover = ""
                     setattr(self, discard_attr, True)
-                    self._capture_partial = True
+                    self._note_partial("sanitation_window")
                     to_write += "[omitted: pending sanitation window exceeded]\n"
         setattr(self, pending_attr, leftover)
         if not to_write:
@@ -848,7 +848,7 @@ class BackgroundJob:
                     except BlockingIOError:
                         continue
                     except (OSError, ValueError):
-                        self._capture_partial = True
+                        self._note_partial("read_error")
                         open_fds.discard(fd)
                         continue
                     if not raw:
@@ -865,7 +865,7 @@ class BackgroundJob:
         # EOF is not guaranteed: drain limits, read errors and forced stops can
         # also end the reader. Preserve any pending bytes before publishing output.
         if open_fds:
-            self._capture_partial = True
+            self._note_partial("stream_not_drained")
         for fd in (stdout_fd, stderr_fd):
             if fd >= 0:
                 self._append_output(fd, stdout_fd, b"", final=True)
