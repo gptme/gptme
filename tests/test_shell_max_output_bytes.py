@@ -25,50 +25,86 @@ from gptme.tools.shell import (
 # ---------------------------------------------------------------------------
 
 
+def _mock_cfg_no_project(get_env_return=None):
+    """Return a mock config with no project set (env-only path)."""
+    mock_cfg = MagicMock()
+    mock_cfg.get_env.return_value = get_env_return
+    mock_cfg.project = None
+    return mock_cfg
+
+
 def test_default_when_env_unset(monkeypatch):
     """Without any config the default (32 MiB) is returned."""
     monkeypatch.delenv("GPTME_SHELL_MAX_OUTPUT_BYTES", raising=False)
-    mock_cfg = MagicMock()
-    mock_cfg.get_env.return_value = None
-    with patch("gptme.config.get_config", return_value=mock_cfg):
+    with patch("gptme.config.get_config", return_value=_mock_cfg_no_project()):
         result = _get_max_output_bytes()
     assert result == _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_env_override_bytes(monkeypatch):
     """A plain integer env value is accepted."""
-    mock_cfg = MagicMock()
-    mock_cfg.get_env.return_value = "8388608"  # 8 MiB
-    with patch("gptme.config.get_config", return_value=mock_cfg):
+    with patch(
+        "gptme.config.get_config",
+        return_value=_mock_cfg_no_project("8388608"),  # 8 MiB
+    ):
         result = _get_max_output_bytes()
     assert result == 8 * 1024 * 1024
 
 
 def test_env_override_suffix(monkeypatch):
     """A suffixed value like '16M' is parsed correctly."""
-    mock_cfg = MagicMock()
-    mock_cfg.get_env.return_value = "16M"
-    with patch("gptme.config.get_config", return_value=mock_cfg):
+    with patch(
+        "gptme.config.get_config",
+        return_value=_mock_cfg_no_project("16M"),
+    ):
         result = _get_max_output_bytes()
     assert result == 16 * 1024 * 1024
 
 
 def test_invalid_env_falls_back_to_default():
     """An unparseable value logs a warning and returns the default."""
-    mock_cfg = MagicMock()
-    mock_cfg.get_env.return_value = "not-a-number"
-    with patch("gptme.config.get_config", return_value=mock_cfg):
+    with patch(
+        "gptme.config.get_config",
+        return_value=_mock_cfg_no_project("not-a-number"),
+    ):
         result = _get_max_output_bytes()
     assert result == _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_zero_env_falls_back_to_default():
     """A zero or negative value falls back to the default (doesn't disable cap)."""
-    mock_cfg = MagicMock()
-    mock_cfg.get_env.return_value = "0"
-    with patch("gptme.config.get_config", return_value=mock_cfg):
+    with patch(
+        "gptme.config.get_config",
+        return_value=_mock_cfg_no_project("0"),
+    ):
         result = _get_max_output_bytes()
     assert result == _DEFAULT_MAX_OUTPUT_BYTES
+
+
+def test_spool_quota_mb_from_project_config():
+    """[shell] spool_quota_mb in gptme.toml overrides the default when no env var is set."""
+    from gptme.config.models import ProjectConfig, ShellConfig
+
+    project_cfg = ProjectConfig(shell=ShellConfig(spool_quota_mb=128))
+    mock_cfg = MagicMock()
+    mock_cfg.get_env.return_value = None
+    mock_cfg.project = project_cfg
+    with patch("gptme.config.get_config", return_value=mock_cfg):
+        result = _get_max_output_bytes()
+    assert result == 128 * 1024 * 1024
+
+
+def test_env_takes_precedence_over_project_spool_quota():
+    """GPTME_SHELL_MAX_OUTPUT_BYTES env var beats [shell] spool_quota_mb."""
+    from gptme.config.models import ProjectConfig, ShellConfig
+
+    project_cfg = ProjectConfig(shell=ShellConfig(spool_quota_mb=128))
+    mock_cfg = MagicMock()
+    mock_cfg.get_env.return_value = "16M"  # env override: 16 MiB, not 128
+    mock_cfg.project = project_cfg
+    with patch("gptme.config.get_config", return_value=mock_cfg):
+        result = _get_max_output_bytes()
+    assert result == 16 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
