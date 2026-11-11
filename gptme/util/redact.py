@@ -366,13 +366,38 @@ def _live_secret_literals(environ: Mapping[str, str] | None = None) -> list[str]
 
 
 def _redact_live_literals(line: str, literals: list[str]) -> tuple[str, bool]:
-    """Replace every occurrence of a live secret value, longest first."""
-    changed = False
+    """Redact the union of live-value and overlapping credential-shape spans."""
+    spans: list[tuple[int, int]] = []
     for literal in literals:
-        if literal in line:
-            line = line.replace(literal, _REDACTED)
-            changed = True
-    return line, changed
+        start = line.find(literal)
+        while start >= 0:
+            spans.append((start, start + len(literal)))
+            start = line.find(literal, start + 1)
+    if not spans:
+        return line, False
+
+    # Discover shape matches on the original text too. Either pass can match
+    # only part of the other's credential; replacing either first would hide
+    # the evidence needed to remove the rest. Merge their original spans.
+    spans.extend(
+        (match.start() + len(match.group("jwt_diff") or ""), match.end())
+        for match in _EMBEDDED_VENDOR_LITERAL_RE.finditer(line)
+    )
+    spans.extend(
+        match.span("val")
+        for match in _EMBEDDED_PAIR_RE.finditer(line)
+        if _EMBEDDED_SECRET_NAME_RE.search(match.group("key"))
+        and _is_credential_literal(match.group("val"))
+    )
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    for start, end in reversed(merged):
+        line = line[:start] + _REDACTED + line[end:]
+    return line, True
 
 
 def redact_secret_values_from_output(content: str) -> tuple[str, int]:
@@ -400,11 +425,6 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     for line in content.splitlines(keepends=True):
         body = line.rstrip("\r\n")
         ending = line[len(body) :]
-        # Exact values must run first: shape-based passes can otherwise replace
-        # only a prefix, leaving a tail that no longer matches the live value.
-        live_changed = False
-        if literals:
-            body, live_changed = _redact_live_literals(body, literals)
         match = _ENV_ASSIGN_RE.search(body) or _COLON_ASSIGN_RE.search(body)
         # A dotenv comment is not part of the credential literal. Remove the
         # comment only for classification; redaction still covers the full RHS.
@@ -416,8 +436,11 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
         if match and _looks_like_output_secret(value):
             body, changed = _redact_line(body), True
         else:
+            live_changed = False
+            if literals:
+                body, live_changed = _redact_live_literals(body, literals)
             body, changed = _redact_embedded_secrets(body)
-        changed = changed or live_changed
+            changed = changed or live_changed
         out.append(body + ending)
         redacted += changed
     return "".join(out), redacted
