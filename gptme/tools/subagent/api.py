@@ -1559,6 +1559,19 @@ def subagent_continue(
     except FileNotFoundError:
         workspace = sa.logdir.parent
 
+    # Take the cross-process writer lease BEFORE publishing the new attempt, so a
+    # rejected parent never overwrites the active writer's durable metadata or
+    # outcome. The worker owns it from here and hands it to the child.
+    writer_lease = None
+    if sa.execution_mode == "subprocess":
+        try:
+            writer_lease = _exec.acquire_writer_lease(sa.logdir)
+        except BlockingIOError:
+            raise ValueError(
+                f"Subagent '{agent_id}' is still running (writer lease held). "
+                "Use subagent_steer() instead."
+            ) from None
+
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
     continuation_started_at = time.time()
@@ -1605,6 +1618,7 @@ def subagent_continue(
                         profile=sa.profile,
                         reasoning_effort=sa.reasoning_effort,
                         resume=True,
+                        writer_lease=writer_lease,
                     )
                     with _subagents_lock:
                         current = next(
@@ -1682,6 +1696,8 @@ def subagent_continue(
                     parent_branch=sa.parent_branch,
                 )
         finally:
+            if writer_lease is not None:
+                writer_lease.close()  # no-op if the launcher already closed it
             prompt_queue_closed.set()
             release_thread()
             sem.release()
@@ -1720,25 +1736,31 @@ def subagent_continue(
         parent_branch=sa.parent_branch,
         prompt_queue_closed=prompt_queue_closed,
     )
-    # Re-check while replacing the registry entry: two callers can otherwise
-    # both observe the same terminal child and launch concurrent writers against
-    # one conversation log.
-    with _subagents_lock:
-        current = next((s for s in _subagents if s.agent_id == agent_id), None)
-        if current is not sa:
-            raise ValueError(
-                f"Subagent '{agent_id}' changed while continuation was starting."
-            )
-        _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
-        _subagents.append(continued)
-        persist_subagent_meta(continued)
-        # Start while holding the registry lock. A concurrent caller will then
-        # observe a live thread instead of the not-yet-started handoff object.
-        thread.start()
-        # Restoration checks registry identity under this same lock, so it
-        # cannot insert the previous attempt's result after this handoff.
-        with _subagent_results_lock:
-            _subagent_results.pop(agent_id, None)
+    try:
+        # Re-check while replacing the registry entry: two callers can otherwise
+        # both observe the same terminal child and launch concurrent writers against
+        # one conversation log.
+        with _subagents_lock:
+            current = next((s for s in _subagents if s.agent_id == agent_id), None)
+            if current is not sa:
+                raise ValueError(
+                    f"Subagent '{agent_id}' changed while continuation was starting."
+                )
+            _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+            _subagents.append(continued)
+            persist_subagent_meta(continued)
+            # Start while holding the registry lock. A concurrent caller will then
+            # observe a live thread instead of the not-yet-started handoff object.
+            thread.start()
+            # Restoration checks registry identity under this same lock, so it
+            # cannot insert the previous attempt's result after this handoff.
+            with _subagent_results_lock:
+                _subagent_results.pop(agent_id, None)
+    except BaseException:
+        # The worker never took ownership of the lease; do not strand it.
+        if writer_lease is not None:
+            writer_lease.close()
+        raise
     start_gate.set()
     if sa.max_time is not None:
         timer = threading.Timer(
