@@ -428,3 +428,68 @@ def test_continue_with_absent_workspace_fails_and_frees_lease(
             api._subagents[:] = [s for s in api._subagents if s.agent_id != sa.agent_id]
         with api._subagent_results_lock:
             api._subagent_results.pop(sa.agent_id, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_successive_continuations_do_not_let_first_overwrite_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_continuation() must guard its result write with attempt=sa.
+
+    When a second continuation starts before the first one's run_continuation()
+    writes its result, the first must not overwrite the second's cache slot.
+    The fix: pass attempt=sa to set_subagent_result_if_absent in run_continuation.
+    """
+    from gptme.tools.subagent import api
+    from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text("")
+
+    sa1 = Subagent(
+        agent_id="two-conts",
+        prompt="first",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        execution_mode="subprocess",
+        started_at=time.time() - 20,
+    )
+    sa2 = Subagent(
+        agent_id="two-conts",
+        prompt="second",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        execution_mode="subprocess",
+        started_at=time.time() - 5,
+    )
+
+    # Simulate: registry holds sa2 (second continuation superseded sa1).
+    with api._subagents_lock:
+        api._subagents.append(sa2)
+
+    # sa1's run_continuation writes stale result — attempt=sa1 should block it.
+    stale = ReturnType("failure", "first continuation stale result")
+    wrote = set_subagent_result_if_absent("two-conts", stale, attempt=sa1)
+    assert not wrote, (
+        "stale first-continuation write must be blocked when sa2 is registered"
+    )
+
+    # sa2's run_continuation writes its result — attempt=sa2 should succeed.
+    good = ReturnType("success", "second continuation result")
+    wrote2 = set_subagent_result_if_absent("two-conts", good, attempt=sa2)
+    assert wrote2, "second continuation write must succeed"
+
+    with api._subagent_results_lock:
+        cached = api._subagent_results.get("two-conts")
+    assert cached is not None and cached.status == "success", (
+        f"cached result must be from second continuation, got {cached!r}"
+    )
+
+    # Cleanup
+    with api._subagents_lock:
+        api._subagents[:] = [s for s in api._subagents if s.agent_id != "two-conts"]
+    with api._subagent_results_lock:
+        api._subagent_results.pop("two-conts", None)
