@@ -562,3 +562,63 @@ def test_receipt_labels_representation_counts_and_unknown_raw_counts(
         assert receipt[name]["raw_accepted_bytes"] is None
         assert receipt[name]["raw_pending_bytes"] is None
         assert receipt[name]["raw_discarded_bytes"] is None
+
+
+def test_writer_failure_counts_unwritten_and_drained_bytes_as_discarded(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    stream = open_private_output_file(tmp_path, "shell-jobs", "lost.live")
+    job = BackgroundJob(1, "writer-lost", Mock(returncode=0), 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue()
+    job._commit_spool_bytes(True, b"before failure\n")
+    job._commit_spool_bytes(True, b"drained leftover\n")
+
+    def fail_write(*args):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(job, "_write_spool_payload", fail_write)
+    try:
+        job._spool_writer_loop()
+        job._finalize_spools()
+        assert job.receipt_path is not None
+        receipt = json.loads(job.receipt_path.read_text())
+        lost = len(b"before failure\n") + len(b"drained leftover\n")
+        assert receipt["stdout"]["committed_bytes"] == 0
+        assert receipt["stdout"]["discarded_bytes"] >= lost
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_incremental_read_continues_from_ram_after_persistence_stops(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 64)
+    process = Mock(returncode=None)
+    process.stdout.fileno.return_value = 10
+    stream = open_private_output_file(tmp_path, "shell-jobs", "late.live")
+    job = BackgroundJob(1, "late-output", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    try:
+        job._append_output(10, 10, b"keep-me\n" + b"x" * 200 + b"\n")
+        assert not job._spool_persist_stdout
+        first_out, _ = job.get_output(incremental=True)
+        assert "keep-me" in first_out
+        # Output after the quota stopped persistence must still be new.
+        job._append_output(10, 10, b"BUILD FAILED\n")
+        new_out, _ = job.get_output(incremental=True)
+        assert new_out == "BUILD FAILED\n"
+        again_out, _ = job.get_output(incremental=True)
+        assert again_out == ""
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
