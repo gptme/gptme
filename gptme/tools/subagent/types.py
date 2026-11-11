@@ -41,6 +41,7 @@ Status = Literal[
     "budget_exceeded",
     "cancelled",
     "blocked_external",
+    "cleanup_required",
 ]
 Role = Literal["general", "explore", "implement", "verify"]
 
@@ -368,6 +369,13 @@ class Subagent:
     # String isolation mode ("worktree" or None). When set, cleanup uses smart
     # behaviour: auto-remove if unchanged, preserve branch if changes exist.
     isolation_mode: Literal["worktree"] | None = None
+    # Retention: when True, the isolated worktree is NOT auto-cleaned after the
+    # subagent finishes.  An explicit subagent_release() call is required.  Only
+    # meaningful when isolated=True.
+    retain_worktree: bool = False
+    # Unix timestamp after which continuation eligibility is revoked and the
+    # retained worktree may be GC'd.  None = no deadline.
+    retention_deadline: float | None = None
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
     role: Role | None = None
@@ -543,10 +551,27 @@ class Subagent:
         elif not (self.logdir / "conversation.jsonl").exists():
             return f"Subagent '{self.agent_id}' has no conversation log to continue."
         if self.isolated:
-            return (
-                f"Subagent '{self.agent_id}' ran in an isolated workspace and "
-                "cannot be continued; any preserved work is reported in its result."
-            )
+            if self.retain_worktree:
+                # Retained worktrees support continuation until the deadline expires.
+                if (
+                    self.retention_deadline is not None
+                    and time.time() > self.retention_deadline
+                ):
+                    return (
+                        f"Subagent '{self.agent_id}' retained workspace has expired "
+                        "(retention_deadline passed). Call subagent_release() to GC it."
+                    )
+                # Worktree must still exist to continue.
+                if self.worktree_path is not None and not self.worktree_path.exists():
+                    return (
+                        f"Subagent '{self.agent_id}' retained workspace no longer exists "
+                        f"at {self.worktree_path}. It may have been released already."
+                    )
+            else:
+                return (
+                    f"Subagent '{self.agent_id}' ran in an isolated workspace and "
+                    "cannot be continued; any preserved work is reported in its result."
+                )
         if not allow_cancelled:
             # Check in-memory cache first so a failed persist does not let the
             # same-process caller bypass the cancellation guard.

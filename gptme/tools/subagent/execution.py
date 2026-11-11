@@ -1048,11 +1048,22 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     - No local changes → remove directory AND branch (full cleanup).
     - Local changes → preserve branch, remove directory only.
 
+    When ``subagent.retain_worktree=True`` the caller has requested the
+    workspace to stay alive for explicit continuation and release.  Auto-cleanup
+    is skipped; ``subagent_release()`` must be called to GC the worktree later.
+
     Returns:
         The preserved branch name when changes exist and smart cleanup is
         active; ``None`` otherwise.
     """
     if not subagent.isolated or not subagent.worktree_path:
+        return None
+
+    if getattr(subagent, "retain_worktree", False):
+        logger.debug(
+            f"Subagent {subagent.agent_id!r}: worktree retained at "
+            f"{subagent.worktree_path} (retain_worktree=True)"
+        )
         return None
 
     worktree_path = subagent.worktree_path
@@ -1093,6 +1104,22 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     except Exception as e:
         logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
         return None
+
+
+def _cleanup_isolation_forced(subagent: "Subagent") -> str | None:
+    """Like ``_cleanup_isolation`` but bypasses the retain_worktree guard.
+
+    Used by ``subagent_release()`` after the caller has verified the workspace
+    is safe to delete (or passed force=True).  Returns the preserved branch
+    name on smart cleanup, or ``None``.
+    """
+    # Temporarily shadow retain_worktree by cloning with a modified copy.
+    # Subagent is frozen, so we use object.__setattr__ on a fresh instance.
+    import copy
+
+    sa_copy = copy.copy(subagent)
+    object.__setattr__(sa_copy, "retain_worktree", False)
+    return _cleanup_isolation(sa_copy)
 
 
 def _drain_progress_file(

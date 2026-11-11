@@ -193,6 +193,8 @@ def subagent(
     context_turns: int | None = None,
     workdir: str | Path | None = None,
     reasoning_effort: str | None = None,
+    retain_worktree: bool = False,
+    retention_deadline: float | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -371,6 +373,16 @@ def subagent(
 
             Use this to route a cheap, high-volume subagent to low effort while
             the parent (or a verification subagent) stays at high effort.
+        retain_worktree: When True and ``isolated=True``, skip the automatic
+            worktree cleanup after the subagent finishes.  The workspace stays
+            alive so the subagent can be continued later (via
+            ``subagent_continue()``).  Call ``subagent_release()`` explicitly
+            to GC the worktree when done.  Ignored when ``isolated=False``.
+        retention_deadline: Unix timestamp (``time.time()`` epoch) after which
+            continuation eligibility is revoked.  ``subagent_continue()`` will
+            refuse after this time and the worktree becomes GC-eligible.
+            ``None`` (default) means no deadline.  Only meaningful when
+            ``retain_worktree=True``.
 
     Returns:
         None: Starts asynchronous execution.
@@ -396,6 +408,10 @@ def subagent(
     if isolation is not None and isolation != "worktree":
         raise ValueError(
             f"Unknown isolation mode: {isolation!r}. Supported values: 'worktree'."
+        )
+    if retain_worktree and not isolated and isolation is None:
+        raise ValueError(
+            "retain_worktree=True requires isolated=True or isolation='worktree'."
         )
 
     # isolation="worktree" is the string-based API equivalent of isolated=True.
@@ -882,6 +898,8 @@ def subagent(
             isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            retain_worktree=retain_worktree,
+            retention_deadline=retention_deadline,
             role=role,
             max_time=max_time,
             context_turns=context_turns,
@@ -1026,6 +1044,8 @@ def subagent(
             isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            retain_worktree=retain_worktree,
+            retention_deadline=retention_deadline,
             timeout=timeout,
             role=role,
             max_time=max_time,
@@ -1209,6 +1229,8 @@ def subagent(
             isolation_mode=isolation,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            retain_worktree=retain_worktree,
+            retention_deadline=retention_deadline,
             role=role,
             redact_secrets=redact_secrets,
             context_window=context_window,
@@ -1361,6 +1383,75 @@ def subagent_cancel(agent_id: str) -> str:
         f"Subagent '{agent_id}' marked as cancelled. "
         "The background thread will stop at its next step boundary."
     )
+
+
+def subagent_release(agent_id: str, *, force: bool = False) -> dict:
+    """Explicitly release and GC a retained isolated workspace.
+
+    Only valid for subagents launched with ``retain_worktree=True``.  After
+    the subagent finishes, its worktree stays alive until this function is
+    called (or the retention_deadline expires and the caller GCs manually).
+
+    Safety rules (enforced unless ``force=True``):
+    - The writer must have stopped (``is_running()`` must be False).
+    - The worktree must not contain uncommitted/unpublished changes.  If it
+      does, the worktree is left untouched and the caller receives a
+      ``"cleanup_required"`` result with the path and owner for manual action.
+
+    Args:
+        agent_id: The subagent whose workspace to release.
+        force: Skip the dirty-check and delete unconditionally.  Use with
+               care — this may discard unpublished work.
+
+    Returns:
+        A dict with ``status`` (``"released"`` or ``"cleanup_required"``),
+        plus ``path`` and ``owner`` when cleanup_required.
+
+    Raises:
+        ValueError: If the subagent is not found, still running, or was not
+                    launched with ``retain_worktree=True``.
+    """
+    sa = _find_subagent(agent_id)
+    if sa is None:
+        raise ValueError(f"Subagent {agent_id!r} not found.")
+    if sa.is_running():
+        raise ValueError(
+            f"Subagent '{agent_id}' is still running. Wait for it to finish first."
+        )
+    if not sa.retain_worktree:
+        raise ValueError(
+            f"Subagent '{agent_id}' was not launched with retain_worktree=True."
+        )
+
+    worktree_path = sa.worktree_path
+    if worktree_path is None or not worktree_path.exists():
+        # Already gone — idempotent success.
+        return {"status": "released", "path": None}
+
+    if not force:
+        from ...util.git_worktree import worktree_is_clean
+
+        try:
+            is_clean = worktree_is_clean(worktree_path)
+        except Exception:
+            is_clean = False
+
+        if not is_clean:
+            return {
+                "status": "cleanup_required",
+                "path": str(worktree_path),
+                "owner": agent_id,
+                "reason": (
+                    "worktree has uncommitted changes or an unpushed branch. "
+                    "Publish or discard the work, then call subagent_release() "
+                    "again, or pass force=True to delete unconditionally."
+                ),
+            }
+
+    path_str = str(worktree_path)
+    _exec._cleanup_isolation_forced(sa)
+    logger.info(f"Subagent {agent_id!r}: retained workspace released at {path_str}")
+    return {"status": "released", "path": path_str}
 
 
 def subagent_steer(agent_id: str, message: str) -> str:
