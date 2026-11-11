@@ -116,6 +116,8 @@ from .statusline import LogStats, build_payload, run_statusline
 if TYPE_CHECKING:
     from textual.timer import Timer
 
+    from ..tools.subagent import SubagentSnapshot
+
 
 logger = logging.getLogger(__name__)
 
@@ -2414,7 +2416,7 @@ class WorkOverviewScreen(ModalScreen):
         super().__init__()
         self._logdir = logdir
         self._branch = branch
-        self._children: list = []
+        self._children: list[SubagentSnapshot] = []
         self._cursor = 0
 
     def _snapshot_summary(self) -> str:
