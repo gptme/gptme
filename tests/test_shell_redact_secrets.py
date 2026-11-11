@@ -627,6 +627,16 @@ def test_live_prefix_does_not_hide_longer_shaped_secret(monkeypatch, template):
     )
 
 
+@pytest.mark.parametrize("separator", ["=", ": "])
+def test_live_secret_in_assignment_name_is_redacted(monkeypatch, separator):
+    monkeypatch.setenv("SERVICE_TOKEN", LIVE_ALPHA)
+    text = f"TOKEN_{LIVE_ALPHA}{separator}{GH_TOKEN}\n"
+    assert redact_secret_values_from_output(text) == (
+        f"TOKEN_[REDACTED]{separator}[REDACTED]\n",
+        1,
+    )
+
+
 def test_live_values_are_applied_longest_first(monkeypatch):
     """A value that is a prefix of another must not survive as a remainder."""
     monkeypatch.setenv("SHORT_API_KEY", LIVE_ALPHA[:16])

@@ -395,9 +395,13 @@ def _redact_live_literals(line: str, literals: list[str]) -> tuple[str, bool]:
             merged[-1] = (merged[-1][0], max(merged[-1][1], end))
         else:
             merged.append((start, end))
-    for start, end in reversed(merged):
-        line = line[:start] + _REDACTED + line[end:]
-    return line, True
+    parts: list[str] = []
+    previous = 0
+    for start, end in merged:
+        parts.extend((line[previous:start], _REDACTED))
+        previous = end
+    parts.append(line[previous:])
+    return "".join(parts), True
 
 
 def redact_secret_values_from_output(content: str) -> tuple[str, int]:
@@ -435,6 +439,9 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
         )
         if match and _looks_like_output_secret(value):
             body, changed = _redact_line(body), True
+            # The preserved name can itself contain a live value.
+            if literals:
+                body, _ = _redact_live_literals(body, literals)
         else:
             live_changed = False
             if literals:
