@@ -605,6 +605,17 @@ def test_live_value_next_to_embedded_credential_counts_once(monkeypatch):
     assert out == "{'GITHUB_TOKEN': '[REDACTED]', 'r2': '[REDACTED]'}\n"
 
 
+@pytest.mark.parametrize("ending", ["", "\n", "\r\n"])
+@pytest.mark.parametrize("template", ["{}", "seen: {}", "{{'value': '{}'}}"])
+def test_live_value_is_redacted_before_partial_vendor_match(
+    monkeypatch, template, ending
+):
+    value = "ya" + "29." + "abcdefghijklmnopqrstuvwx.extra-sensitive-tail"
+    monkeypatch.setenv("SERVICE_TOKEN", value)
+    out, n = redact_secret_values_from_output(template.format(value) + ending)
+    assert (out, n) == (template.format("[REDACTED]") + ending, 1)
+
+
 def test_live_values_are_applied_longest_first(monkeypatch):
     """A value that is a prefix of another must not survive as a remainder."""
     monkeypatch.setenv("SHORT_API_KEY", LIVE_ALPHA[:16])

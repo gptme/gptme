@@ -400,6 +400,11 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
     for line in content.splitlines(keepends=True):
         body = line.rstrip("\r\n")
         ending = line[len(body) :]
+        # Exact values must run first: shape-based passes can otherwise replace
+        # only a prefix, leaving a tail that no longer matches the live value.
+        live_changed = False
+        if literals:
+            body, live_changed = _redact_live_literals(body, literals)
         match = _ENV_ASSIGN_RE.search(body) or _COLON_ASSIGN_RE.search(body)
         # A dotenv comment is not part of the credential literal. Remove the
         # comment only for classification; redaction still covers the full RHS.
@@ -412,9 +417,7 @@ def redact_secret_values_from_output(content: str) -> tuple[str, int]:
             body, changed = _redact_line(body), True
         else:
             body, changed = _redact_embedded_secrets(body)
-        if literals:
-            body, live_changed = _redact_live_literals(body, literals)
-            changed = changed or live_changed
+        changed = changed or live_changed
         out.append(body + ending)
         redacted += changed
     return "".join(out), redacted
