@@ -1087,9 +1087,12 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     from ...util.git_worktree import cleanup_worktree
 
     try:
-        # Smart cleanup: preserve branch when isolation="worktree" was used
-        # and the worktree has local changes so the orchestrator can merge them.
-        keep_if_changed = subagent.isolation_mode == "worktree"
+        # Smart cleanup: preserve the branch whenever this IS a git worktree so
+        # the orchestrator can merge committed work.  Previously only fired for
+        # isolation_mode == "worktree"; an isolated=True subagent without an
+        # explicit isolation param has isolation_mode=None but still uses a git
+        # worktree, and the old check silently dropped its commits on force GC.
+        keep_if_changed = subagent.repo_path is not None
         preserved_branch = cleanup_worktree(
             subagent.worktree_path,
             subagent.repo_path,
