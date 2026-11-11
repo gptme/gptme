@@ -46,6 +46,8 @@ from .hooks import notify_completion, notify_progress
 from .persistence import persist_subagent_meta
 from .types import (
     ReturnType,
+    _subagents,
+    _subagents_lock,
     preserved_notice,
     set_subagent_result_if_absent,
     update_subagent_result_with_branch,
@@ -1514,11 +1516,19 @@ def _monitor_subprocess(
         tool_uses=tool_uses,
         duration_s=duration_s,
     )
-    if not set_subagent_result_if_absent(subagent.agent_id, final_result):
-        # Timeout/cancel won the cache race. Patch the stored result with
-        # branch info (mirrors the thread-mode fallback in api.py) so
-        # callers can still find preserved work.
-        if preserved_branch:
+    if not set_subagent_result_if_absent(
+        subagent.agent_id, final_result, attempt=subagent
+    ):
+        # Timeout/cancel won the cache race (or a continuation superseded this
+        # attempt). Patch the stored result with branch info (mirrors the
+        # thread-mode fallback in api.py) so callers can still find preserved
+        # work, unless the cached result now belongs to a resumed attempt.
+        with _subagents_lock:
+            current = next(
+                (s for s in _subagents if s.agent_id == subagent.agent_id), None
+            )
+            superseded = current is not None and current is not subagent
+        if preserved_branch and not superseded:
             update_subagent_result_with_branch(
                 subagent.agent_id,
                 preserved_branch,
