@@ -294,3 +294,86 @@ def test_continue_rejected_by_busy_lease_leaves_active_attempt_untouched(
             api._subagents[:] = [s for s in api._subagents if s is not sa]
         with api._subagent_results_lock:
             api._subagent_results.pop(sa.agent_id, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_stale_monitor_cannot_publish_into_resumed_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A previous attempt's monitor must not cache its result for the resumed attempt.
+
+    The child exits (lease released, ``poll()`` set) a moment before its monitor
+    thread caches the outcome. A continuation that lands in that window starts a
+    new generation; the late monitor then writes the OLD result, which makes the
+    running new attempt report a stale terminal status.
+    """
+    from gptme.tools.subagent import api, execution
+    from gptme.tools.subagent.types import ReturnType
+
+    (tmp_path / "conversation.jsonl").write_text("")
+    old_proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    old_proc.wait()
+    sa = Subagent(
+        agent_id="stale-gen",
+        prompt="test",
+        thread=None,
+        logdir=tmp_path,
+        model=None,
+        execution_mode="subprocess",
+        process=old_proc,
+        started_at=time.time() - 10,
+    )
+    with api._subagents_lock:
+        api._subagents.append(sa)
+
+    # Gen 1's monitor is delayed right before it caches its outcome.
+    reached = threading.Event()
+    proceed = threading.Event()
+    real_set = execution.set_subagent_result_if_absent
+
+    def delayed_set(agent_id: str, result: ReturnType, **kwargs: object) -> bool:
+        reached.set()
+        assert proceed.wait(10)
+        return real_set(agent_id, result, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(execution, "set_subagent_result_if_absent", delayed_set)
+    monkeypatch.setattr(execution, "_poll_subprocess_progress", lambda *a, **k: None)
+    monkeypatch.setattr(api, "persist_subagent_meta", lambda sa: None)
+
+    # Gen 2: the continuation's child is alive and its monitor blocks.
+    gen2_alive = threading.Event()
+    gen2_release = threading.Event()
+
+    class _LiveProc:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(
+        execution, "_run_subagent_subprocess", lambda *a, **k: _LiveProc()
+    )
+
+    def blocking_monitor(sub: Subagent) -> None:
+        gen2_alive.set()
+        gen2_release.wait(10)
+
+    stale = threading.Thread(target=execution._monitor_subprocess, args=(sa,))
+    try:
+        stale.start()
+        assert reached.wait(10)
+        # Child already exited: continuation is accepted before the outcome lands.
+        monkeypatch.setattr(execution, "_monitor_subprocess", blocking_monitor)
+        api.subagent_continue(sa.agent_id, "again")
+        assert gen2_alive.wait(10)
+        proceed.set()
+        stale.join(10)
+        with api._subagent_results_lock:
+            leaked = api._subagent_results.get(sa.agent_id)
+        assert leaked is None, f"stale generation cached {leaked!r} for resumed attempt"
+    finally:
+        proceed.set()
+        gen2_release.set()
+        stale.join(10)
+        with api._subagents_lock:
+            api._subagents[:] = [s for s in api._subagents if s.agent_id != sa.agent_id]
+        with api._subagent_results_lock:
+            api._subagent_results.pop(sa.agent_id, None)

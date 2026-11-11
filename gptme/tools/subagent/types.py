@@ -164,15 +164,29 @@ def _persist_cached_outcome(agent_id: str) -> None:
         persist_subagent_outcome(sa, result)
 
 
-def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
+def set_subagent_result_if_absent(
+    agent_id: str, result: "ReturnType", *, attempt: "Subagent | None" = None
+) -> bool:
     """Cache a subagent result unless another terminal result already exists.
 
     The winning result is also persisted, so it survives a parent restart.
+
+    Pass ``attempt`` from a monitor that owns one specific generation. A
+    continuation replaces the registry entry, so a late monitor from the previous
+    generation (its child exited before the continuation was accepted) would
+    otherwise cache the OLD outcome for the resumed attempt. The identity check
+    shares continuation's lock order (registry, then results). An unregistered
+    attempt is not superseded and publishes normally.
     """
-    with _subagent_results_lock:
-        if agent_id in _subagent_results:
-            return False
-        _subagent_results[agent_id] = result
+    with _subagents_lock:
+        if attempt is not None:
+            current = next((s for s in _subagents if s.agent_id == agent_id), None)
+            if current is not None and current is not attempt:
+                return False
+        with _subagent_results_lock:
+            if agent_id in _subagent_results:
+                return False
+            _subagent_results[agent_id] = result
     _persist_cached_outcome(agent_id)
     return True
 
