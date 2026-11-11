@@ -745,6 +745,75 @@ def test_load_mcp_server_reenables_disabled_user_server_when_chat_mcp_exists(
         _set_available_tools_cache(None)
 
 
+def test_config_override_lands_on_existing_servers_owned_layer_entry(mock_mcp_client):
+    """P1 regression: override fields must reach the layer entry that connect() reads.
+
+    Config.mcp.servers is a merged copy; _mcp_layer_for_server returns `owned`,
+    the actual entry in the owning layer.  Before the fix, overrides only applied
+    to the merged copy, so connect() saw the original command and the override was
+    silently dropped.
+    """
+    from gptme import tools as tools_mod
+    from gptme.tools import _set_available_tools_cache
+
+    cfg = Config()
+    server = MCPServerConfig(
+        name="my-server", enabled=True, command="old-command", args=[]
+    )
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[server])
+    _set_available_tools_cache([])
+
+    def connect(name: str):
+        # Verify that the layer entry has the overridden command when connect() fires.
+        assert cfg.user.mcp is not None
+        owned = next(s for s in cfg.user.mcp.servers if s.name == name)
+        assert owned.command == "new-command", (
+            f"expected new-command, got {owned.command!r}"
+        )
+        assert owned.args == ["--new-arg"]
+        return mock_mcp_client.connect.return_value
+
+    mock_mcp_client.connect.side_effect = connect
+    try:
+        with (
+            patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+            patch("gptme.tools.mcp_adapter.set_config"),
+            patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+        ):
+            result = load_mcp_server(
+                "my-server", {"command": "new-command", "args": ["--new-arg"]}
+            )
+        assert "Successfully loaded" in result, result
+        # Layer entry must retain the overridden values after success.
+        assert server.command == "new-command"
+        assert server.args == ["--new-arg"]
+    finally:
+        tools_mod.clear_tools()
+        _set_available_tools_cache(None)
+
+
+def test_failed_override_on_existing_server_restores_owned_layer_entry(mock_mcp_client):
+    """Rollback must restore the owned layer entry's fields, not just the merged copy."""
+    cfg = Config()
+    server = MCPServerConfig(
+        name="my-server", enabled=True, command="old-command", args=[]
+    )
+    cfg.user.mcp = MCPConfig(enabled=True, servers=[server])
+    mock_mcp_client.connect.side_effect = RuntimeError("connection failed")
+    with (
+        patch("gptme.tools.mcp_adapter.get_config", return_value=cfg),
+        patch("gptme.tools.mcp_adapter.set_config"),
+        patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client),
+    ):
+        result = load_mcp_server(
+            "my-server", {"command": "new-command", "args": ["--new-arg"]}
+        )
+    assert "connection failed" in result
+    # Owned layer entry must be restored to its pre-load state.
+    assert server.command == "old-command"
+    assert server.args == []
+
+
 def test_load_mcp_server_activates_tools_in_context(mock_config, mock_mcp_client):
     """After load, the server's tools must be selectable/executable via get_tools()/get_tool(), not just listed in the cache."""
     from gptme import tools as tools_mod

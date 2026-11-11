@@ -706,6 +706,17 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
     previous_user_mcp = config.user.mcp
     layer, owned = _mcp_layer_for_server(config, server_config.name)
     was_layer_enabled = layer.enabled
+    # When the server already exists in a layer, the override must also land on
+    # `owned` (the actual layer entry that connect() reads), not just on the
+    # merged `server_config` copy.  Config.mcp builds its servers list by
+    # appending the same objects from each layer, so server_config IS owned for
+    # user-layer servers; for a chat/project-layer server they may differ.
+    # Either way, applying the override to owned is correct (and idempotent when
+    # they are the same object).
+    if owned is not None and config_override:
+        for _f in ("command", "args", "url", "env", "headers"):
+            if _f in config_override:
+                setattr(owned, _f, config_override[_f])
     # The owning layer supplies the server entry, but the highest MCP layer
     # controls the effective enabled flag checked by MCPClient.connect().
     effective_layer = (
@@ -791,6 +802,13 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
             if was_server_config_fields is not None:
                 for _f, _v in was_server_config_fields.items():
                     setattr(server_config, _f, _v)
+                # Restore owned too: it may be a distinct object from
+                # server_config (chat/project layer vs user layer) even though
+                # was_server_config_fields holds the right original values for
+                # both, since both came from the same underlying config entry.
+                if owned is not None:
+                    for _f, _v in was_server_config_fields.items():
+                        setattr(owned, _f, _v)
         layer.enabled = was_layer_enabled
         effective_layer.enabled = was_effective_enabled
         if previous_user_mcp is None:
