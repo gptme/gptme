@@ -180,7 +180,9 @@ def set_subagent_result_if_absent(
     """
     with _subagents_lock:
         if attempt is not None:
-            current = next((s for s in _subagents if s.agent_id == agent_id), None)
+            current = next(
+                (s for s in reversed(_subagents) if s.agent_id == agent_id), None
+            )
             if current is not None and current is not attempt:
                 return False
         with _subagent_results_lock:
