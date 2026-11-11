@@ -1,6 +1,7 @@
 """Complete tool - signals that the autonomous session is finished."""
 
 import contextlib
+import json
 import logging
 import os
 import re
@@ -8,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -391,6 +393,10 @@ def _run_verify_cmd(
 class SessionCompleteException(Exception):
     """Exception raised to signal that the session should end."""
 
+    def __init__(self, message: str = "", *, outcome: str | None = None) -> None:
+        super().__init__(message)
+        self.outcome = outcome
+
 
 def execute_complete(
     code: str | None,
@@ -406,6 +412,49 @@ def execute_complete(
 
 
 def complete_hook(
+    messages: list[Message],
+    workspace: Path | None = None,
+    **kwargs,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Persist an accepted stop, never the complete tool's pre-verification ack."""
+    from ..logmanager import LogManager
+
+    try:
+        yield from _complete_hook(messages, workspace, **kwargs)
+    except SessionCompleteException as exc:
+        manager = kwargs.get("manager") or LogManager.get_current_log()
+        # Prepared provider messages can be merged copies. Record on the owning
+        # transcript, not on those copies; don't mutate an unrelated current log.
+        last_assistant = next(
+            (m for m in reversed(messages) if m.role == "assistant"), None
+        )
+        if (
+            manager is not None
+            and last_assistant is not None
+            and any(
+                m.role == "assistant" and m.timestamp == last_assistant.timestamp
+                for m in current_episode(manager.log.messages)
+            )
+        ):
+            try:
+                manager.append(
+                    Message(
+                        "system",
+                        "Session stop accepted.",
+                        ui_only=True,
+                        hide=True,
+                        metadata={"session_stop_outcome": exc.outcome or "completed"},
+                    )
+                )
+                manager.write(sync=True)
+            except OSError:
+                # Receipt persistence is best-effort; it must not replace the
+                # accepted stop and let the hook registry resume generation.
+                logger.warning("Could not persist accepted session stop", exc_info=True)
+        raise
+
+
+def _complete_hook(
     messages: list[Message],
     workspace: Path | None = None,
     **kwargs,
@@ -678,6 +727,10 @@ def complete_hook(
                         "Verification failed %d time(s); proceeding with session close anyway.",
                         prior_attempts,
                     )
+                    raise SessionCompleteException(
+                        "Completion verification retry limit exhausted",
+                        outcome="verification_failed",
+                    )
 
             logger.info("Complete tool call detected, stopping session immediately")
             raise SessionCompleteException("Session completed via complete tool")
@@ -865,6 +918,22 @@ def _unparsed_fence_hint(content: str) -> str:
     )
 
 
+def _effective_chat(manager: "LogManager"):
+    """Resolve the conversation's chat config, including server sessions."""
+    from ..config import get_config  # fmt: skip
+
+    chat = get_config().chat
+    if chat is None and (logdir := getattr(manager, "logdir", None)) is not None:
+        # Server steps run with the process-level workspace config, whose
+        # ``chat`` is None; the conversation's own config (including its
+        # ``interactive`` flag) lives in its logdir. Resolve it so a human-driven
+        # server/web session is not force-ended as if it were headless.
+        from ..config import ChatConfig  # fmt: skip
+
+        chat = ChatConfig.from_logdir(logdir)
+    return chat
+
+
 def block_budget_hook(
     manager: "LogManager",
 ) -> Generator[Message | StopPropagation, None, None]:
@@ -875,18 +944,8 @@ def block_budget_hook(
     ``STEP_PRE`` hook runs before every step and is the only place to stop it.
     Interactive sessions (including ``-y``) are left alone: a human is present.
     """
-    from ..config import get_config  # fmt: skip
-
     budget = _block_budget()
-    chat = get_config().chat
-    if chat is None and (logdir := getattr(manager, "logdir", None)) is not None:
-        # Server steps run with the process-level workspace config, whose
-        # ``chat`` is None; the conversation's own config (including its
-        # ``interactive`` flag) lives in its logdir. Resolve it so a human-driven
-        # server/web session is not force-ended as if it were headless.
-        from ..config import ChatConfig  # fmt: skip
-
-        chat = ChatConfig.from_logdir(logdir)
+    chat = _effective_chat(manager)
     # ``chat is None`` means no Chat object and no conversation config
     # (library/headless usage) — there is no human at a terminal, so treat it
     # as non-interactive.
@@ -901,6 +960,122 @@ def block_budget_hook(
             f"policy block budget exhausted: {blocks} blocks"
         )
     yield from ()
+
+
+# Structured session-end metadata block.
+#
+# Consumers (gptme-sessions, the judge pipeline, value heartbeat ledgers)
+# otherwise rebuild basic session metadata by walking whole transcripts. One
+# compact JSON line at the tail of the log turns that into a single parse.
+# Emitted as an HTML comment inside a hidden ``ui_only`` system message:
+# ``hide`` keeps it out of terminal prose, and ``ui_only`` keeps
+# ``prepare_messages()`` from sending it to a provider on a resumed session.
+SESSION_END_BLOCK_OPEN = "<!-- gptme:session-end "
+SESSION_END_BLOCK_CLOSE = " -->"
+
+OUTCOME_COMPLETED = "completed"
+OUTCOME_MAX_TURNS = "max_turns"
+OUTCOME_POLICY_BLOCK_BUDGET = "policy_block_budget_exhausted"
+
+
+def _session_usage_totals(messages: "list[Message]") -> tuple[int, int]:
+    """Sum provider-reported token usage over the conversation's assistant turns."""
+    input_tokens = 0
+    output_tokens = 0
+    for m in messages:
+        if m.role != "assistant" or not m.metadata:
+            continue
+        usage = m.metadata.get("usage")
+        if not usage:
+            continue
+        input_tokens += int(usage.get("input_tokens") or 0)
+        output_tokens += int(usage.get("output_tokens") or 0)
+    return input_tokens, output_tokens
+
+
+def _session_outcome(manager: "LogManager", messages: "list[Message]") -> str | None:
+    """Classify why the session ended, from what the log actually recorded.
+
+    Returns ``None`` when the log carries no terminal marker. A conversation
+    that simply returns to the prompt is not a finished run: emitting a block
+    there would put one in every interactive log and change the final message
+    an interactive caller sees.
+    """
+    # The acknowledgement precedes verification and cannot prove success.
+    # Only complete_hook's accepted-stop receipt is authoritative.
+    for m in reversed(current_episode(messages)):
+        if m.role in ("assistant", "user"):
+            break  # A resumed/continued turn invalidates the previous stop.
+        if (
+            m.role == "system"
+            and m.ui_only
+            and not m.call_id
+            and m.content.startswith(SESSION_END_BLOCK_OPEN)
+            and m.content.endswith(SESSION_END_BLOCK_CLOSE)
+        ):
+            # Reopening and closing a finished log is not another run. Stop
+            # before rediscovering an already-reported receipt or budget.
+            return None
+        if (
+            m.role == "system"
+            and not m.call_id
+            and (m.metadata or {}).get("max_steps_stop") is True
+        ):
+            return OUTCOME_MAX_TURNS
+        if m.role == "system" and m.ui_only:
+            outcome = (m.metadata or {}).get("session_stop_outcome")
+            if isinstance(outcome, str):
+                return outcome
+    budget = _block_budget()
+    chat = _effective_chat(manager)
+    # Mirror ``block_budget_hook``: only a non-interactive session can have been
+    # ended by the budget rather than by a human leaving a long-running session.
+    if budget and not (chat is not None and chat.interactive):
+        if count_policy_blocks(messages) >= 2 * budget:
+            return OUTCOME_POLICY_BLOCK_BUDGET
+    return None
+
+
+def _session_wall_seconds(messages: "list[Message]") -> int:
+    """Wall-clock duration covered by the conversation log, in whole seconds."""
+    if not messages:
+        return 0
+    started = min(m.timestamp.timestamp() for m in messages)
+    return max(0, int(time.time() - started))
+
+
+def session_end_metadata_hook(
+    manager: "LogManager", **kwargs: Any
+) -> Generator[Message | StopPropagation, None, None]:
+    """Emit one ``<!-- gptme:session-end {...} -->`` block when a session ends.
+
+    Registered on ``SESSION_END``, which fires exactly once per session: on the
+    CLI completion path (after ``SessionCompleteException``), on normal loop
+    exit, in the TUI, and on last-session server teardown. ``TURN_POST`` was the
+    idea's first suggestion, but it fires on every turn and cannot see the
+    completion signal, so it would need a separate flag to know the run is over.
+    """
+    messages = manager.history_log.messages
+    outcome = _session_outcome(manager, messages)
+    if outcome is None:
+        # No terminal marker: the conversation returned to the prompt or the
+        # harness stopped for a reason the log does not record. Nothing to
+        # report beyond what ``last_activity`` already carries.
+        return
+    input_tokens, output_tokens = _session_usage_totals(messages)
+    payload = {
+        "outcome": outcome,
+        "policy_blocks": count_policy_blocks(messages),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "wall_seconds": _session_wall_seconds(messages),
+    }
+    content = (
+        f"{SESSION_END_BLOCK_OPEN}"
+        f"{json.dumps(payload, separators=(',', ':'))}"
+        f"{SESSION_END_BLOCK_CLOSE}"
+    )
+    yield Message("system", content, ui_only=True, hide=True)
 
 
 def _env_flag(name: str, default: str) -> bool:

@@ -266,6 +266,8 @@ class MessageMetadata(TypedDict, total=False):
     result_stubs: bool
     # Written by the CLI when GPTME_MAX_STEPS ends a turn; never inferred from text.
     max_steps_stop: bool
+    # Complete hook accepted a stop after verification (not the tool ack).
+    session_stop_outcome: str
     # Idle child/watch notice. Transparent to crash-recovery so a progress or
     # notification-only completion does not start an unrequested model turn.
     idle_notification: bool

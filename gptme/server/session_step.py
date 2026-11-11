@@ -95,8 +95,14 @@ def start_session_health_monitor(interval: int = _HEALTH_CHECK_INTERVAL) -> None
             return  # Already running
 
         _health_monitor_stop.clear()
+        # Idle teardown triggers SESSION_END hooks, whose registry (like config)
+        # is context-local. Plain threads start with an empty context on 3.11–3.13.
+        ctx = contextvars.copy_context()
         _health_monitor_thread = threading.Thread(
-            target=_monitor, daemon=True, name="session-health-monitor"
+            target=ctx.run,
+            args=(_monitor,),
+            daemon=True,
+            name="session-health-monitor",
         )
         _health_monitor_thread.start()
         # Register atexit handler only once — stop/start cycles re-enter this function

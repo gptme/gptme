@@ -20,7 +20,7 @@ Tests cover:
 """
 
 import subprocess
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -41,6 +41,9 @@ from gptme.tools.complete import (
     tool,
 )
 from gptme.util.completion_verification import VerificationCommand
+
+if TYPE_CHECKING:
+    from gptme.hooks import StopPropagation
 
 
 @pytest.fixture(autouse=True)
@@ -1850,3 +1853,437 @@ class TestStuckDetectRCAIntegration:
         assert "</system>" not in content or content.count("</system>") == 1
         # The one legitimate closing tag is at the very end of the content.
         assert content.endswith("</system>")
+
+
+# ── TestSessionEndMetadataHook ─────────────────────────────────────────────
+
+
+def _accepted_stop() -> Message:
+    return Message(
+        "system",
+        "Session stop accepted.",
+        ui_only=True,
+        metadata={"session_stop_outcome": "completed"},
+    )
+
+
+def _session_end_manager(messages: list[Message]) -> MagicMock:
+    """Mock LogManager exposing the history log the session-end hook reads."""
+    manager = MagicMock()
+    manager.logdir = None
+    manager.history_log.messages = messages
+    return manager
+
+
+def _extract_session_end(messages: "list[Message | StopPropagation]") -> dict:
+    """Parse the JSON payload out of the emitted session-end block."""
+    import json
+
+    from gptme.tools.complete import SESSION_END_BLOCK_CLOSE, SESSION_END_BLOCK_OPEN
+
+    blocks = [
+        m
+        for m in messages
+        if isinstance(m, Message)
+        and (m.content or "").startswith(SESSION_END_BLOCK_OPEN)
+        and (m.content or "").endswith(SESSION_END_BLOCK_CLOSE)
+    ]
+    assert len(blocks) == 1, (
+        f"expected exactly one session-end block, got {len(blocks)}"
+    )
+    content = blocks[0].content
+    payload = content[len(SESSION_END_BLOCK_OPEN) : -len(SESSION_END_BLOCK_CLOSE)]
+    return json.loads(payload)
+
+
+def _assistant_with_usage(inp: int, out: int) -> Message:
+    return Message(
+        "assistant",
+        "done",
+        metadata={"usage": {"input_tokens": inp, "output_tokens": out}},
+    )
+
+
+class TestSessionEndMetadataHook:
+    """The structured tail block consumed by gptme-sessions and the judge."""
+
+    def test_registered_on_session_end(self):
+        from gptme.hooks import HookType, get_hooks, init_hooks
+        from gptme.tools.complete import session_end_metadata_hook
+
+        init_hooks(allowlist=["session_end_metadata"])
+        hooks = get_hooks(HookType.SESSION_END)
+        assert any(h.func is session_end_metadata_hook for h in hooks)
+
+    def test_trigger_hook_delivers_the_block(self):
+        """The registered hook fires through the hook system, not just directly."""
+        from gptme.hooks import HookType, trigger_hook
+
+        messages = [
+            _user("go"),
+            _assistant_with_usage(10, 5),
+            _system(_TASK_COMPLETE_MSG),
+        ]
+
+        from gptme.hooks import init_hooks
+
+        init_hooks(allowlist=["session_end_metadata"])
+        messages.append(_accepted_stop())
+        delivered = trigger_hook(
+            HookType.SESSION_END, manager=_session_end_manager(messages)
+        )
+
+        assert any(
+            isinstance(m, Message) and "gptme:session-end" in (m.content or "")
+            for m in delivered
+        )
+
+    def test_completed_session_records_fields_and_token_totals(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("do the thing"),
+            _assistant_with_usage(100, 40),
+            _assistant_with_usage(250, 60),
+            _accepted_stop(),
+        ]
+        emitted = list(session_end_metadata_hook(_session_end_manager(messages)))
+
+        assert len(emitted) == 1
+        assert isinstance(emitted[0], Message)
+        assert emitted[0].role == "system"
+        assert emitted[0].ui_only is True
+
+        payload = _extract_session_end(emitted)
+        assert payload["outcome"] == "completed"
+        assert payload["policy_blocks"] == 0
+        assert payload["input_tokens"] == 350
+        assert payload["output_tokens"] == 100
+        assert payload["wall_seconds"] >= 0
+        assert set(payload) == {
+            "outcome",
+            "policy_blocks",
+            "input_tokens",
+            "output_tokens",
+            "wall_seconds",
+        }
+
+    def test_resumed_session_with_mixed_timestamp_awareness(self, monkeypatch):
+        from dataclasses import replace
+        from datetime import UTC, datetime
+
+        from gptme.tools.complete import session_end_metadata_hook
+
+        loaded = Message.from_toml(
+            '[message]\nrole = "user"\ncontent = "go"\n'
+            'timestamp = "2026-11-09T10:00:00+00:00"\n'
+        )
+        accepted = replace(
+            _accepted_stop(),
+            timestamp=datetime.fromtimestamp(
+                loaded.timestamp.timestamp() + 30, tz=UTC
+            ).replace(tzinfo=None),
+        )
+        monkeypatch.setattr(
+            "gptme.tools.complete.time.time", lambda: loaded.timestamp.timestamp() + 60
+        )
+
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager([loaded, accepted])))
+        )
+
+        assert payload["outcome"] == "completed"
+        assert payload["wall_seconds"] == 60
+
+    def test_policy_block_count_matches_helper(self, monkeypatch):
+        from gptme.hooks._policy_block import POLICY_BLOCK_MARKER
+        from gptme.tools.complete import (
+            count_policy_blocks,
+            session_end_metadata_hook,
+        )
+
+        monkeypatch.setenv("GPTME_BLOCK_BUDGET", "1")
+        monkeypatch.setattr(
+            "gptme.tools.complete._effective_chat", lambda _manager: None
+        )
+        messages = [
+            _user("go"),
+            _assistant_with_usage(10, 5),
+            _system(f"{POLICY_BLOCK_MARKER} blocked: rm"),
+            _system(f"{POLICY_BLOCK_MARKER} blocked: mv"),
+        ]
+
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+
+        assert payload["policy_blocks"] == count_policy_blocks(messages) == 2
+        assert payload["outcome"] == "policy_block_budget_exhausted"
+
+    def test_no_block_without_terminal_marker(self):
+        """Returning to the prompt is not a finished run: no block is written."""
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [_user("hello"), _assistant_with_usage(10, 5)]
+
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
+
+    def test_max_turns_outcome(self):
+        from gptme.constants import MAX_STEPS_STOP_PREFIX
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("go"),
+            _assistant_with_usage(10, 5),
+            Message(
+                "system",
+                f"{MAX_STEPS_STOP_PREFIX} (25)",
+                metadata={"max_steps_stop": True},
+            ),
+        ]
+
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+
+        assert payload["outcome"] == "max_turns"
+
+    def test_block_is_not_sent_back_to_the_model(self):
+        from gptme.logmanager import prepare_messages
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("hello"),
+            _assistant_with_usage(10, 5),
+            _accepted_stop(),
+        ]
+        emitted = list(session_end_metadata_hook(_session_end_manager(messages)))
+        block = next(m for m in emitted if isinstance(m, Message))
+
+        prepared = prepare_messages([*messages, block])
+
+        assert all(not m.ui_only for m in prepared)
+        assert "gptme:session-end" not in "".join(m.content for m in prepared)
+
+
+class TestSessionEndReviewRegressions:
+    def test_registration_without_complete_tool(self):
+        from gptme.hooks import HookType, clear_hooks, get_hooks, init_hooks
+        from gptme.tools import clear_tools, init_tools
+
+        clear_hooks()
+        clear_tools()
+        init_tools(allowlist=["save"])
+        init_hooks(allowlist=["session_end_metadata"], interactive=True)
+        assert any(
+            h.name == "session_end_metadata" for h in get_hooks(HookType.SESSION_END)
+        )
+
+    def test_resume_ignores_metadata_block(self):
+        from gptme.chat import _should_prompt_for_input
+        from gptme.logmanager import Log
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("go"),
+            _assistant("finished"),
+            Message("system", "Max steps reached", metadata={"max_steps_stop": True}),
+        ]
+        block = list(session_end_metadata_hook(_session_end_manager(messages)))[0]
+        assert isinstance(block, Message)
+        assert _should_prompt_for_input(Log([_user("go"), _assistant("done"), block]))
+        assert not _should_prompt_for_input(Log([_user("unanswered"), block]))
+
+    def test_rejected_completion_is_not_success(self, monkeypatch):
+        from gptme.hooks._policy_block import POLICY_BLOCK_MARKER
+        from gptme.tools.complete import session_end_metadata_hook
+
+        monkeypatch.setenv("GPTME_BLOCK_BUDGET", "1")
+        monkeypatch.setattr("gptme.tools.complete._effective_chat", lambda _: None)
+        messages = [
+            _user("go"),
+            _assistant("```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+            _assistant("repairing"),
+            _system(f"{POLICY_BLOCK_MARKER} blocked once"),
+            _system(f"{POLICY_BLOCK_MARKER} blocked twice"),
+        ]
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+        assert payload["outcome"] == "policy_block_budget_exhausted"
+
+    @pytest.mark.parametrize("verify_exit", [0, 1])
+    def test_real_verification_records_only_accepted_stop(
+        self, tmp_path, monkeypatch, verify_exit
+    ):
+        from gptme.logmanager import LogManager, prepare_messages
+        from gptme.tools.complete import session_end_metadata_hook
+
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", f"exit {verify_exit}")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "3")
+        manager = LogManager(logdir=tmp_path / "session", lock=False)
+        manager.append(_user("finish"))
+        manager.append(_assistant("```complete\n```"))
+        manager.append(execute_complete(None, None, None))
+        prepared = prepare_messages(manager.log.messages)
+        if verify_exit:
+            assert list(complete_hook(prepared, workspace=tmp_path))
+            assert not list(session_end_metadata_hook(manager))
+        else:
+            with pytest.raises(SessionCompleteException):
+                list(complete_hook(prepared, workspace=tmp_path))
+            payload = _extract_session_end(list(session_end_metadata_hook(manager)))
+            assert payload["outcome"] == "completed"
+
+    @pytest.mark.parametrize("operation", ["append", "write", "sync_write"])
+    def test_receipt_io_error_preserves_accepted_stop(
+        self, tmp_path, monkeypatch, operation
+    ):
+        from gptme.logmanager import LogManager
+
+        monkeypatch.delenv("GPTME_VERIFY_COMPLETION", raising=False)
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_AUTO", "0")
+        manager = LogManager(logdir=tmp_path / "session", lock=False)
+        manager.append(_user("finish"))
+        manager.append(_assistant("```complete\n```"))
+        manager.append(execute_complete(None, None, None))
+
+        original_write = manager.write
+
+        def fail_io(*args, **kwargs):
+            if operation == "sync_write" and not kwargs.get("sync"):
+                return original_write(*args, **kwargs)
+            raise OSError("receipt storage unavailable")
+
+        monkeypatch.setattr(
+            manager, "write" if operation == "sync_write" else operation, fail_io
+        )
+        with pytest.raises(SessionCompleteException) as stopped:
+            list(
+                complete_hook(manager.log.messages, workspace=tmp_path, manager=manager)
+            )
+        assert str(stopped.value) == "Session completed via complete tool"
+        assert stopped.value.outcome is None
+
+    def test_retry_exhaustion_is_not_success(self, tmp_path, monkeypatch):
+        from gptme.logmanager import LogManager
+        from gptme.tools.complete import session_end_metadata_hook
+
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION", "exit 1")
+        monkeypatch.setenv("GPTME_VERIFY_COMPLETION_MAX_RETRIES", "0")
+        manager = LogManager(logdir=tmp_path / "session", lock=False)
+        manager.append(_user("finish"))
+        manager.append(_assistant("```complete\n```"))
+        manager.append(execute_complete(None, None, None))
+        with pytest.raises(SessionCompleteException):
+            list(complete_hook(manager.log.messages, workspace=tmp_path))
+        payload = _extract_session_end(list(session_end_metadata_hook(manager)))
+        assert payload["outcome"] == "verification_failed"
+
+    def test_accepted_completion_resumes_at_prompt(self):
+        from gptme.chat import _should_prompt_for_input
+        from gptme.logmanager import Log
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("finish"),
+            _assistant("```complete\n```"),
+            _system(_TASK_COMPLETE_MSG),
+            _accepted_stop(),
+        ]
+        block = list(session_end_metadata_hook(_session_end_manager(messages)))[0]
+        assert isinstance(block, Message)
+        assert _should_prompt_for_input(Log([*messages, block]))
+
+    @pytest.mark.parametrize("outcome", ["completed", "max_turns", "policy_budget"])
+    def test_reopening_finished_log_does_not_emit_again(
+        self, tmp_path, monkeypatch, outcome
+    ):
+        from gptme.hooks._policy_block import POLICY_BLOCK_MARKER
+        from gptme.logmanager import LogManager
+        from gptme.tools.complete import session_end_metadata_hook
+
+        monkeypatch.setenv("GPTME_BLOCK_BUDGET", "1")
+        monkeypatch.setattr("gptme.tools.complete._effective_chat", lambda _: None)
+        manager = LogManager(logdir=tmp_path / "session", lock=False)
+        manager.append(_user("work"))
+        manager.append(_assistant("done"))
+        if outcome == "completed":
+            manager.append(_accepted_stop())
+        elif outcome == "max_turns":
+            manager.append(
+                Message("system", "Stopped", metadata={"max_steps_stop": True})
+            )
+        else:
+            manager.append(_system(f"{POLICY_BLOCK_MARKER} blocked once"))
+            manager.append(_system(f"{POLICY_BLOCK_MARKER} blocked twice"))
+        block = list(session_end_metadata_hook(manager))[0]
+        assert isinstance(block, Message)
+        manager.append(block)
+        manager.write(sync=True)
+
+        reopened = LogManager.load(manager.logdir, lock=False)
+        assert len(reopened.history_log.messages) == len(manager.history_log.messages)
+        reopened.append(_system("Session opened and closed without new work"))
+        assert not list(session_end_metadata_hook(reopened))
+
+        # An old end block must not suppress a newly accepted stop.
+        reopened.append(_user("more work"))
+        reopened.append(_assistant("finished again"))
+        reopened.append(_accepted_stop())
+        payload = _extract_session_end(list(session_end_metadata_hook(reopened)))
+        assert payload["outcome"] == "completed"
+
+    def test_continued_turn_invalidates_previous_stop(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("finish"),
+            _assistant("```complete\n```"),
+            _accepted_stop(),
+            _assistant("new repair attempt"),
+        ]
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
+
+    def test_post_turn_notice_does_not_hide_step_limit(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("work"),
+            _assistant("changed files"),
+            Message("system", "Stopped", metadata={"max_steps_stop": True}),
+            _system("Pre-commit checks passed"),
+        ]
+        payload = _extract_session_end(
+            list(session_end_metadata_hook(_session_end_manager(messages)))
+        )
+        assert payload["outcome"] == "max_turns"
+
+    @pytest.mark.parametrize("role", ["user", "assistant"])
+    def test_quoted_step_limit_is_not_terminal(self, role):
+        from gptme.constants import MAX_STEPS_STOP_PREFIX
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [_user("go"), Message(role, MAX_STEPS_STOP_PREFIX)]
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
+
+    def test_metadata_is_hidden_from_terminal(self):
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [_user("go"), _assistant("done"), _accepted_stop()]
+        block = list(session_end_metadata_hook(_session_end_manager(messages)))[0]
+        assert isinstance(block, Message)
+        assert block.hide
+
+    @pytest.mark.parametrize("call_id", [None, "call-1"])
+    def test_system_text_without_stop_provenance_is_not_terminal(self, call_id):
+        from gptme.constants import MAX_STEPS_STOP_PREFIX
+        from gptme.tools.complete import session_end_metadata_hook
+
+        messages = [
+            _user("work"),
+            _assistant("running a tool"),
+            Message("system", MAX_STEPS_STOP_PREFIX, call_id=call_id),
+        ]
+        assert not list(session_end_metadata_hook(_session_end_manager(messages)))
