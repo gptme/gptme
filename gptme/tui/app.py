@@ -2422,8 +2422,15 @@ class WorkOverviewScreen(ModalScreen):
         self._cursor = 0
 
     def _snapshot_summary(self) -> str:
-        selected_run_id = (
-            self._children[self._cursor].run_id if self._children else None
+        # Planner runs reuse their logdir, so run_id alone can repeat; the
+        # start time disambiguates which of those rows is selected.
+        selected_key = (
+            (
+                self._children[self._cursor].run_id,
+                self._children[self._cursor].started_at,
+            )
+            if self._children
+            else None
         )
         try:
             from ..tools.subagent import subagent_snapshots
@@ -2436,9 +2443,9 @@ class WorkOverviewScreen(ModalScreen):
         except Exception:
             self._children = []
 
-        ids = [c.run_id for c in self._children]
-        if selected_run_id in ids:
-            self._cursor = ids.index(selected_run_id)
+        keys = [(c.run_id, c.started_at) for c in self._children]
+        if selected_key in keys:
+            self._cursor = keys.index(selected_key)
         else:
             self._cursor = min(self._cursor, max(0, len(self._children) - 1))
         return (

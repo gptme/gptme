@@ -674,6 +674,33 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
 
 
 @pytest.mark.asyncio
+async def test_work_overview_keeps_selection_on_reused_logdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Planner runs share a logdir (same run_id); the cursor must not snap to the first."""
+    from dataclasses import replace
+
+    manager = _make_manager(tmp_path)
+    logdir = tmp_path / "planner"
+    logdir.mkdir()
+    first = _make_child_snapshot("planner", logdir=logdir)
+    second = replace(first, started_at=first.started_at + 5)
+    assert first.run_id == second.run_id
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: [first, second]
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        await pilot.press("down")
+        assert screen._cursor == 1
+        screen._refresh_summary()
+        assert screen._cursor == 1
+
+
+@pytest.mark.asyncio
 async def test_work_overview_refreshes_while_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
