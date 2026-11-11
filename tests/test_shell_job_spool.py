@@ -340,8 +340,13 @@ def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> 
 
     # 1 KiB quota: triggers quickly without producing a large file.
     monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1024)
-    # 10 KiB stdout (100 chars × 100 newline-separated lines) far exceeds the quota.
-    script = "import sys; sys.stdout.write(('x' * 100 + '\\n') * 100); sys.exit(0)"
+    # 4 MiB exceeds ordinary pipe capacity as well as the quota. A reader that
+    # stops at quota must block the child rather than let this test pass.
+    sentinel = "QUOTA-TEST-FINAL-TAIL"
+    script = (
+        "import sys; sys.stdout.write(('x' * 127 + '\\n') * 32768); "
+        f"sys.stdout.write({sentinel!r} + '\\n'); sys.stdout.flush()"
+    )
     process = subprocess.Popen(
         [sys.executable, "-c", script],
         stdout=subprocess.PIPE,
@@ -358,6 +363,7 @@ def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> 
         # Quota must have been hit.
         assert job._capture_partial
         assert job._stdout_spool is None
+        assert job._stderr_spool is None
 
         # The spool file exists and carries the quota-exceeded marker.
         assert job.log_path is not None
@@ -377,7 +383,7 @@ def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> 
         # The in-memory RAM preview is unaffected: the stdout buffer still holds
         # the final tail of the output (the reader kept draining normally).
         stdout, _ = job.get_output()
-        assert "xxx" in stdout
+        assert stdout.endswith(sentinel + "\n")
     finally:
         if process.poll() is None:
             process.kill()
