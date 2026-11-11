@@ -571,8 +571,19 @@ class Subagent:
 
     def is_running(self) -> bool:
         """Check if the subagent is still running."""
-        if self.execution_mode == "subprocess" and self.process:
-            return self.process.poll() is None
+        if self.execution_mode == "subprocess":
+            if self.process:
+                return self.process.poll() is None
+            if self.thread and self.thread.is_alive():
+                # Queued launchers have no process or writer lease yet.
+                return True
+            # Cross-restart check: the child holds the writer lease for its entire
+            # lifetime. This path activates when we rehydrated from disk (no
+            # process ref). The probe is serialized with lease acquisition so it
+            # can never be mistaken for a competing writer.
+            from .execution import writer_lease_held
+
+            return writer_lease_held(self.logdir)
         if self.execution_mode == "acp" and self.thread:
             # ACP mode uses a thread wrapping the async client
             return self.thread.is_alive()

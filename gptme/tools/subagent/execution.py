@@ -7,6 +7,7 @@ Functions here are internal implementation details called by the main
 subagent() function in api.py.
 """
 
+import contextlib
 import logging
 import os
 import random
@@ -19,8 +20,9 @@ import threading
 import time
 import uuid
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, BinaryIO, Literal
 
 from ...llm.retry_abort import bind_thread_generation, release_thread
 from ...message import Message
@@ -93,6 +95,14 @@ _SHELL_PGIDS_FILENAME = "shell-pgids"
 _SUBPROCESS_STDERR_FILENAME = "stderr.log"
 _SUBPROCESS_STDERR_TAIL_BYTES = 16 * 1024
 _SUBPROCESS_STDERR_TAIL_LINES = 20
+# Held exclusively by the subprocess child for its entire lifetime.
+# A surviving child after parent crash keeps the kernel flock until it exits.
+# subagent.is_running() uses LOCK_NB to detect a live child cross-restart.
+WRITER_LOCK_FILENAME = "subagent-writer.lock"
+# Serializes lease acquisition against liveness probes. Both take this gate
+# (blocking, but only around a nonblocking flock, so the wait is microseconds)
+# so a status probe is never mistaken for a competing writer by a launcher.
+WRITER_GATE_FILENAME = "subagent-writer.gate"
 
 # Thread-local storage for subagent context
 # Used by the progress tool to know which agent_id it's running as
@@ -745,6 +755,67 @@ def _create_subagent_thread(
             pass
 
 
+def _import_fcntl() -> Any:
+    """Return the fcntl module, or None where it is unavailable (Windows)."""
+    import importlib
+
+    try:
+        return importlib.import_module("fcntl")
+    except ImportError:
+        return None
+
+
+@contextlib.contextmanager
+def _writer_gate(logdir: Path) -> Iterator[None]:
+    """Serialize lease acquisition with liveness probes for one conversation."""
+    fcntl = _import_fcntl()
+    if fcntl is None:
+        yield
+        return
+    with (logdir / WRITER_GATE_FILENAME).open("a+b") as gate:
+        fcntl.flock(gate, fcntl.LOCK_EX)
+        yield
+
+
+def acquire_writer_lease(logdir: Path) -> BinaryIO | None:
+    """Take the exclusive writer lease for a subprocess conversation.
+
+    Returns an open file holding the flock, or None where flock is unavailable.
+    Raises ``BlockingIOError`` immediately when a writer already holds it.
+    Callers hand the file to the child (``pass_fds``) and close their own copy;
+    the kernel then releases the lease when the child exits.
+    """
+    fcntl = _import_fcntl()
+    if fcntl is None:
+        return None
+    with _writer_gate(logdir):
+        lease = (logdir / WRITER_LOCK_FILENAME).open("a+b")
+        try:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BaseException:
+            lease.close()
+            raise
+    return lease
+
+
+def writer_lease_held(logdir: Path) -> bool:
+    """Whether a live writer (e.g. a child that survived a parent restart) holds the lease."""
+    lock_path = logdir / WRITER_LOCK_FILENAME
+    fcntl = _import_fcntl()
+    if fcntl is None or not lock_path.exists():
+        return False
+    try:
+        with _writer_gate(logdir), lock_path.open("r+b") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return False
+    except OSError:
+        return False
+
+
 def _run_subagent_subprocess(
     prompt: str,
     logdir: Path,
@@ -758,6 +829,7 @@ def _run_subagent_subprocess(
     reasoning_effort: str | None = None,
     *,
     resume: bool = False,
+    writer_lease: BinaryIO | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
 
@@ -786,6 +858,9 @@ def _run_subagent_subprocess(
             Scoped to this subprocess's own environment copy — never touches
             the parent process's or any sibling's environment.
         resume: Continue the conversation already stored in ``logdir``.
+        writer_lease: Pre-acquired writer lease (see ``acquire_writer_lease``).
+            Ownership transfers here: it is handed to the child and closed in
+            this process. When None, the lease is acquired here.
 
     Returns:
         The subprocess.Popen object for monitoring
@@ -904,7 +979,21 @@ def _run_subagent_subprocess(
         env["GPTME_THINKING_EFFORT"] = reasoning_effort
     stderr_path = logdir / _SUBPROCESS_STDERR_FILENAME
 
+    # The writer lease is taken on behalf of the child (see acquire_writer_lease).
+    # flock belongs to the open file description, so when the parent closes its
+    # copy the child becomes the sole holder and the kernel releases the lease
+    # when the child exits. A caller that must own the lease before publishing a
+    # new attempt (subagent_continue) passes it in; otherwise acquire it here.
+    lock_fd = writer_lease
+    pass_fds: tuple[int, ...] = ()
     try:
+        if lock_fd is None:
+            # A racing parent must fail, not queue another writer that could
+            # start long after its cancellation or timeout.
+            lock_fd = acquire_writer_lease(logdir)
+        if lock_fd is not None:
+            pass_fds = (lock_fd.fileno(),)
+
         with (
             open(tmpfile_path) as stdin_file,
             open(stderr_path, "w") as stderr_file,
@@ -917,9 +1006,14 @@ def _run_subagent_subprocess(
                 cwd=workspace,
                 env=env,
                 text=True,
+                pass_fds=pass_fds,
             )
     finally:
         tmpfile_path.unlink(missing_ok=True)
+        if lock_fd is not None:
+            # Parent releases its copy. Child now holds the sole lock via its
+            # inherited file description; the kernel keeps the flock alive.
+            lock_fd.close()
 
     return process
 
