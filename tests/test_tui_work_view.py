@@ -358,7 +358,7 @@ async def test_work_screen_renders_empty_logdir(tmp_path):
         content = app.screen.query_one("#work-screen-content", Static)
         rendered = str(content.render())
         # Should contain a fallback message, not crash
-        assert "No log" in rendered or "log" in rendered.lower()
+        assert "No log" in rendered
 
 
 @pytest.mark.asyncio

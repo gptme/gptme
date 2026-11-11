@@ -2351,6 +2351,8 @@ class WorkScreen(ModalScreen):
                     continue
                 try:
                     msg = json.loads(line)
+                    if not isinstance(msg, dict):
+                        continue
                     role = msg.get("role", "?")
                     content = msg.get("content", "")
                     if isinstance(content, list):
@@ -2420,7 +2422,9 @@ class WorkOverviewScreen(ModalScreen):
         self._cursor = 0
 
     def _snapshot_summary(self) -> str:
-        selected = self._children[self._cursor] if self._children else None
+        selected_run_id = (
+            self._children[self._cursor].run_id if self._children else None
+        )
         try:
             from ..tools.subagent import subagent_snapshots
 
@@ -2432,8 +2436,9 @@ class WorkOverviewScreen(ModalScreen):
         except Exception:
             self._children = []
 
-        if selected in self._children:
-            self._cursor = self._children.index(selected)
+        ids = [c.run_id for c in self._children]
+        if selected_run_id in ids:
+            self._cursor = ids.index(selected_run_id)
         else:
             self._cursor = min(self._cursor, max(0, len(self._children) - 1))
         return (
