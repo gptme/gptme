@@ -1,6 +1,8 @@
 """Triggered memory delivery uses explicit lesson keywords, not relevance scores."""
 
 import json
+import logging
+import sys
 from pathlib import Path
 
 import pytest
@@ -626,18 +628,36 @@ def test_match_ranks_memories_and_lessons_together(tmp_path):
 
 
 def test_match_lessons_flag_reads_project_config_lesson_dirs(lesson_env, monkeypatch):
-    """``[lessons] dirs`` in the workspace gptme.toml count without gptme loading it."""
+    """``[lessons] dirs`` in the workspace gptme.toml count without gptme loading it.
+
+    Loading that config must not log: with a stdout logging handler installed
+    (as earlier tests in the same xdist worker do), a "Using project
+    configuration" line would corrupt the JSON output.
+    """
+
+    class StdoutHandler(logging.Handler):
+        def emit(self, record):
+            sys.stdout.write(self.format(record) + "\n")
+
     workspace = lesson_env.parent / "workspace"
     write_lesson(workspace / "rules", "infrastructure/trajectory-persistence.md")
     (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["rules"]\n')
     monkeypatch.chdir(workspace)
     monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
-    result = CliRunner().invoke(
-        util_main,
-        ["memory", "match", "--lessons", "--format", "json", "--prompt", "-"],
-        input=INCIDENT_PEER_MESSAGE,
-    )
+    root = logging.getLogger()
+    handler, level = StdoutHandler(), root.level
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    try:
+        result = CliRunner().invoke(
+            util_main,
+            ["memory", "match", "--lessons", "--format", "json", "--prompt", "-"],
+            input=INCIDENT_PEER_MESSAGE,
+        )
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(level)
     assert result.exit_code == 0, result.output
     (hit,) = json.loads(result.output)["hits"]
     assert hit["path"].endswith("rules/infrastructure/trajectory-persistence.md")

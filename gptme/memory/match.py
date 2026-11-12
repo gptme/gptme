@@ -97,14 +97,18 @@ def lesson_candidates(
     does not load one), the current directory's ``gptme.toml`` is loaded so
     its ``[lessons] dirs`` are searched.
     """
-    from ..config import get_config, set_config_from_workspace
+    from ..config import get_config, get_project_config
     from ..lessons.index import LessonIndex
     from ..lessons.parser import LessonMetadata
 
     dirs: list[Path] = []
     if include_default:
-        if get_config().project is None:
-            set_config_from_workspace(Path.cwd())
+        config = get_config()
+        if config.project is None:
+            # quiet: a "Using project configuration" log line would land in
+            # --format json output whenever the host process has a stdout
+            # logging handler installed.
+            config.project = get_project_config(Path.cwd(), quiet=True)
         dirs.extend(LessonIndex._default_dirs())
     dirs.extend(Path(d).expanduser() for d in lesson_dirs)
     dirs = [d for d in dict.fromkeys(dirs) if d.is_dir()]
