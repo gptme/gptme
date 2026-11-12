@@ -1,6 +1,7 @@
 """Foreground shell commands promote to conversation-owned jobs at a soft timeout."""
 
 import os
+import shlex
 import threading
 import time
 from collections.abc import Generator
@@ -616,17 +617,23 @@ def test_promoted_job_adopts_capture_beyond_ram_buffer(
     """Output from before promotion survives eviction from the 1 Mi-char tail."""
     import json
 
+    # The command blocks on a gate file rather than a fixed sleep: rendering
+    # the promotion message for ~2.3M chars can outlast any sleep on a slow
+    # runner, and the job must provably still be running when it returns.
+    gate = tmp_path / "release-gate"
     job, promoted = _promote_with_logdir(
         monkeypatch,
         tmp_path,
         # ~2.3M chars before promotion, then the tail and a real failure after.
         "printf 'BEGIN-MARKER\\n'; yes 'noisy output' | head -n 180000; "
-        "sleep 3; printf 'END-MARKER\\n'; printf 'ERR-ONLY\\n' >&2; (exit 7)",
+        f"while [ ! -e {shlex.quote(str(gate))} ]; do sleep 0.1; done; "
+        "printf 'END-MARKER\\n'; printf 'ERR-ONLY\\n' >&2; (exit 7)",
     )
     # The live resource exists at promotion, before the command finishes.
     assert job.log_path is not None and job.log_path.name.endswith(".stdout.live")
     assert str(job.log_path) in promoted
     assert job.is_running()
+    gate.touch()
 
     completions = _wait_for_completion(timeout=15)
     assert len(completions) == 1
