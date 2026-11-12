@@ -52,6 +52,7 @@ class LogStats:
 def build_payload(
     *,
     session: str,
+    name: str | None = None,
     logdir: Path,
     workspace: Path,
     model: str | None,
@@ -63,10 +64,13 @@ def build_payload(
     queued: int,
     stats: LogStats,
 ) -> dict:
-    """The JSON sent to the statusline command."""
+    """The JSON sent to the statusline command.
+
+    ``session_name`` is the conversation's display name, or its ID if unnamed.
+    """
     payload: dict = {
         "session_id": session,
-        "session_name": session,
+        "session_name": name or session,
         "cwd": str(workspace),
         "workspace": {"current_dir": str(workspace), "project_dir": str(workspace)},
         "model": {"id": model, "display_name": model or "<no model set>"},
