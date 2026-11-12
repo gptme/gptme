@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import os
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -101,8 +99,8 @@ def lesson_candidates(
     duration of directory discovery so its ``[lessons] dirs`` are searched, then
     dropped again: a read-only matcher leaves the process config as it found it.
 
-    Discovery failures (an unreadable ``gptme.toml``, a broken lesson dir) log a
-    warning and yield no lesson candidates, so memories are still delivered.
+    Discovery failures (an unreadable ``gptme.toml``, a broken lesson dir) warn on
+    stderr and yield no lesson candidates, so memories are still delivered.
     """
     try:
         dirs = _lesson_search_dirs(lesson_dirs, include_default)
@@ -110,7 +108,8 @@ def lesson_candidates(
             return []
         return _reduce_to_triggers(dirs)
     except Exception as e:
-        logger.warning(f"Skipping lesson matching, discovery failed: {e}")
+        # Host logging handlers may write to stdout, corrupting JSON hook output.
+        print(f"Skipping lesson matching, discovery failed: {e}", file=sys.stderr)
         return []
 
 

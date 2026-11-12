@@ -777,8 +777,52 @@ def test_lesson_candidates_collapses_aliased_dirs(lesson_env):
     assert [c.path.name for c in found] == ["trajectory-persistence.md"]
 
 
+@pytest.mark.parametrize("output_format", ["json", "hook-json"])
+def test_lesson_discovery_failure_preserves_json_stdout(
+    lesson_env, tmp_path, monkeypatch, output_format
+):
+    from gptme.lessons.index import LessonIndex
+
+    class StdoutHandler(logging.Handler):
+        def emit(self, record):
+            sys.stdout.write(self.format(record) + "\n")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("broken lesson dir")
+
+    memory = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(memory))
+    write_entry(memory, "release-rule", keywords=["release"], body="Verify the tag.")
+    monkeypatch.setattr(LessonIndex, "__init__", boom)
+    root = logging.getLogger()
+    handler = StdoutHandler()
+    root.addHandler(handler)
+    try:
+        result = CliRunner().invoke(
+            util_main,
+            [
+                "memory",
+                "match",
+                "release",
+                "--lesson-dir",
+                str(lesson_env),
+                "--format",
+                output_format,
+            ],
+        )
+    finally:
+        root.removeHandler(handler)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    if output_format == "json":
+        assert [hit["name"] for hit in payload["hits"]] == ["release-rule"]
+    else:
+        assert "Verify the tag." in payload["hookSpecificOutput"]["additionalContext"]
+    assert "broken lesson dir" in result.stderr
+
+
 def test_lesson_candidates_discovery_failure_keeps_memories(
-    lesson_env, tmp_path, monkeypatch, caplog
+    lesson_env, tmp_path, monkeypatch, capsys
 ):
     """A broken lesson source warns and yields nothing instead of killing the hook."""
     from gptme.lessons.index import LessonIndex
@@ -788,6 +832,7 @@ def test_lesson_candidates_discovery_failure_keeps_memories(
         raise RuntimeError("broken lesson dir")
 
     monkeypatch.setattr(LessonIndex, "__init__", boom)
-    with caplog.at_level(logging.WARNING, logger="gptme.memory.match"):
-        assert match.lesson_candidates([lesson_env]) == []
-    assert "broken lesson dir" in caplog.text
+    assert match.lesson_candidates([lesson_env]) == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "broken lesson dir" in captured.err
