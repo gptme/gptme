@@ -122,3 +122,44 @@ def test_realpath_matches_os_realpath(tmp_path):
 
     for p in (real / "x.md", link_dir / "x.md", real / "alias.md"):
         assert _realpath(Path(p)) == os.path.realpath(p)
+
+
+def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch):
+    """A globally installed hook must inject lessons from gptme's user config
+    even when the session's cwd has no gptme.toml."""
+    import json
+
+    from click.testing import CliRunner
+
+    from gptme.cli.util import main
+
+    lessons = tmp_path / "shared-lessons"
+    lessons.mkdir()
+    (lessons / "persist.md").write_text(
+        "---\nmatch:\n  keywords: [no-session-persistence]\n---\n# Keep transcripts\nNever disable.\n"
+    )
+    config = tmp_path / "config" / "gptme"
+    config.mkdir(parents=True)
+    (config / "config.toml").write_text(f'[lessons]\ndirs = ["{lessons}"]\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    workdir = tmp_path / "no-workspace"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "user-dirs-test",
+        "tool_name": "SendMessage",
+        "tool_input": {"message": "add --no-session-persistence to both"},
+    }
+    result = CliRunner().invoke(main, ["hooks", "run"], input=json.dumps(payload))
+    assert result.exit_code == 0, result.output
+    out = json.loads(result.output)
+    assert "Keep transcripts" in out.get("additionalContext", "")
+
+
+def test_pretooluse_matcher_covers_all_tools():
+    from gptme.cli import cmd_hooks
+
+    assert cmd_hooks._PRETOOLUSE_MATCHER == "*"
