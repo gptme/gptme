@@ -389,6 +389,19 @@ async def test_work_screen_renders_jsonl(tmp_path):
         assert "Working on it" in rendered
 
 
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
+def test_work_screen_preserves_unicode_separators(
+    tmp_path: Path, separator: str
+) -> None:
+    """JSON string separators are content, not JSONL record boundaries."""
+    message = {"role": "assistant", "content": f"before{separator}after"}
+    (tmp_path / "conversation.jsonl").write_text(
+        json.dumps(message, ensure_ascii=False) + "\n"
+    )
+    transcript = WorkScreen(tmp_path, "unicode-child")._load_transcript()
+    assert f"assistant: before{separator}after" in transcript
+
+
 @pytest.mark.asyncio
 async def test_work_screen_escape_returns_to_parent(tmp_path):
     """Pressing Escape from WorkScreen must return to parent without side effects."""
@@ -614,8 +627,9 @@ async def test_work_screen_does_not_acquire_writer_lock(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prompt", ["inspect logs", "first\nsecond\rthird\u2028fourth"])
 async def test_work_overview_selection_scrolls_and_opens_selected_child(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prompt: str
 ) -> None:
     """Navigation visibly selects the same child that Enter opens, even below the fold."""
     from textual.containers import VerticalScroll
@@ -627,7 +641,7 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
         logdir = tmp_path / f"child-{index}"
         logdir.mkdir()
         children.append(
-            _make_child_snapshot(f"child-{index}", logdir=logdir, prompt="inspect logs")
+            _make_child_snapshot(f"child-{index}", logdir=logdir, prompt=prompt)
         )
     monkeypatch.setattr(
         "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
@@ -657,8 +671,11 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
 
         lines = str(content.render()).splitlines()
         width = max(1, content.content_size.width)
+        selected_index = next(
+            index for index, line in enumerate(lines) if line.startswith("> ")
+        )
         selected_row = sum(
-            len(Text(line).wrap(app.console, width)) for line in lines[:26]
+            len(Text(line).wrap(app.console, width)) for line in lines[:selected_index]
         )
         assert scroll.scroll_y <= selected_row < scroll.scroll_y + scroll.size.height
         children.insert(0, children.pop())

@@ -2255,7 +2255,8 @@ def _build_work_summary(
                 "budget_exceeded": "✗",
                 "clarification_needed": "?",
             }.get(status, "·")
-            prompt_preview = sa.prompt_preview
+            # One logical line per child keeps selection and scrolling aligned.
+            prompt_preview = " ".join(sa.prompt_preview.split())
             lines.append(
                 f"{'> ' if index == cursor else '  '}{icon} {sa.agent_id}  "
                 f"[{status}] {elapsed}  {prompt_preview}"
@@ -2349,7 +2350,8 @@ class WorkScreen(ModalScreen):
         lines: list[str] = []
         try:
             raw = jsonl_path.read_text(errors="replace")
-            for line in raw.splitlines():
+            # JSONL records end at LF; Unicode separators inside strings are data.
+            for line in raw.split("\n"):
                 line = line.strip()
                 if not line:
                     continue
