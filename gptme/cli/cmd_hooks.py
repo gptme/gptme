@@ -530,10 +530,13 @@ def _load_lesson_dirs(workspace: Path) -> list[Path]:
 
 
 def _user_lesson_dirs() -> list[Path]:
-    """The user's lesson dirs: gptme's config dir and ``[lessons] dirs`` in config.toml.
+    """The user's lesson dirs: gptme's config dir and ``[lessons] dirs`` in user config.
 
-    Read directly with tomllib: importing gptme.config would pull in the tool and
-    plugin stack, which this per-call hook avoids.
+    ``[lessons] dirs`` is resolved like gptme's user config: config.runtime.toml
+    defaults, then config.toml, then config.local.toml, a later list replacing an
+    earlier one. Read directly with tomllib: importing gptme.config would pull in
+    the tool and plugin stack, which this per-call hook avoids. Malformed files
+    and values are skipped; a hook must never fail on user config.
     """
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
         os.path.expanduser("~"), ".config"
@@ -542,18 +545,21 @@ def _user_lesson_dirs() -> list[Path]:
     dirs: list[Path] = []
     if (config_dir / "lessons").is_dir():
         dirs.append(config_dir / "lessons")
-    try:
-        if sys.version_info >= (3, 11):
-            import tomllib
-        else:
-            import tomli as tomllib
-        with open(config_dir / "config.toml", "rb") as f:
-            cfg = tomllib.load(f)
-    except Exception:
-        return dirs
-    raw_dirs = cfg.get("lessons", {}).get("dirs", [])
-    if not isinstance(raw_dirs, list):
-        return dirs
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+
+    raw_dirs: list = []
+    for name in ("config.runtime.toml", "config.toml", "config.local.toml"):
+        try:
+            with open(config_dir / name, "rb") as f:
+                cfg = tomllib.load(f)
+        except Exception:
+            continue
+        lessons = cfg.get("lessons")
+        if isinstance(lessons, dict) and isinstance(lessons.get("dirs"), list):
+            raw_dirs = lessons["dirs"]
     for raw in raw_dirs:
         if isinstance(raw, str):
             path = Path(os.path.expanduser(raw))

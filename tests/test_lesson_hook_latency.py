@@ -132,6 +132,7 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
 
     from click.testing import CliRunner
 
+    from gptme.cli import cmd_hooks
     from gptme.cli.util import main
 
     lessons = tmp_path / "shared-lessons"
@@ -144,7 +145,8 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
     (config / "config.toml").write_text(f'[lessons]\ndirs = ["{lessons}"]\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    # Session/throttle state is resolved at import time; isolate it explicitly.
+    monkeypatch.setattr(cmd_hooks, "_STATE_DIR", tmp_path / "state")
     workdir = tmp_path / "no-workspace"
     workdir.mkdir()
     monkeypatch.chdir(workdir)
@@ -154,7 +156,15 @@ def test_hook_uses_user_config_lessons_outside_a_workspace(tmp_path, monkeypatch
         "tool_name": "SendMessage",
         "tool_input": {"message": "add --no-session-persistence to both"},
     }
-    result = CliRunner().invoke(main, ["hooks", "run"], input=json.dumps(payload))
+    # The hook switches message output to JSON; restore it so later tests on
+    # this worker are not left rendering nothing.
+    from gptme.message import get_output_format, set_output_format
+
+    prev_format = get_output_format()
+    try:
+        result = CliRunner().invoke(main, ["hooks", "run"], input=json.dumps(payload))
+    finally:
+        set_output_format(prev_format)
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
     assert "Keep transcripts" in out.get("additionalContext", "")
@@ -241,3 +251,85 @@ def test_realpath_cache_cleared_between_scans(tmp_path):
         lesson_dirs=[tmp_path / "empty-does-not-exist"]
     )  # a scan clears the cache
     assert _realpath(link / "x.md") == os.path.realpath(link / "x.md")
+
+
+def _write_user_config(tmp_path, monkeypatch, files: dict[str, str]) -> None:
+    config = tmp_path / "config" / "gptme"
+    config.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (config / name).write_text(text)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
+def test_user_lesson_dirs_follow_runtime_main_local_layering(tmp_path, monkeypatch):
+    from gptme.cli import cmd_hooks
+
+    runtime_dir, main_dir, local_dir = (tmp_path / n for n in ("rt", "main", "local"))
+    for d in (runtime_dir, main_dir, local_dir):
+        d.mkdir()
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        {"config.runtime.toml": f'[lessons]\ndirs = ["{runtime_dir}"]\n'},
+    )
+    assert cmd_hooks._user_lesson_dirs() == [runtime_dir]
+    _write_user_config(
+        tmp_path, monkeypatch, {"config.toml": f'[lessons]\ndirs = ["{main_dir}"]\n'}
+    )
+    assert cmd_hooks._user_lesson_dirs() == [main_dir]
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        {"config.local.toml": f'[lessons]\ndirs = ["{local_dir}"]\n'},
+    )
+    assert cmd_hooks._user_lesson_dirs() == [local_dir]
+
+
+@pytest.mark.parametrize(
+    "text", ["lessons = []\n", "[lessons]\ndirs = 3\n", "not toml [[[\n"]
+)
+def test_malformed_user_lesson_config_is_ignored(tmp_path, monkeypatch, text):
+    from gptme.cli import cmd_hooks
+
+    _write_user_config(tmp_path, monkeypatch, {"config.toml": text})
+    assert cmd_hooks._user_lesson_dirs() == []
+
+
+def test_clear_cache_also_drops_disk_cache(tmp_path, monkeypatch):
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    lessons = tmp_path / "lessons"
+    lessons.mkdir()
+    (lessons / "a.md").write_text("---\nmatch:\n  keywords: [x]\n---\n# A\n")
+    index_mod.LessonIndex(lesson_dirs=[lessons])
+    cache_file = index_mod._disk_cache_path()
+    assert cache_file is not None and cache_file.exists()
+
+    index_mod.clear_cache()
+    assert not cache_file.exists()
+    assert index_mod._LESSON_CACHE == {}
+    index_mod._load_disk_cache()  # must not resurrect anything
+    assert index_mod._LESSON_CACHE == {}
+
+
+def test_disk_cache_write_does_not_follow_planted_symlink(tmp_path, monkeypatch):
+    import os
+
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    cache_file = index_mod._disk_cache_path()
+    assert cache_file is not None
+    cache_file.parent.mkdir(parents=True)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    # The old writer used a predictable PID-based temp name with O_TRUNC.
+    os.symlink(victim, cache_file.with_name(f"{cache_file.name}.{os.getpid()}.tmp"))
+
+    lessons = tmp_path / "lessons"
+    lessons.mkdir()
+    (lessons / "a.md").write_text("---\nmatch:\n  keywords: [x]\n---\n# A\n")
+    index_mod.LessonIndex(lesson_dirs=[lessons])
+    assert victim.read_text() == "precious"
+    assert cache_file.exists() and not cache_file.is_symlink()

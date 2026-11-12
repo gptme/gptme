@@ -121,20 +121,27 @@ def _save_disk_cache() -> None:
         except OSError:
             continue
         entries[str(lesson_path)] = [mtime, size, _lesson_to_json(lesson)]
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        import tempfile  # only when writing; keeps hook imports light
+
+        # mkstemp: unpredictable name, O_EXCL (never follows a planted symlink), 0600
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=f"{path.name}.", suffix=".tmp"
+        )
+        tmp = Path(tmp_name)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"key": _disk_cache_key(), "entries": entries}, f)
         os.replace(tmp, path)
         _disk_cache_dirty = False
     except Exception as e:  # cache is best-effort
         logger.debug(f"Could not write lesson disk cache: {e}")
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 # Sizes of entries loaded from disk: a disk entry must match mtime AND size.
@@ -231,9 +238,20 @@ def clear_cache() -> None:
 
     Useful for testing or when lessons are known to have changed.
     """
-    global _LESSON_CACHE
+    global _disk_cache_loaded, _disk_cache_dirty
     cache_size = len(_LESSON_CACHE)
     _LESSON_CACHE.clear()
+    _DISK_SIZES.clear()
+    # Drop the persisted copy too: otherwise the next index build (here or in
+    # another process) could restore the entries the caller just cleared.
+    _disk_cache_loaded = True
+    _disk_cache_dirty = False
+    path = _disk_cache_path()
+    if path is not None:
+        try:
+            path.unlink()
+        except OSError:
+            pass
     logger.info(f"Cleared lesson cache ({cache_size} entries)")
 
 
