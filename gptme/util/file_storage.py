@@ -70,7 +70,13 @@ def store_file(logdir: Path, filepath: Path) -> tuple[str, str]:
         with tempfile.TemporaryDirectory(dir=files_dir, prefix=".store-") as staging:
             staged_path = Path(staging) / stored_name
             shutil.copy2(filepath, staged_path)
-            staged_path.replace(stored_path)
+            # The source may have changed since the cache lookup hash.
+            # Name the attachment after the bytes actually being published.
+            file_hash = compute_file_hash(staged_path)
+            stored_name = f"{file_hash}{suffix}"
+            stored_path = files_dir / stored_name
+            if not stored_path.exists():
+                staged_path.replace(stored_path)
 
     return file_hash, stored_name
 
