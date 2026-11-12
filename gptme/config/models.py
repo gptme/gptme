@@ -126,7 +126,7 @@ class MCPServerConfig:
         ends with ``/sse`` (the conventional FastMCP SSE endpoint suffix).
         """
         if self.transport:
-            return self.transport == "sse"
+            return self.transport.strip().lower() == "sse"
         return self.is_http and urlparse(self.url).path.rstrip("/").endswith("/sse")
 
 
