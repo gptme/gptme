@@ -86,13 +86,26 @@ def lesson_candidates(
 
     Only ``keywords`` and ``patterns`` survive, so a lesson triggers from
     ``memory match`` under the rule memories follow: explicit phrases only.
-    Skill names, tools, and Cursor globs never trigger here, and entries
-    without keywords or patterns (plain skills) are not candidates.
+    Skill names, tools, and Cursor rules never trigger here (a Cursor rule's
+    keywords are generated from its globs and ``alwaysApply``, not written by
+    its author), and entries without keywords or patterns (plain skills) are
+    not candidates. Skills listed in an ``index.json`` manifest are read in
+    full, so their ``SKILL.md`` patterns and keywords count as well as the
+    manifest's keywords.
+
+    With ``include_default`` and no project config loaded yet (``gptme-util``
+    does not load one), the current directory's ``gptme.toml`` is loaded so
+    its ``[lessons] dirs`` are searched.
     """
+    from ..config import get_config, set_config_from_workspace
     from ..lessons.index import LessonIndex
     from ..lessons.parser import LessonMetadata
 
-    dirs = list(LessonIndex._default_dirs()) if include_default else []
+    dirs: list[Path] = []
+    if include_default:
+        if get_config().project is None:
+            set_config_from_workspace(Path.cwd())
+        dirs.extend(LessonIndex._default_dirs())
     dirs.extend(Path(d).expanduser() for d in lesson_dirs)
     dirs = [d for d in dict.fromkeys(dirs) if d.is_dir()]
     if not dirs:
@@ -100,20 +113,30 @@ def lesson_candidates(
     index = LessonIndex(lesson_dirs=dirs)
     candidates: list[Lesson] = []
     for lesson in index.lessons:
-        meta = lesson.metadata
-        if not (meta.keywords or meta.patterns):
-            continue
+        manifest_keywords: list[str] = []
         if lesson.is_stub:
+            manifest_keywords = list(lesson.metadata.keywords)
             lesson = index.materialize_lesson(lesson)
+        meta = lesson.metadata
+        if lesson.path.suffix == ".mdc" or meta.globs or meta.always_apply:
+            continue
+        keywords = list(dict.fromkeys(manifest_keywords + list(meta.keywords)))
+        if not (keywords or meta.patterns):
+            continue
         candidates.append(
             replace(
                 lesson,
                 metadata=LessonMetadata(
-                    id=meta.id, keywords=meta.keywords, patterns=meta.patterns
+                    id=meta.id, keywords=keywords, patterns=meta.patterns
                 ),
             )
         )
     return candidates
+
+
+def _lesson_file_name(path: Path) -> str:
+    """A skill is named by its directory, any other lesson by its file stem."""
+    return path.parent.name if path.name == "SKILL.md" else path.stem
 
 
 def _lesson_as_entry(lesson: Lesson) -> MemoryEntry:
@@ -121,7 +144,7 @@ def _lesson_as_entry(lesson: Lesson) -> MemoryEntry:
     from .schema import MemoryEntry
 
     return MemoryEntry(
-        name=lesson.metadata.id or lesson.path.stem,
+        name=lesson.metadata.id or _lesson_file_name(lesson.path),
         title=lesson.title or None,
         description=lesson.description or "",
         type=LESSON_SCOPE,

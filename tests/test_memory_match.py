@@ -623,3 +623,81 @@ def test_match_ranks_memories_and_lessons_together(tmp_path):
     both = MemoryStore([MemoryRoot("project", lessons)])
     dual = match_memories(both, "gamma", lessons=lesson_candidates([lessons]))
     assert [(h.entry.name, h.entry.scope) for h in dual] == [("dual", "project")]
+
+
+def test_match_lessons_flag_reads_project_config_lesson_dirs(lesson_env, monkeypatch):
+    """``[lessons] dirs`` in the workspace gptme.toml count without gptme loading it."""
+    workspace = lesson_env.parent / "workspace"
+    write_lesson(workspace / "rules", "infrastructure/trajectory-persistence.md")
+    (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["rules"]\n')
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--lessons", "--format", "json", "--prompt", "-"],
+        input=INCIDENT_PEER_MESSAGE,
+    )
+    assert result.exit_code == 0, result.output
+    (hit,) = json.loads(result.output)["hits"]
+    assert hit["path"].endswith("rules/infrastructure/trajectory-persistence.md")
+
+
+def test_match_manifest_skill_keeps_skill_md_triggers(tmp_path):
+    """An index.json stub is read in full: SKILL.md patterns and keywords count."""
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates, match_memories
+
+    clear_cache()
+    skills = tmp_path / "skills"
+    write_lesson(
+        skills,
+        "patterned/SKILL.md",
+        "---\nname: patterned\ndescription: d\nmatch:\n  patterns: ['rm\\s+-rf']\n"
+        "---\n# Patterned\n\nBody.\n",
+    )
+    write_lesson(
+        skills,
+        "mixed/SKILL.md",
+        "---\nname: mixed\ndescription: d\nmatch:\n  keywords: [okapi]\n"
+        "---\n# Mixed\n\nBody.\n",
+    )
+    (skills / "index.json").write_text(
+        json.dumps(
+            {
+                "skills": [
+                    {"name": "patterned", "path": "patterned"},
+                    {"name": "mixed", "path": "mixed", "keywords": ["zebra"]},
+                ]
+            }
+        )
+    )
+    candidates = lesson_candidates([skills])
+    assert all(not c.is_stub for c in candidates)
+    store = MemoryStore([MemoryRoot("project", tmp_path / "memory")])
+
+    def names(text: str) -> list[str]:
+        return [h.entry.name for h in match_memories(store, text, lessons=candidates)]
+
+    assert names("then rm  -rf the dir") == ["patterned"]
+    assert names("a zebra") == ["mixed"]
+    assert names("an okapi") == ["mixed"]
+
+
+def test_match_cursor_rules_do_not_trigger(tmp_path):
+    """Keywords generated from Cursor globs/alwaysApply are not explicit phrases."""
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates
+
+    clear_cache()
+    cursor = tmp_path / ".cursor"
+    write_lesson(
+        cursor,
+        "rules/python.mdc",
+        "---\ndescription: Python style\nglobs: ['**/*.py']\nalwaysApply: true\n"
+        "---\n# Python\n\nBody.\n",
+    )
+    write_lesson(
+        cursor, "rules/globbed.md", "---\nglobs: ['**/*.ts']\n---\n# TS\n\nBody.\n"
+    )
+    assert lesson_candidates([cursor]) == []

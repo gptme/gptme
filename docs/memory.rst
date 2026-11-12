@@ -443,8 +443,10 @@ dirs`` from ``gptme.toml``, ``GPTME_LESSONS_EXTRA_DIRS``); ``--lesson-dir PATH``
    $ gptme-util memory match "add --no-session-persistence to the call" --lesson-dir ~/gptme-contrib/lessons
 
 Active lessons trigger on their ``keywords`` and ``patterns`` only. Skill
-names, ``tools``, and Cursor globs do not trigger here, so a skill without
-keywords stays silent. A lesson hit is reported with scope and type ``lesson``
+names, ``tools``, and Cursor rules (whose keywords are generated from globs)
+do not trigger here, so a skill without keywords or patterns stays silent. A
+skill listed in an ``index.json`` manifest keeps the triggers in its
+``SKILL.md`` as well as the manifest's keywords. A lesson hit is reported with scope and type ``lesson``
 and its file path, is ranked with memories by score (memories first on a tie),
 and is subject to the same ``-k``, ``--body-chars`` and ``--dedup-session``
 limits. Lesson files are parsed on each call; keep the directories you pass to
