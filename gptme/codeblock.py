@@ -45,6 +45,11 @@ class Codeblock:
             fence_len = len(start_match.group(1))
             stripped = stripped[fence_len:]
 
+        # A fence immediately followed by a newline has no language tag
+        # (to_markdown() emits "```\n...\n```" when lang is empty). In that case
+        # the first line is content, not a language, and must not be consumed.
+        has_lang = not stripped.startswith("\n")
+
         # Check for closing fence at end - only strip if fence lengths match
         end_match = re.search(r"(`{3,})$", stripped.strip())
         if end_match:
@@ -57,7 +62,7 @@ class Codeblock:
         # whitespace), not on the stripped lang: a fence like "``` python" leaves
         # a space before the lang, and slicing on len(lang) would leave the tail
         # of the lang word (e.g. the "n" of "python") leaking into the content.
-        first_line = stripped.splitlines()[0] if stripped.strip() else ""
+        first_line = stripped.splitlines()[0] if (stripped.strip() and has_lang) else ""
         lang = first_line.strip()
         fence = "`" * fence_len if fence_len else "```"
         return cls(

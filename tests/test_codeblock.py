@@ -2783,6 +2783,24 @@ def test_from_markdown_leading_whitespace_after_fence():
     assert cb.content == "print(1)\n"
 
 
+def test_from_markdown_no_lang_tag():
+    """A fence immediately followed by a newline has no language tag; the first
+    line is content, not a language.
+
+    Regression test: from_markdown consumed the first content line as the lang,
+    so an empty-lang codeblock lost its entire content on a round-trip.
+    """
+    cb = Codeblock.from_markdown("```\nprint(1)\n```")
+    assert cb.lang == ""
+    assert cb.content == "print(1)\n"
+
+    # empty-lang round-trip preserves the content
+    original = Codeblock("", "print(1)")
+    restored = Codeblock.from_markdown(original.to_markdown())
+    assert restored.lang == ""
+    assert restored.content == "print(1)\n"
+
+
 def test_extract_codeblocks_shell_quoted_non_heredoc_lt():
     """A ``<<`` inside a quoted string is not a heredoc operator.
 
