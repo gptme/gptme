@@ -769,3 +769,43 @@ class TestReplyDoesNotDestroyUnpublishedWork:
         monkeypatch.setattr(api, "subagent", lambda **kw: None)
         api.subagent_reply(sa.agent_id, "main")
         assert not worktree.exists()
+
+
+class TestReviewHardening:
+    def test_hidden_untracked_files_still_count_as_dirty(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        """status.showUntrackedFiles=no must not make untracked work look clean."""
+        repo, worktree = real_worktree
+        _git(repo, "config", "status.showUntrackedFiles", "no")
+        (worktree / "wip.txt").write_text("unpublished")
+        sa = _retained_real(tmp_path, repo, worktree)
+        assert subagent_release(sa.agent_id)["status"] == "cleanup_required"
+        assert (worktree / "wip.txt").exists()
+        forced = subagent_release(sa.agent_id, force=True)
+        assert forced["discarded_uncommitted"] is True
+
+    def test_continue_rechecks_workspace_after_taking_lease(
+        self,
+        tmp_path: Path,
+        real_worktree: tuple[Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A release that wins the race before the lease must refuse the continuation."""
+        from gptme.tools.subagent import subagent_continue
+
+        repo, worktree = real_worktree
+        sa = _retained_real(tmp_path, repo, worktree)
+        real_acquire = _exec.acquire_writer_lease
+
+        def release_then_acquire(logdir: Path):
+            # Simulates subagent_release() deleting the workspace and dropping
+            # its lease between continue's eligibility check and its own acquire.
+            monkeypatch.setattr(_exec, "acquire_writer_lease", real_acquire)
+            subagent_release(sa.agent_id)
+            return real_acquire(logdir)
+
+        monkeypatch.setattr(_exec, "acquire_writer_lease", release_then_acquire)
+        with pytest.raises(ValueError, match="no longer exists"):
+            subagent_continue(sa.agent_id, "go on")
+        assert not _exec.writer_lease_held(sa.logdir)

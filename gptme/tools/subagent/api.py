@@ -1726,6 +1726,15 @@ def subagent_continue(
                 f"Subagent '{agent_id}' is still running (writer lease held). "
                 "Use subagent_steer() instead."
             ) from None
+        # The eligibility check above ran without the lease, so a concurrent
+        # subagent_release() may have deleted the retained workspace since.
+        # Re-check now that no release can start.
+        if (
+            blocker := sa.continuation_blocker(allow_cancelled=allow_cancelled)
+        ) is not None:
+            if writer_lease is not None:
+                writer_lease.close()
+            raise ValueError(blocker)
 
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
@@ -2045,8 +2054,10 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             if release["status"] == "cleanup_required":
                 logger.warning(
                     f"subagent_reply: {agent_id!r} retained worktree at "
-                    f"{release['path']} has unpublished work and was left in place; "
-                    "publish it, then GC with subagent_release(force=True)."
+                    f"{release['path']} has unpublished work and was left in place. "
+                    "The replacement run uses a fresh workspace under the same "
+                    "agent_id, so subagent_release() can no longer reach this one: "
+                    "publish the work, then remove it with 'git worktree remove'."
                 )
 
 

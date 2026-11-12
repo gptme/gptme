@@ -36,7 +36,7 @@ def has_changes(worktree_path: Path) -> bool:
     try:
         # 1. Uncommitted changes (staged or unstaged)
         result = subprocess.run(
-            [*git_inspect_cmd(), "status", "--porcelain"],
+            [*git_inspect_cmd(), "status", "--porcelain", "--untracked-files=all"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
@@ -117,7 +117,7 @@ def has_uncommitted_changes(worktree_path: Path) -> bool:
     """
     try:
         result = subprocess.run(
-            [*git_inspect_cmd(), "status", "--porcelain"],
+            [*git_inspect_cmd(), "status", "--porcelain", "--untracked-files=all"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
