@@ -1050,11 +1050,22 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     - No local changes → remove directory AND branch (full cleanup).
     - Local changes → preserve branch, remove directory only.
 
+    When ``subagent.retain_worktree=True`` the caller has requested the
+    workspace to stay alive for explicit continuation and release.  Auto-cleanup
+    is skipped; ``subagent_release()`` must be called to GC the worktree later.
+
     Returns:
         The preserved branch name when changes exist and smart cleanup is
         active; ``None`` otherwise.
     """
     if not subagent.isolated or not subagent.worktree_path:
+        return None
+
+    if getattr(subagent, "retain_worktree", False):
+        logger.debug(
+            f"Subagent {subagent.agent_id!r}: worktree retained at "
+            f"{subagent.worktree_path} (retain_worktree=True)"
+        )
         return None
 
     worktree_path = subagent.worktree_path
@@ -1078,9 +1089,12 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     from ...util.git_worktree import cleanup_worktree
 
     try:
-        # Smart cleanup: preserve branch when isolation="worktree" was used
-        # and the worktree has local changes so the orchestrator can merge them.
-        keep_if_changed = subagent.isolation_mode == "worktree"
+        # Smart cleanup: preserve the branch whenever this IS a git worktree so
+        # the orchestrator can merge committed work.  Previously only fired for
+        # isolation_mode == "worktree"; an isolated=True subagent without an
+        # explicit isolation param has isolation_mode=None but still uses a git
+        # worktree, and the old check silently dropped its commits on force GC.
+        keep_if_changed = subagent.repo_path is not None
         preserved_branch = cleanup_worktree(
             subagent.worktree_path,
             subagent.repo_path,
@@ -1095,6 +1109,45 @@ def _cleanup_isolation(subagent: "Subagent") -> str | None:
     except Exception as e:
         logger.warning(f"Failed to cleanup isolation for {subagent.agent_id}: {e}")
         return None
+
+
+def _cleanup_isolation_forced(subagent: "Subagent") -> str | None:
+    """Like ``_cleanup_isolation`` but bypasses the retain_worktree guard.
+
+    Used by ``subagent_release()`` after the caller has verified the workspace
+    is safe to delete (or passed force=True).  Returns the preserved branch
+    name on smart cleanup, or ``None``.
+    """
+    # For non-git temp dirs (repo_path is None), _cleanup_isolation preserves
+    # the directory even when retain_worktree=False.  Force-remove it here
+    # so that subagent_release and reply-respawn don't leak temp workspaces.
+    if (
+        subagent.worktree_path
+        and subagent.worktree_path.exists()
+        and subagent.repo_path is None
+    ):
+        import shutil
+
+        try:
+            shutil.rmtree(subagent.worktree_path)
+            logger.debug(
+                f"Subagent {subagent.agent_id!r}: force-removed temp dir "
+                f"{subagent.worktree_path}"
+            )
+        except OSError as exc:
+            logger.warning(
+                f"Subagent {subagent.agent_id!r}: failed to remove temp dir "
+                f"{subagent.worktree_path}: {exc}"
+            )
+        return None
+
+    # Temporarily shadow retain_worktree by cloning with a modified copy.
+    # Subagent is frozen, so we use object.__setattr__ on a fresh instance.
+    import copy
+
+    sa_copy = copy.copy(subagent)
+    object.__setattr__(sa_copy, "retain_worktree", False)
+    return _cleanup_isolation(sa_copy)
 
 
 def _drain_progress_file(

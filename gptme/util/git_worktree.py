@@ -108,6 +108,16 @@ def has_changes(worktree_path: Path) -> bool:
         return True
 
 
+def worktree_is_clean(worktree_path: Path) -> bool:
+    """Return True when the worktree has no uncommitted changes and no local commits.
+
+    This is the inverse of :func:`has_changes` and is used as a GC safety
+    check: if a retained worktree is clean it is safe to delete; if it has
+    changes the caller should publish or discard them first.
+    """
+    return not has_changes(worktree_path)
+
+
 def get_git_root(path: Path | None = None) -> Path | None:
     """Find the git repository root from the given path.
 
