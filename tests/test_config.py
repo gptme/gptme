@@ -997,6 +997,7 @@ def test_chat_config_to_dict():
                 "env": {"API_KEY": "your-key"},
                 "url": "",
                 "headers": {},
+                "transport": "",
             }
         ],
     }
