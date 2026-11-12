@@ -431,6 +431,27 @@ apply their own injection budget to the returned entries, scores, and
 ``matched_by`` reasons. ``-k`` (default 5) and ``--body-chars``
 (default 1200 Unicode code points) are hard caps, not a substitute for that.
 
+**Lessons.** A rule kept as a lesson (see :doc:`lessons`) lives outside the
+memory roots, so by default ``memory match`` cannot see it, and a harness that
+only runs this command never gets it. ``--lessons`` adds the directories
+gptme's own lesson index reads (user and workspace ``lessons/``, ``[lessons]
+dirs`` from ``gptme.toml``, ``GPTME_LESSONS_EXTRA_DIRS``); ``--lesson-dir PATH``
+(repeatable) adds a specific directory, such as a shared lesson collection:
+
+.. code-block:: console
+
+   $ gptme-util memory match "add --no-session-persistence to the call" --lesson-dir ~/gptme-contrib/lessons
+
+Active lessons trigger on their ``keywords`` and ``patterns`` only. Skill
+names, ``tools``, and Cursor rules (whose keywords are generated from globs)
+do not trigger here, so a skill without keywords or patterns stays silent. A
+skill listed in an ``index.json`` manifest keeps the triggers in its
+``SKILL.md`` as well as the manifest's keywords. A lesson hit is reported with scope and type ``lesson``
+and its file path, is ranked with memories by score (memories first on a tie),
+and is subject to the same ``-k``, ``--body-chars`` and ``--dedup-session``
+limits. Lesson files are parsed on each call; keep the directories you pass to
+the ones you want matched.
+
 Matching uses the same layered-root precedence as the rest of the store:
 superseded and historical entries stay excluded, a nearer entry of any status
 occupies the name, and index selection does not restrict who can trigger.
@@ -479,6 +500,20 @@ relevant memory. ``PreToolUse`` fires on every tool call, so keep
 ``--dedup-session`` on it; without the flag an entry whose keyword keeps
 matching is re-injected each time. Keep the executable on Claude Code's hook ``PATH``; if the
 workspace uses an isolated environment, call its absolute ``gptme-util`` path.
+
+To let lessons trigger too, add ``--lessons`` (or ``--lesson-dir PATH``) to the
+``memory match`` command. To also catch a rule from the user's prompt, not only
+from the agent's pending tool call, add the same ``memory match`` command as a
+second ``UserPromptSubmit`` hook next to ``memory recall``; with
+``--dedup-session`` both events share one delivered set per session:
+
+.. code-block:: json
+
+   {
+     "type": "command",
+     "command": "gptme-util memory match --prompt - --format hook-json --dedup-session --lessons",
+     "timeout": 20
+   }
 
 Codex / AGENTS.md integration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

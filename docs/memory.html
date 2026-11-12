@@ -1049,6 +1049,24 @@ call <code class="docutils literal notranslate"><span class="pre">gptme.memory.m
 apply their own injection budget to the returned entries, scores, and
 <code class="docutils literal notranslate"><span class="pre">matched_by</span></code> reasons. <code class="docutils literal notranslate"><span class="pre">-k</span></code> (default 5) and <code class="docutils literal notranslate"><span class="pre">--body-chars</span></code>
 (default 1200 Unicode code points) are hard caps, not a substitute for that.</p>
+<p><strong>Lessons.</strong> A rule kept as a lesson (see <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a>) lives outside the
+memory roots, so by default <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> cannot see it, and a harness that
+only runs this command never gets it. <code class="docutils literal notranslate"><span class="pre">--lessons</span></code> adds the directories
+gptme’s own lesson index reads (user and workspace <code class="docutils literal notranslate"><span class="pre">lessons/</span></code>, <code class="docutils literal notranslate"><span class="pre">[lessons]</span>
+<span class="pre">dirs</span></code> from <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>, <code class="docutils literal notranslate"><span class="pre">GPTME_LESSONS_EXTRA_DIRS</span></code>); <code class="docutils literal notranslate"><span class="pre">--lesson-dir</span> <span class="pre">PATH</span></code>
+(repeatable) adds a specific directory, such as a shared lesson collection:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>gptme-util<span class="w"> </span>memory<span class="w"> </span>match<span class="w"> </span><span class="s2">"add --no-session-persistence to the call"</span><span class="w"> </span>--lesson-dir<span class="w"> </span>~/gptme-contrib/lessons
+</pre></div>
+</div>
+<p>Active lessons trigger on their <code class="docutils literal notranslate"><span class="pre">keywords</span></code> and <code class="docutils literal notranslate"><span class="pre">patterns</span></code> only. Skill
+names, <code class="docutils literal notranslate"><span class="pre">tools</span></code>, and Cursor rules (whose keywords are generated from globs)
+do not trigger here, so a skill without keywords or patterns stays silent. A
+skill listed in an <code class="docutils literal notranslate"><span class="pre">index.json</span></code> manifest keeps the triggers in its
+<code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> as well as the manifest’s keywords. A lesson hit is reported with scope and type <code class="docutils literal notranslate"><span class="pre">lesson</span></code>
+and its file path, is ranked with memories by score (memories first on a tie),
+and is subject to the same <code class="docutils literal notranslate"><span class="pre">-k</span></code>, <code class="docutils literal notranslate"><span class="pre">--body-chars</span></code> and <code class="docutils literal notranslate"><span class="pre">--dedup-session</span></code>
+limits. Lesson files are parsed on each call; keep the directories you pass to
+the ones you want matched.</p>
 <p>Matching uses the same layered-root precedence as the rest of the store:
 superseded and historical entries stay excluded, a nearer entry of any status
 occupies the name, and index selection does not restrict who can trigger.
@@ -1093,6 +1111,18 @@ relevant memory. <code class="docutils literal notranslate"><span class="pre">Pr
 <code class="docutils literal notranslate"><span class="pre">--dedup-session</span></code> on it; without the flag an entry whose keyword keeps
 matching is re-injected each time. Keep the executable on Claude Code’s hook <code class="docutils literal notranslate"><span class="pre">PATH</span></code>; if the
 workspace uses an isolated environment, call its absolute <code class="docutils literal notranslate"><span class="pre">gptme-util</span></code> path.</p>
+<p>To let lessons trigger too, add <code class="docutils literal notranslate"><span class="pre">--lessons</span></code> (or <code class="docutils literal notranslate"><span class="pre">--lesson-dir</span> <span class="pre">PATH</span></code>) to the
+<code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> command. To also catch a rule from the user’s prompt, not only
+from the agent’s pending tool call, add the same <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">match</span></code> command as a
+second <code class="docutils literal notranslate"><span class="pre">UserPromptSubmit</span></code> hook next to <code class="docutils literal notranslate"><span class="pre">memory</span> <span class="pre">recall</span></code>; with
+<code class="docutils literal notranslate"><span class="pre">--dedup-session</span></code> both events share one delivered set per session:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"command"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gptme-util memory match --prompt - --format hook-json --dedup-session --lessons"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"timeout"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+<span class="p">}</span>
+</pre></div>
+</div>
 </section>
 <section id="codex-agents-md-integration">
 <h3>Codex / AGENTS.md integration<a class="headerlink" href="#codex-agents-md-integration" title="Link to this heading">#</a></h3>
