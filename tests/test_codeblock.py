@@ -2833,6 +2833,36 @@ def test_from_markdown_drops_trailing_separator_newline():
     assert Codeblock.from_markdown(cb.to_markdown()) == cb
 
 
+def test_from_markdown_preserves_leading_whitespace():
+    """Body indentation and leading blank lines must survive a round-trip.
+
+    The closing-fence cleanup used to strip() the whole body, so a code block
+    whose first content line was indented (or whose body began with a blank
+    line) lost that leading whitespace on a round-trip.
+    """
+    # Indented first line, with and without a lang tag.
+    cb = Codeblock("python", "    print(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+    cb = Codeblock("", "    print(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+    # A leading blank line is part of the body.
+    cb = Codeblock("python", "\nprint(1)")
+    assert Codeblock.from_markdown(cb.to_markdown()) == cb
+
+
+def test_from_markdown_whitespace_only_fence_has_no_lang():
+    """An opening fence followed only by whitespace before the newline has no
+    language tag; the first content line must not be consumed as the lang."""
+    cb = Codeblock.from_markdown("``` \nprint(1)\n```")
+    assert cb.lang == ""
+    assert cb.content == "print(1)"
+
+    cb = Codeblock.from_markdown("```\t\nprint(1)\n```")
+    assert cb.lang == ""
+    assert cb.content == "print(1)"
+
+
 def test_extract_codeblocks_shell_quoted_non_heredoc_lt():
     """A ``<<`` inside a quoted string is not a heredoc operator.
 

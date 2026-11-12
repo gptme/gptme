@@ -35,45 +35,50 @@ class Codeblock:
     @classmethod
     @trace_function(name="codeblock.from_markdown", attributes={"component": "parser"})
     def from_markdown(cls, content: str) -> "Codeblock":
-        content = content.replace("\r\n", "\n").replace("\r", "\n")
-        stripped = content.strip()
-        fence_len = 0
+        """Parse a single fenced code block (as emitted by ``to_markdown``).
 
-        # Handle variable-length fences (3+ backticks)
-        start_match = re.match(r"^(`{3,})", stripped)
+        Splits on lines so the body is reconstructed verbatim: leading
+        indentation, interior blank lines, and trailing whitespace are all
+        preserved, matching ``iter_from_markdown``. The opening fence may carry
+        an info string (the language tag); a whitespace-only remainder means
+        there is no tag and the body starts on the next line. The closing fence
+        is the last non-blank line of bare backticks whose length matches the
+        opening fence (CommonMark); the newline before it is a separator, not
+        content.
+        """
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+        lines = content.split("\n")
+
+        fence_len = 0
+        lang = ""
+        body_lines: list[str] = []
+
+        # Opening fence: 3+ backticks at the start of the first line.
+        start_match = re.match(r"^(`{3,})", lines[0]) if lines else None
         if start_match:
             fence_len = len(start_match.group(1))
-            stripped = stripped[fence_len:]
+            # The rest of the opening line is the info string. A fence like
+            # "``` python" carries a tag, while a bare "```" or "``` " has no
+            # tag, so the body starts on the next line.
+            lang = lines[0][fence_len:].strip()
+            body_lines = lines[1:]
+        else:
+            # No opening fence: treat the whole input as an untagged body.
+            body_lines = lines
 
-        # A fence immediately followed by a newline has no language tag
-        # (to_markdown() emits "```\n...\n```" when lang is empty). In that case
-        # the first line is content, not a language, and must not be consumed.
-        has_lang = not stripped.startswith("\n")
+        # Closing fence: the last non-blank line of bare backticks whose count
+        # matches the opening fence. Trailing blank lines after it are dropped.
+        if fence_len:
+            while body_lines and not body_lines[-1].strip():
+                body_lines.pop()
+            if body_lines:
+                last = body_lines[-1].strip()
+                close_match = re.fullmatch(r"`{3,}", last)
+                if close_match and len(close_match.group(0)) == fence_len:
+                    body_lines.pop()
 
-        # Check for closing fence at end - only strip if fence lengths match
-        stripped_closing_fence = False
-        end_match = re.search(r"(`{3,})$", stripped.strip())
-        if end_match:
-            end_fence_len = len(end_match.group(1))
-            # Only strip closing fence if it matches opening fence length (CommonMark spec)
-            if fence_len == end_fence_len:
-                stripped = stripped.strip()[:-end_fence_len]
-                stripped_closing_fence = True
-
-        # Slice the body on the raw first line length (including any leading
-        # whitespace), not on the stripped lang: a fence like "``` python" leaves
-        # a space before the lang, and slicing on len(lang) would leave the tail
-        # of the lang word (e.g. the "n" of "python") leaking into the content.
-        first_line = stripped.splitlines()[0] if (stripped.strip() and has_lang) else ""
-        lang = first_line.strip()
         fence = "`" * fence_len if fence_len else "```"
-        body = stripped[len(first_line) :].lstrip("\n") if lang else stripped
-        # to_markdown() emits "{fence}{lang}\n{content}\n{fence}": the newline
-        # before the closing fence is a separator, not content. Drop it so a
-        # round-trip matches iter_from_markdown (which never keeps it).
-        if stripped_closing_fence and body.endswith("\n"):
-            body = body[:-1]
-        return cls(lang, body, fence=fence)
+        return cls(lang, "\n".join(body_lines), fence=fence)
 
     @classmethod
     @trace_function(name="codeblock.from_xml", attributes={"component": "parser"})
