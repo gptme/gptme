@@ -2,7 +2,9 @@
 
 import logging
 import os
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from gptme.util.keyword_matching import (
     _compile_pattern,
@@ -22,6 +24,37 @@ __all__ = [
     "_match_keyword",
     "_match_pattern",
 ]
+
+
+# Skill names shorter than this are usually common words ("end", "ship",
+# "spec", "plan", "auth") that appear in unrelated prose even on word
+# boundaries, so they only match an explicit invocation form.
+_SHORT_SKILL_NAME_LEN = 5
+
+
+@lru_cache(maxsize=1024)
+def _skill_name_pattern(name: str) -> re.Pattern[str]:
+    """Build the regex that detects a mention of skill ``name`` in a message.
+
+    Names match on word boundaries, never as a plain substring: ``end``
+    must not fire on "send" or "backend" (gptme/gptme#4869). Hyphenated
+    names also match with spaces or no separator ("python-repl" matches
+    "python repl" and "pythonrepl").
+
+    Short single-word names match only an explicit invocation: ``/end``,
+    ``skill:end`` (including ``/skill:end``), or "end skill".
+    """
+    name_lower = name.lower()
+    if len(name_lower) < _SHORT_SKILL_NAME_LEN and "-" not in name_lower:
+        n = re.escape(name_lower)
+        return re.compile(
+            rf"(?<![\w/])/{n}(?![\w-])|\bskill:{n}(?![\w-])|\b{n} skill\b"
+        )
+    variants = dict.fromkeys(
+        [name_lower, name_lower.replace("-", " "), name_lower.replace("-", "")]
+    )
+    alternation = "|".join(re.escape(v) for v in variants)
+    return re.compile(rf"(?<![\w-])(?:{alternation})(?![\w-])")
 
 
 @dataclass
@@ -98,21 +131,12 @@ class LessonMatcher:
                     score += 1.0
                     matched_by.append(f"pattern:{pattern[:30]}...")
 
-            # Skill name matching (Anthropic format)
-            # Match if skill name appears in message
-            if lesson.metadata.name:
-                name_lower = lesson.metadata.name.lower()
-                # Handle hyphenated names (e.g., "python-repl" matches "python repl")
-                name_variants = [
-                    name_lower,
-                    name_lower.replace("-", " "),
-                    name_lower.replace("-", ""),
-                ]
-                for variant in name_variants:
-                    if variant in message_lower:
-                        score += 1.5  # Slightly higher weight for name matches
-                        matched_by.append(f"skill:{lesson.metadata.name}")
-                        break
+            # Skill name matching (Anthropic format), on word boundaries
+            if lesson.metadata.name and _skill_name_pattern(
+                lesson.metadata.name
+            ).search(message_lower):
+                score += 1.5  # Slightly higher weight for name matches
+                matched_by.append(f"skill:{lesson.metadata.name}")
 
             # NOTE: Description-based word matching has been removed.
             # It caused 100% trigger rates for skills with common words
