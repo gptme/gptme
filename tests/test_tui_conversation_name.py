@@ -66,6 +66,12 @@ def _named_logdir(tmp_path: Path, name: str | None) -> Path:
     return logdir
 
 
+def _save_name(logdir: Path, name: str) -> None:
+    config = ChatConfig.from_logdir(logdir)
+    config.name = name
+    config.save()
+
+
 def _spy_driver(monkeypatch) -> list[str]:
     from textual.drivers.headless_driver import HeadlessDriver
 
@@ -99,9 +105,7 @@ async def test_resumed_named_conversation_shows_name_and_restores_title(
         assert payloads[-1]["session_id"] == logdir.name
 
         # /rename (or any command changing config.toml) updates both
-        config = ChatConfig.from_logdir(logdir)
-        config.name = "renamed"
-        config.save()
+        _save_name(logdir, "renamed")
         app._finish_command("rename", [], _CommandResult(handled=True))
         assert writes[-1] == title_sequence("gptme: renamed")
         assert payloads[-1]["session_name"] == "renamed"
@@ -118,14 +122,57 @@ async def test_unnamed_conversation_titles_with_id_until_named(tmp_path, monkeyp
     async with app.run_test() as pilot:
         await pilot.pause()
         assert writes == [PUSH_TITLE + title_sequence(f"gptme: {logdir.name}")]
-        app._set_conversation_name("fix-tui-titles")
+        _save_name(logdir, "fix-tui-titles")
+        app._apply_auto_name(logdir)
         assert writes[-1] == title_sequence("gptme: fix-tui-titles")
         n = len(writes)
-        app._set_conversation_name("fix-tui-titles")  # unchanged: no rewrite
+        app._refresh_conversation_name()  # unchanged: no rewrite
         assert len(writes) == n
     # a name landing after exit (naming thread) is not written
-    app._set_conversation_name("late")
+    _save_name(logdir, "late")
+    app._apply_auto_name(logdir)
     assert writes[-1] == POP_TITLE
+
+
+@pytest.mark.asyncio
+async def test_auto_name_shows_saved_name_not_a_stale_one(tmp_path, monkeypatch):
+    """A /rename that lands while the naming callback is in flight wins: the
+    UI shows config.toml, not the name the worker generated."""
+    logdir = _named_logdir(tmp_path, None)
+    app = GptmeApp(LogManager([], logdir=logdir, lock=False), workspace=tmp_path)
+    app._statusline_cmd = None
+    writes = _spy_driver(monkeypatch)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        _save_name(logdir, "renamed")  # generated name was saved, then renamed
+        app._apply_auto_name(logdir)
+        assert writes[-1] == title_sequence("gptme: renamed")
+
+
+@pytest.mark.asyncio
+async def test_fork_retitles_and_ignores_parent_auto_name(tmp_path, monkeypatch):
+    """/fork switches logdir in place: the title follows the fork even when
+    both are unnamed, and a late auto-name for the parent doesn't reach it."""
+    logdir = _named_logdir(tmp_path, None)
+    manager = LogManager([], logdir=logdir, lock=False)
+    app = GptmeApp(manager, workspace=tmp_path)
+    app._statusline_cmd = None
+    writes = _spy_driver(monkeypatch)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        fork = tmp_path / "forked"
+        fork.mkdir()
+        manager.logdir = fork  # what LogManager.fork does
+        app._finish_command("fork", [], _CommandResult(handled=True))
+        assert writes[-1] == title_sequence("gptme: forked")
+
+        _save_name(logdir, "parent-name")
+        n = len(writes)
+        app._apply_auto_name(logdir)  # the parent's naming thread finishes
+        assert len(writes) == n
+        assert app._conversation_name is None
 
 
 def test_tui_turn_triggers_shared_auto_naming(tmp_path, monkeypatch):
@@ -148,7 +195,7 @@ def test_tui_turn_triggers_shared_auto_naming(tmp_path, monkeypatch):
 
     def call_from_thread(callback, *args, **kwargs):
         # not mounted: record what reaches the UI thread instead of running it
-        if callback == app._set_conversation_name:
+        if callback == app._apply_auto_name:
             named.append(args)
 
     monkeypatch.setattr(chat_module, "try_auto_name", try_auto_name)
@@ -173,7 +220,7 @@ def test_tui_turn_triggers_shared_auto_naming(tmp_path, monkeypatch):
     if thread is not None:
         thread.join(5)
     assert ChatConfig.from_logdir(logdir).name == "fix-tui-titles"
-    assert named == [("fix-tui-titles",)]
+    assert named == [(logdir,)]
 
 
 def test_auto_naming_skipped_outside_window_or_when_named(tmp_path, monkeypatch):

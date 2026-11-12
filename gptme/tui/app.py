@@ -2507,6 +2507,8 @@ class GptmeApp(App):
         # conversation display name (config.toml ``name``), for the statusline
         # and terminal title; None until auto-named or renamed
         self._conversation_name: str | None = None
+        # the conversation that name belongs to (/fork switches logdir)
+        self._named_logdir: Path | None = None
         self.prompt_queue: list[str | Message] = []
         # URLs confirmed for fetching when a prompt was queued, by id(Message)
         self._confirmed_urls: dict[int, list[str]] = {}
@@ -2631,6 +2633,7 @@ class GptmeApp(App):
         # a resumed conversation may already be named; save the shell's title
         # to restore on exit (see on_unmount)
         self._conversation_name = self._read_conversation_name()
+        self._named_logdir = self.manager.logdir
         self._write_title(push=True)
         # confirmation dialog for tool execution; takes precedence over the
         # CLI hook (priority 0) registered by init()
@@ -3375,21 +3378,34 @@ class GptmeApp(App):
         except OSError:
             pass  # optional metadata must not break the UI
 
-    def _set_conversation_name(self, name: str | None) -> None:
-        """UI thread: show a new conversation name in the status and title."""
-        if name == self._conversation_name:
+    def _refresh_conversation_name(self) -> None:
+        """UI thread: show the current conversation's saved name.
+
+        Reads config.toml rather than trusting a caller's value: it is the
+        source of truth after /rename, /fork or a concurrent auto-name.
+        """
+        logdir = self.manager.logdir
+        name = self._read_conversation_name()
+        if name == self._conversation_name and logdir == self._named_logdir:
             return
         self._conversation_name = name
+        self._named_logdir = logdir
         if self._quitting:  # e.g. a name generated while the app exited
             return
         self._write_title()
         self._update_status()
 
-    def _on_auto_named(self, name: str) -> None:
-        """Naming thread: hand the generated name to the UI thread."""
+    def _apply_auto_name(self, logdir: Path) -> None:
+        """UI thread: an auto-name was saved for *logdir*."""
+        # a name for the conversation forked from must not reach the fork
+        if logdir == self.manager.logdir:
+            self._refresh_conversation_name()
+
+    def _on_auto_named(self, logdir: Path, name: str) -> None:
+        """Naming thread: tell the UI thread a name was saved for *logdir*."""
         # the app may have exited while the name was generated
         with contextlib.suppress(Exception):
-            self.call_from_thread(self._set_conversation_name, name)
+            self.call_from_thread(self._apply_auto_name, logdir)
 
     def _report_program_status(self, state: State, kind: Kind | None = None) -> None:
         """Write on the UI thread through Textual, never the captured stdout."""
@@ -3680,8 +3696,8 @@ class GptmeApp(App):
             # Commands like /skill:<name> queue a follow-up user prompt.
             # Drain it and start a turn, matching the CLI chat loop.
             self._drain_command_queued_prompts()
-        # e.g. /rename
-        self._set_conversation_name(self._read_conversation_name())
+        # e.g. /rename, /fork
+        self._refresh_conversation_name()
         self._update_status()
         self.post_message(self.NotificationReady())
 
@@ -4065,7 +4081,9 @@ class GptmeApp(App):
                 # Name the conversation after its first replies, like the CLI.
                 try:
                     maybe_start_auto_naming(
-                        manager.logdir, manager.log.messages, self._on_auto_named
+                        manager.logdir,
+                        manager.log.messages,
+                        functools.partial(self._on_auto_named, manager.logdir),
                     )
                 except Exception:  # cosmetic: never fail the turn over it
                     logger.warning("Failed to start auto-naming", exc_info=True)
