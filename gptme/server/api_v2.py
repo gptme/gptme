@@ -709,7 +709,7 @@ def _mcp_config_to_toml(mcp: MCPConfig) -> "tomlkit.items.Table":
         entry = tomlkit.table()
         entry["name"] = srv.name
         entry["enabled"] = srv.enabled
-        for key in ("command", "args", "url", "env", "headers"):
+        for key in ("command", "args", "url", "env", "headers", "transport"):
             value = getattr(srv, key)
             if value:
                 entry[key] = value

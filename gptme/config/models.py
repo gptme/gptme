@@ -9,6 +9,7 @@ import re
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from typing_extensions import Self
 
@@ -126,7 +127,7 @@ class MCPServerConfig:
         """
         if self.transport:
             return self.transport == "sse"
-        return self.is_http and self.url.rstrip("/").endswith("/sse")
+        return self.is_http and urlparse(self.url).path.rstrip("/").endswith("/sse")
 
 
 @dataclass
