@@ -683,41 +683,28 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             "preferred_edit_format": "diff",
         },
-        "anthropic/claude-opus-4.8": {
+        "anthropic/claude-opus-5.5": {
             "context": 1_000_000,
             "max_output": 128_000,
-            # NOTE: at >200k context price is 2x for input and 1.5x for output
-            "price_input": 5,
-            "price_output": 25,
+            "price_input": 4,
+            "price_output": 20,
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
-        "anthropic/claude-opus-4.7": {
+        "anthropic/claude-sonnet-5.5": {
             "context": 1_000_000,
             "max_output": 128_000,
-            # NOTE: at >200k context price is 2x for input and 1.5x for output
-            "price_input": 5,
-            "price_output": 25,
+            "price_input": 2,
+            "price_output": 10,
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
-        "anthropic/claude-sonnet-4.6": {
+        "anthropic/claude-haiku-5.5": {
             "context": 1_000_000,
-            "max_output": 64_000,
-            # NOTE: at >200k context price is 2x for input and 1.5x for output
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "supports_parallel_tool_calls": True,
-            "preferred_edit_format": "diff",
-        },
-        "anthropic/claude-haiku-4.5": {
-            "context": 200_000,
             "max_output": 64_000,
             "price_input": 1,
             "price_output": 5,
