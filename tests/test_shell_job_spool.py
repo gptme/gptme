@@ -390,6 +390,19 @@ def test_receipt_published_after_direct_job_finalize(direct_job) -> None:
     assert receipt["stderr"]["path"] == str(direct_job.stderr_log_path)
     assert receipt["stdout"]["path"] == str(direct_job.log_path)
     assert "ERROR-BEGIN" in Path(receipt["stderr"]["path"]).read_text()
+    # Reader progress keeps moving after publish; the final receipt must not
+    # carry a snapshot of it that is stale the moment it is written.
+    assert "cursor_bytes" not in receipt["stdout"]
+    assert "cursor_bytes" not in receipt["stderr"]
+
+
+def test_incremental_read_survives_unreadable_spool_file(direct_job) -> None:
+    assert direct_job.stderr_log_path is not None
+    direct_job.stderr_log_path.unlink()
+    _out, err = direct_job.get_output(incremental=True)
+    assert "spool file unreadable" in err
+    assert direct_job._stderr_byte_cursor == direct_job._stderr_committed_bytes
+    assert direct_job.get_output(incremental=True)[1] == ""
 
 
 def test_byte_cursors_are_independent_of_ram_offsets(direct_job) -> None:

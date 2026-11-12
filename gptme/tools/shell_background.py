@@ -768,7 +768,6 @@ class BackgroundJob:
                 "committed_bytes": self._stdout_committed_bytes,
                 "accepted_bytes": self._stdout_accepted_bytes,
                 "discarded_bytes": self._stdout_discarded_bytes,
-                "cursor_bytes": self._stdout_byte_cursor,
                 "raw_observed_bytes": None,
                 "raw_accepted_bytes": None,
                 "raw_pending_bytes": None,
@@ -779,7 +778,6 @@ class BackgroundJob:
                 "committed_bytes": self._stderr_committed_bytes,
                 "accepted_bytes": self._stderr_accepted_bytes,
                 "discarded_bytes": self._stderr_discarded_bytes,
-                "cursor_bytes": self._stderr_byte_cursor,
                 "raw_observed_bytes": None,
                 "raw_accepted_bytes": None,
                 "raw_pending_bytes": None,
@@ -804,8 +802,15 @@ class BackgroundJob:
             )
             self._note_partial("receipt_write")
 
-    def _read_committed_range(self, is_stdout: bool, start: int, end: int) -> bytes:
-        """Read committed retained bytes ``[start, end)`` without blocking the writer."""
+    def _read_committed_range(
+        self, is_stdout: bool, start: int, end: int
+    ) -> bytes | None:
+        """Read committed retained bytes ``[start, end)`` without blocking the writer.
+
+        Returns ``None`` when the spool file can no longer be read (deleted,
+        permissions changed), so the caller can report the gap instead of
+        failing ``output N --new``.
+        """
         length = end - start
         if length <= 0:
             return b""
@@ -819,10 +824,14 @@ class BackgroundJob:
                 except OSError:
                     pass
         if path is None:
-            return b""
-        with open(path, "rb") as handle:
-            handle.seek(start)
-            return handle.read(length)
+            return None
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(start)
+                return handle.read(length)
+        except OSError as e:
+            logger.warning("Could not read background job spool %s: %s", path, e)
+            return None
 
     def _consume_committed_text(self, is_stdout: bool) -> str:
         """Advance the per-stream byte cursor and return newly committed text."""
@@ -843,6 +852,8 @@ class BackgroundJob:
             start = committed - display_limit
         data = self._read_committed_range(is_stdout, start, committed)
         setattr(self, cursor_attr, committed)
+        if data is None:
+            return f"[... {committed - cursor} bytes unavailable: spool file unreadable ...]\n"
         text = data.decode("utf-8", "replace")
         if omitted_bytes:
             text = f"[... {omitted_bytes} bytes omitted ...]\n" + text
