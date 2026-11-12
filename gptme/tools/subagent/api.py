@@ -1422,8 +1422,8 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
         )
 
     # Hold the registry lock while re-checking liveness so we don't race with
-    # a concurrent subagent_continue() that could start a new writer between
-    # the is_running() check and the directory removal.
+    # a concurrent subagent_continue() in this process that could start a new
+    # writer between the is_running() check and the directory removal.
     with _subagents_lock:
         current = next((s for s in _subagents if s.agent_id == agent_id), None)
         if current is not sa:
@@ -1436,11 +1436,36 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
                 f"Subagent '{agent_id}' is still running. Wait for it to finish first."
             )
 
+    # Another parent process may be resuming (or still running) this
+    # conversation: in-process liveness cannot see it. Take the same
+    # cross-process writer lease subagent_continue() uses and hold it until the
+    # workspace is gone, so a concurrent continuation is refused instead of
+    # running inside a directory that is being deleted.
+    writer_lease = None
+    if sa.execution_mode == "subprocess":
+        try:
+            writer_lease = _exec.acquire_writer_lease(sa.logdir)
+        except BlockingIOError:
+            raise ValueError(
+                f"Subagent '{agent_id}' is still running (writer lease held). "
+                "Wait for it to finish first."
+            ) from None
+    try:
+        return _release_retained_workspace(sa, force=force)
+    finally:
+        if writer_lease is not None:
+            writer_lease.close()
+
+
+def _release_retained_workspace(sa: Subagent, *, force: bool) -> dict:
+    """Delete (or refuse to delete) a retained workspace. Caller holds the writer lease."""
+    agent_id = sa.agent_id
     worktree_path = sa.worktree_path
     if worktree_path is None or not worktree_path.exists():
         # Already gone — idempotent success.
         return {"status": "released", "path": None}
 
+    discarded_uncommitted = False
     if not force:
         # Non-git temp dirs have no branch; git status returns non-zero inside
         # them, making worktree_is_clean always return False.  Use a direct
@@ -1470,6 +1495,15 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
                     "again, or pass force=True to delete unconditionally."
                 ),
             }
+    elif sa.repo_path is None:
+        try:
+            discarded_uncommitted = any(worktree_path.iterdir())
+        except OSError:
+            discarded_uncommitted = True
+    else:
+        from ...util.git_worktree import has_uncommitted_changes
+
+        discarded_uncommitted = has_uncommitted_changes(worktree_path)
 
     path_str = str(worktree_path)
     preserved = _exec._cleanup_isolation_forced(sa)
@@ -1477,6 +1511,10 @@ def subagent_release(agent_id: str, *, force: bool = False) -> dict:
     result: dict = {"status": "released", "path": path_str}
     if preserved:
         result["preserved"] = preserved
+    if discarded_uncommitted:
+        # A preserved branch only holds committed work; say so rather than let
+        # the caller believe everything survived a forced release.
+        result["discarded_uncommitted"] = True
     return result
 
 
@@ -1688,6 +1726,15 @@ def subagent_continue(
                 f"Subagent '{agent_id}' is still running (writer lease held). "
                 "Use subagent_steer() instead."
             ) from None
+        # The eligibility check above ran without the lease, so a concurrent
+        # subagent_release() may have deleted the retained workspace since.
+        # Re-check now that no release can start.
+        if (
+            blocker := sa.continuation_blocker(allow_cancelled=allow_cancelled)
+        ) is not None:
+            if writer_lease is not None:
+                writer_lease.close()
+            raise ValueError(blocker)
 
     prompt_queue_closed = threading.Event()
     start_gate = threading.Event()
@@ -1992,20 +2039,26 @@ def subagent_reply(agent_id: str, reply: str) -> None:
                 _subagent_results[agent_id] = old_result
         raise
 
-    # Respawn succeeded: GC the retained worktree now that the new agent is live.
-    # Doing this after the try block ensures the old workspace is still recoverable
-    # if the respawn had failed (the restored sa would point at a live path).
+    # Respawn succeeded: GC the retained worktree now that the new agent is live
+    # (the respawn starts from a fresh isolation, so the old one is superseded).
+    # Only delete it when nothing would be lost: a retained workspace with
+    # uncommitted files stays put and is surfaced for subagent_release().
     if sa.retain_worktree and sa.worktree_path and sa.worktree_path.exists():
-        import copy
-
-        sa_no_retain = copy.copy(sa)
-        object.__setattr__(sa_no_retain, "retain_worktree", False)
-        preserved = _exec._cleanup_isolation(sa_no_retain)
-        if preserved:
-            logger.info(
-                f"subagent_reply: {agent_id!r} retained worktree had changes — "
-                f"preserved at {preserved!r}"
+        try:
+            release = _release_retained_workspace(sa, force=False)
+        except Exception as exc:
+            logger.warning(
+                f"subagent_reply: {agent_id!r} retained worktree release failed: {exc}"
             )
+        else:
+            if release["status"] == "cleanup_required":
+                logger.warning(
+                    f"subagent_reply: {agent_id!r} retained worktree at "
+                    f"{release['path']} has unpublished work and was left in place. "
+                    "The replacement run uses a fresh workspace under the same "
+                    "agent_id, so subagent_release() can no longer reach this one: "
+                    "publish the work, then remove it with 'git worktree remove'."
+                )
 
 
 def subagent_list() -> list[dict]:
