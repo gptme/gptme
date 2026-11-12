@@ -278,10 +278,13 @@ def run(workspace: Path | None = None) -> None:
     gptme.toml [lessons] dirs. Already-injected lessons are tracked per session
     to avoid duplicates.
     """
-    # Suppress diagnostic output since this command must output only JSON
-    from ..message import set_output_format
+    # Suppress diagnostic output since this command must output only JSON.
+    # Only relevant if message rendering is loaded at all; importing
+    # gptme.message just to set this cost hooks a large share of their runtime.
+    if "gptme.message" in sys.modules:
+        from ..message import set_output_format
 
-    set_output_format("json")
+        set_output_format("json")
 
     try:
         raw = sys.stdin.read()

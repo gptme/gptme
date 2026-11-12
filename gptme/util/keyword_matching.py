@@ -55,7 +55,7 @@ def _keyword_to_pattern(keyword: str) -> re.Pattern[str] | None:
     return _keyword_to_pattern_cached(keyword.lower().strip())
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=4096)
 def _keyword_to_pattern_cached(keyword: str) -> re.Pattern[str]:
     """Internal cached implementation - receives normalized keyword."""
     if "*" in keyword:
@@ -118,10 +118,25 @@ def _match_keyword(keyword: str, text: str) -> bool:
     Returns:
         True if keyword is found in text
     """
+    if not keyword or not keyword.strip():
+        return False
+    normalized = keyword.lower().strip()
+    if "*" not in normalized:
+        # Literal keyword: a case-insensitive substring test, same result as
+        # the escaped regex. Compiling one regex per keyword thrashed the
+        # pattern cache once lesson sets reached thousands of keywords, so
+        # every match recompiled them all.
+        return normalized in _lowered(text)
     pattern = _keyword_to_pattern(keyword)
     if pattern is None:
         return False
     return pattern.search(text) is not None
+
+
+@lru_cache(maxsize=16)
+def _lowered(text: str) -> str:
+    """Lowercase ``text`` once per distinct text (matchers test thousands of keywords)."""
+    return text.lower()
 
 
 def _match_pattern(pattern_str: str, text: str) -> bool:

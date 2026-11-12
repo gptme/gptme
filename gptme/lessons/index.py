@@ -1,8 +1,10 @@
 """Lesson index for discovery and search."""
 
+import functools
 import json
 import logging
 import os
+import pickle
 from pathlib import Path
 
 from .parser import Lesson, LessonMetadata, parse_lesson
@@ -14,6 +16,105 @@ logger = logging.getLogger(__name__)
 _LESSON_CACHE: dict[Path, tuple[float, Lesson]] = {}
 
 
+# Parsed lessons also persist on disk, so short-lived processes (Claude Code
+# hooks run one per prompt and tool call) don't re-parse every lesson file.
+# Entries are validated per file by mtime exactly like the in-memory cache, and
+# the whole cache is keyed on this module's and the parser's source, so a code
+# change (including in an editable install) starts from scratch.
+# GPTME_LESSON_CACHE=0 disables it.
+_DISK_CACHE_FORMAT = 1
+_disk_cache_loaded = False
+_disk_cache_dirty = False
+
+
+def _disk_cache_path() -> Path | None:
+    if os.environ.get("GPTME_LESSON_CACHE", "1").lower() in ("0", "false", "no", "off"):
+        return None
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    return Path(base) / "gptme" / "lessons-cache.pickle"
+
+
+def _disk_cache_key() -> tuple:
+    from . import parser
+
+    stamps: list[tuple[int, int] | None] = []
+    for module_file in (__file__, parser.__file__):
+        try:
+            st = os.stat(module_file)
+            stamps.append((st.st_mtime_ns, st.st_size))
+        except (OSError, TypeError):
+            stamps.append(None)
+    return (_DISK_CACHE_FORMAT, *stamps)
+
+
+def _load_disk_cache() -> None:
+    global _disk_cache_loaded
+    if _disk_cache_loaded:
+        return
+    _disk_cache_loaded = True
+    path = _disk_cache_path()
+    if path is None:
+        return
+    try:
+        with open(path, "rb") as f:
+            data = pickle.load(f)  # our own file in the user's cache dir
+    except FileNotFoundError:
+        return
+    except Exception as e:  # corrupt or written by incompatible code: ignore
+        logger.debug(f"Ignoring lesson disk cache: {e}")
+        return
+    if not isinstance(data, dict) or data.get("key") != _disk_cache_key():
+        return
+    entries = data.get("entries")
+    if isinstance(entries, dict):
+        for lesson_path, entry in entries.items():
+            _LESSON_CACHE.setdefault(lesson_path, entry)
+
+
+def _save_disk_cache() -> None:
+    global _disk_cache_dirty
+    path = _disk_cache_path()
+    if not _disk_cache_dirty or path is None:
+        return
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "wb") as f:
+            pickle.dump(
+                {"key": _disk_cache_key(), "entries": dict(_LESSON_CACHE)},
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+        os.replace(tmp, path)
+        _disk_cache_dirty = False
+    except Exception as e:  # cache is best-effort
+        logger.debug(f"Could not write lesson disk cache: {e}")
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+@functools.lru_cache(maxsize=1024)
+def _realpath_dir(directory: str) -> str:
+    return os.path.realpath(directory)
+
+
+def _realpath(path: Path) -> str:
+    """``os.path.realpath`` for a file, resolving its directory once.
+
+    A file that is not itself a symlink resolves to its parent's real path plus
+    its name; indexing calls this for every lesson, and full per-file resolution
+    was a large share of a hook's runtime.
+    """
+    if os.path.islink(path):
+        return os.path.realpath(path)
+    head, tail = os.path.split(os.fspath(path))
+    return os.path.join(_realpath_dir(head), tail)
+
+
 def _get_cached_lesson(path: Path) -> Lesson | None:
     """Get cached lesson if still valid.
 
@@ -23,6 +124,7 @@ def _get_cached_lesson(path: Path) -> Lesson | None:
     Returns:
         Cached lesson if valid, None otherwise
     """
+    _load_disk_cache()
     if path not in _LESSON_CACHE:
         return None
 
@@ -49,9 +151,11 @@ def _cache_lesson(path: Path, lesson: Lesson) -> None:
         path: Path to lesson file
         lesson: Parsed lesson
     """
+    global _disk_cache_dirty
     try:
         mtime = path.stat().st_mtime
         _LESSON_CACHE[path] = (mtime, lesson)
+        _disk_cache_dirty = True
         logger.debug(f"Cached lesson: {path.name}")
     except FileNotFoundError:
         logger.warning(f"Cannot cache lesson, file not found: {path}")
@@ -321,6 +425,9 @@ class LessonIndex:
             cache_hits += hits
             cache_misses += misses
             skipped_duplicates += skipped
+
+        if cache_misses:
+            _save_disk_cache()
 
         log_parts = [f"Indexed {len(self.lessons)} lessons"]
         log_parts.append(f"(cache: {cache_hits} hits, {cache_misses} misses)")
@@ -651,7 +758,7 @@ class LessonIndex:
             )
             return False
 
-        resolved_path = os.path.realpath(lesson_file)
+        resolved_path = _realpath(lesson_file)
         if resolved_path in seen_paths:
             logger.debug(
                 f"Skipping duplicate lesson: {relative_name} "
