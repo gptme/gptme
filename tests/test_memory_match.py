@@ -721,3 +721,73 @@ def test_match_cursor_rules_do_not_trigger(tmp_path):
         cursor, "rules/globbed.md", "---\nglobs: ['**/*.ts']\n---\n# TS\n\nBody.\n"
     )
     assert lesson_candidates([cursor]) == []
+
+
+def test_match_manifest_skill_archived_in_skill_md_does_not_trigger(tmp_path):
+    """The manifest defaults a stub to active; SKILL.md's own status still wins."""
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates
+
+    clear_cache()
+    skills = tmp_path / "skills"
+    for name, status in (("retired", "archived"), ("live", "active")):
+        write_lesson(
+            skills,
+            f"{name}/SKILL.md",
+            f"---\nname: {name}\ndescription: d\nstatus: {status}\n"
+            "match:\n  keywords: [okapi]\n---\n# Skill\n\nBody.\n",
+        )
+    (skills / "index.json").write_text(
+        json.dumps({"skills": [{"name": n, "path": n} for n in ("retired", "live")]})
+    )
+    assert [c.path.parent.name for c in lesson_candidates([skills])] == ["live"]
+
+
+def test_lesson_candidates_leaves_process_config_unchanged(lesson_env, monkeypatch):
+    """Reading ``[lessons] dirs`` from cwd must not replace the global config."""
+    from gptme.config import get_config
+    from gptme.memory.match import lesson_candidates
+
+    workspace = lesson_env.parent / "workspace"
+    write_lesson(workspace / "rules", "infrastructure/trajectory-persistence.md")
+    (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["rules"]\n')
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
+    config = get_config()
+    monkeypatch.setattr(config, "project", None)
+
+    found = lesson_candidates(include_default=True)
+
+    assert [c.path.name for c in found] == ["trajectory-persistence.md"]
+    assert found[0].path.is_relative_to((workspace / "rules").resolve())
+    assert config.project is None
+
+
+def test_lesson_candidates_collapses_aliased_dirs(lesson_env):
+    """``./lessons`` and a symlink or ``..`` spelling of it yield each lesson once."""
+    from gptme.memory.match import lesson_candidates
+
+    alias = lesson_env.parent / "alias"
+    alias.symlink_to(lesson_env, target_is_directory=True)
+    dotted = lesson_env / ".." / lesson_env.name
+
+    found = lesson_candidates([lesson_env, alias, dotted])
+
+    assert [c.path.name for c in found] == ["trajectory-persistence.md"]
+
+
+def test_lesson_candidates_discovery_failure_keeps_memories(
+    lesson_env, tmp_path, monkeypatch, caplog
+):
+    """A broken lesson source warns and yields nothing instead of killing the hook."""
+    from gptme.lessons.index import LessonIndex
+    from gptme.memory import match
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("broken lesson dir")
+
+    monkeypatch.setattr(LessonIndex, "__init__", boom)
+    with caplog.at_level(logging.WARNING, logger="gptme.memory.match"):
+        assert match.lesson_candidates([lesson_env]) == []
+    assert "broken lesson dir" in caplog.text

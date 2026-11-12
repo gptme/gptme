@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -94,26 +97,52 @@ def lesson_candidates(
     manifest's keywords.
 
     With ``include_default`` and no project config loaded yet (``gptme-util``
-    does not load one), the current directory's ``gptme.toml`` is loaded so
-    its ``[lessons] dirs`` are searched.
+    does not load one), the current directory's ``gptme.toml`` is read for the
+    duration of directory discovery so its ``[lessons] dirs`` are searched, then
+    dropped again: a read-only matcher leaves the process config as it found it.
+
+    Discovery failures (an unreadable ``gptme.toml``, a broken lesson dir) log a
+    warning and yield no lesson candidates, so memories are still delivered.
     """
+    try:
+        dirs = _lesson_search_dirs(lesson_dirs, include_default)
+        if not dirs:
+            return []
+        return _reduce_to_triggers(dirs)
+    except Exception as e:
+        logger.warning(f"Skipping lesson matching, discovery failed: {e}")
+        return []
+
+
+def _lesson_search_dirs(
+    lesson_dirs: Iterable[Path], include_default: bool
+) -> list[Path]:
+    """Existing lesson dirs, resolved so differently spelled aliases collapse."""
     from ..config import get_config, get_project_config
     from ..lessons.index import LessonIndex
-    from ..lessons.parser import LessonMetadata
 
     dirs: list[Path] = []
     if include_default:
         config = get_config()
-        if config.project is None:
+        loaded_here = config.project is None
+        if loaded_here:
             # quiet: a "Using project configuration" log line would land in
             # --format json output whenever the host process has a stdout
             # logging handler installed.
             config.project = get_project_config(Path.cwd(), quiet=True)
-        dirs.extend(LessonIndex._default_dirs())
+        try:
+            dirs.extend(LessonIndex._default_dirs())
+        finally:
+            if loaded_here:
+                config.project = None
     dirs.extend(Path(d).expanduser() for d in lesson_dirs)
-    dirs = [d for d in dict.fromkeys(dirs) if d.is_dir()]
-    if not dirs:
-        return []
+    return [d for d in dict.fromkeys(d.resolve() for d in dirs) if d.is_dir()]
+
+
+def _reduce_to_triggers(dirs: list[Path]) -> list[Lesson]:
+    from ..lessons.index import LessonIndex
+    from ..lessons.parser import LessonMetadata
+
     index = LessonIndex(lesson_dirs=dirs)
     candidates: list[Lesson] = []
     for lesson in index.lessons:
@@ -122,6 +151,10 @@ def lesson_candidates(
             manifest_keywords = list(lesson.metadata.keywords)
             lesson = index.materialize_lesson(lesson)
         meta = lesson.metadata
+        # Re-check status: a stub's manifest entry defaults to active, so the
+        # index admits it before SKILL.md (which may be archived) is read.
+        if meta.status != "active":
+            continue
         if lesson.path.suffix == ".mdc" or meta.globs or meta.always_apply:
             continue
         keywords = list(dict.fromkeys(manifest_keywords + list(meta.keywords)))
