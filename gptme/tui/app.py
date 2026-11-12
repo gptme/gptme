@@ -2242,7 +2242,10 @@ def _build_work_summary(
         lines.append("Children:")
         for index, sa in enumerate(children):
             status = sa.status
-            elapsed = _fmt_elapsed(now - sa.started_at)
+            # Snapshots carry no end time, so a finished child's clock would
+            # keep ticking; report only how long ago it started.
+            age = _fmt_elapsed(now - sa.started_at)
+            elapsed = age if status == "running" else f"started {age} ago"
             icon = {
                 "running": "⏳",
                 "success": "✓",
@@ -2476,10 +2479,12 @@ class WorkOverviewScreen(ModalScreen):
         self.set_interval(1.0, self._refresh_summary)
 
     def _refresh_summary(self, *, scroll: bool = False) -> None:
+        cursor_before = self._cursor
         summary = self._snapshot_summary()
         content = self.query_one("#work-overview-content", Static)
         content.update(Text(summary))
-        if scroll and self._children:
+        # A refresh can move the selected child to another row; follow it.
+        if (scroll or self._cursor != cursor_before) and self._children:
             self.query_one("#work-overview-scroll", VerticalScroll).scroll_to(
                 y=self._selected_row(), animate=False
             )

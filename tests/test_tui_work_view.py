@@ -673,6 +673,59 @@ async def test_work_overview_selection_scrolls_and_opens_selected_child(
         assert app.screen is screen
 
 
+def test_work_summary_finished_child_does_not_tick() -> None:
+    """A finished child reports its start age, not a duration that grows each refresh."""
+    from dataclasses import replace
+
+    from gptme.tui.app import _build_work_summary
+
+    running = _make_child_snapshot("runner")
+    done = replace(
+        _make_child_snapshot("finisher"),
+        status="success",
+        started_at=time.time() - 3600,
+    )
+    text = _build_work_summary(None, None, children=[running, done])
+    assert "[running] 0s" in text
+    assert "[success] started 1h" in text and " ago" in text
+    assert "[success] 1h" not in text
+
+
+@pytest.mark.asyncio
+async def test_work_overview_follows_selected_child_when_it_moves_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If a refresh moves the selected child to the top, the viewport follows it."""
+    from textual.containers import VerticalScroll
+
+    manager = _make_manager(tmp_path)
+    children = []
+    for index in range(30):
+        logdir = tmp_path / f"child-{index}"
+        logdir.mkdir()
+        children.append(
+            _make_child_snapshot(f"child-{index}", logdir=logdir, prompt="inspect logs")
+        )
+    monkeypatch.setattr(
+        "gptme.tools.subagent.subagent_snapshots", lambda *a, **kw: list(children)
+    )
+    app = GptmeApp(manager, workspace=tmp_path)
+    async with app.run_test() as pilot:
+        screen = WorkOverviewScreen(manager.logdir, manager.current_branch)
+        app.push_screen(screen)
+        await pilot.pause()
+        for _ in range(25):
+            screen.action_cursor_down()
+        await pilot.pause()
+        scroll = screen.query_one("#work-overview-scroll", VerticalScroll)
+        assert scroll.scroll_y > 0
+        children.insert(0, children.pop(25))
+        await pilot.pause(1.2)
+        assert screen._cursor == 0
+        row = screen._selected_row()
+        assert scroll.scroll_y <= row < scroll.scroll_y + scroll.size.height
+
+
 @pytest.mark.asyncio
 async def test_work_overview_keeps_selection_on_reused_logdir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
