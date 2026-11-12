@@ -51,12 +51,14 @@ class Codeblock:
         has_lang = not stripped.startswith("\n")
 
         # Check for closing fence at end - only strip if fence lengths match
+        stripped_closing_fence = False
         end_match = re.search(r"(`{3,})$", stripped.strip())
         if end_match:
             end_fence_len = len(end_match.group(1))
             # Only strip closing fence if it matches opening fence length (CommonMark spec)
             if fence_len == end_fence_len:
                 stripped = stripped.strip()[:-end_fence_len]
+                stripped_closing_fence = True
 
         # Slice the body on the raw first line length (including any leading
         # whitespace), not on the stripped lang: a fence like "``` python" leaves
@@ -65,11 +67,13 @@ class Codeblock:
         first_line = stripped.splitlines()[0] if (stripped.strip() and has_lang) else ""
         lang = first_line.strip()
         fence = "`" * fence_len if fence_len else "```"
-        return cls(
-            lang,
-            stripped[len(first_line) :].lstrip("\n") if lang else stripped,
-            fence=fence,
-        )
+        body = stripped[len(first_line) :].lstrip("\n") if lang else stripped
+        # to_markdown() emits "{fence}{lang}\n{content}\n{fence}": the newline
+        # before the closing fence is a separator, not content. Drop it so a
+        # round-trip matches iter_from_markdown (which never keeps it).
+        if stripped_closing_fence and body.endswith("\n"):
+            body = body[:-1]
+        return cls(lang, body, fence=fence)
 
     @classmethod
     @trace_function(name="codeblock.from_xml", attributes={"component": "parser"})
