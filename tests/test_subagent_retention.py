@@ -547,3 +547,225 @@ class TestRetainValidationOrderingWithRoles:
             assert "retain_worktree=True requires" not in str(e), (
                 "retain_worktree validation must not fire when isolation='worktree' is set"
             )
+
+
+# ---------------------------------------------------------------------------
+# Hardening: real git, real lease (gptme/gptme#4555)
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd: Path, *args: str) -> str:
+    import subprocess
+
+    # Hermetic throwaway repos: skip host-level commit hooks (--no-verify).
+    argv = list(args)
+    if argv[0] == "commit":
+        argv.insert(1, "--no-verify")
+    return subprocess.run(
+        ["git", *argv], cwd=cwd, capture_output=True, text=True, check=True
+    ).stdout
+
+
+@pytest.fixture
+def real_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """A real repo plus a gptme-created worktree (with ownership marker)."""
+    from gptme.util.git_worktree import create_worktree
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    (repo / "f.txt").write_text("base")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "base")
+    worktree = create_worktree(repo, worktree_base=tmp_path / "wts")
+    return repo, worktree
+
+
+def _retained_real(tmp_path: Path, repo: Path, worktree: Path) -> Subagent:
+    sa = _make_subagent(tmp_path / "logdir", worktree_path=worktree, isolated=True)
+    object.__setattr__(sa, "repo_path", repo)
+    with _subagent_results_lock:
+        _subagent_results[sa.agent_id] = ReturnType("success", "done")
+    return sa
+
+
+class TestReleaseWithRealGit:
+    def test_clean_worktree_released_and_branch_dropped(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        repo, worktree = real_worktree
+        sa = _retained_real(tmp_path, repo, worktree)
+        result = subagent_release(sa.agent_id)
+        assert result["status"] == "released"
+        assert not worktree.exists()
+        assert "preserved" not in result
+        assert "discarded_uncommitted" not in result
+
+    def test_uncommitted_work_blocks_release_and_survives(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        repo, worktree = real_worktree
+        (worktree / "wip.txt").write_text("unpublished")
+        sa = _retained_real(tmp_path, repo, worktree)
+        result = subagent_release(sa.agent_id)
+        assert result["status"] == "cleanup_required"
+        assert (worktree / "wip.txt").read_text() == "unpublished"
+
+    def test_force_reports_discarded_uncommitted_and_keeps_commits(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        repo, worktree = real_worktree
+        _git(worktree, "config", "user.email", "t@example.com")
+        _git(worktree, "config", "user.name", "t")
+        (worktree / "done.txt").write_text("committed")
+        _git(worktree, "add", "done.txt")
+        _git(worktree, "commit", "-q", "-m", "work")
+        (worktree / "wip.txt").write_text("unpublished")
+        sa = _retained_real(tmp_path, repo, worktree)
+        result = subagent_release(sa.agent_id, force=True)
+        assert result["status"] == "released"
+        assert result["discarded_uncommitted"] is True
+        assert not worktree.exists()
+        # Committed work survives on the preserved branch.
+        assert "done.txt" in _git(
+            repo, "ls-tree", "-r", "--name-only", result["preserved"]
+        )
+
+    def test_committed_only_work_needs_force_but_loses_nothing(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        repo, worktree = real_worktree
+        _git(worktree, "config", "user.email", "t@example.com")
+        _git(worktree, "config", "user.name", "t")
+        (worktree / "done.txt").write_text("committed")
+        _git(worktree, "add", "done.txt")
+        _git(worktree, "commit", "-q", "-m", "work")
+        sa = _retained_real(tmp_path, repo, worktree)
+        assert subagent_release(sa.agent_id)["status"] == "cleanup_required"
+        forced = subagent_release(sa.agent_id, force=True)
+        assert forced["status"] == "released"
+        assert "discarded_uncommitted" not in forced
+
+
+class TestReleaseHonoursCrossProcessWriterLease:
+    def test_release_refused_while_other_process_holds_lease(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        """A surviving writer in another process must block GC of its workspace."""
+        import subprocess
+        import sys
+
+        repo, worktree = real_worktree
+        sa = _retained_real(tmp_path, repo, worktree)
+        holder = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import fcntl,time;"
+                    f"f=open({str(sa.logdir / _exec.WRITER_LOCK_FILENAME)!r},'a+b');"
+                    "fcntl.flock(f,fcntl.LOCK_EX);print('held',flush=True);time.sleep(60)"
+                ),
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert holder.stdout is not None
+            assert holder.stdout.readline().strip() == "held"
+            with pytest.raises(ValueError, match="still running"):
+                subagent_release(sa.agent_id)
+            assert worktree.exists()
+        finally:
+            holder.kill()
+            holder.wait()
+        # Writer gone -> kernel dropped the lease -> release proceeds.
+        assert subagent_release(sa.agent_id)["status"] == "released"
+        assert not worktree.exists()
+
+    def test_lease_is_held_while_workspace_is_deleted(
+        self,
+        tmp_path: Path,
+        real_worktree: tuple[Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A continuation racing the deletion must be refused, not run in a dying dir."""
+        repo, worktree = real_worktree
+        sa = _retained_real(tmp_path, repo, worktree)
+        real_cleanup = _exec._cleanup_isolation_forced
+        raced: list[str] = []
+
+        def racing_cleanup(s: Subagent) -> str | None:
+            try:
+                _exec.acquire_writer_lease(s.logdir)
+            except BlockingIOError:
+                raced.append("refused")
+            else:
+                raced.append("acquired")
+            return real_cleanup(s)
+
+        monkeypatch.setattr(_exec, "_cleanup_isolation_forced", racing_cleanup)
+        assert subagent_release(sa.agent_id)["status"] == "released"
+        assert raced == ["refused"]
+        assert not _exec.writer_lease_held(sa.logdir)
+
+    def test_lease_is_released_after_cleanup_required(
+        self, tmp_path: Path, real_worktree: tuple[Path, Path]
+    ) -> None:
+        """Release must not leak the lease it takes for its own check."""
+        repo, worktree = real_worktree
+        (worktree / "wip.txt").write_text("x")
+        sa = _retained_real(tmp_path, repo, worktree)
+        assert subagent_release(sa.agent_id)["status"] == "cleanup_required"
+        assert not _exec.writer_lease_held(sa.logdir)
+
+
+class TestReplyDoesNotDestroyUnpublishedWork:
+    def _clarifying(self, tmp_path: Path, repo: Path, worktree: Path) -> Subagent:
+        import json
+
+        sa = _retained_real(tmp_path, repo, worktree)
+        (sa.logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "```clarify\nWhich branch?\n```",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        with _subagent_results_lock:
+            _subagent_results.pop(sa.agent_id, None)
+        return sa
+
+    def test_reply_keeps_dirty_retained_worktree(
+        self,
+        tmp_path: Path,
+        real_worktree: tuple[Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gptme.tools.subagent import api
+
+        repo, worktree = real_worktree
+        (worktree / "wip.txt").write_text("unpublished")
+        sa = self._clarifying(tmp_path, repo, worktree)
+        monkeypatch.setattr(api, "subagent", lambda **kw: None)
+        api.subagent_reply(sa.agent_id, "main")
+        assert (worktree / "wip.txt").read_text() == "unpublished"
+
+    def test_reply_gcs_clean_retained_worktree(
+        self,
+        tmp_path: Path,
+        real_worktree: tuple[Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gptme.tools.subagent import api
+
+        repo, worktree = real_worktree
+        sa = self._clarifying(tmp_path, repo, worktree)
+        monkeypatch.setattr(api, "subagent", lambda **kw: None)
+        api.subagent_reply(sa.agent_id, "main")
+        assert not worktree.exists()

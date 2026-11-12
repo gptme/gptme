@@ -108,6 +108,27 @@ def has_changes(worktree_path: Path) -> bool:
         return True
 
 
+def has_uncommitted_changes(worktree_path: Path) -> bool:
+    """Return True if the worktree has staged/unstaged/untracked files.
+
+    Unlike :func:`has_changes` this ignores commits: committed work survives
+    removal of the directory on the preserved branch, uncommitted files do not.
+    Errs towards True when git cannot answer.
+    """
+    try:
+        result = subprocess.run(
+            [*git_inspect_cmd(), "status", "--porcelain"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return True
+    return result.returncode != 0 or bool(result.stdout)
+
+
 def worktree_is_clean(worktree_path: Path) -> bool:
     """Return True when the worktree has no uncommitted changes and no local commits.
 
