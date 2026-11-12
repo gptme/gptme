@@ -3,7 +3,7 @@ from typing import Literal
 
 from ..llm_anthropic_models_deprecated import ANTHROPIC_MODELS_DEPRECATED
 from ..llm_openai_models import OPENAI_MODELS, OPENAI_SUBSCRIPTION_MODELS
-from .types import PROVIDERS, Provider, _ModelDictMeta
+from .types import PROVIDERS, PriceTier, Provider, _ModelDictMeta
 
 
 def _mark_subscription(models: dict[str, _ModelDictMeta]) -> dict[str, _ModelDictMeta]:
@@ -706,8 +706,20 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
         "anthropic/claude-haiku-5.5": {
             "context": 1_000_000,
             "max_output": 64_000,
-            "price_input": 1,
-            "price_output": 5,
+            # OpenRouter catalog 2026-11-12: $0.10/$0.50 below 100k prompt
+            # tokens, $0.50/$2.50 at that threshold. Static metadata wins in
+            # get_model(), so these must match the catalog rather than Haiku 4.5.
+            "price_input": 0.1,
+            "price_output": 0.5,
+            "price_cache_read": 0.01,
+            "price_tiers": (
+                PriceTier(
+                    min_prompt_tokens=100_000,
+                    price_input=0.5,
+                    price_output=2.5,
+                    price_cache_read=0.05,
+                ),
+            ),
             "supports_vision": True,
             "preferred_edit_format": "diff",
         },
