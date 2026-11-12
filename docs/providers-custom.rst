@@ -328,4 +328,3 @@ Community threads and issues that motivated this page:
 - `Requesty provider support <https://github.com/gptme/gptme/issues/514>`_
 - `AI/ML provider support <https://github.com/gptme/gptme/issues/548>`_
 - `Chutes provider support <https://github.com/gptme/gptme/issues/555>`_
-- `DemonRoute provider support <https://github.com/gptme/gptme/issues/4260>`_
