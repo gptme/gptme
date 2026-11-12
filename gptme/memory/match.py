@@ -5,13 +5,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from ..lessons.parser import Lesson
     from .schema import MemoryEntry
     from .store import MemoryStore
@@ -69,8 +72,131 @@ def memory_lessons(store: MemoryStore) -> list[Lesson]:
     return _entries_as_lessons(_keyworded_entries(store))
 
 
+#: ``scope`` and ``type`` of a match that came from a lesson dir, not a memory root.
+LESSON_SCOPE = "lesson"
+
+
+def lesson_candidates(
+    lesson_dirs: Iterable[Path] = (), *, include_default: bool = False
+) -> list[Lesson]:
+    """Active lessons from lesson dirs, reduced to their explicit triggers.
+
+    ``include_default`` adds the directories gptme's own lesson index uses
+    (user and workspace ``lessons/``, ``[lessons] dirs`` from config,
+    ``GPTME_LESSONS_EXTRA_DIRS``); ``lesson_dirs`` adds explicit ones.
+
+    Only ``keywords`` and ``patterns`` survive, so a lesson triggers from
+    ``memory match`` under the rule memories follow: explicit phrases only.
+    Skill names, tools, and Cursor rules never trigger here (a Cursor rule's
+    keywords are generated from its globs and ``alwaysApply``, not written by
+    its author), and entries without keywords or patterns (plain skills) are
+    not candidates. Skills listed in an ``index.json`` manifest are read in
+    full, so their ``SKILL.md`` patterns and keywords count as well as the
+    manifest's keywords.
+
+    With ``include_default`` and no project config loaded yet (``gptme-util``
+    does not load one), the current directory's ``gptme.toml`` is read for the
+    duration of directory discovery so its ``[lessons] dirs`` are searched, then
+    dropped again: a read-only matcher leaves the process config as it found it.
+
+    Discovery failures (an unreadable ``gptme.toml``, a broken lesson dir) warn on
+    stderr and yield no lesson candidates, so memories are still delivered.
+    """
+    try:
+        dirs = _lesson_search_dirs(lesson_dirs, include_default)
+        if not dirs:
+            return []
+        return _reduce_to_triggers(dirs)
+    except Exception as e:
+        # Host logging handlers may write to stdout, corrupting JSON hook output.
+        print(f"Skipping lesson matching, discovery failed: {e}", file=sys.stderr)
+        return []
+
+
+def _lesson_search_dirs(
+    lesson_dirs: Iterable[Path], include_default: bool
+) -> list[Path]:
+    """Existing lesson dirs, resolved so differently spelled aliases collapse."""
+    from ..config import get_config, get_project_config
+    from ..lessons.index import LessonIndex
+
+    dirs: list[Path] = []
+    if include_default:
+        config = get_config()
+        loaded_here = config.project is None
+        if loaded_here:
+            # quiet: a "Using project configuration" log line would land in
+            # --format json output whenever the host process has a stdout
+            # logging handler installed.
+            config.project = get_project_config(Path.cwd(), quiet=True)
+        try:
+            dirs.extend(LessonIndex._default_dirs())
+        finally:
+            if loaded_here:
+                config.project = None
+    dirs.extend(Path(d).expanduser() for d in lesson_dirs)
+    return [d for d in dict.fromkeys(d.resolve() for d in dirs) if d.is_dir()]
+
+
+def _reduce_to_triggers(dirs: list[Path]) -> list[Lesson]:
+    from ..lessons.index import LessonIndex
+    from ..lessons.parser import LessonMetadata
+
+    index = LessonIndex(lesson_dirs=dirs)
+    candidates: list[Lesson] = []
+    for lesson in index.lessons:
+        manifest_keywords: list[str] = []
+        if lesson.is_stub:
+            manifest_keywords = list(lesson.metadata.keywords)
+            lesson = index.materialize_lesson(lesson)
+        meta = lesson.metadata
+        # Re-check status: a stub's manifest entry defaults to active, so the
+        # index admits it before SKILL.md (which may be archived) is read.
+        if meta.status != "active":
+            continue
+        if lesson.path.suffix == ".mdc" or meta.globs or meta.always_apply:
+            continue
+        keywords = list(dict.fromkeys(manifest_keywords + list(meta.keywords)))
+        if not (keywords or meta.patterns):
+            continue
+        candidates.append(
+            replace(
+                lesson,
+                metadata=LessonMetadata(
+                    id=meta.id, keywords=keywords, patterns=meta.patterns
+                ),
+            )
+        )
+    return candidates
+
+
+def _lesson_file_name(path: Path) -> str:
+    """A skill is named by its directory, any other lesson by its file stem."""
+    return path.parent.name if path.name == "SKILL.md" else path.stem
+
+
+def _lesson_as_entry(lesson: Lesson) -> MemoryEntry:
+    """A matched lesson in the shape hits are rendered, deduped and serialized."""
+    from .schema import MemoryEntry
+
+    return MemoryEntry(
+        name=lesson.metadata.id or _lesson_file_name(lesson.path),
+        title=lesson.title or None,
+        description=lesson.description or "",
+        type=LESSON_SCOPE,
+        body=lesson.body,
+        keywords=list(lesson.metadata.keywords),
+        path=lesson.path,
+        scope=LESSON_SCOPE,
+    )
+
+
 def match_memories(
-    store: MemoryStore, text: str, *, limit: int | None = 5
+    store: MemoryStore,
+    text: str,
+    *,
+    limit: int | None = 5,
+    lessons: list[Lesson] | None = None,
 ) -> list[MemoryMatch]:
     """Match living entries by explicit keywords, using lesson wildcard semantics.
 
@@ -81,6 +207,11 @@ def match_memories(
     Memory names are identifiers, not skill names: only ``keywords`` participate
     in matching. No description/body similarity or tool-name bonus is added.
     ``limit=None`` returns every match (session dedup filters before capping).
+
+    ``lessons`` (see :func:`lesson_candidates`) are matched in the same pass
+    and ranked with the memories by score; ties keep memories first. A lesson
+    hit is reported as an entry with scope and type ``lesson``. A file that is
+    both a memory entry and a lesson is reported once, as the memory.
     """
     if limit is not None and limit <= 0:
         raise ValueError("limit must be positive")
@@ -88,16 +219,22 @@ def match_memories(
         return []
 
     entries = _keyworded_entries(store)
-    if not entries:
+    if not entries and not lessons:
         return []
 
     # Keep the lesson subsystem lazy for memory readers/writers that don't match.
     from ..lessons.matcher import LessonMatcher, MatchContext
 
-    lessons = _entries_as_lessons(entries)
+    candidates = _entries_as_lessons(entries) + list(lessons or [])
     return [
-        MemoryMatch(entries[result.lesson.path], result.score, result.matched_by)
-        for result in LessonMatcher().match(lessons, MatchContext(message=text))[:limit]
+        MemoryMatch(
+            entries.get(result.lesson.path) or _lesson_as_entry(result.lesson),
+            result.score,
+            result.matched_by,
+        )
+        for result in LessonMatcher().match(candidates, MatchContext(message=text))[
+            :limit
+        ]
     ]
 
 
