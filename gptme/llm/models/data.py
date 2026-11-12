@@ -313,6 +313,18 @@ _MODELS_RAW: dict[Provider, dict[str, _ModelDictMeta]] = {
     # https://ai.google.dev/gemini-api/docs/models
     # https://ai.google.dev/gemini-api/docs/pricing
     "gemini": {
+        # Released 2026-11-12; pricing from the launch post, limits from the model card.
+        # Cache-read pricing not yet published.
+        "gemini-4-hydrogen": {
+            "context": 1_000_000,
+            "max_output": 65_536,
+            "price_input": 1.50,
+            "price_output": 7.50,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+            "knowledge_cutoff": datetime(2026, 3, 1, tzinfo=timezone.utc),
+        },
         # Stable Flash recommendation; docs/pricing verified 2026-11-02.
         "gemini-3.8-flash": {
             "context": 1_048_576,
