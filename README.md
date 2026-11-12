@@ -371,7 +371,7 @@ The scaffolded workspace is self-contained and runs as generated — edit `promp
 
 See [Running agents autonomously](https://gptme.org/docs/agents/autonomous.html) for scheduling, monitoring, and guardrails.
 
-[**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — created in late 2024 and running autonomously since 2025, with [5,000+ merged pull requests](https://timetobuildbob.com/stats/) to his name. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
+[**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — created in late 2024 and running autonomously since 2025, with [5,700+ merged pull requests](https://timetobuildbob.com/stats/) to his name. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
 
 Multiple specialized agents can run in parallel — e.g. Bob (engineering) and [Alice](https://github.com/TimeToLearnAlice) (personal assistant & orchestration) — coordinating through shared infrastructure.
 
