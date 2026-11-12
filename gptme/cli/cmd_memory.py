@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Literal
 
 import click
@@ -388,6 +389,19 @@ def _read_match_prompt(
 @click.option(
     "--session-id", help="Session key for --dedup-session without a hook payload."
 )
+@click.option(
+    "--lessons",
+    "with_lessons",
+    is_flag=True,
+    help="Also match lessons from gptme's lesson dirs (user, workspace, config).",
+)
+@click.option(
+    "--lesson-dir",
+    "lesson_dirs",
+    multiple=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Also match lessons under this directory (repeatable).",
+)
 def memory_match(
     query: str | None,
     prompt: str | None,
@@ -397,6 +411,8 @@ def memory_match(
     body_chars: int,
     dedup_session: bool,
     session_id: str | None,
+    with_lessons: bool,
+    lesson_dirs: tuple[Path, ...],
 ) -> None:
     """Inject living memories whose keywords match this turn's prompt or tool call.
 
@@ -405,8 +421,17 @@ def memory_match(
     session dedup unless ``--dedup-session`` is given; wrappers may still
     apply their own injection budget. Hook input supports UserPromptSubmit and
     PreToolUse.
+
+    ``--lessons`` / ``--lesson-dir`` add lessons to the candidates, so a rule
+    kept as a lesson reaches harnesses that only run this command. Lessons
+    trigger on their ``keywords`` and ``patterns`` only.
     """
-    from ..memory.match import filter_unseen, match_memories, render_matches
+    from ..memory.match import (
+        filter_unseen,
+        lesson_candidates,
+        match_memories,
+        render_matches,
+    )
 
     if query is not None and prompt is not None:
         raise click.UsageError("use either QUERY or --prompt, not both")
@@ -414,14 +439,21 @@ def memory_match(
         prompt if prompt is not None else query, pre_tool
     )
     session_key = session_id or payload_session
+    lessons = (
+        lesson_candidates(lesson_dirs, include_default=with_lessons)
+        if text.strip() and (with_lessons or lesson_dirs)
+        else None
+    )
     if dedup_session and session_key:
         # Filter the full match set before the -k cap so already-delivered
         # entries never crowd out unseen ones.
         hits = filter_unseen(
-            match_memories(_store(), text, limit=None), session_key, limit=limit
+            match_memories(_store(), text, limit=None, lessons=lessons),
+            session_key,
+            limit=limit,
         )
     else:
-        hits = match_memories(_store(), text, limit=limit)
+        hits = match_memories(_store(), text, limit=limit, lessons=lessons)
     if format_ == "json":
         click.echo(
             json.dumps({"hits": [hit.to_dict() for hit in hits]}, indent=2, default=str)

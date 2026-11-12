@@ -449,3 +449,177 @@ def test_match_dedup_all_seen_calls_keep_session_state_alive(tmp_path, monkeypat
     ]
     assert state_a.exists()
     assert _match_names(session_a, "--dedup-session") == []
+
+
+# --- lessons as match candidates (gptme/gptme#4868) --------------------------
+
+#: The rule that failed to surface: keywords cover disabling, not just deleting.
+PERSISTENCE_LESSON = """---
+match:
+  keywords:
+    - "delete trajectory"
+    - "no-session-persistence"
+    - "session persistence"
+    - "trajector* persisted"
+    - "disable transcripts"
+status: active
+---
+# Trajectory persistence
+
+Never disable or delete session trajectories, including one-shot calls.
+"""
+
+#: Text that was actually in play when the rule stayed silent.
+INCIDENT_TOOL_INPUT = "add --no-session-persistence to both looks safe ... transcripts"
+INCIDENT_PEER_MESSAGE = "--no-session-persistence fits ... 40 MB/day of transcripts"
+INCIDENT_USER_PROMPT = (
+    "are those one-shot runs still having their trajectories persisted?"
+)
+
+
+def write_lesson(root: Path, rel: str, text: str = PERSISTENCE_LESSON) -> Path:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+@pytest.fixture
+def lesson_env(tmp_path, monkeypatch):
+    """An empty memory root, isolated dedup state, and one lesson dir."""
+    from gptme.lessons.index import clear_cache
+
+    clear_cache()
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "memory"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    lessons = tmp_path / "lessons"
+    write_lesson(lessons, "infrastructure/trajectory-persistence.md")
+    return lessons
+
+
+@pytest.mark.parametrize(
+    "text", [INCIDENT_TOOL_INPUT, INCIDENT_PEER_MESSAGE, INCIDENT_USER_PROMPT]
+)
+def test_match_lesson_dir_triggers_on_incident_text(lesson_env, text):
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--prompt", "-", "--lesson-dir", str(lesson_env)]
+        + ["--format", "json"],
+        input=text,  # plain text on stdin: the peer message starts with "--"
+    )
+    assert result.exit_code == 0, result.output
+    (hit,) = json.loads(result.output)["hits"]
+    assert hit["name"] == "trajectory-persistence"
+    assert hit["scope"] == hit["type"] == "lesson"
+    assert hit["title"] == "Trajectory persistence"
+    assert hit["path"].endswith("infrastructure/trajectory-persistence.md")
+    assert "Never disable or delete" in hit["body"]
+    assert all(m.startswith("keyword:") for m in hit["matched_by"])
+
+
+def test_match_lesson_fires_on_pretool_payload_once_per_session(lesson_env):
+    """Replay: the agent's own SendMessage carries the flag; the rule is injected."""
+    payload = json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "incident",
+            "tool_name": "SendMessage",
+            "tool_input": {"to": "peer", "message": INCIDENT_TOOL_INPUT},
+        }
+    )
+    args = ["memory", "match", "--prompt", "-", "--format", "hook-json"]
+    args += ["--dedup-session", "--lesson-dir", str(lesson_env)]
+    first = CliRunner().invoke(util_main, args, input=payload)
+    assert first.exit_code == 0, first.output
+    out = json.loads(first.output)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PreToolUse"
+    assert "Never disable or delete" in out["additionalContext"]
+    assert "(scope: lesson)" in out["additionalContext"]
+    again = CliRunner().invoke(util_main, args, input=payload)
+    assert json.loads(again.output)["hookSpecificOutput"]["additionalContext"] == ""
+
+
+def test_match_without_lesson_flags_ignores_lessons(lesson_env, monkeypatch):
+    monkeypatch.chdir(lesson_env.parent)  # ./lessons exists, but is not asked for
+    result = CliRunner().invoke(
+        util_main, ["memory", "match", INCIDENT_TOOL_INPUT, "--format", "json"]
+    )
+    assert json.loads(result.output) == {"hits": []}
+
+
+def test_match_lessons_flag_uses_default_lesson_dirs(lesson_env, monkeypatch):
+    monkeypatch.chdir(lesson_env.parent)  # workspace ./lessons is a default dir
+    monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--lessons", "--format", "json", "--prompt", "-"],
+        input=INCIDENT_PEER_MESSAGE,
+    )
+    assert result.exit_code == 0, result.output
+    assert [h["name"] for h in json.loads(result.output)["hits"]] == [
+        "trajectory-persistence"
+    ]
+
+
+def test_match_lessons_trigger_on_keywords_and_patterns_only(tmp_path):
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates, match_memories
+
+    clear_cache()
+    lessons = tmp_path / "lessons"
+    write_lesson(
+        lessons,
+        "skills/deploy-helper/SKILL.md",
+        "---\nname: deploy-helper\ndescription: Deploys things\n---\n# Deploy\n",
+    )
+    write_lesson(
+        lessons,
+        "tools/tooled.md",
+        "---\nmatch:\n  keywords: [zebra]\n  tools: [shell]\n---\n# Tooled\n\nBody.\n",
+    )
+    write_lesson(
+        lessons,
+        "workflow/patterned.md",
+        "---\nmatch:\n  patterns: ['rm\\s+-rf']\n---\n# Patterned\n\nBody.\n",
+    )
+    write_lesson(
+        lessons,
+        "workflow/retired.md",
+        "---\nmatch:\n  keywords: [zebra]\nstatus: archived\n---\n# Retired\n",
+    )
+    candidates = lesson_candidates([lessons, tmp_path / "missing"])
+    store = MemoryStore([MemoryRoot("project", tmp_path / "memory")])
+
+    def names(text: str) -> list[str]:
+        return [h.entry.name for h in match_memories(store, text, lessons=candidates)]
+
+    assert names("use the deploy-helper and the shell tool") == []
+    assert names("a zebra") == ["tooled"]
+    assert names("then rm  -rf the dir") == ["patterned"]
+    assert lesson_candidates([]) == []
+
+
+def test_match_ranks_memories_and_lessons_together(tmp_path):
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates, match_memories
+
+    clear_cache()
+    memory, lessons = tmp_path / "memory", tmp_path / "lessons"
+    write_entry(memory, "mem-one", keywords=["alpha"])
+    write_lesson(
+        lessons, "a/two.md", "---\nmatch:\n  keywords: [alpha, beta]\n---\n# Two\n"
+    )
+    write_lesson(lessons, "a/one.md", "---\nmatch:\n  keywords: [alpha]\n---\n# One\n")
+    store = MemoryStore([MemoryRoot("project", memory)])
+    hits = match_memories(store, "alpha beta", lessons=lesson_candidates([lessons]))
+    assert [(h.entry.name, h.entry.scope) for h in hits] == [
+        ("two", "lesson"),
+        ("mem-one", "project"),
+        ("one", "lesson"),
+    ]
+    # A lesson dir that is also a memory root reports each file once, as memory.
+    write_entry(lessons, "dual", keywords=["gamma"], body="Dual.")
+    both = MemoryStore([MemoryRoot("project", lessons)])
+    dual = match_memories(both, "gamma", lessons=lesson_candidates([lessons]))
+    assert [(h.entry.name, h.entry.scope) for h in dual] == [("dual", "project")]
