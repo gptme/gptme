@@ -1,16 +1,19 @@
 """Regression tests for direct-job spool review findings (gptme/gptme#4826)."""
 
+import json
 import os
+import queue as queue_mod
 import shlex
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
 from gptme.tools.shell_background import (
-    _SPOOL_MAX_BYTES,
     _SPOOL_PENDING_MAX,
     BackgroundJob,
     _write_job_log,
@@ -334,98 +337,438 @@ def test_reader_spool_inherits_chat_redaction_policy(tmp_path, monkeypatch, is_s
         process.communicate()
 
 
-def test_spool_quota_stops_persistence_keeps_draining(tmp_path, monkeypatch) -> None:
-    """Quota exceeded closes both spools but reader keeps draining; child exits normally."""
-    from gptme.tools import shell_background as bg
-
-    # 1 KiB quota: triggers quickly without producing a large file.
-    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1024)
-    # 4 MiB exceeds ordinary pipe capacity as well as the quota. A reader that
-    # stops at quota must block the child rather than let this test pass.
-    sentinel = "QUOTA-TEST-FINAL-TAIL"
-    script = (
-        "import sys; sys.stdout.write(('x' * 127 + '\\n') * 32768); "
-        f"sys.stdout.write({sentinel!r} + '\\n'); sys.stdout.flush()"
-    )
-    process = subprocess.Popen(
-        [sys.executable, "-c", script],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    job = BackgroundJob(1, "quota-test", process, time.time(), log_dir=tmp_path)
+def test_writer_queue_full_does_not_block_reader(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "queued.live")
+    job._stdout_spool = stream
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue(maxsize=1)
+    job._spool_queue.put_nowait((stream, True, b"held\n"))
     try:
-        job.start_reader()
-        assert process.wait(timeout=15) == 0
-        assert job._reader_thread is not None
-        job._reader_thread.join(timeout=5)
-        assert not job._reader_thread.is_alive()
-
-        # Quota must have been hit.
+        t0 = time.monotonic()
+        job._commit_spool_bytes(True, b"dropped because the writer is busy\n")
+        assert time.monotonic() - t0 < 0.2
         assert job._capture_partial
-        assert job._stdout_spool is None
-        assert job._stderr_spool is None
-
-        # The spool file exists and carries the quota-exceeded marker.
-        assert job.log_path is not None
-        saved = job.log_path.read_text()
-        assert "quota exceeded" in saved
-
-        # Retained bytes stay at or below the quota (marker bytes are excluded
-        # from the total; the spool is closed on the first chunk that would
-        # overflow, so actual payload <= quota).
-        assert job._spool_bytes_total <= 1024
-
-        # Preview must acknowledge partial capture; must not claim full output.
-        preview = format_job_output(job, *job.get_output(), complete=True)
-        assert "Full output" not in preview
-        assert "Partial output" in preview
-
-        # The in-memory RAM preview is unaffected: the stdout buffer still holds
-        # the final tail of the output (the reader kept draining normally).
-        stdout, _ = job.get_output()
-        assert stdout.endswith(sentinel + "\n")
+        assert "queue_full" in job._partial_reasons
+        assert job._stdout_discarded_bytes > 0
+        assert not job._spool_persist_stdout
     finally:
-        if process.poll() is None:
-            process.kill()
-        process.communicate()
+        stream.close()
+
+
+def test_stream_quota_stops_persistence_and_marks_partial(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 64)
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "quota.live")
+    job._stdout_spool = stream
+    try:
+        job._spool_text(True, "keep-me\n" + ("x" * 200) + "\n", final=False)
+        saved = stream.path.read_bytes()
+        assert b"keep-me" in saved
+        assert b"retained-stream quota exceeded" in saved
+        assert job._capture_partial
+        assert "quota" in job._partial_reasons
+        assert len(saved) <= 64
+        assert job._stdout_discarded_bytes > 0
+        job._spool_text(True, "after-quota\n", final=False)
+        assert b"after-quota" not in stream.path.read_bytes()
+    finally:
+        stream.close()
+
+
+def test_receipt_published_after_direct_job_finalize(direct_job) -> None:
+    assert direct_job.receipt_path is not None
+    receipt = json.loads(direct_job.receipt_path.read_text())
+    assert receipt["job_id"] == direct_job.id
+    assert receipt["capture_state"] in {"complete", "partial"}
+    assert receipt["exit_code"] == 2
+    assert receipt["stderr"]["committed_bytes"] > 0
+    assert receipt["stderr"]["path"] == str(direct_job.stderr_log_path)
+    assert receipt["stdout"]["path"] == str(direct_job.log_path)
+    assert "ERROR-BEGIN" in Path(receipt["stderr"]["path"]).read_text()
+    # Reader progress keeps moving after publish; the final receipt must not
+    # carry a snapshot of it that is stale the moment it is written.
+    assert "cursor_bytes" not in receipt["stdout"]
+    assert "cursor_bytes" not in receipt["stderr"]
+
+
+def test_incremental_read_survives_unreadable_spool_file(direct_job) -> None:
+    assert direct_job.stderr_log_path is not None
+    direct_job.stderr_log_path.unlink()
+    _out, err = direct_job.get_output(incremental=True)
+    assert "spool file unreadable" in err
+    assert direct_job._stderr_byte_cursor == direct_job._stderr_committed_bytes
+    assert direct_job.get_output(incremental=True)[1] == ""
+
+
+def test_byte_cursors_are_independent_of_ram_offsets(direct_job) -> None:
+    assert direct_job._stderr_buffer_start > 0
+    first_out, first_err = direct_job.get_output(incremental=True)
+    assert "ERROR-BEGIN" in first_err or "ERROR-END" in first_err
+    assert isinstance(first_out, str)
+    assert direct_job._stderr_byte_cursor == direct_job._stderr_committed_bytes
+    assert direct_job._stderr_byte_cursor != direct_job._stderr_read_offset
+    second_out, second_err = direct_job.get_output(incremental=True)
+    assert second_out == ""
+    assert second_err == ""
+
+
+def test_conversation_quota_refuses_snapshot_fallback(tmp_path, monkeypatch) -> None:
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_CONVERSATION_QUOTA", 1)
+    bg._conversation_spool_bytes[None] = 1
+    bg._conversation_spool_seeded.add(None)
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    process.stderr = None
+    job = BackgroundJob(1, "quota-refused", process, time.time(), log_dir=tmp_path)
+    try:
+        job._open_spools()
+        assert job._spool_quota_refused
+        assert not job._spool_from_reader
+        job.stdout_buffer = ["retained line\n" * 50]
+        path = _write_job_log(job, *job.get_output(), final=True, complete=True)
+        assert path is None
+        assert list(tmp_path.glob("tool-outputs/shell-jobs/*")) == []
+    finally:
         reset_background_jobs()
 
 
-@pytest.mark.parametrize("is_stdout", [True, False])
-@pytest.mark.parametrize("operation", ["write", "fsync"])
-def test_quota_closes_both_spools_on_storage_error(
-    tmp_path, monkeypatch, is_stdout: bool, operation: str
-) -> None:
-    from gptme.tools import shell_background as bg
+def test_conversation_quota_seeds_from_existing_files(tmp_path, monkeypatch) -> None:
+    import gptme.tools.shell_background as bg
 
-    job = BackgroundJob(1, "quota-storage-error", Mock(), 0, log_dir=tmp_path)
-    stdout = open_private_output_file(tmp_path, "shell-jobs", "quota.stdout.live")
-    stderr = open_private_output_file(tmp_path, "shell-jobs", "quota.stderr.live")
-    job._stdout_spool = stdout
-    job._stderr_spool = stderr
-    monkeypatch.setattr(bg, "_SPOOL_MAX_BYTES", 1)
-
-    def fail(*args) -> None:
-        raise OSError("simulated storage failure")
-
-    monkeypatch.setattr(os, operation, fail)
+    jobs_dir = tmp_path / "tool-outputs" / "shell-jobs"
+    jobs_dir.mkdir(parents=True)
+    (jobs_dir / "old.stdout.live").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(bg, "_SPOOL_CONVERSATION_QUOTA", 1000)
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    job = BackgroundJob(1, "seed-disk", process, time.time(), log_dir=tmp_path)
     try:
-        job._spool_text(is_stdout, "over quota\n", final=False)
-        assert job._capture_partial
-        assert job._stdout_spool is None
-        assert job._stderr_spool is None
-        for stream in (stdout, stderr):
-            assert stream._closed
-            with pytest.raises(OSError, match="Bad file descriptor"):
-                os.fstat(stream._fd)
+        job._open_spools()
+        assert job._spool_quota_refused
+        assert not job._spool_from_reader
+        assert "conversation_quota" in job._partial_reasons
     finally:
-        for stream in (stdout, stderr):
-            try:
-                stream.close()
-            except OSError:
-                pass
+        reset_background_jobs()
 
 
-def test_spool_max_bytes_constant_is_32_mib() -> None:
-    """Confirm the documented quota value so callers can rely on it."""
-    assert _SPOOL_MAX_BYTES == 32 * 1024 * 1024
+def test_queue_full_unreserves_queued_bytes(tmp_path) -> None:
+    job = BackgroundJob(1, "synthetic", Mock(), 0, log_dir=tmp_path)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "queued.live")
+    job._stdout_spool = stream
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue(maxsize=1)
+    job._spool_queue.put_nowait((stream, True, b"held\n"))
+    try:
+        job._commit_spool_bytes(True, b"dropped because the writer is busy\n")
+        assert job._spool_queued_bytes == 0
+        assert "queue_full" in job._partial_reasons
+    finally:
+        stream.close()
+
+
+def test_finalize_stop_signal_closes_writer_and_publishes(tmp_path) -> None:
+    process = Mock()
+    process.stdout.fileno.return_value = 10
+    process.stderr = None
+    process.returncode = 0
+    job = BackgroundJob(1, "writer-stop", process, time.time(), log_dir=tmp_path)
+    try:
+        job._open_spools()
+        assert job._spool_writer_thread is not None
+        job._finalize_spools()
+        assert not job._spool_writer_thread.is_alive()
+        assert job.receipt_path is not None
+        assert job.receipt_path.is_file()
+    finally:
+        reset_background_jobs()
+
+
+def test_failed_writer_waits_for_reader_before_publishing_receipt(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    process = Mock(returncode=None)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "failed.live")
+    job = BackgroundJob(1, "writer-error", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue()
+    job._commit_spool_bytes(True, b"before failure\n")
+
+    def fail_write(*args):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(job, "_write_spool_payload", fail_write)
+    try:
+        job._spool_writer_loop()
+        assert stream._closed
+        assert job.receipt_path is None
+        # The pipe reader keeps draining after disk persistence fails.
+        job._commit_spool_bytes(True, b"after failure\n")
+        process.returncode = 7
+        job._finalize_spools()
+        assert job.receipt_path is not None
+        receipt = json.loads(job.receipt_path.read_text())
+        assert receipt["exit_code"] == 7
+        assert receipt["capture_state"] == "partial"
+        assert receipt["stdout"]["discarded_bytes"] >= len(b"after failure\n")
+        assert receipt["partial_reasons"] == ["write_error"]
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_full_stop_queue_that_drains_does_not_report_timeout(tmp_path) -> None:
+    import threading
+
+    process = Mock(returncode=0)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "draining.live")
+    job = BackgroundJob(1, "full-stop-queue", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue(maxsize=1)
+    job._commit_spool_bytes(True, b"retained\n")
+
+    # Model a writer scheduled only when finalize reaches join: the stop
+    # sentinel cannot fit, but the stop event reliably ends the drained loop.
+    writer = Mock()
+    writer.is_alive.return_value = False
+
+    def drain_on_join(*, timeout):
+        thread = threading.Thread(target=job._spool_writer_loop)
+        thread.start()
+        thread.join(timeout=timeout)
+        assert not thread.is_alive()
+
+    writer.join.side_effect = drain_on_join
+    job._spool_writer_thread = writer
+    try:
+        job._finalize_spools()
+        assert stream.path.read_bytes() == b"retained\n"
+        assert job.receipt_path is not None
+        receipt = json.loads(job.receipt_path.read_text())
+        assert receipt["capture_state"] == "complete"
+        assert receipt["partial_reasons"] == []
+        assert receipt["stdout"]["committed_bytes"] == len(b"retained\n")
+    finally:
+        stream.close()
+
+
+def test_receipt_labels_representation_counts_and_unknown_raw_counts(
+    direct_job,
+) -> None:
+    assert direct_job.receipt_path is not None
+    receipt = json.loads(direct_job.receipt_path.read_text())
+    assert receipt["byte_count_basis"] == "sanitized_utf8_representation"
+    for name in ("stdout", "stderr"):
+        assert receipt[name]["raw_observed_bytes"] is None
+        assert receipt[name]["raw_accepted_bytes"] is None
+        assert receipt[name]["raw_pending_bytes"] is None
+        assert receipt[name]["raw_discarded_bytes"] is None
+
+
+def test_writer_failure_counts_unwritten_and_drained_bytes_as_discarded(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    stream = open_private_output_file(tmp_path, "shell-jobs", "lost.live")
+    job = BackgroundJob(1, "writer-lost", Mock(returncode=0), 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue()
+    job._commit_spool_bytes(True, b"before failure\n")
+    job._commit_spool_bytes(True, b"drained leftover\n")
+
+    def fail_write(*args):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(job, "_write_spool_payload", fail_write)
+    try:
+        job._spool_writer_loop()
+        job._finalize_spools()
+        assert job.receipt_path is not None
+        receipt = json.loads(job.receipt_path.read_text())
+        lost = len(b"before failure\n") + len(b"drained leftover\n")
+        assert receipt["stdout"]["committed_bytes"] == 0
+        assert receipt["stdout"]["discarded_bytes"] >= lost
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_incremental_read_continues_from_ram_after_persistence_stops(
+    tmp_path, monkeypatch
+) -> None:
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 64)
+    process = Mock(returncode=None)
+    process.stdout.fileno.return_value = 10
+    stream = open_private_output_file(tmp_path, "shell-jobs", "late.live")
+    job = BackgroundJob(1, "late-output", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    try:
+        job._append_output(10, 10, b"keep-me\n" + b"x" * 200 + b"\n")
+        assert not job._spool_persist_stdout
+        first_out, _ = job.get_output(incremental=True)
+        assert "keep-me" in first_out
+        # Exactly one delivery of "keep-me" — committed bytes must not be
+        # duplicated by the RAM tail (resume is set after the boundary chunk).
+        assert first_out.count("keep-me") == 1
+        # The unsaved tail of the boundary chunk (the x's after the quota cut)
+        # must be served from RAM — previously, resume pointed past the whole
+        # chunk and the tail was silently dropped.
+        assert first_out.count("x") >= 185
+        # Output after the quota stopped persistence must still be served.
+        job._append_output(10, 10, b"BUILD FAILED\n")
+        new_out, _ = job.get_output(incremental=True)
+        assert new_out == "BUILD FAILED\n"
+        again_out, _ = job.get_output(incremental=True)
+        assert again_out == ""
+        # A trailing partial line must not be replayed while nothing new arrived.
+        job._append_output(10, 10, b"partial-no-newline")
+        partial_out, _ = job.get_output(incremental=True)
+        assert partial_out == "partial-no-newline"
+        idle_out, _ = job.get_output(incremental=True)
+        assert idle_out == ""
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_ram_resume_counts_characters_not_bytes_for_non_ascii(
+    tmp_path, monkeypatch
+) -> None:
+    """A quota cut inside non-ASCII output must resume at the right character."""
+    import gptme.tools.shell_background as bg
+
+    monkeypatch.setattr(bg, "_SPOOL_STREAM_QUOTA", 256)
+    process = Mock(returncode=None)
+    process.stdout.fileno.return_value = 10
+    stream = open_private_output_file(tmp_path, "shell-jobs", "utf8.live")
+    job = BackgroundJob(1, "utf8-output", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    try:
+        # 3-byte characters: bytes committed at the cut exceed characters.
+        text = "é" * 200 + "\nFAILURE-LINE\n"
+        job._append_output(10, 10, text.encode("utf-8"))
+        assert not job._spool_persist_stdout
+        resume = job._stdout_ram_resume
+        assert resume is not None
+        # Resume is a character offset into the decoded stream: it must not
+        # pass the committed prefix and must land before the failure line.
+        # 256-byte quota / 2-byte chars => at most ~128 characters committed.
+        assert resume <= 130
+        out, _ = job.get_output(incremental=True)
+        assert "FAILURE-LINE" in out
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_close_spool_files_waits_for_cursor_reader(tmp_path) -> None:
+    """Closing live spool fds is ordered after an in-flight cursor read."""
+    process = Mock(returncode=None)
+    stream = open_private_output_file(tmp_path, "shell-jobs", "close.live")
+    job = BackgroundJob(1, "close-order", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    done = threading.Event()
+
+    def close_then_signal() -> None:
+        job._close_spool_files()
+        done.set()
+
+    with job._cursor_lock:
+        t = threading.Thread(target=close_then_signal)
+        t.start()
+        assert not done.wait(0.2)
+        assert not stream._closed
+    t.join(timeout=5)
+    assert done.is_set()
+    assert stream._closed
+
+
+def test_writer_failure_sets_ram_resume_without_subsequent_output(
+    tmp_path, monkeypatch
+) -> None:
+    """Incremental reads must serve RAM content after a write failure in the
+    writer loop even when no further output arrives from the process.
+
+    The writer loop path: the payload is queued and later dequeued by the
+    loop, which fails the write.  _append_output set ram_resume only when new
+    text arrives *after* the failure, so if the process goes silent the cursor
+    was left at None — incremental reads returned empty even though the buffer
+    had the content.  The fix sets ram_resume in the loop's OSError handler.
+    """
+    import gptme.tools.shell_background as bg
+
+    process = Mock(returncode=None)
+    process.stdout.fileno.return_value = 10
+    stream = open_private_output_file(tmp_path, "shell-jobs", "fail-resume.live")
+    job = BackgroundJob(1, "fail-resume", process, 0, log_dir=tmp_path)
+    job._stdout_spool = stream
+    job.log_path = stream.path
+    job._spool_from_reader = True
+    job._spool_queue = queue_mod.Queue()
+    try:
+        # Populate the RAM buffer (as the reader would do) but bypass the
+        # synchronous write path by putting the payload directly on the queue.
+        with job._buffer_lock:
+            job.stdout_buffer.append("hello-lost\n")
+        # Place the same content on the writer queue so the loop dequeues it.
+        job._spool_queue.put_nowait((stream, True, b"hello-lost\n"))
+        # Signal the loop to drain and exit after one item.
+        job._spool_queue.put_nowait(None)
+
+        # Make the writer fail when it tries to write the queued payload.
+        def fail_write(*args):
+            raise OSError("simulated disk failure")
+
+        monkeypatch.setattr(job, "_write_spool_payload", fail_write)
+        job._spool_writer_loop()
+
+        # Writer has failed; persistence stopped.
+        assert not job._spool_persist_stdout
+        # ram_resume must be set even without a subsequent _append_output call.
+        assert job._stdout_ram_resume is not None
+        # The buffered content must be served via incremental read.
+        out, _ = job.get_output(incremental=True)
+        assert "hello-lost" in out
+    finally:
+        stream.close()
+        bg._conversation_spool_bytes.clear()
+
+
+def test_per_conversation_reset_clears_spool_quota(tmp_path, monkeypatch) -> None:
+    """reset_background_jobs with all_conversations=False must clear the spool
+    quota counter for the given conversation so a re-used id starts fresh."""
+    import gptme.tools.shell_background as bg
+
+    conv_id = "conv-reset-test"
+    # Seed a non-zero usage for the conversation.
+    with bg._conversation_spool_lock:
+        bg._conversation_spool_bytes[conv_id] = 10_000
+        bg._conversation_spool_seeded.add(conv_id)
+
+    reset_background_jobs(conv_id, all_conversations=False)
+
+    # After per-conversation reset the counter must be gone.
+    with bg._conversation_spool_lock:
+        assert conv_id not in bg._conversation_spool_bytes
+        assert conv_id not in bg._conversation_spool_seeded
