@@ -92,12 +92,18 @@ def _start_auto_naming_thread(
     chat_config: ChatConfig,
     messages: list[Message],
     model: str,
+    on_named: Callable[[str], None] | None = None,
 ) -> None:
     """Start at most one auto-naming worker for *logdir*."""
 
     def _run() -> None:
         try:
-            try_auto_name(chat_config, messages, model)
+            name = try_auto_name(chat_config, messages, model)
+            if name and on_named is not None:
+                try:
+                    on_named(name)
+                except Exception:
+                    logger.debug("auto-naming callback failed", exc_info=True)
         finally:
             with _naming_threads_lock:
                 if _naming_threads.get(logdir) is threading.current_thread():
@@ -113,6 +119,39 @@ def _start_auto_naming_thread(
         except Exception:
             del _naming_threads[logdir]
             raise
+
+
+def maybe_start_auto_naming(
+    logdir: Path,
+    messages: list[Message],
+    on_named: Callable[[str], None] | None = None,
+) -> None:
+    """Auto-name the conversation in the background, if it is time to.
+
+    Shared by the CLI chat loop and the TUI; call after each step. The naming
+    itself is :func:`gptme.util.auto_naming.try_auto_name`. Pre-checks the
+    assistant count so no thread is spawned (or config read) once the naming
+    window (``MAX_ASSISTANT_MSGS_FOR_NAMING``) has closed. *on_named* gets the
+    new name, on the naming thread.
+    """
+    current_model = get_default_model()
+    assistant_count = sum(1 for m in messages if m.role == "assistant")
+    if not current_model or not 1 <= assistant_count <= MAX_ASSISTANT_MSGS_FOR_NAMING:
+        return
+    chat_config = ChatConfig.from_logdir(logdir)
+    # One naming call per conversation: the thread runs across several loop
+    # iterations (each tool step re-enters here), so without this guard every
+    # step before the first name lands spawns another thread and the log shows
+    # three "Auto-generated conversation name" lines for one conversation.
+    if chat_config.name:
+        return
+    _start_auto_naming_thread(
+        logdir,
+        chat_config,
+        copy.deepcopy(messages),
+        current_model.full,
+        on_named,
+    )
 
 
 # Store an immutable int. copy_context() (server/TUI/ACP step threads) copies
@@ -938,25 +977,9 @@ def _process_message_conversation(
             in (manager.log.messages[-1].metadata or {})
         )
         # Auto-generate display name in background thread to avoid blocking.
-        # Shared logic with server in gptme/util/auto_naming.py::try_auto_name.
-        # Pre-check assistant count to avoid spawning threads + doing disk I/O
-        # after the naming window has closed (> MAX_ASSISTANT_MSGS_FOR_NAMING).
-        current_model = get_default_model()
-        assistant_count = sum(1 for m in manager.log.messages if m.role == "assistant")
-        if current_model and 1 <= assistant_count <= MAX_ASSISTANT_MSGS_FOR_NAMING:
-            chat_config = ChatConfig.from_logdir(manager.logdir)
-            # One naming call per conversation: the thread runs across several
-            # loop iterations (each tool step re-enters here), so without this
-            # guard every step before the first name lands spawns another
-            # thread and the log shows three "Auto-generated conversation
-            # name" lines for one conversation.
-            if not chat_config.name:
-                _start_auto_naming_thread(
-                    manager.logdir,
-                    chat_config,
-                    copy.deepcopy(manager.log.messages),
-                    current_model.full,
-                )
+        # Shared with the TUI; the naming itself is shared with the server
+        # (gptme/util/auto_naming.py::try_auto_name).
+        maybe_start_auto_naming(manager.logdir, manager.log.messages)
 
         # Check step limit (GPTME_MAX_STEPS)
         step_count += 1
