@@ -294,3 +294,202 @@ def test_continue_rejected_by_busy_lease_leaves_active_attempt_untouched(
             api._subagents[:] = [s for s in api._subagents if s is not sa]
         with api._subagent_results_lock:
             api._subagent_results.pop(sa.agent_id, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_stale_monitor_cannot_publish_into_resumed_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A previous attempt's monitor must not cache its result for the resumed attempt.
+
+    The child exits (lease released, ``poll()`` set) a moment before its monitor
+    thread caches the outcome. A continuation that lands in that window starts a
+    new generation; the late monitor then writes the OLD result, which makes the
+    running new attempt report a stale terminal status.
+    """
+    from gptme.tools.subagent import api, execution
+    from gptme.tools.subagent.types import ReturnType
+
+    (tmp_path / "conversation.jsonl").write_text("")
+    old_proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    old_proc.wait()
+    sa = Subagent(
+        agent_id="stale-gen",
+        prompt="test",
+        thread=None,
+        logdir=tmp_path,
+        model=None,
+        execution_mode="subprocess",
+        process=old_proc,
+        started_at=time.time() - 10,
+    )
+    with api._subagents_lock:
+        api._subagents.append(sa)
+
+    # Gen 1's monitor is delayed right before it caches its outcome.
+    reached = threading.Event()
+    proceed = threading.Event()
+    real_set = execution.set_subagent_result_if_absent
+
+    def delayed_set(agent_id: str, result: ReturnType, **kwargs: object) -> bool:
+        reached.set()
+        assert proceed.wait(10)
+        return real_set(agent_id, result, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(execution, "set_subagent_result_if_absent", delayed_set)
+    monkeypatch.setattr(execution, "_poll_subprocess_progress", lambda *a, **k: None)
+    monkeypatch.setattr(api, "persist_subagent_meta", lambda sa: None)
+
+    # Gen 2: the continuation's child is alive and its monitor blocks.
+    gen2_alive = threading.Event()
+    gen2_release = threading.Event()
+
+    class _LiveProc:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(
+        execution, "_run_subagent_subprocess", lambda *a, **k: _LiveProc()
+    )
+
+    def blocking_monitor(sub: Subagent) -> None:
+        gen2_alive.set()
+        gen2_release.wait(10)
+
+    stale = threading.Thread(target=execution._monitor_subprocess, args=(sa,))
+    try:
+        stale.start()
+        assert reached.wait(10)
+        # Child already exited: continuation is accepted before the outcome lands.
+        monkeypatch.setattr(execution, "_monitor_subprocess", blocking_monitor)
+        api.subagent_continue(sa.agent_id, "again")
+        assert gen2_alive.wait(10)
+        proceed.set()
+        stale.join(10)
+        with api._subagent_results_lock:
+            leaked = api._subagent_results.get(sa.agent_id)
+        assert leaked is None, f"stale generation cached {leaked!r} for resumed attempt"
+    finally:
+        proceed.set()
+        gen2_release.set()
+        stale.join(10)
+        with api._subagents_lock:
+            api._subagents[:] = [s for s in api._subagents if s.agent_id != sa.agent_id]
+        with api._subagent_results_lock:
+            api._subagent_results.pop(sa.agent_id, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_continue_with_absent_workspace_fails_and_frees_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deleted workspace ends the attempt as a failure, not a stranded lease."""
+    from gptme.tools.subagent import api, execution
+    from gptme.tools.subagent.execution import writer_lease_held
+    from gptme.tools.subagent.types import ReturnType
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text("")
+    sa = Subagent(
+        agent_id="gone-ws",
+        prompt="test",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        execution_mode="subprocess",
+        workdir=tmp_path / "deleted-workspace",
+        started_at=time.time() - 10,
+    )
+    with api._subagents_lock:
+        api._subagents.append(sa)
+    with api._subagent_results_lock:
+        api._subagent_results[sa.agent_id] = ReturnType("success", "done")
+    monkeypatch.setattr(api, "persist_subagent_meta", lambda sa: None)
+    monkeypatch.setattr(execution.tempfile, "tempdir", str(tmp_path))
+    try:
+        api.subagent_continue(sa.agent_id, "again")
+        deadline = time.time() + 15
+        status = None
+        while time.time() < deadline:
+            with api._subagent_results_lock:
+                cached = api._subagent_results.get(sa.agent_id)
+            if cached is not None:
+                status = cached.status
+                break
+            time.sleep(0.05)
+        assert status == "failure", f"expected failure, got {status!r}"
+        assert not writer_lease_held(logdir)
+    finally:
+        for t in threading.enumerate():
+            if "run_continuation" in t.name:
+                t.join(10)
+        with api._subagents_lock:
+            api._subagents[:] = [s for s in api._subagents if s.agent_id != sa.agent_id]
+        with api._subagent_results_lock:
+            api._subagent_results.pop(sa.agent_id, None)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fcntl not available on Windows")
+def test_successive_continuations_do_not_let_first_overwrite_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_continuation() must guard its result write with attempt=sa.
+
+    When a second continuation starts before the first one's run_continuation()
+    writes its result, the first must not overwrite the second's cache slot.
+    The fix: pass attempt=sa to set_subagent_result_if_absent in run_continuation.
+    """
+    from gptme.tools.subagent import api
+    from gptme.tools.subagent.types import ReturnType, set_subagent_result_if_absent
+
+    logdir = tmp_path / "log"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text("")
+
+    sa1 = Subagent(
+        agent_id="two-conts",
+        prompt="first",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        execution_mode="subprocess",
+        started_at=time.time() - 20,
+    )
+    sa2 = Subagent(
+        agent_id="two-conts",
+        prompt="second",
+        thread=None,
+        logdir=logdir,
+        model=None,
+        execution_mode="subprocess",
+        started_at=time.time() - 5,
+    )
+
+    # Simulate: registry holds sa2 (second continuation superseded sa1).
+    with api._subagents_lock:
+        api._subagents.append(sa2)
+
+    # sa1's run_continuation writes stale result — attempt=sa1 should block it.
+    stale = ReturnType("failure", "first continuation stale result")
+    wrote = set_subagent_result_if_absent("two-conts", stale, attempt=sa1)
+    assert not wrote, (
+        "stale first-continuation write must be blocked when sa2 is registered"
+    )
+
+    # sa2's run_continuation writes its result — attempt=sa2 should succeed.
+    good = ReturnType("success", "second continuation result")
+    wrote2 = set_subagent_result_if_absent("two-conts", good, attempt=sa2)
+    assert wrote2, "second continuation write must succeed"
+
+    with api._subagent_results_lock:
+        cached = api._subagent_results.get("two-conts")
+    assert cached is not None and cached.status == "success", (
+        f"cached result must be from second continuation, got {cached!r}"
+    )
+
+    # Cleanup
+    with api._subagents_lock:
+        api._subagents[:] = [s for s in api._subagents if s.agent_id != "two-conts"]
+    with api._subagent_results_lock:
+        api._subagent_results.pop("two-conts", None)
