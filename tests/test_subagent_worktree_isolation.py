@@ -387,15 +387,15 @@ def test_smart_cleanup_removes_branch_when_worktree_is_clean(tmp_path):
     )
 
 
-def test_legacy_isolated_bool_always_does_full_cleanup(tmp_path):
-    """isolated=True without isolation_mode always removes both dir and branch."""
+def test_legacy_isolated_bool_uses_smart_cleanup(tmp_path):
+    """isolated=True without isolation_mode uses smart cleanup: dir removed, branch preserved if changed."""
     from gptme.tools.subagent.types import Subagent
     from gptme.util.git_worktree import create_worktree
 
     repo = _make_repo(tmp_path, "repo-legacy")
     wt = create_worktree(repo, branch_name="legacy-wt", worktree_base=tmp_path / "wts")
 
-    # Make the worktree dirty
+    # Make the worktree dirty (uncommitted changes)
     (wt / "file.txt").write_text("changed\n")
 
     sa = Subagent(
@@ -405,15 +405,19 @@ def test_legacy_isolated_bool_always_does_full_cleanup(tmp_path):
         logdir=tmp_path / "log",
         model=None,
         isolated=True,
-        isolation_mode=None,  # legacy: no string mode → full cleanup regardless
+        isolation_mode=None,  # legacy: no string mode — smart cleanup applies (dir removed, branch kept if changed)
         worktree_path=wt,
         repo_path=repo,
     )
 
     preserved = subagent_execution._cleanup_isolation(sa)
 
-    assert not wt.exists(), "Working tree should be removed"
-    assert preserved is None, "Legacy isolated=True should always do full cleanup"
+    # Directory is always removed regardless of changes.
+    assert not wt.exists(), "Working tree directory should be removed"
+    # Branch is preserved when there are local changes so the orchestrator can recover the work.
+    assert preserved == "legacy-wt", (
+        "Legacy isolated=True now uses smart cleanup: branch preserved if changed"
+    )
 
     result = subprocess.run(
         ["git", "branch", "--list", "legacy-wt"],
@@ -422,7 +426,9 @@ def test_legacy_isolated_bool_always_does_full_cleanup(tmp_path):
         text=True,
         check=False,
     )
-    assert "legacy-wt" not in result.stdout, "Branch should be deleted in legacy mode"
+    assert "legacy-wt" in result.stdout, (
+        "Branch should be retained when worktree had local changes"
+    )
 
 
 # ---------------------------------------------------------------------------

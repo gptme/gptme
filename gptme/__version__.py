@@ -104,13 +104,9 @@ def _compute_version() -> str:
                     return git_version
                 return version + "+unknown"
 
-        # Apply git hash if found via direct_url.json
+        # Non-editable VCS installs use recorded provenance, not a surrounding repo.
         if git_hash:
             version = f"{version}+{git_hash}"
-            package_dir = os.path.dirname(os.path.abspath(__file__))
-            git_version = get_git_version(package_dir)
-            if git_version and ".dirty" in git_version:
-                version += ".dirty"
 
         return version
 

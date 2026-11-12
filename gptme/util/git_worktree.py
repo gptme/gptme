@@ -36,7 +36,7 @@ def has_changes(worktree_path: Path) -> bool:
     try:
         # 1. Uncommitted changes (staged or unstaged)
         result = subprocess.run(
-            [*git_inspect_cmd(), "status", "--porcelain"],
+            [*git_inspect_cmd(), "status", "--porcelain", "--untracked-files=all"],
             cwd=worktree_path,
             capture_output=True,
             text=True,
@@ -106,6 +106,37 @@ def has_changes(worktree_path: Path) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         # On error, assume changes exist (safe default: don't lose modified work)
         return True
+
+
+def has_uncommitted_changes(worktree_path: Path) -> bool:
+    """Return True if the worktree has staged/unstaged/untracked files.
+
+    Unlike :func:`has_changes` this ignores commits: committed work survives
+    removal of the directory on the preserved branch, uncommitted files do not.
+    Errs towards True when git cannot answer.
+    """
+    try:
+        result = subprocess.run(
+            [*git_inspect_cmd(), "status", "--porcelain", "--untracked-files=all"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return True
+    return result.returncode != 0 or bool(result.stdout)
+
+
+def worktree_is_clean(worktree_path: Path) -> bool:
+    """Return True when the worktree has no uncommitted changes and no local commits.
+
+    This is the inverse of :func:`has_changes` and is used as a GC safety
+    check: if a retained worktree is clean it is safe to delete; if it has
+    changes the caller should publish or discard them first.
+    """
+    return not has_changes(worktree_path)
 
 
 def get_git_root(path: Path | None = None) -> Path | None:

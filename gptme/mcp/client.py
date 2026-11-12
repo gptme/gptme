@@ -9,8 +9,11 @@ from typing import Any
 import mcp.types as types  # Import all types
 from mcp import ClientSession
 from mcp.client.session import RequestContext
+from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import (
+    streamablehttp_client,
+)
 
 from gptme.circuit_breaker import CircuitBreaker
 from gptme.config import Config, get_config
@@ -238,17 +241,23 @@ class MCPClient:
             raise
 
     async def _setup_http_connection(
-        self, url: str, headers: dict
+        self, url: str, headers: dict, use_sse: bool = False
     ) -> tuple[types.ListToolsResult, ClientSession]:
         """Set up HTTP connection and maintain it"""
         self.stack = AsyncExitStack()
         await self.stack.__aenter__()
 
         try:
-            transport = await self.stack.enter_async_context(
-                streamablehttp_client(url, headers=headers)
-            )
-            read, write, _ = transport
+            if use_sse:
+                transport = await self.stack.enter_async_context(
+                    sse_client(url, headers=headers)
+                )
+                read, write = transport
+            else:
+                transport = await self.stack.enter_async_context(
+                    streamablehttp_client(url, headers=headers)
+                )
+                read, write, _ = transport
 
             csession = ClientSession(
                 read,
@@ -288,11 +297,11 @@ class MCPClient:
             if self._closing.is_set():
                 raise RuntimeError("MCP client is closed") from None
             raise RuntimeError(
-                "MCP connection failed before initialization: the streamable-HTTP "
-                "transport cancelled while connecting, which discards the "
-                "underlying HTTP error. Check that the URL is correct and "
-                "reachable, that the endpoint speaks MCP over streamable HTTP, and "
-                "that any required auth headers are configured."
+                "MCP connection failed before initialization: the HTTP transport "
+                "cancelled while connecting, which discards the underlying HTTP "
+                "error. Check that the URL is correct and reachable, that the "
+                "endpoint speaks the expected MCP transport (streamable HTTP or "
+                "SSE), and that any required auth headers are configured."
             ) from None
         except Exception:
             if self.stack:
@@ -312,9 +321,11 @@ class MCPClient:
             raise ValueError(f"No MCP server config found for '{server_name}'")
 
         if server.is_http:
-            # HTTP MCP server
+            # HTTP MCP server (streamable-HTTP or legacy SSE)
             tools, session = self._run_async(
-                self._setup_http_connection(server.url, server.headers)
+                self._setup_http_connection(
+                    server.url, server.headers, use_sse=server.is_sse
+                )
             )
         else:
             # Stdio MCP server

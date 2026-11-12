@@ -102,3 +102,28 @@ def reset_terminal_title() -> None:
 
     # Set default title with conversation name if available
     _set_raw_title(_make_title())
+
+
+# Full-screen apps (the TUI) set the title for their whole run and restore the
+# previous one on exit via the xterm title stack (supported by xterm, tmux,
+# VTE, kitty, …; ignored elsewhere, where the shell's next prompt resets it).
+PUSH_TITLE = "\033[22;0t"
+POP_TITLE = "\033[23;0t"
+
+# Stable prefix, so window-title rules (tmux, ActivityWatch) can match gptme.
+APP_TITLE_PREFIX = "gptme: "
+
+
+def app_title(name: str | None) -> str:
+    """Terminal title for a running gptme app showing conversation *name*."""
+    return f"{APP_TITLE_PREFIX}{name}" if name else APP_TITLE_PREFIX.rstrip(": ")
+
+
+def title_sequence(title: str) -> str:
+    """The OSC 0 sequence setting the window/icon title to *title*.
+
+    Control characters are stripped: the title can be model-generated, and an
+    embedded ESC/BEL would end the sequence early and inject the rest.
+    """
+    safe = "".join(c for c in title if c.isprintable())
+    return f"\033]0;{safe}\007"

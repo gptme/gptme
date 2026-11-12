@@ -1,6 +1,8 @@
 """Triggered memory delivery uses explicit lesson keywords, not relevance scores."""
 
 import json
+import logging
+import sys
 from pathlib import Path
 
 import pytest
@@ -449,3 +451,388 @@ def test_match_dedup_all_seen_calls_keep_session_state_alive(tmp_path, monkeypat
     ]
     assert state_a.exists()
     assert _match_names(session_a, "--dedup-session") == []
+
+
+# --- lessons as match candidates (gptme/gptme#4868) --------------------------
+
+#: The rule that failed to surface: keywords cover disabling, not just deleting.
+PERSISTENCE_LESSON = """---
+match:
+  keywords:
+    - "delete trajectory"
+    - "no-session-persistence"
+    - "session persistence"
+    - "trajector* persisted"
+    - "disable transcripts"
+status: active
+---
+# Trajectory persistence
+
+Never disable or delete session trajectories, including one-shot calls.
+"""
+
+#: Text that was actually in play when the rule stayed silent.
+INCIDENT_TOOL_INPUT = "add --no-session-persistence to both looks safe ... transcripts"
+INCIDENT_PEER_MESSAGE = "--no-session-persistence fits ... 40 MB/day of transcripts"
+INCIDENT_USER_PROMPT = (
+    "are those one-shot runs still having their trajectories persisted?"
+)
+
+
+def write_lesson(root: Path, rel: str, text: str = PERSISTENCE_LESSON) -> Path:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+@pytest.fixture
+def lesson_env(tmp_path, monkeypatch):
+    """An empty memory root, isolated dedup state, and one lesson dir."""
+    from gptme.lessons.index import clear_cache
+
+    clear_cache()
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(tmp_path / "memory"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    lessons = tmp_path / "lessons"
+    write_lesson(lessons, "infrastructure/trajectory-persistence.md")
+    return lessons
+
+
+@pytest.mark.parametrize(
+    "text", [INCIDENT_TOOL_INPUT, INCIDENT_PEER_MESSAGE, INCIDENT_USER_PROMPT]
+)
+def test_match_lesson_dir_triggers_on_incident_text(lesson_env, text):
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--prompt", "-", "--lesson-dir", str(lesson_env)]
+        + ["--format", "json"],
+        input=text,  # plain text on stdin: the peer message starts with "--"
+    )
+    assert result.exit_code == 0, result.output
+    (hit,) = json.loads(result.output)["hits"]
+    assert hit["name"] == "trajectory-persistence"
+    assert hit["scope"] == hit["type"] == "lesson"
+    assert hit["title"] == "Trajectory persistence"
+    assert hit["path"].endswith("infrastructure/trajectory-persistence.md")
+    assert "Never disable or delete" in hit["body"]
+    assert all(m.startswith("keyword:") for m in hit["matched_by"])
+
+
+def test_match_lesson_fires_on_pretool_payload_once_per_session(lesson_env):
+    """Replay: the agent's own SendMessage carries the flag; the rule is injected."""
+    payload = json.dumps(
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "incident",
+            "tool_name": "SendMessage",
+            "tool_input": {"to": "peer", "message": INCIDENT_TOOL_INPUT},
+        }
+    )
+    args = ["memory", "match", "--prompt", "-", "--format", "hook-json"]
+    args += ["--dedup-session", "--lesson-dir", str(lesson_env)]
+    first = CliRunner().invoke(util_main, args, input=payload)
+    assert first.exit_code == 0, first.output
+    out = json.loads(first.output)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PreToolUse"
+    assert "Never disable or delete" in out["additionalContext"]
+    assert "(scope: lesson)" in out["additionalContext"]
+    again = CliRunner().invoke(util_main, args, input=payload)
+    assert json.loads(again.output)["hookSpecificOutput"]["additionalContext"] == ""
+
+
+def test_match_without_lesson_flags_ignores_lessons(lesson_env, monkeypatch):
+    monkeypatch.chdir(lesson_env.parent)  # ./lessons exists, but is not asked for
+    result = CliRunner().invoke(
+        util_main, ["memory", "match", INCIDENT_TOOL_INPUT, "--format", "json"]
+    )
+    assert json.loads(result.output) == {"hits": []}
+
+
+def test_match_lessons_flag_uses_default_lesson_dirs(lesson_env, monkeypatch):
+    monkeypatch.chdir(lesson_env.parent)  # workspace ./lessons is a default dir
+    monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
+    result = CliRunner().invoke(
+        util_main,
+        ["memory", "match", "--lessons", "--format", "json", "--prompt", "-"],
+        input=INCIDENT_PEER_MESSAGE,
+    )
+    assert result.exit_code == 0, result.output
+    assert [h["name"] for h in json.loads(result.output)["hits"]] == [
+        "trajectory-persistence"
+    ]
+
+
+def test_match_lessons_trigger_on_keywords_and_patterns_only(tmp_path):
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates, match_memories
+
+    clear_cache()
+    lessons = tmp_path / "lessons"
+    write_lesson(
+        lessons,
+        "skills/deploy-helper/SKILL.md",
+        "---\nname: deploy-helper\ndescription: Deploys things\n---\n# Deploy\n",
+    )
+    write_lesson(
+        lessons,
+        "tools/tooled.md",
+        "---\nmatch:\n  keywords: [zebra]\n  tools: [shell]\n---\n# Tooled\n\nBody.\n",
+    )
+    write_lesson(
+        lessons,
+        "workflow/patterned.md",
+        "---\nmatch:\n  patterns: ['rm\\s+-rf']\n---\n# Patterned\n\nBody.\n",
+    )
+    write_lesson(
+        lessons,
+        "workflow/retired.md",
+        "---\nmatch:\n  keywords: [zebra]\nstatus: archived\n---\n# Retired\n",
+    )
+    candidates = lesson_candidates([lessons, tmp_path / "missing"])
+    store = MemoryStore([MemoryRoot("project", tmp_path / "memory")])
+
+    def names(text: str) -> list[str]:
+        return [h.entry.name for h in match_memories(store, text, lessons=candidates)]
+
+    assert names("use the deploy-helper and the shell tool") == []
+    assert names("a zebra") == ["tooled"]
+    assert names("then rm  -rf the dir") == ["patterned"]
+    assert lesson_candidates([]) == []
+
+
+def test_match_ranks_memories_and_lessons_together(tmp_path):
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates, match_memories
+
+    clear_cache()
+    memory, lessons = tmp_path / "memory", tmp_path / "lessons"
+    write_entry(memory, "mem-one", keywords=["alpha"])
+    write_lesson(
+        lessons, "a/two.md", "---\nmatch:\n  keywords: [alpha, beta]\n---\n# Two\n"
+    )
+    write_lesson(lessons, "a/one.md", "---\nmatch:\n  keywords: [alpha]\n---\n# One\n")
+    store = MemoryStore([MemoryRoot("project", memory)])
+    hits = match_memories(store, "alpha beta", lessons=lesson_candidates([lessons]))
+    assert [(h.entry.name, h.entry.scope) for h in hits] == [
+        ("two", "lesson"),
+        ("mem-one", "project"),
+        ("one", "lesson"),
+    ]
+    # A lesson dir that is also a memory root reports each file once, as memory.
+    write_entry(lessons, "dual", keywords=["gamma"], body="Dual.")
+    both = MemoryStore([MemoryRoot("project", lessons)])
+    dual = match_memories(both, "gamma", lessons=lesson_candidates([lessons]))
+    assert [(h.entry.name, h.entry.scope) for h in dual] == [("dual", "project")]
+
+
+def test_match_lessons_flag_reads_project_config_lesson_dirs(lesson_env, monkeypatch):
+    """``[lessons] dirs`` in the workspace gptme.toml count without gptme loading it.
+
+    Loading that config must not log: with a stdout logging handler installed
+    (as earlier tests in the same xdist worker do), a "Using project
+    configuration" line would corrupt the JSON output.
+    """
+
+    class StdoutHandler(logging.Handler):
+        def emit(self, record):
+            sys.stdout.write(self.format(record) + "\n")
+
+    workspace = lesson_env.parent / "workspace"
+    write_lesson(workspace / "rules", "infrastructure/trajectory-persistence.md")
+    (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["rules"]\n')
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
+    root = logging.getLogger()
+    handler, level = StdoutHandler(), root.level
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    try:
+        result = CliRunner().invoke(
+            util_main,
+            ["memory", "match", "--lessons", "--format", "json", "--prompt", "-"],
+            input=INCIDENT_PEER_MESSAGE,
+        )
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(level)
+    assert result.exit_code == 0, result.output
+    (hit,) = json.loads(result.output)["hits"]
+    assert hit["path"].endswith("rules/infrastructure/trajectory-persistence.md")
+
+
+def test_match_manifest_skill_keeps_skill_md_triggers(tmp_path):
+    """An index.json stub is read in full: SKILL.md patterns and keywords count."""
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates, match_memories
+
+    clear_cache()
+    skills = tmp_path / "skills"
+    write_lesson(
+        skills,
+        "patterned/SKILL.md",
+        "---\nname: patterned\ndescription: d\nmatch:\n  patterns: ['rm\\s+-rf']\n"
+        "---\n# Patterned\n\nBody.\n",
+    )
+    write_lesson(
+        skills,
+        "mixed/SKILL.md",
+        "---\nname: mixed\ndescription: d\nmatch:\n  keywords: [okapi]\n"
+        "---\n# Mixed\n\nBody.\n",
+    )
+    (skills / "index.json").write_text(
+        json.dumps(
+            {
+                "skills": [
+                    {"name": "patterned", "path": "patterned"},
+                    {"name": "mixed", "path": "mixed", "keywords": ["zebra"]},
+                ]
+            }
+        )
+    )
+    candidates = lesson_candidates([skills])
+    assert all(not c.is_stub for c in candidates)
+    store = MemoryStore([MemoryRoot("project", tmp_path / "memory")])
+
+    def names(text: str) -> list[str]:
+        return [h.entry.name for h in match_memories(store, text, lessons=candidates)]
+
+    assert names("then rm  -rf the dir") == ["patterned"]
+    assert names("a zebra") == ["mixed"]
+    assert names("an okapi") == ["mixed"]
+
+
+def test_match_cursor_rules_do_not_trigger(tmp_path):
+    """Keywords generated from Cursor globs/alwaysApply are not explicit phrases."""
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates
+
+    clear_cache()
+    cursor = tmp_path / ".cursor"
+    write_lesson(
+        cursor,
+        "rules/python.mdc",
+        "---\ndescription: Python style\nglobs: ['**/*.py']\nalwaysApply: true\n"
+        "---\n# Python\n\nBody.\n",
+    )
+    write_lesson(
+        cursor, "rules/globbed.md", "---\nglobs: ['**/*.ts']\n---\n# TS\n\nBody.\n"
+    )
+    assert lesson_candidates([cursor]) == []
+
+
+def test_match_manifest_skill_archived_in_skill_md_does_not_trigger(tmp_path):
+    """The manifest defaults a stub to active; SKILL.md's own status still wins."""
+    from gptme.lessons.index import clear_cache
+    from gptme.memory.match import lesson_candidates
+
+    clear_cache()
+    skills = tmp_path / "skills"
+    for name, status in (("retired", "archived"), ("live", "active")):
+        write_lesson(
+            skills,
+            f"{name}/SKILL.md",
+            f"---\nname: {name}\ndescription: d\nstatus: {status}\n"
+            "match:\n  keywords: [okapi]\n---\n# Skill\n\nBody.\n",
+        )
+    (skills / "index.json").write_text(
+        json.dumps({"skills": [{"name": n, "path": n} for n in ("retired", "live")]})
+    )
+    assert [c.path.parent.name for c in lesson_candidates([skills])] == ["live"]
+
+
+def test_lesson_candidates_leaves_process_config_unchanged(lesson_env, monkeypatch):
+    """Reading ``[lessons] dirs`` from cwd must not replace the global config."""
+    from gptme.config import get_config
+    from gptme.memory.match import lesson_candidates
+
+    workspace = lesson_env.parent / "workspace"
+    write_lesson(workspace / "rules", "infrastructure/trajectory-persistence.md")
+    (workspace / "gptme.toml").write_text('[lessons]\ndirs = ["rules"]\n')
+    monkeypatch.chdir(workspace)
+    monkeypatch.setattr(Path, "home", lambda: lesson_env.parent / "home")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(lesson_env.parent / "config"))
+    config = get_config()
+    monkeypatch.setattr(config, "project", None)
+
+    found = lesson_candidates(include_default=True)
+
+    assert [c.path.name for c in found] == ["trajectory-persistence.md"]
+    assert found[0].path.is_relative_to((workspace / "rules").resolve())
+    assert config.project is None
+
+
+def test_lesson_candidates_collapses_aliased_dirs(lesson_env):
+    """``./lessons`` and a symlink or ``..`` spelling of it yield each lesson once."""
+    from gptme.memory.match import lesson_candidates
+
+    alias = lesson_env.parent / "alias"
+    alias.symlink_to(lesson_env, target_is_directory=True)
+    dotted = lesson_env / ".." / lesson_env.name
+
+    found = lesson_candidates([lesson_env, alias, dotted])
+
+    assert [c.path.name for c in found] == ["trajectory-persistence.md"]
+
+
+@pytest.mark.parametrize("output_format", ["json", "hook-json"])
+def test_lesson_discovery_failure_preserves_json_stdout(
+    lesson_env, tmp_path, monkeypatch, output_format
+):
+    from gptme.lessons.index import LessonIndex
+
+    class StdoutHandler(logging.Handler):
+        def emit(self, record):
+            sys.stdout.write(self.format(record) + "\n")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("broken lesson dir")
+
+    memory = tmp_path / "memory"
+    monkeypatch.setenv("GPTME_MEMORY_DIRS", str(memory))
+    write_entry(memory, "release-rule", keywords=["release"], body="Verify the tag.")
+    monkeypatch.setattr(LessonIndex, "__init__", boom)
+    root = logging.getLogger()
+    handler = StdoutHandler()
+    root.addHandler(handler)
+    try:
+        result = CliRunner().invoke(
+            util_main,
+            [
+                "memory",
+                "match",
+                "release",
+                "--lesson-dir",
+                str(lesson_env),
+                "--format",
+                output_format,
+            ],
+        )
+    finally:
+        root.removeHandler(handler)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    if output_format == "json":
+        assert [hit["name"] for hit in payload["hits"]] == ["release-rule"]
+    else:
+        assert "Verify the tag." in payload["hookSpecificOutput"]["additionalContext"]
+    assert "broken lesson dir" in result.stderr
+
+
+def test_lesson_candidates_discovery_failure_keeps_memories(
+    lesson_env, tmp_path, monkeypatch, capsys
+):
+    """A broken lesson source warns and yields nothing instead of killing the hook."""
+    from gptme.lessons.index import LessonIndex
+    from gptme.memory import match
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("broken lesson dir")
+
+    monkeypatch.setattr(LessonIndex, "__init__", boom)
+    assert match.lesson_candidates([lesson_env]) == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "broken lesson dir" in captured.err

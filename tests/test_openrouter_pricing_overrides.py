@@ -43,6 +43,28 @@ def test_mapper_preserves_override_tiers():
     assert tier.price_cache_read == pytest.approx(0.05)
 
 
+def test_static_haiku_5_5_matches_recorded_catalog_prices():
+    from gptme.llm.models import get_model
+
+    static = get_model("openrouter/anthropic/claude-haiku-5.5")
+    assert static.price_input == pytest.approx(0.1)
+    assert static.price_output == pytest.approx(0.5)
+    assert static.price_cache_read == pytest.approx(0.01)
+    (tier,) = static.price_tiers
+    assert isinstance(tier, PriceTier)
+    assert tier.min_prompt_tokens == 100_000
+    assert tier.price_input == pytest.approx(0.5)
+    assert tier.price_output == pytest.approx(2.5)
+    assert tier.price_cache_read == pytest.approx(0.05)
+
+
+def test_static_haiku_5_5_fallback_uses_long_prompt_tier():
+    name = "openrouter/anthropic/claude-haiku-5.5"
+    assert _calculate_llm_cost("openrouter", name, 120_000, 1_000) == pytest.approx(
+        120_000 * 0.5 / 1e6 + 1_000 * 2.5 / 1e6
+    )
+
+
 def test_mapper_without_overrides_has_no_tiers():
     meta = openrouter_model_to_modelmeta(
         {"id": "z-ai/glm-5.3-flash", "pricing": {"prompt": "0.0000001"}}
@@ -118,12 +140,12 @@ def test_static_openrouter_cost_uses_catalog_pricing(
 ):
     from gptme.llm.models import get_model
 
-    name = f"openrouter/anthropic/claude-sonnet-4.6{suffix}"
+    name = f"openrouter/anthropic/claude-sonnet-5.5{suffix}"
     static = get_model(name)
     assert static.price_tiers == ()
     catalog = openrouter_model_to_modelmeta(
         {
-            "id": "anthropic/claude-sonnet-4.6",
+            "id": "anthropic/claude-sonnet-5.5",
             "pricing": {
                 "prompt": "0.000003",
                 "completion": "0.000015",
@@ -168,7 +190,7 @@ def test_static_openrouter_cost_falls_back_without_catalog(monkeypatch, unavaila
         return []
 
     monkeypatch.setattr("gptme.llm.get_available_models", fetch)
-    name = "openrouter/anthropic/claude-sonnet-4.6"
+    name = "openrouter/anthropic/claude-sonnet-5.5"
     static = get_model(name)
     assert _calculate_llm_cost("openrouter", name, 250_000, 1_000) == pytest.approx(
         250_000 * static.price_input / 1e6 + 1_000 * static.price_output / 1e6
@@ -182,7 +204,7 @@ def test_failed_catalog_fetch_backs_off_and_recovers(monkeypatch):
     attempts = []
     catalog = openrouter_model_to_modelmeta(
         {
-            "id": "anthropic/claude-sonnet-4.6",
+            "id": "anthropic/claude-sonnet-5.5",
             "pricing": {"prompt": "0.000006", "completion": "0.0000225"},
         }
     )
@@ -195,7 +217,7 @@ def test_failed_catalog_fetch_backs_off_and_recovers(monkeypatch):
 
     monkeypatch.setattr("gptme.telemetry.time.monotonic", lambda: clock[0])
     monkeypatch.setattr("gptme.llm.get_available_models", fetch)
-    name = "openrouter/anthropic/claude-sonnet-4.6"
+    name = "openrouter/anthropic/claude-sonnet-5.5"
     static = get_model(name)
     fallback = 250_000 * static.price_input / 1e6 + 1_000 * static.price_output / 1e6
     for _ in range(2):

@@ -4,8 +4,10 @@ Covers: __version__, dirs, cli/wut, context/selector/file_selector.
 """
 
 import importlib
+import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -16,6 +18,49 @@ import pytest
 # `gptme.__version__` resolves to a string attribute, not the module.
 # Use importlib to get the actual module object for patch.object.
 _version_mod = importlib.import_module("gptme.__version__")
+
+
+class TestVersionProvenance:
+    def test_vcs_install_does_not_inherit_enclosing_repo_dirt(self):
+        dist = SimpleNamespace(
+            read_text=lambda _: json.dumps(
+                {"vcs_info": {"commit_id": "12345678abcdef"}}
+            )
+        )
+        with (
+            patch.object(
+                _version_mod.importlib.metadata, "version", return_value="1.0.0"
+            ),
+            patch.object(
+                _version_mod.importlib.metadata, "distribution", return_value=dist
+            ),
+            patch.object(
+                _version_mod, "get_git_version", return_value="9.0.0+deadbeef.dirty"
+            ) as git_version,
+        ):
+            assert _version_mod._compute_version() == "1.0.0+12345678"
+        git_version.assert_not_called()
+
+    @pytest.mark.parametrize("suffix", ["", ".dirty"])
+    def test_editable_install_keeps_checkout_version(self, suffix):
+        dist = SimpleNamespace(
+            read_text=lambda _: json.dumps({"dir_info": {"editable": True}})
+        )
+        checkout_version = f"1.0.0+abcdef12{suffix}"
+        with (
+            patch.object(
+                _version_mod.importlib.metadata, "version", return_value="1.0.0"
+            ),
+            patch.object(
+                _version_mod.importlib.metadata, "distribution", return_value=dist
+            ),
+            patch.object(
+                _version_mod, "get_git_version", return_value=checkout_version
+            ) as git_version,
+        ):
+            assert _version_mod._compute_version() == checkout_version
+        assert _version_mod.__file__ is not None
+        git_version.assert_called_once_with(str(Path(_version_mod.__file__).parent))
 
 
 class TestVersionTimeouts:

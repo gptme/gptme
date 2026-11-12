@@ -95,7 +95,9 @@ def test_http_connect_forwards_url_and_headers_unchanged() -> None:
     client = make_client(server)
     with patch.dict(os.environ, {"FIXTURE": "ambient"}, clear=True):
         tools, session = client.connect("fixture")
-    client._setup_http_connection.assert_called_once_with(server.url, server.headers)
+    client._setup_http_connection.assert_called_once_with(
+        server.url, server.headers, use_sse=False
+    )
     client._setup_stdio_connection.assert_not_called()
     assert server.env == {"FIXTURE": "explicit"}
     assert tools.tools == []

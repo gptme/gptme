@@ -365,6 +365,66 @@ class TestSkillMatching:
         # Should have no matches
         assert len(results) == 0
 
+    @staticmethod
+    def _skill(name: str) -> Lesson:
+        return Lesson(
+            title=f"{name} skill",
+            category="skills",
+            description="",
+            body="content",
+            metadata=LessonMetadata(name=name),
+            path=Path(f"/skills/{name}/SKILL.md"),
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "send the email",
+            "the backend is down",
+            "this will depend on CI",
+            "the PR is pending review",
+            "end",
+            "we reached the end of the file",
+            "path/to/end",
+            "use /endpoint here",
+        ],
+    )
+    def test_short_skill_name_needs_explicit_invocation(self, message):
+        """A short common-word name never matches as a substring or plain word (#4869)."""
+        results = LessonMatcher().match([self._skill("end")], MatchContext(message))
+        assert results == []
+
+    @pytest.mark.parametrize(
+        "message",
+        ["/end", "please /end now", "/skill:end", "skill:end", "run the end skill"],
+    )
+    def test_short_skill_name_explicit_invocation_matches(self, message):
+        results = LessonMatcher().match([self._skill("end")], MatchContext(message))
+        assert len(results) == 1
+        assert results[0].matched_by == ["skill:end"]
+
+    @pytest.mark.parametrize(
+        ("name", "message"),
+        [
+            ("ship", "a long relationship"),
+            ("spec", "inspect the logs"),
+            ("auth", "the commit author"),
+            ("plan", "an explanation"),
+            ("python-repl", "mypython-repl wrapper"),
+            ("python-repl", "notpythonrepl"),
+            ("debugging", "the debuggingtools package"),
+        ],
+    )
+    def test_skill_name_not_matched_inside_words(self, name, message):
+        results = LessonMatcher().match([self._skill(name)], MatchContext(message))
+        assert results == []
+
+    def test_long_skill_name_matches_on_word_boundary(self):
+        results = LessonMatcher().match(
+            [self._skill("debugging")], MatchContext("start debugging, please")
+        )
+        assert len(results) == 1
+
     def test_deduplication_by_resolved_path(self, tmp_path):
         """Test that duplicate lessons (same resolved path) are deduplicated.
 

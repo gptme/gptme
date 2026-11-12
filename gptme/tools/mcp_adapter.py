@@ -654,6 +654,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
                     url=str(config_override.get("url") or ""),
                     env=dict(config_override.get("env") or {}),
                     headers=dict(config_override.get("headers") or {}),
+                    transport=str(config_override.get("transport") or ""),
                 )
             except (TypeError, ValueError) as e:
                 return f"Failed to load server '{name}': invalid config override: {e}"

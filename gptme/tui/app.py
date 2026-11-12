@@ -59,9 +59,9 @@ from textual.widgets import (
 from textual.widgets.text_area import Edit, EditResult, Selection
 from textual.worker import Worker, WorkerState
 
-from ..chat import step
+from ..chat import maybe_start_auto_naming, step
 from ..commands import execute_cmd, get_command_completer, get_user_commands
-from ..config import get_config
+from ..config import ChatConfig, get_config
 from ..constants import (
     DECLINED_CONTENT,
     INTERRUPT_CONTENT,
@@ -110,6 +110,7 @@ from ..util.interrupt import (
 )
 from ..util.notification_ready import subscribe as subscribe_notifications
 from ..util.program_status import Kind, State, encode_report
+from ..util.terminal import POP_TITLE, PUSH_TITLE, app_title, title_sequence
 from ..util.tokens import len_tokens
 from .statusline import LogStats, build_payload, run_statusline
 
@@ -2841,6 +2842,11 @@ class GptmeApp(App):
         self._statusline_pending: dict | None = None
         self._statusline_output: str | None = None
         self._started = time.monotonic()
+        # conversation display name (config.toml ``name``), for the statusline
+        # and terminal title; None until auto-named or renamed
+        self._conversation_name: str | None = None
+        # the conversation that name belongs to (/fork switches logdir)
+        self._named_logdir: Path | None = None
         self.prompt_queue: list[str | Message] = []
         # URLs confirmed for fetching when a prompt was queued, by id(Message)
         self._confirmed_urls: dict[int, list[str]] = {}
@@ -2962,6 +2968,11 @@ class GptmeApp(App):
         self._report_program_status("idle")
         self._model = get_default_model()
         self.sub_title = self.manager.logdir.name
+        # a resumed conversation may already be named; save the shell's title
+        # to restore on exit (see on_unmount)
+        self._conversation_name = self._read_conversation_name()
+        self._named_logdir = self.manager.logdir
+        self._write_title(push=True)
         # confirmation dialog for tool execution; takes precedence over the
         # CLI hook (priority 0) registered by init()
         register_hook(
@@ -3177,6 +3188,9 @@ class GptmeApp(App):
 
     def on_unmount(self) -> None:
         self._report_program_status("clear")
+        if self._driver is not None:
+            with contextlib.suppress(OSError):
+                self._driver.write(POP_TITLE)
         self._quitting = True
         self._unsubscribe_notifications()
         self._restore_inline_resize_handler()
@@ -3611,6 +3625,7 @@ class GptmeApp(App):
             self._request_statusline(
                 build_payload(
                     session=self.manager.logdir.name,
+                    name=self._conversation_name,
                     logdir=self.manager.logdir,
                     workspace=self.workspace,
                     model=model.full if model else None,
@@ -3677,6 +3692,58 @@ class GptmeApp(App):
         if (payload := self._statusline_pending) is not None:
             self._statusline_pending = None
             self._request_statusline(payload)
+
+    # ------------------------------------------------- conversation name
+
+    def _read_conversation_name(self) -> str | None:
+        try:
+            return ChatConfig.from_logdir(self.manager.logdir).name or None
+        except Exception:  # the name is cosmetic: never break the UI over it
+            logger.debug("Failed to read conversation name", exc_info=True)
+            return None
+
+    def _write_title(self, push: bool = False) -> None:
+        """Set the terminal title to ``gptme: <name>`` (the ID until named).
+
+        Written through Textual's driver on the UI thread, like
+        _report_program_status: stdout is captured while the app runs.
+        """
+        if self._quitting or self._driver is None:
+            return
+        title = app_title(self._conversation_name or self.manager.logdir.name)
+        try:
+            self._driver.write((PUSH_TITLE if push else "") + title_sequence(title))
+        except OSError:
+            pass  # optional metadata must not break the UI
+
+    def _refresh_conversation_name(self) -> None:
+        """UI thread: show the current conversation's saved name.
+
+        Reads config.toml rather than trusting a caller's value: it is the
+        source of truth after /rename, /fork or a concurrent auto-name.
+        """
+        logdir = self.manager.logdir
+        name = self._read_conversation_name()
+        if name == self._conversation_name and logdir == self._named_logdir:
+            return
+        self._conversation_name = name
+        self._named_logdir = logdir
+        if self._quitting:  # e.g. a name generated while the app exited
+            return
+        self._write_title()
+        self._update_status()
+
+    def _apply_auto_name(self, logdir: Path) -> None:
+        """UI thread: an auto-name was saved for *logdir*."""
+        # a name for the conversation forked from must not reach the fork
+        if logdir == self.manager.logdir:
+            self._refresh_conversation_name()
+
+    def _on_auto_named(self, logdir: Path, name: str) -> None:
+        """Naming thread: tell the UI thread a name was saved for *logdir*."""
+        # the app may have exited while the name was generated
+        with contextlib.suppress(Exception):
+            self.call_from_thread(self._apply_auto_name, logdir)
 
     def _report_program_status(self, state: State, kind: Kind | None = None) -> None:
         """Write on the UI thread through Textual, never the captured stdout."""
@@ -3967,6 +4034,8 @@ class GptmeApp(App):
             # Commands like /skill:<name> queue a follow-up user prompt.
             # Drain it and start a turn, matching the CLI chat loop.
             self._drain_command_queued_prompts()
+        # e.g. /rename, /fork
+        self._refresh_conversation_name()
         self._update_status()
         self.post_message(self.NotificationReady())
 
@@ -4347,6 +4416,15 @@ class GptmeApp(App):
                     self._terminal_outcome = "idle"
                 if interrupted or declined or self._interrupt_event.is_set():
                     break
+                # Name the conversation after its first replies, like the CLI.
+                try:
+                    maybe_start_auto_naming(
+                        manager.logdir,
+                        manager.log.messages,
+                        functools.partial(self._on_auto_named, manager.logdir),
+                    )
+                except Exception:  # cosmetic: never fail the turn over it
+                    logger.warning("Failed to start auto-naming", exc_info=True)
                 step_count += 1
                 if max_steps is not None and step_count >= max_steps:
                     self.call_from_thread(

@@ -130,19 +130,27 @@ def wire(
         body = json.loads(request.content)
         captured.append((request, body))
         if body.get("stream"):
-            chunk = {
-                "id": "test",
-                "object": "chat.completion.chunk",
-                "created": 1,
-                "model": body["model"],
-                "choices": [
-                    {"index": 0, "delta": {"content": "ok"}, "finish_reason": None}
-                ],
-            }
+
+            def chunk(delta: dict[str, Any], finish_reason: str | None) -> str:
+                payload = {
+                    "id": "test",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": body["model"],
+                    "choices": [
+                        {"index": 0, "delta": delta, "finish_reason": finish_reason}
+                    ],
+                }
+                return f"data: {json.dumps(payload)}\n\n"
+
+            # A real stream ends with a terminal finish_reason chunk; the
+            # OpenAI streaming path rejects streams that stop without one.
             return httpx.Response(
                 200,
                 headers={"content-type": "text/event-stream"},
-                text=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
+                text=chunk({"content": "ok"}, None)
+                + chunk({}, "stop")
+                + "data: [DONE]\n\n",
             )
         message: dict[str, Any] = {"role": "assistant", "content": "ok"}
         if body.get("tools") and not any(m["role"] == "tool" for m in body["messages"]):

@@ -41,6 +41,7 @@ Status = Literal[
     "budget_exceeded",
     "cancelled",
     "blocked_external",
+    "cleanup_required",
 ]
 Role = Literal["general", "explore", "implement", "verify"]
 
@@ -164,15 +165,31 @@ def _persist_cached_outcome(agent_id: str) -> None:
         persist_subagent_outcome(sa, result)
 
 
-def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
+def set_subagent_result_if_absent(
+    agent_id: str, result: "ReturnType", *, attempt: "Subagent | None" = None
+) -> bool:
     """Cache a subagent result unless another terminal result already exists.
 
     The winning result is also persisted, so it survives a parent restart.
+
+    Pass ``attempt`` from a monitor that owns one specific generation. A
+    continuation replaces the registry entry, so a late monitor from the previous
+    generation (its child exited before the continuation was accepted) would
+    otherwise cache the OLD outcome for the resumed attempt. The identity check
+    shares continuation's lock order (registry, then results). An unregistered
+    attempt is not superseded and publishes normally.
     """
-    with _subagent_results_lock:
-        if agent_id in _subagent_results:
-            return False
-        _subagent_results[agent_id] = result
+    with _subagents_lock:
+        if attempt is not None:
+            current = next(
+                (s for s in reversed(_subagents) if s.agent_id == agent_id), None
+            )
+            if current is not None and current is not attempt:
+                return False
+        with _subagent_results_lock:
+            if agent_id in _subagent_results:
+                return False
+            _subagent_results[agent_id] = result
     _persist_cached_outcome(agent_id)
     return True
 
@@ -368,6 +385,13 @@ class Subagent:
     # String isolation mode ("worktree" or None). When set, cleanup uses smart
     # behaviour: auto-remove if unchanged, preserve branch if changes exist.
     isolation_mode: Literal["worktree"] | None = None
+    # Retention: when True, the isolated worktree is NOT auto-cleaned after the
+    # subagent finishes.  An explicit subagent_release() call is required.  Only
+    # meaningful when isolated=True.
+    retain_worktree: bool = False
+    # Unix timestamp after which continuation eligibility is revoked and the
+    # retained worktree may be GC'd.  None = no deadline.
+    retention_deadline: float | None = None
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
     role: Role | None = None
@@ -543,10 +567,27 @@ class Subagent:
         elif not (self.logdir / "conversation.jsonl").exists():
             return f"Subagent '{self.agent_id}' has no conversation log to continue."
         if self.isolated:
-            return (
-                f"Subagent '{self.agent_id}' ran in an isolated workspace and "
-                "cannot be continued; any preserved work is reported in its result."
-            )
+            if self.retain_worktree:
+                # Retained worktrees support continuation until the deadline expires.
+                if (
+                    self.retention_deadline is not None
+                    and time.time() > self.retention_deadline
+                ):
+                    return (
+                        f"Subagent '{self.agent_id}' retained workspace has expired "
+                        "(retention_deadline passed). Call subagent_release() to GC it."
+                    )
+                # Worktree must still exist to continue.
+                if self.worktree_path is not None and not self.worktree_path.exists():
+                    return (
+                        f"Subagent '{self.agent_id}' retained workspace no longer exists "
+                        f"at {self.worktree_path}. It may have been released already."
+                    )
+            else:
+                return (
+                    f"Subagent '{self.agent_id}' ran in an isolated workspace and "
+                    "cannot be continued; any preserved work is reported in its result."
+                )
         if not allow_cancelled:
             # Check in-memory cache first so a failed persist does not let the
             # same-process caller bypass the cancellation guard.

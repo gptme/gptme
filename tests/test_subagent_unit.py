@@ -2534,6 +2534,8 @@ class TestClarifyBlock:
             "max_time": None,
             "context_turns": None,
             "reasoning_effort": "low",
+            "retain_worktree": False,
+            "retention_deadline": None,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results

@@ -351,6 +351,7 @@ class _ModelDictMeta(TypedDict):
     price_input: NotRequired[float]
     price_output: NotRequired[float]
     price_cache_read: NotRequired[float | None]
+    price_tiers: NotRequired[tuple[PriceTier, ...]]
 
     supports_streaming: NotRequired[bool]
     supports_vision: NotRequired[bool]

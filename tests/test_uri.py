@@ -84,7 +84,15 @@ class TestIsUri:
         """Test other URI schemes."""
         assert is_uri("ftp://ftp.example.com") is True
         assert is_uri("ws://websocket.example.com") is True
-        assert is_uri("data://base64,abc123") is True
+
+    def test_data_uris(self):
+        """Test RFC 2397 data URIs (no '//' authority component)."""
+        assert is_uri("data:text/plain;base64,SGVsbG8=") is True
+        assert is_uri("data:image/png;base64,iVBORw0KGgo=") is True
+        assert is_uri("data:,Hello%2C%20World!") is True
+        assert is_uri("DATA:text/plain,hello") is True  # scheme is case-insensitive
+        assert URI("data:text/plain,hello").scheme == "data"
+        assert URI("data:image/png;base64,AAAA").is_http is False
 
     def test_paths_not_uris(self):
         """Test that paths are not detected as URIs."""
