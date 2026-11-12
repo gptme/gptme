@@ -42,13 +42,16 @@ URI_SCHEMES = frozenset(
 
 # Pattern to detect URIs: scheme://...
 URI_PATTERN = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/")
+# RFC 2397 data URIs have no "//" authority component: "data:[<mediatype>][;base64],<data>"
+DATA_URI_PATTERN = re.compile(r"^data:", re.IGNORECASE)
 
 
 def is_uri(s: str | Path) -> bool:
-    """Check if a string looks like a URI (has scheme://)."""
+    """Check if a string looks like a URI (has scheme://, or is a data: URI)."""
     if isinstance(s, Path):
         return False
-    return bool(URI_PATTERN.match(str(s)))
+    s = str(s)
+    return bool(URI_PATTERN.match(s) or DATA_URI_PATTERN.match(s))
 
 
 @dataclass(frozen=True)
@@ -76,10 +79,12 @@ class URI:
 
     @property
     def scheme(self) -> str:
-        """Extract the URI scheme (http, https, memo, etc.)."""
+        """Extract the URI scheme (http, https, memo, data, etc.)."""
         match = URI_PATTERN.match(self.uri)
         if match:
             return match.group(1).lower()
+        if DATA_URI_PATTERN.match(self.uri):
+            return "data"
         return ""
 
     @property
