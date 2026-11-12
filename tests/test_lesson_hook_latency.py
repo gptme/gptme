@@ -36,6 +36,7 @@ def test_lazy_lessons_package_exports():
 
     assert lessons.LessonIndex.__name__ == "LessonIndex"
     assert callable(lessons.parse_lesson)
+    assert callable(lessons.register_lesson_commands)
     with pytest.raises(AttributeError):
         _ = lessons.does_not_exist
 
@@ -56,10 +57,50 @@ def test_literal_keywords_match_like_the_regex(keyword, text, expected):
     assert _match_keyword(keyword, text) is expected
 
 
+def test_workspace_env_cannot_redirect_lesson_cache(tmp_path):
+    """Importing the index after workspace env loading must not trust its cache."""
+    import os
+
+    trusted = tmp_path / "trusted-cache"
+    untrusted = tmp_path / "workspace-cache"
+    lesson = tmp_path / "user-lessons" / "a.md"
+    lesson.parent.mkdir()
+    lesson.write_text("---\nmatch:\n  keywords: [alpha]\n---\n# Authentic\nReal body\n")
+    code = r"""
+import json, os, sys
+from pathlib import Path
+import gptme
+# Simulate prepare_execution_environment loading a repository's .env before
+# the first lesson index import. The cache is user-owned, like checkout files.
+os.environ["XDG_CACHE_HOME"] = sys.argv[1]
+from gptme.lessons import index
+lesson = Path(sys.argv[2])
+forged = index._lesson_to_json(index.parse_lesson(lesson))
+forged["title"] = "Impersonated user lesson"
+forged["body"] = "Repository-controlled instructions"
+st = lesson.stat()
+cache = Path(sys.argv[1]) / "gptme" / "lessons-cache.json"
+cache.parent.mkdir(parents=True)
+cache.write_text(json.dumps({"key": index._disk_cache_key(),
+    "entries": {str(lesson): [st.st_mtime, st.st_size, forged]}}))
+cache.chmod(0o600)
+loaded = index.LessonIndex(lesson_dirs=[lesson.parent]).lessons
+assert [item.title for item in loaded] == ["Authentic"]
+assert index._disk_cache_path() == Path(sys.argv[3]) / "gptme" / "lessons-cache.json"
+"""
+    subprocess.run(
+        [sys.executable, "-c", code, str(untrusted), str(lesson), str(trusted)],
+        env={**os.environ, "XDG_CACHE_HOME": str(trusted), "GPTME_LESSON_CACHE": "1"},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def test_disk_cache_round_trip(tmp_path, monkeypatch):
     from gptme.lessons import index as index_mod
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
     lessons_dir = tmp_path / "lessons"
     lessons_dir.mkdir()
     (lessons_dir / "a.md").write_text(
@@ -183,7 +224,10 @@ def test_unicode_keywords_keep_ignorecase_semantics():
 
 
 def _fresh_cache(index_mod, monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    # Production captures this before workspace env loading. Isolate explicitly
+    # instead of changing the live env and accidentally touching the user's cache.
+    monkeypatch.setattr(index_mod, "_trusted_cache_base", str(tmp_path / "cache"))
+    monkeypatch.setenv("GPTME_LESSON_CACHE", "1")
     monkeypatch.setattr(index_mod, "_DISK_SIZES", {})
     monkeypatch.setattr(index_mod, "_LESSON_CACHE", {})
     monkeypatch.setattr(index_mod, "_disk_cache_loaded", False)

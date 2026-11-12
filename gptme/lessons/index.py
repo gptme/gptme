@@ -8,6 +8,7 @@ import os
 import stat
 from pathlib import Path
 
+from . import _trusted_cache_base
 from .parser import Lesson, LessonMetadata, parse_lesson
 
 logger = logging.getLogger(__name__)
@@ -22,9 +23,10 @@ _LESSON_CACHE: dict[Path, tuple[float, Lesson]] = {}
 # Entries are keyed by absolute path and validated per file by mtime and size,
 # and the whole cache is keyed on this module's and the parser's source, so a
 # code change (including in an editable install) starts from scratch.
-# The format is JSON, never pickle: the location honours XDG_CACHE_HOME, which
-# a workspace .env can set, so the file must not be able to run code. It is
-# only read if owned by the current user and not writable by others.
+# The format is JSON, never pickle. The location honours the launch environment's
+# XDG_CACHE_HOME, captured before workspace .env loading in lessons.__init__.
+# User ownership alone cannot make a repository-provided cache trustworthy.
+# It is only read if owned by the current user and not writable by others.
 # GPTME_LESSON_CACHE=0 disables it.
 _DISK_CACHE_FORMAT = 2
 _disk_cache_loaded = False
@@ -34,10 +36,7 @@ _disk_cache_dirty = False
 def _disk_cache_path() -> Path | None:
     if os.environ.get("GPTME_LESSON_CACHE", "1").lower() in ("0", "false", "no", "off"):
         return None
-    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
-        os.path.expanduser("~"), ".cache"
-    )
-    return Path(base) / "gptme" / "lessons-cache.json"
+    return Path(_trusted_cache_base) / "gptme" / "lessons-cache.json"
 
 
 def _disk_cache_key() -> list:
