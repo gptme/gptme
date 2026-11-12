@@ -69,6 +69,11 @@ _SPOOL_STREAM_QUOTA = 32 * 1024 * 1024
 _SPOOL_CONVERSATION_QUOTA = 128 * 1024 * 1024
 _SPOOL_WRITER_JOIN_TIMEOUT = 2.0
 _SPOOL_QUOTA_MARKER = b"[omitted: retained-stream quota exceeded]\n"
+# Promoted foreground capture is followed, not re-read: poll its chunk lists,
+# feed bounded slices, and wait (bounded) for the writer instead of dropping.
+_ADOPT_POLL_INTERVAL = 0.05
+_ADOPT_SLICE_CHARS = 64 * 1024
+_ADOPT_BACKPRESSURE_TIMEOUT = 10.0
 _conversation_spool_bytes: dict[str | None, int] = {}
 _conversation_spool_seeded: set[str | None] = set()
 _conversation_spool_lock = threading.Lock()
@@ -274,6 +279,21 @@ class BackgroundJob:
     # Serializes incremental cursor consumption (snapshot, read, advance).
     _cursor_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     receipt_path: Path | None = field(default=None, repr=False)
+    # Foreground capture adopted at promotion: the promoted shell's append-only
+    # (stdout, stderr) chunk lists, one pair per command, and how far each has
+    # been fed into this job's buffers/spool.  Exactly one feeder at a time
+    # (``_adopt_lock``), so every chunk is ingested once and in stream order.
+    _adopted_segments: list[tuple[list[str], list[str]]] | None = field(
+        default=None, repr=False
+    )
+    _adopt_seg: int = field(default=0, repr=False)
+    _adopt_out: int = field(default=0, repr=False)
+    _adopt_err: int = field(default=0, repr=False)
+    _adopt_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _adopt_stop: threading.Event = field(default_factory=threading.Event, repr=False)
+    _adopt_thread: threading.Thread | None = field(default=None, repr=False)
+    _adopt_backpressure: bool = field(default=True, repr=False)
+    _capture_origin: str = field(default="launch", repr=False)
     # Why the job was killed by gptme (e.g. the memory guard), for the model.
     kill_reason: str | None = None
     # a kill after the completion message went out (a worker that outlived
@@ -297,9 +317,18 @@ class BackgroundJob:
             return False
         return isinstance(fd, int) and fd >= 0
 
-    def _open_spools(self) -> None:
-        """Open exclusive live stream files when this job owns the pipes."""
-        if self._stdout_spool is not None or not self._can_spool_from_process():
+    def _open_spools(self, *, adopted: bool = False) -> None:
+        """Open exclusive live stream files when this job owns the capture.
+
+        The job owns it either by reading the process pipes itself or, with
+        ``adopted``, by following a promoted foreground command's capture.
+        """
+        if self._stdout_spool is not None:
+            return
+        if adopted:
+            if self.log_dir is None:
+                return
+        elif not self._can_spool_from_process():
             return
         assert self.log_dir is not None
         _seed_conversation_spool(self.conversation_id, self.log_dir)
@@ -371,12 +400,16 @@ class BackgroundJob:
         """
         decoder = self._stdout_decoder if fd == stdout_fd else self._stderr_decoder
         text = decoder.decode(data, final=final)
+        self._ingest_text(fd == stdout_fd, text, final=final)
+
+    def _ingest_text(self, is_stdout: bool, text: str, *, final: bool = False) -> None:
+        """Spool one decoded chunk, then append it to the bounded RAM tail."""
         if text or final:
-            self._spool_text(fd == stdout_fd, text, final=final)
+            self._spool_text(is_stdout, text, final=final)
         if not text:
             return
         with self._buffer_lock:
-            if fd == stdout_fd:
+            if is_stdout:
                 self._stdout_buffer_start += self._append_to_buffer_locked(
                     self.stdout_buffer, text
                 )
@@ -472,6 +505,64 @@ class BackgroundJob:
                     chars_attr,
                     getattr(self, chars_attr) + min(committed_chars, len(to_write)),
                 )
+
+    def _feed_adopted_chunk(self, is_stdout: bool, text: str) -> None:
+        """Ingest one adopted chunk in bounded slices, pacing on the writer.
+
+        This is not the pipe reader, so it may wait for the spool writer: the
+        already-captured prefix can exceed the writer queue many times over,
+        and dropping it as ``queue_full`` would lose exactly the output that
+        promotion is supposed to keep.  The wait is bounded; once it expires
+        the feeder stops pacing and saturation marks the capture partial.
+        """
+        for start in range(0, len(text), _ADOPT_SLICE_CHARS):
+            if self._adopt_backpressure and self._spool_queue is not None:
+                deadline = time.monotonic() + _ADOPT_BACKPRESSURE_TIMEOUT
+                while (
+                    self._spool_queued_bytes > _SPOOL_QUEUE_MAX_BYTES // 2
+                    or self._spool_queue.qsize() > _SPOOL_QUEUE_MAX // 2
+                ):
+                    writer = self._spool_writer_thread
+                    if writer is None or not writer.is_alive():
+                        break
+                    if time.monotonic() >= deadline:
+                        self._adopt_backpressure = False
+                        break
+                    time.sleep(0.005)
+            self._ingest_text(is_stdout, text[start : start + _ADOPT_SLICE_CHARS])
+
+    def _feed_adopted(self) -> None:
+        """Ingest every adopted chunk not yet fed, exactly once and in order."""
+        with self._adopt_lock:
+            segments = self._adopted_segments
+            if segments is None:
+                return
+            while self._adopt_seg < len(segments):
+                # Sample "a later command started" BEFORE the lengths: only
+                # then is this pair known to have stopped growing.
+                has_next = len(segments) > self._adopt_seg + 1
+                stdout, stderr = segments[self._adopt_seg]
+                n_out, n_err = len(stdout), len(stderr)
+                # The foreground reader captures per line; coalesce the unfed
+                # run so ingestion cost follows bytes, not the chunk count.
+                if n_out > self._adopt_out:
+                    self._feed_adopted_chunk(
+                        True, "".join(stdout[self._adopt_out : n_out])
+                    )
+                    self._adopt_out = n_out
+                if n_err > self._adopt_err:
+                    self._feed_adopted_chunk(
+                        False, "".join(stderr[self._adopt_err : n_err])
+                    )
+                    self._adopt_err = n_err
+                if not has_next:
+                    return
+                self._adopt_seg += 1
+                self._adopt_out = self._adopt_err = 0
+
+    def _adopt_loop(self) -> None:
+        while not self._adopt_stop.wait(_ADOPT_POLL_INTERVAL):
+            self._feed_adopted()
 
     def _add_discarded(self, is_stdout: bool, count: int) -> None:
         """Record bytes accepted for persistence that were lost to a failure."""
@@ -759,6 +850,7 @@ class BackgroundJob:
             exit_code = None
         receipt = {
             "job_id": self.id,
+            "capture_origin": self._capture_origin,
             "byte_count_basis": "sanitized_utf8_representation",
             "capture_state": capture_state,
             "partial_reasons": sorted(self._partial_reasons),
@@ -1019,6 +1111,8 @@ class BackgroundJob:
         self, *, incremental: bool = False, line_context: bool = False
     ) -> tuple[str, str]:
         """Get accumulated stdout and stderr, optionally since the last read."""
+        # An adopted capture is current only up to the feeder's last pass.
+        self._feed_adopted()
         if incremental and self._spool_from_reader:
             # Independent committed-byte cursors: RAM character offsets can
             # lag or skip prefixes the live files already retained.
@@ -1456,6 +1550,64 @@ def complete_background_job(job: BackgroundJob, stdout: str, stderr: str) -> Non
     # A failed final write can be retried by completion rendering. Publish the
     # finished capture only after RAM holds the final output, so that retry
     # closes its snapshot and later previews do not reopen it.
+    with _job_log_lock:
+        job._capture_finished.set()
+    _notify_completion(job)
+
+
+def adopt_foreground_capture(
+    job: BackgroundJob, segments: list[tuple[list[str], list[str]]] | None
+) -> bool:
+    """Make a promoted job follow its foreground command's capture.
+
+    ``segments`` are the promoted shell's append-only chunk lists.  From this
+    boundary the job owns a launch-time spool like a direct job: everything
+    captured so far and every later chunk is ingested once, in stream order,
+    into the bounded RAM tail and the private ``.live`` stream files.  No
+    second copy is written at completion.
+
+    Returns ``False`` (job unchanged, RAM-only callback path) when there is
+    no conversation logdir, no capture to follow, or the spool cannot open.
+    """
+    if segments is None or job.log_dir is None:
+        return False
+    job._capture_origin = "foreground_promotion"
+    job._open_spools(adopted=True)
+    if not job._spool_from_reader:
+        job._capture_origin = "launch"
+        return False
+    with job._buffer_lock:
+        job._output_callback = None
+    job._adopted_segments = segments
+    job._adopt_thread = threading.Thread(
+        target=copy_context().run,
+        args=(job._adopt_loop,),
+        daemon=True,
+        name=f"gptme-adopt-feeder-{job.id}",
+    )
+    job._adopt_thread.start()
+    return True
+
+
+def complete_adopted_job(job: BackgroundJob, *, error_text: str | None = None) -> None:
+    """Finish an adopted capture and publish one completion.
+
+    Call after the foreground worker returned, so the chunk lists are final.
+    ``error_text`` is the worker's failure, which never reached those lists.
+    """
+    job._adopt_stop.set()
+    feeder = job._adopt_thread
+    if feeder is not None and feeder is not threading.current_thread():
+        feeder.join()
+    job._feed_adopted()
+    if error_text:
+        job._ingest_text(False, error_text)
+    for is_stdout in (True, False):
+        job._ingest_text(is_stdout, "", final=True)
+    with job._adopt_lock:
+        # Release the foreground chunks; RAM keeps only the bounded tail.
+        job._adopted_segments = None
+    job._finalize_spools()
     with _job_log_lock:
         job._capture_finished.set()
     _notify_completion(job)

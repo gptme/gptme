@@ -107,8 +107,10 @@ from .base import (
 )
 from .pruner import plan_tool_output_prune
 from .shell_background import (
+    adopt_foreground_capture,
     background_job_completion_hook,
     background_job_wait_hook,
+    complete_adopted_job,
     complete_background_job,
     control_commands_help,
     execute_jobs_command,
@@ -672,6 +674,9 @@ class ShellSession:
     _restarting: bool
     _closed: bool
     _active_output: tuple[list[str], list[str]] | None
+    # Every command's (stdout, stderr) chunk lists for the ``run()`` in flight,
+    # in order.  A promoted job adopts this capture instead of re-reading it.
+    _capture_segments: list[tuple[list[str], list[str]]] | None
     _output_lock: threading.Lock
     _skip_os_chdir: bool
 
@@ -682,6 +687,7 @@ class ShellSession:
         self._restarting = False
         self._closed = False
         self._active_output = None
+        self._capture_segments = None
         self._output_lock = threading.Lock()
         # Snapshot at construction: promotion runs ``shell.run()`` on a worker
         # thread, and ``threading.Thread`` does not copy ContextVars, so a
@@ -843,6 +849,14 @@ class ShellSession:
                 trim_blank_lines("".join(stderr)),
             )
 
+    def capture_segments(self) -> list[tuple[list[str], list[str]]] | None:
+        """Return the append-only chunk lists of the ``run()`` in flight.
+
+        One ``(stdout, stderr)`` pair per command, in execution order; a pair
+        stops growing once the next one is appended.  ``None`` outside ``run()``.
+        """
+        return getattr(self, "_capture_segments", None)
+
     def _capture_output(
         self, target: list[str], text: str, *, stream: IO[str], output: bool
     ) -> None:
@@ -901,6 +915,9 @@ class ShellSession:
         commands = split_commands(code)
         res_code: int | None = None
         res_stdout, res_stderr = "", ""
+        # A fresh list per run: an adopter keeps its own reference, so a later
+        # run on this shell can never feed chunks into an earlier job.
+        self._capture_segments = []
         for cmd in commands:
             res_cur = self._run(cmd, output=output, timeout=timeout)
             res_code = res_cur[0]
@@ -1379,6 +1396,9 @@ class ShellSession:
         stdout: list[str] = []
         stderr: list[str] = []
         self._active_output = (stdout, stderr)
+        segments = getattr(self, "_capture_segments", None)
+        if segments is not None:
+            segments.append((stdout, stderr))
         return_code: int | None = None
         start_time = time.time() if timeout else None
         max_output_bytes = _get_max_output_bytes()
@@ -3174,6 +3194,11 @@ def execute_shell_impl(
                     close_callback=shell.close,
                     output_callback=shell.active_output,
                 )
+                # Converge on the direct-job capture: the job follows the
+                # chunks this command already captured (and keeps capturing)
+                # into its launch-time spool.  Without a conversation logdir
+                # the job keeps the RAM-only callback path.
+                adopted = adopt_foreground_capture(job, shell.capture_segments())
                 _replace_promoted_shell(shell)
 
                 def publish() -> None:
@@ -3184,7 +3209,12 @@ def execute_shell_impl(
                     else:
                         job_returncode, stdout, stderr = result["value"]
                     process.finish(job_returncode if job_returncode is not None else -1)
-                    complete_background_job(job, stdout, stderr)
+                    if adopted:
+                        complete_adopted_job(
+                            job, error_text=str(error[0]) if error else None
+                        )
+                    else:
+                        complete_background_job(job, stdout, stderr)
                     shell.close()
                     job._close_callback = None
 
