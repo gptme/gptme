@@ -121,12 +121,16 @@ def _match_keyword(keyword: str, text: str) -> bool:
     if not keyword or not keyword.strip():
         return False
     normalized = keyword.lower().strip()
-    if "*" not in normalized:
-        # Literal keyword: a case-insensitive substring test, same result as
-        # the escaped regex. Compiling one regex per keyword thrashed the
-        # pattern cache once lesson sets reached thousands of keywords, so
-        # every match recompiled them all.
-        return normalized in _lowered(text)
+    if "*" not in normalized and normalized.isascii():
+        lowered, text_is_ascii = _lowered(text)
+        if text_is_ascii:
+            # Literal ASCII keyword in ASCII text: a substring test gives the
+            # same result as the escaped IGNORECASE regex. Compiling one regex
+            # per keyword thrashed the pattern cache once lesson sets reached
+            # thousands of keywords, so every match recompiled them all.
+            # Non-ASCII keeps the regex: str.lower() and re.IGNORECASE differ
+            # for some letters (e.g. Greek final sigma).
+            return normalized in lowered
     pattern = _keyword_to_pattern(keyword)
     if pattern is None:
         return False
@@ -134,9 +138,9 @@ def _match_keyword(keyword: str, text: str) -> bool:
 
 
 @lru_cache(maxsize=16)
-def _lowered(text: str) -> str:
-    """Lowercase ``text`` once per distinct text (matchers test thousands of keywords)."""
-    return text.lower()
+def _lowered(text: str) -> tuple[str, bool]:
+    """``text`` lowercased, and whether it is ASCII, computed once per distinct text."""
+    return text.lower(), text.isascii()
 
 
 def _match_pattern(pattern_str: str, text: str) -> bool:

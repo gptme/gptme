@@ -67,6 +67,7 @@ def test_disk_cache_round_trip(tmp_path, monkeypatch):
     )
 
     def fresh_process_state():
+        monkeypatch.setattr(index_mod, "_DISK_SIZES", {})
         monkeypatch.setattr(index_mod, "_LESSON_CACHE", {})
         monkeypatch.setattr(index_mod, "_disk_cache_loaded", False)
         monkeypatch.setattr(index_mod, "_disk_cache_dirty", False)
@@ -74,7 +75,7 @@ def test_disk_cache_round_trip(tmp_path, monkeypatch):
     fresh_process_state()
     first = index_mod.LessonIndex(lesson_dirs=[lessons_dir])
     assert [lesson.title for lesson in first.lessons] == ["A"]
-    assert (tmp_path / "cache" / "gptme" / "lessons-cache.pickle").exists()
+    assert (tmp_path / "cache" / "gptme" / "lessons-cache.json").exists()
 
     fresh_process_state()
     calls: list[Path] = []
@@ -163,3 +164,80 @@ def test_pretooluse_matcher_covers_all_tools():
     from gptme.cli import cmd_hooks
 
     assert cmd_hooks._PRETOOLUSE_MATCHER == "*"
+
+
+def test_unicode_keywords_keep_ignorecase_semantics():
+    # str.lower() leaves final sigma alone; re.IGNORECASE folds it.
+    assert _match_keyword("οσ", "ος")
+    assert _match_keyword("Ä", "ä")
+
+
+def _fresh_cache(index_mod, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(index_mod, "_DISK_SIZES", {})
+    monkeypatch.setattr(index_mod, "_LESSON_CACHE", {})
+    monkeypatch.setattr(index_mod, "_disk_cache_loaded", False)
+    monkeypatch.setattr(index_mod, "_disk_cache_dirty", False)
+
+
+def test_disk_cache_is_json_private_and_absolute(tmp_path, monkeypatch):
+    import json
+    import stat as stat_mod
+
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    d = tmp_path / "lessons"
+    d.mkdir()
+    (d / "a.md").write_text("---\nmatch:\n  keywords: [alpha]\n---\n# A\nbody\n")
+    index_mod.LessonIndex(lesson_dirs=[d])
+    path = tmp_path / "cache" / "gptme" / "lessons-cache.json"
+    data = json.loads(path.read_text())  # plain JSON, no code
+    assert all(Path(k).is_absolute() for k in data["entries"])
+    assert stat_mod.S_IMODE(path.stat().st_mode) & 0o077 == 0
+
+
+def test_disk_cache_ignored_if_writable_by_others(tmp_path, monkeypatch):
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    d = tmp_path / "lessons"
+    d.mkdir()
+    (d / "a.md").write_text("---\nmatch:\n  keywords: [alpha]\n---\n# A\nbody\n")
+    index_mod.LessonIndex(lesson_dirs=[d])
+    path = tmp_path / "cache" / "gptme" / "lessons-cache.json"
+    path.chmod(0o666)
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    index_mod._load_disk_cache()
+    assert index_mod._LESSON_CACHE == {}
+
+
+def test_corrupt_disk_cache_is_ignored(tmp_path, monkeypatch):
+    from gptme.lessons import index as index_mod
+
+    _fresh_cache(index_mod, monkeypatch, tmp_path)
+    path = tmp_path / "cache" / "gptme" / "lessons-cache.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"\x80\x04not json")
+    path.chmod(0o600)
+    index_mod._load_disk_cache()
+    assert index_mod._LESSON_CACHE == {}
+
+
+def test_realpath_cache_cleared_between_scans(tmp_path):
+    import os
+
+    from gptme.lessons.index import LessonIndex, _realpath
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(a)
+    assert _realpath(link / "x.md") == os.path.realpath(link / "x.md")
+    link.unlink()
+    link.symlink_to(b)
+    LessonIndex(
+        lesson_dirs=[tmp_path / "empty-does-not-exist"]
+    )  # a scan clears the cache
+    assert _realpath(link / "x.md") == os.path.realpath(link / "x.md")
