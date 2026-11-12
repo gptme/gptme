@@ -906,25 +906,31 @@ for <code class="docutils literal notranslate"><span class="pre">price_cache_rea
 
 <span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">"minimax"</span><span class="p">,</span>
-    <span class="n">base_url</span><span class="o">=</span><span class="s2">"https://api.minimax.chat/v1"</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">"https://api.minimax.io/v1"</span><span class="p">,</span>
     <span class="n">api_key_env</span><span class="o">=</span><span class="s2">"MINIMAX_API_KEY"</span><span class="p">,</span>
     <span class="n">models</span><span class="o">=</span><span class="p">[</span>
         <span class="n">ModelMeta</span><span class="p">(</span>
             <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">"minimax/MiniMax-M3.1-Flash"</span><span class="p">,</span>
+            <span class="n">context</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">,</span>
+            <span class="n">max_output</span><span class="o">=</span><span class="mi">524_288</span><span class="p">,</span>
+            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span>
+            <span class="n">price_output</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
+            <span class="n">price_cache_read</span><span class="o">=</span><span class="mf">0.015</span><span class="p">,</span>
+            <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">supports_reasoning</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">default_tool_format</span><span class="o">=</span><span class="s2">"tool"</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">ModelMeta</span><span class="p">(</span>
+            <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
             <span class="n">model</span><span class="o">=</span><span class="s2">"minimax/MiniMax-M3"</span><span class="p">,</span>
             <span class="n">context</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">,</span>
+            <span class="c1"># Upper standard tier (&gt;512k input tokens); shorter prompts cost less.</span>
             <span class="n">price_input</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
             <span class="n">price_output</span><span class="o">=</span><span class="mf">2.4</span><span class="p">,</span>
             <span class="n">supports_vision</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
             <span class="n">supports_reasoning</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="p">),</span>
-        <span class="n">ModelMeta</span><span class="p">(</span>
-            <span class="n">provider</span><span class="o">=</span><span class="s2">"unknown"</span><span class="p">,</span>
-            <span class="n">model</span><span class="o">=</span><span class="s2">"minimax/MiniMax-M2.7"</span><span class="p">,</span>
-            <span class="n">context</span><span class="o">=</span><span class="mi">204_800</span><span class="p">,</span>
-            <span class="n">price_input</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span>
-            <span class="n">price_output</span><span class="o">=</span><span class="mf">1.2</span><span class="p">,</span>
-            <span class="n">supports_reasoning</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">default_tool_format</span><span class="o">=</span><span class="s2">"tool"</span><span class="p">,</span>
         <span class="p">),</span>
     <span class="p">],</span>
 <span class="p">)</span>
@@ -962,7 +968,7 @@ existing positional constructions <code class="docutils literal notranslate"><sp
 <dl class="py attribute">
 <dt class="sig sig-object py" id="gptme.llm.models.ProviderPlugin.base_url">
 <span class="sig-name descname"><span class="pre">base_url</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">''</span></em><a class="headerlink" href="#gptme.llm.models.ProviderPlugin.base_url" title="Link to this definition">#</a></dt>
-<dd><p>Base URL for the OpenAI-compatible API endpoint, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;https://api.minimax.chat/v1&quot;</span></code>.</p>
+<dd><p>Base URL for the OpenAI-compatible API endpoint, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;https://api.minimax.io/v1&quot;</span></code>.</p>
 </dd></dl>
 
 <dl class="py attribute">

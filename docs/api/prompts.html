@@ -659,6 +659,8 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.prompt_user"><code class="docutils literal notranslate"><span class="pre">prompt_user()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.prompt_workspace"><code class="docutils literal notranslate"><span class="pre">prompt_workspace()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.prompt_workspace_runtime"><code class="docutils literal notranslate"><span class="pre">prompt_workspace_runtime()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.resolve_prompt_file_paths"><code class="docutils literal notranslate"><span class="pre">resolve_prompt_file_paths()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.resolve_prompt_files"><code class="docutils literal notranslate"><span class="pre">resolve_prompt_files()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.use_chat_history_context"><code class="docutils literal notranslate"><span class="pre">use_chat_history_context()</span></code></a></li>
 </ul>
             </nav>
@@ -942,7 +944,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa9e547d9e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efc661fd9e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -3132,6 +3134,33 @@ just testing
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="gptme.prompts.resolve_prompt_file_paths">
+<span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">resolve_prompt_file_paths</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#tuple" title="(in Python v3.15)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.resolve_prompt_file_paths" title="Link to this definition">#</a></dt>
+<dd><p>Resolve configured prompt files, keeping both the configured and target path.</p>
+<ul class="simple">
+<li><p>absolute paths are used as-is</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">~</span></code> is expanded</p></li>
+<li><p>relative paths resolve against the config directory (e.g. ~/.config/gptme)</p></li>
+<li><p>files that don’t exist are skipped, since startup skips them too</p></li>
+</ul>
+<p>The configured path matters for symlinked files: it tells which workspace
+the file was loaded <em>from</em>, which the target path does not.</p>
+<p>All valid entries are returned, including multiple configured paths that
+resolve to the same target. Callers are responsible for deduplicating
+content when that matters; retaining every alias is necessary so the
+agents_md_inject hook can find the workspaces for all configured files.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.prompts.resolve_prompt_files">
+<span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">resolve_prompt_files</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.15)"><span class="pre">Path</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.prompts.resolve_prompt_files" title="Link to this definition">#</a></dt>
+<dd><p>Resolve configured prompt files the way startup does.</p>
+<p>See <a class="reference internal" href="#gptme.prompts.resolve_prompt_file_paths" title="gptme.prompts.resolve_prompt_file_paths"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_prompt_file_paths()</span></code></a> for the resolution rules.
+Deduplicates by resolved path; use <a class="reference internal" href="#gptme.prompts.resolve_prompt_file_paths" title="gptme.prompts.resolve_prompt_file_paths"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_prompt_file_paths()</span></code></a>
+directly when all configured aliases must be retained.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="gptme.prompts.use_chat_history_context">
 <span class="sig-prename descclassname"><span class="pre">gptme.prompts.</span></span><span class="sig-name descname"><span class="pre">use_chat_history_context</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><span class="pre">bool</span></a></span></span><a class="headerlink" href="#gptme.prompts.use_chat_history_context" title="Link to this definition">#</a></dt>
 <dd><p>Check if cross-conversation context is enabled.</p>
@@ -3211,6 +3240,8 @@ just testing
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.prompt_user"><code class="docutils literal notranslate"><span class="pre">prompt_user()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.prompt_workspace"><code class="docutils literal notranslate"><span class="pre">prompt_workspace()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.prompt_workspace_runtime"><code class="docutils literal notranslate"><span class="pre">prompt_workspace_runtime()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.resolve_prompt_file_paths"><code class="docutils literal notranslate"><span class="pre">resolve_prompt_file_paths()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.resolve_prompt_files"><code class="docutils literal notranslate"><span class="pre">resolve_prompt_files()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.prompts.use_chat_history_context"><code class="docutils literal notranslate"><span class="pre">use_chat_history_context()</span></code></a></li>
 </ul>
   </nav></div>

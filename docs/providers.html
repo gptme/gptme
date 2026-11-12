@@ -916,9 +916,19 @@ in your config — see <a class="reference internal" href="providers-custom.html
 <p>Third-party packages can also register providers through the <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code>
 entry point, making them available right after installation:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>gptme-provider-minimax
-gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>minimax/MiniMax-M3
+gptme<span class="w"> </span><span class="s2">"hello"</span><span class="w"> </span>-m<span class="w"> </span>minimax/MiniMax-M3.1-Flash
 </pre></div>
 </div>
+<p>MiniMax plugin authors can offer <code class="docutils literal notranslate"><span class="pre">MiniMax-M3.1-Flash</span></code> first and <code class="docutils literal notranslate"><span class="pre">MiniMax-M3</span></code>
+as the alternate, using <code class="docutils literal notranslate"><span class="pre">https://api.minimax.io/v1</span></code>. Existing explicit model
+IDs and custom provider configurations continue to resolve unchanged.</p>
+<p>For OpenRouter, use <code class="docutils literal notranslate"><span class="pre">openrouter/minimax/minimax-m3.1-flash:free</span></code> or
+<code class="docutils literal notranslate"><span class="pre">openrouter/minimax/minimax-m3</span></code>. The ordinary model list shows these current
+MiniMax text choices; <code class="docutils literal notranslate"><span class="pre">gptme-util</span> <span class="pre">models</span> <span class="pre">--include-deprecated</span></code> also shows legacy
+choices. Flash uses adaptive reasoning with <code class="docutils literal notranslate"><span class="pre">max</span></code> effort by default.
+<code class="docutils literal notranslate"><span class="pre">GPTME_THINKING_EFFORT</span></code> accepts <code class="docutils literal notranslate"><span class="pre">low</span></code>, <code class="docutils literal notranslate"><span class="pre">medium</span></code>, <code class="docutils literal notranslate"><span class="pre">high</span></code>, <code class="docutils literal notranslate"><span class="pre">xhigh</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">max</span></code> for this OpenRouter route; disabling reasoning is not supported.
+Plugin-specific effort handling remains the plugin’s responsibility.</p>
 <p>See <a class="reference internal" href="providers-integration.html"><span class="doc">Provider Integration Guide</span></a> to write one.</p>
 </section>
 </section>
