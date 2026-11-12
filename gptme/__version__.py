@@ -104,13 +104,15 @@ def _compute_version() -> str:
                     return git_version
                 return version + "+unknown"
 
-        # Apply git hash if found via direct_url.json
+        # Apply git hash if found via direct_url.json.
+        # vcs_info is only recorded for non-editable VCS installs (PEP 610 makes
+        # it mutually exclusive with dir_info), so the installed files are a
+        # pristine copy of that commit. Do NOT probe git from the package dir
+        # here: when the install lives inside another repository (e.g. a .venv
+        # in a project checkout), git discovers that enclosing repo and would
+        # borrow its dirty state (#4874).
         if git_hash:
             version = f"{version}+{git_hash}"
-            package_dir = os.path.dirname(os.path.abspath(__file__))
-            git_version = get_git_version(package_dir)
-            if git_version and ".dirty" in git_version:
-                version += ".dirty"
 
         return version
 
