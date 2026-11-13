@@ -1506,3 +1506,104 @@ class TestInitSingleTool:
         result = _init_single_tool(tool, on_error="skip")
         assert result is None
         assert any(h.name == "shared.good" for h in get_hooks())
+
+
+# ── TOOL_EXECUTE_PRE denial (central policy seam) ─────────────────
+
+
+class TestToolExecutePreDeny:
+    """A TOOL_EXECUTE_PRE hook can prevent a call from running.
+
+    The seam is central, so it covers tools that never reach TOOL_CONFIRM
+    (``gh``, ``browser``, ``convert``) without per-tool wiring.
+    """
+
+    def test_denial_prevents_execution_and_skips_post_hook(self, monkeypatch):
+        ran: list[tuple] = []
+        actual_output = Message("system", "actual output")
+
+        def execute(code, args, kwargs):
+            ran.append((code, args, kwargs))
+            yield actual_output
+
+        fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
+
+        def fake_trigger_hook(hook_type, data):
+            if hook_type == HookType.TOOL_EXECUTE_PRE:
+                data.deny("blocked by policy")
+                return [Message("system", "pre hook")]
+            if hook_type == HookType.TOOL_EXECUTE_POST:
+                return [Message("system", "post hook")]
+            return []
+
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
+        monkeypatch.setattr("gptme.hooks.trigger_hook", fake_trigger_hook)
+
+        yielded = list(ToolUse("test_tool", [], None, start=0).execute())
+
+        assert ran == [], "denied tool must not execute"
+        contents = [msg.content for msg in yielded]
+        assert any("blocked by policy" in c for c in contents)
+        assert "actual output" not in contents
+        assert "post hook" not in contents, "a denied call has no post hook"
+
+    def test_denial_without_reason_still_blocks(self, monkeypatch):
+        ran: list[tuple] = []
+
+        def execute(code, args, kwargs):
+            ran.append((code, args, kwargs))
+            yield Message("system", "ran")
+
+        fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
+        monkeypatch.setattr(
+            "gptme.hooks.trigger_hook",
+            lambda hook_type, data: data.deny("policy") or [],
+        )
+
+        yielded = list(ToolUse("test_tool", [], None, start=0).execute())
+
+        assert ran == []
+        assert any("denied" in msg.content for msg in yielded)
+
+    def test_pre_hook_without_denial_does_not_block(self, monkeypatch):
+        ran: list[tuple] = []
+
+        def execute(code, args, kwargs):
+            ran.append((code, args, kwargs))
+            yield Message("system", "ran")
+
+        fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
+        monkeypatch.setattr(
+            "gptme.hooks.trigger_hook",
+            lambda hook_type, data: (
+                [Message("system", "observed")]
+                if hook_type == HookType.TOOL_EXECUTE_PRE
+                else []
+            ),
+        )
+
+        yielded = list(ToolUse("test_tool", [], None, start=0).execute())
+
+        assert len(ran) == 1
+        assert [msg.content for msg in yielded] == ["observed", "ran"]
+
+    def test_real_registry_hook_denies_real_tool(self, tmp_path: Path):
+        from gptme.hooks import clear_hooks, register_hook
+
+        target = tmp_path / "denied.txt"
+        clear_hooks()
+
+        def deny_all(data):
+            data.deny("test policy")
+            return []
+
+        register_hook("test.deny", HookType.TOOL_EXECUTE_PRE, deny_all)
+        try:
+            yielded = list(ToolUse("shell", [], f"touch {target}", start=0).execute())
+        finally:
+            clear_hooks()
+
+        assert not target.exists(), "the shell command must not have run"
+        assert any("test policy" in msg.content for msg in yielded)

@@ -983,6 +983,18 @@ class ToolUse:
                     ):
                         yield from pre_hook_msgs
 
+                    # A pre-hook that denied the call stops it here, before any
+                    # tool-specific confirmation or execution. Denials are
+                    # reported to the model as the call's result.
+                    if pre_data.denied:
+                        yield own(
+                            Message(
+                                "system",
+                                "Tool execution denied: " + "; ".join(pre_data.denials),
+                            )
+                        )
+                        return
+
                     # Play tool sound if enabled
                     from ..util.sound import get_tool_sound_for_tool, play_tool_sound
 
